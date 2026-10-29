@@ -165,7 +165,7 @@ class ReportWipTest {
     }
 
     @Test
-    fun `a domain reads its DOMAIN scope and the domain scopes together equal the TEAM scopes`() = testApplication {
+    fun `a domain reads its DOMAIN scope`() = testApplication {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-wip-domain")
@@ -179,10 +179,6 @@ class ReportWipTest {
             val domainRows = inRange.filter { it.scopeKind == "DOMAIN" && it.scopeId == domain && it.itemKind == kind }
             body.assertCounts("$domain/$kind", expectedCounts(domainRows) { it.stage })
         }
-        // Invariant: the tasks of all DOMAIN scopes are exactly the tasks of all TEAM scopes (UNIT level).
-        val unitTasks = client.wip("connectionId=$connId&from=$from&to=$to&itemKind=TASK")
-        val domainTasks = inRange.filter { it.scopeKind == "DOMAIN" && it.itemKind == "TASK" }
-        unitTasks.assertCounts("Σ DOMAIN = UNIT", expectedCounts(domainTasks) { it.stage })
     }
 
     @Test
@@ -497,15 +493,6 @@ class ReportWipTest {
             val epicColumn = client.wip("$base&teamId=$teamX&by=COLUMN&itemKind=EPIC")
             assertEquals(mapOf("To do" to 0, "Doing" to 1), epicColumn.day(d5))
 
-            // UNIT sums every TEAM scope (X + Y + UNASSIGNED + UNOWNED) and none of the DOMAIN scopes.
-            assertEquals(
-                mapOf("NOT_STARTED" to 3 + 2, "IN_PROGRESS" to 2 + 10, "WAITING" to 0, "BLOCKED" to 0, "DONE" to 0, "UNMAPPED" to 1),
-                client.wip(base).day(d5),
-            )
-            assertEquals(
-                mapOf("NOT_STARTED" to 5 + 100, "IN_PROGRESS" to 1, "WAITING" to 0, "BLOCKED" to 0, "DONE" to 0, "UNMAPPED" to 0),
-                client.wip("$base&itemKind=EPIC").day(d5),
-            )
             // A domain reads its own scope only.
             val domain = client.wip("$base&domain=AAA")
             assertEquals(

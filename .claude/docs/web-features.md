@@ -550,7 +550,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   activity type, work category, bucket; the no-teams `EmptyState`, the normalization and the 8-person cap are Throughput's): at `USER` level the
   page gives each of the working-days and elapsed-days distributions its OWN people (`distributionPeople`) for the stacked histogram and its table
   column per person, and `ReportPersonTotals` replaces the by-team/by-member drill table. **The trend card is untouched** — one `p50`/`p90` line over everyone picked
-  together — and so are the percentile strips, the accountings and the epics note. The server keeps `teamId` optional (a UNIT read is a valid answer); Home no longer makes one, it reads `/reports/home`.
+  together — and so are the percentile strips, the accountings and the epics note. The server takes a `teamId` or a `domain` and refuses a request naming neither (`reports.md` "Scope"); Home makes no such read, it reads `/reports/home`.
   **Task accuracy is read per team and takes several people too**, with Cycle time's wiring (`CONTROLS` = `teamRequired`, `multiMember`, domain view, domain,
   activity type, work category; the no-teams `EmptyState`, `MULTI_ACCOUNT_PATHS`, `distributionPeople` per view, `ReportPersonTotals` at `USER` level). Its two
   panels pass `strip="centre"` to `DistributionPanel` — the strip shows the median, the mean and the item count only, since p90/p95 say nothing about
@@ -611,7 +611,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   pasted link with both is normalised on load — the team wins — by `useReportPage`'s `normalize` argument
   (`dropDomainWithTeam`, `normalizeWipFilter`), which rewrites the URL too so a dropped param cannot come
   back when another control changes. **WIP is never read for the whole unit: exactly ONE of a specific team or a specific
-  domain** (`CONTROLS = { teamRequired, teamOrDomain, domainExcludesTeam, … }`; the server's `teamId` stays optional — a UNIT read is a valid answer — the `teamRequired` precedent). `teamRequired` gives a link naming neither the default team (`requiredTeamId`: the sprint's
+  domain** (`CONTROLS = { teamRequired, teamOrDomain, domainExcludesTeam, … }`; the server now refuses a read naming neither — `reports.md` "Scope" — the `teamRequired` precedent). `teamRequired` gives a link naming neither the default team (`requiredTeamId`: the sprint's
   team, the remembered team, else the first by name; `teamId=0` counts as absent) and removes "All teams" and the clear button;
   `teamOrDomain` (`ReportControls`, `domainStandsForTeam`) lets a domain stand in for the team: with a domain and no team the page is valid
   and queried (`useReportPage` enables it), the team select shows no team (placeholder "No team: a domain is picked", still not
@@ -718,8 +718,8 @@ completed · the report's figures · the orange drift badge with the frozen figu
   exactly as a domain does — `domainStandsForTeam` is true, no default team is added, `useReportPage` fetches it, and the team select shows
   "No team: a single epic is shown" — while a team picked from the bar replaces the epic (`applyBarChange`). A bare link or stored filter with none
   of the three gets the default team; with neither team nor domain in the unit (and no epic) the page is the `noTeams` empty state, with domains
-  but no team the `pickScope` note. The UNIT-level branches (`EpicProgressRows`' domains and teams tables, the `levelNote.UNIT` copy) stay in the code for the API's answer but the
-  web never asks for them. The print summary names a single epic ("Epic: FLO-33 (stands for the team)"), as it does a domain.
+  but no team the `pickScope` note. The UNIT-level branches (`EpicProgressRows`' domains and teams tables, the `levelNote.UNIT` copy) stay in the code but the API no longer answers them (a request
+  naming no epic, domain or team is `400`, `reports.md` "Scope"; removing the rows is a BACKLOG follow-up) and the web never asks for them. The print summary names a single epic ("Epic: FLO-33 (stands for the team)"), as it does a domain.
   Levels are drilled by the row NAME links (`scopedSearch` re-scopes the same report, the period travelling along); a
   domain → epic drill carries the domain in the router `state` so the breadcrumb (`EpicProgressBreadcrumb`) can offer the
   way back — there is no unit crumb (the unit is not a view of this page), so the breadcrumb exists only for an epic reached through its domain,
@@ -827,7 +827,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   domain matrix (with its heat scale, capacity column, zero rows and Week/Sprint split) and the "by epic and author" table (with its `epic:` drill target) were
   removed in 1.11.0 (the sprint widgets came back in 1.13.0, below); `utils/heatScale.ts`, `CostMatrixTable`, `CostEpic*` and the `ReportFilterState.split` plumbing went with them (the Deep dive
   tables keep the `.heatTable` CSS classes). **Read per team, never the whole unit** (`CONTROLS.teamRequired`, like Data quality: the web opens on the TEAM level;
-  the UNIT-level answer exists only for the API, and its `levelTitle.UNIT` string stays for it). The page: tiles (man-days, foreign man-days, the overall foreign share — a dash and
+  a `domain` with no team is the API's UNIT-level answer, which the page never asks for; its `levelTitle.UNIT` string stays for it). The page: tiles (man-days, foreign man-days, the overall foreign share — a dash and
   the reason when the server sends `null`, never 0%) in one `ReportChartCard` titled by the level (`levelTitle`: "Man-days logged by the team" / "… by this author", the
   member filter narrowing it) whose caption says whose domain a `domain` filter follows (`domainView.EPIC|TASK`, the bar's "Delivered in / Earned in" toggle, default EPIC), then the
   hint lines (what foreign work is, the sprint note under a sprint-relative period — `isSprintRelative`, `meta.from === null`, "this team's own sprints" —, the rounding rule),
@@ -1085,7 +1085,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   `components/SprintDrillDrawer.tsx` -- one drawer for every sprint bar, taking the `fetchItems` wrapper (`getSprintScopeItems`, or `getThroughputItems` for Throughput's sprint
   mode) and the `scope` that keys its cache; its title is "<sprint> · <bucket>" (the sprint labelled as the chart labels it, `sprintLabeller`), its figure column is the bucket's
   "Estimate (MD)" and its date column the sprint's completion. A sprint bar is one sprint of the period, so the request carries the page's filter with the period replaced by
-  `sprintId` and the team set to the BAR's own (`sprintDrillFilter`; without it a unit-wide request lists every team's sprint of that id, `ReportDrillSprintTeamPinTest`). The figure columns of a sprint table carry the bucket they stand behind (`SprintColumn`'s `drill: { bucket, items }`, `items` = the count that decides whether the figure is a button): "Show the
+  `sprintId` and the team set to the BAR's own (`sprintDrillFilter`; the server requires the team, a sprint id being shared by one site's teams, `ReportDrillSprintTeamPinTest`). The figure columns of a sprint table carry the bucket they stand behind (`SprintColumn`'s `drill: { bucket, items }`, `items` = the count that decides whether the figure is a button): "Show the
   items of <sprint> · <bucket>". `ReportSprintsTable` takes `drill={{ onDrill, disabled }}`; Commitments' Initial (MD, items) → COMMITTED and Final (MD, items) → FINAL (`commitmentsFigureDrill`, also in the share
   table), Sprint consistency's seven figure columns → their seven buckets, Throughput's Delivered (MD, items) → DELIVERED (bucket table, sprint table and share tables), Home's Initial/Final/Delivered → COMMITTED/FINAL/DELIVERED. *Sprint consistency* (`pages/ReportSprintConsistency.tsx`): every chart series IS one bucket, so a double-click on any bar or stacked segment of the three
   charts (`SprintConsistencyChart`'s `onBarDoubleClick`; rows carry `id` = `<teamId>:<sprintId>`) opens that sprint's bucket -- `committedMd` → COMMITTED, `deliveredMd` → DELIVERED, `carriedOverMd` → CARRIED_OVER,

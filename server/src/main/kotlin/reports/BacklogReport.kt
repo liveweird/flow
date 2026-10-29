@@ -26,8 +26,7 @@ data class BacklogTrendPoint(val day: String, val items: Int, val md: Double, va
 /**
  * The backlog on the period's last listed day ([asOfDay]) and how far ahead it reaches (report 13):
  * [backlogInSprints] = [md] ÷ [meanDeliveredMd], the mean `delivered_md` of the team's last [windowSprints] closed
- * sprints as of that day ([sprintsUsed] of them, when fewer exist — at UNIT level the MINIMUM across the teams that have
- * closed a sprint, so "some team has fewer than N" is detectable). `null` = not defined (no closed sprint, a mean
+ * sprints as of that day ([sprintsUsed] of them, when fewer exist). `null` = not defined (no closed sprint, a mean
  * of 0, or a scope with no velocity of its own: a domain slice, or the UNOWNED backlog). [hiddenItems]/[hiddenMd] are the
  * last day's figures the `touchedWithinDays` filter leaves out (0 when it is off).
  */
@@ -131,24 +130,22 @@ private suspend fun fetchBacklog(
 }
 
 /**
- * The mean `delivered_md` of the last [window] closed sprints of each team the [scope] covers, as of [asOfEndMs]
- * (a sprint counts once its `complete_at` is before it): one team's own mean at TEAM level, the SUM of every team's
- * mean at UNIT level (the unit's delivery per sprint). Also the number of sprints averaged — one team's own count, at UNIT
- * level the MINIMUM across the teams that have closed a sprint. `(null, 0)` when no closed sprint exists — and always
- * for a scope with no velocity of its own (a domain slice, the UNOWNED backlog).
+ * The mean `delivered_md` of the last [window] closed sprints of the team [scope] names, as of [asOfEndMs] (a sprint counts once its
+ * `complete_at` is before it), and the number of sprints averaged. `(null, 0)` when no closed sprint exists — and always for a scope with
+ * no velocity of its own (a domain slice, the UNOWNED backlog).
  */
 private suspend fun meanDelivered(scope: SnapshotScope, connectionIds: List<UInt>, window: Int, asOfEndMs: Long): Pair<Double?, Int> {
-    if (scope is SnapshotScope.Domain || scope is SnapshotScope.Unassigned || connectionIds.isEmpty()) return null to 0
+    if (scope !is SnapshotScope.Team || connectionIds.isEmpty()) return null to 0
     val s = MetricsTables.FactSprint
-    var predicate = (s.connectionId inList connectionIds) and s.teamId.isNotNull() and
-        s.completeAt.isNotNull() and (s.completeAt less asOfEndMs)
-    if (scope is SnapshotScope.Team) predicate = predicate and (s.teamId eq scope.teamId)
-    val byTeam = s.select(s.teamId, s.deliveredMd)
-        .where { predicate }
-        .orderBy(s.teamId to SortOrder.ASC, s.completeAt to SortOrder.DESC)
+    val delivered = s.select(s.deliveredMd)
+        .where {
+            (s.connectionId inList connectionIds) and (s.teamId eq scope.teamId) and
+                s.completeAt.isNotNull() and (s.completeAt less asOfEndMs)
+        }
+        .orderBy(s.completeAt to SortOrder.DESC)
         .toList()
-        .groupBy { it[s.teamId]!!.value }
-        .values.map { rows -> rows.take(window).map { it[s.deliveredMd] } }
-    if (byTeam.isEmpty()) return null to 0
-    return byTeam.sumOf { delivered -> delivered.sumOf { it.toDouble() } / delivered.size } to byTeam.minOf { it.size }
+        .take(window)
+        .map { it[s.deliveredMd] }
+    if (delivered.isEmpty()) return null to 0
+    return delivered.sumOf { it.toDouble() } / delivered.size to delivered.size
 }

@@ -243,8 +243,11 @@ class ReportThroughputActualCostHandBuiltTest {
                 assertEquals(share.actualCostMd, segment.bar.sumMd!!, 1e-9, share.accountId)
                 assertEquals(segment.bar.count, segment.items.size)
             }
-            // The same drill without the team pin is the union of every team's sprint of that id: here the one.
-            assertEquals(18.5, client.items("connectionId=${w.connId}&sprintId=${w.sprintId}").bar.sumMd!!, 1e-9)
+            // Without the team pin it would be the union of every team's sprint of that id: the sprint mode refuses it.
+            assertEquals(
+                HttpStatusCode.BadRequest,
+                client.get("/api/v1/reports/throughput/items?connectionId=${w.connId}&sprintId=${w.sprintId}&measure=ACTUAL_COST").status,
+            )
         }
     }
 

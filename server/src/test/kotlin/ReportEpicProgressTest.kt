@@ -168,40 +168,6 @@ class ReportEpicProgressTest {
         val base = "connectionId=$connId&from=$from&to=$to"
         assertEquals(dayOfInstant(DerivedStubFixture.PINNED_NOW, reportZone()), to, "the test range must end on the pinned DERIVE day")
 
-        // UNIT: every DOMAIN scope summed (the epic basis), no series, a drill of domains and teams.
-        val allDomains: (FlowEvmRow) -> Boolean = { it.scopeKind == "DOMAIN" }
-        val unit = client.epicProgress(base)
-        assertEquals(EpicProgressLevel.UNIT, unit.level)
-        assertEquals("EPIC", unit.meta.domainView.name)
-        assertNull(unit.scope)
-        assertTrue(unit.series.isEmpty())
-        assertFigures("UNIT", rows.totalsThrough(to, allDomains), to, unit)
-        assertTrue(unit.asOf.pv > 0.0 && unit.asOf.ev > 0.0 && unit.asOf.ac > 0.0, "the fixture must carry planned, earned and spent MD")
-        val unitDomains = unit.rows.filter { it.kind == EpicProgressKind.DOMAIN }
-        val unitTeams = unit.rows.filter { it.kind == EpicProgressKind.TEAM }
-        assertTrue(unitDomains.isNotEmpty() && unitTeams.isNotEmpty())
-        assertEquals(unit.rows, unitDomains + unitTeams, "domains first, then teams")
-        for (row in unitDomains) {
-            val expected = rows.totalsThrough(to) { it.scopeKind == "DOMAIN" && it.scopeId == row.key }
-            assertEquals(expected.pv.toDouble(), row.pv, EPS, "domain ${row.key} pv")
-            assertEquals(expected.ev.toDouble(), row.ev, EPS, "domain ${row.key} ev")
-            assertEquals(expected.ac.toDouble(), row.ac, EPS, "domain ${row.key} ac")
-        }
-        for (row in unitTeams) {
-            val scopeId = if (row.id == 0u) "UNASSIGNED" else row.id.toString()
-            val expected = rows.totalsThrough(to) { it.scopeKind == "TEAM" && it.scopeId == scopeId }
-            assertEquals(expected.pv.toDouble(), row.pv, EPS, "team $scopeId pv")
-            assertEquals(expected.ev.toDouble(), row.ev, EPS, "team $scopeId ev")
-            assertEquals(expected.ac.toDouble(), row.ac, EPS, "team $scopeId ac")
-        }
-        // The headline is Σ DOMAIN scopes, so the domain rows add up to it; the team rows are another basis (sprint scope and
-        // author-team cost), each graded above against its own scope, and they are not expected to sum to it.
-        assertEquals(unit.asOf.pv, unitDomains.sumOf { it.pv }, 1e-6, "domain rows sum to the unit's asOf")
-        assertEquals(unit.asOf.ev, unitDomains.sumOf { it.ev }, 1e-6)
-        assertEquals(unit.asOf.ac, unitDomains.sumOf { it.ac }, 1e-6)
-        assertTrue(unitTeams.all { it.active == true }, "the fixture's teams are all active")
-        assertNotNull(unitTeams.singleOrNull { it.id == 0u }, "author-less work is its own UNASSIGNED row, never dropped")
-
         // DOMAIN: the busiest domain; epic-attributed work only; the rows are its epics and sum to its asOf.
         val domain = rows.filter { it.scopeKind == "DOMAIN" }.groupBy { it.scopeId }.maxBy { (_, group) -> group.sumOf { it.ev } }.key
         val domainScope: (FlowEvmRow) -> Boolean = { it.scopeKind == "DOMAIN" && it.scopeId == domain }
@@ -362,7 +328,7 @@ class ReportEpicProgressTest {
             evmRow("TEAM", teamT.toString(), d[0], pv = "10.00"), evmRow("TEAM", teamT.toString(), d[1], ac = "8.00"),
             evmRow("TEAM", teamT.toString(), d[2], ev = "4.00"), evmRow("TEAM", "UNASSIGNED", d[1], ac = "2.00"),
             evmRow("TEAM", "UNOWNED", d[1]), // a backlog-only scope: all zero, never a row
-            evmRow("TEAM", teamD.toString(), d[1], ac = "1.00"), // a team deleted below, before the unit is read
+            evmRow("TEAM", teamD.toString(), d[1], ac = "1.00"), // a team deleted below, whose own drill is a 400
         )
         suspendTransaction(sharedDatabaseForTests()) {
             store.insertDomains(
@@ -502,42 +468,8 @@ class ReportEpicProgressTest {
             assertEquals(0.0, unassigned.asOf.cpi!!, EPS)
 
             cleanUpTeams(listOf(teamD))
-            // UNIT: every DOMAIN scope (AAA 20/17/10 + BBB 0/100/0 = 20/117/10), no series; domain rows on the epic basis add
-            // up to it, team rows are the sprint/author basis and do not.
-            val unit = client.epicProgress(base)
-            assertTrue(unit.series.isEmpty())
-            assertEquals(20.0, unit.asOf.pv)
-            assertEquals(117.0, unit.asOf.ev)
-            assertEquals(10.0, unit.asOf.ac)
-            assertEquals(97.0, unit.asOf.sv)
-            assertEquals(5.85, unit.asOf.spi!!, EPS)
-            assertEquals(107.0, unit.asOf.cv)
-            assertEquals(11.7, unit.asOf.cpi!!, EPS)
-            assertEquals(listOf("AAA", "BBB"), unit.rows.filter { it.kind == EpicProgressKind.DOMAIN }.map { it.key })
-            val aaa = unit.rows.single { it.key == "AAA" }
-            assertEquals("Domain A", aaa.name)
-            assertEquals(listOf(20.0, 17.0, 10.0), listOf(aaa.pv, aaa.ev, aaa.ac))
-            assertEquals(listOf(0.0, 100.0, 0.0), unit.rows.single { it.key == "BBB" }.let { listOf(it.pv, it.ev, it.ac) })
-            val teams = unit.rows.filter { it.kind == EpicProgressKind.TEAM }
-            val rowT = teams.single { it.id == teamT }
-            assertEquals(listOf(10.0, 4.0, 8.0), listOf(rowT.pv, rowT.ev, rowT.ac))
-            assertEquals(0.4, rowT.spi!!, EPS)
-            assertEquals(0.5, rowT.cpi!!, EPS)
-            val rowU = teams.single { it.id == 0u }
-            assertEquals(listOf(0.0, 0.0, 2.0), listOf(rowU.pv, rowU.ev, rowU.ac))
-            assertEquals(teams.last(), rowU, "UNASSIGNED sorts last")
-            val domainRowsOfUnit = unit.rows.filter { it.kind == EpicProgressKind.DOMAIN }
-            assertEquals(unit.asOf.pv, domainRowsOfUnit.sumOf { it.pv }, EPS)
-            assertEquals(unit.asOf.ev, domainRowsOfUnit.sumOf { it.ev }, EPS)
-            assertEquals(unit.asOf.ac, domainRowsOfUnit.sumOf { it.ac }, EPS)
-            assertEquals(10.0, teams.sumOf { it.pv }, EPS, "the team rows are a different basis: their pv is the sprint scope")
-            assertTrue(teams.none { it.name == "UNOWNED" }, "a scope with no figures is not a team row")
-            assertTrue(rowT.active == true && rowU.active == true, "a live team and the UNASSIGNED bucket are drillable")
-            val rowD = teams.single { it.id == teamD }
-            assertEquals(1.0, rowD.ac, EPS)
-            assertEquals(false, rowD.active, "a soft-deleted team keeps its figures but is marked: its own drill is a 400")
+            // A soft-deleted team keeps its stored figures but answers 400 on its own drill (an unknown or inactive team is never read).
             assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/epic-progress?$base&teamId=$teamD").status)
-            assertTrue(unit.rows.filter { it.kind != EpicProgressKind.TEAM }.all { it.active == null })
 
             // The period cap: asOf is the last derived day (2026-06-01) with everything planned so far — HB-1's full 24 MD.
             val long = client.epicProgress("connectionId=$connId&from=2026-01-05&to=2026-12-31&epicId=HB-1")
@@ -605,7 +537,6 @@ class ReportEpicProgressTest {
             assertEquals(104.0 / 160.0, share("2026-01-05", "2026-01-14"), EPS)
             assertNull(client.epicProgress("$base&teamId=$teamU").foreignWorkShare, "no logged work: undefined, not 0")
             assertEquals(0.0, client.epicProgress("$base&teamId=0").foreignWorkShare!!, EPS)
-            assertNull(client.epicProgress(base).foreignWorkShare, "the unit level carries no share")
         } finally {
             suspendTransaction(sharedDatabaseForTests()) { store.deleteFactWorklog(connId) }
             deleteDeriveRuns(connId)
@@ -656,7 +587,6 @@ class ReportEpicProgressTest {
                 assertNull(never.asOf.spi)
                 assertTrue(assertNotNull(never.note).startsWith("Not derived yet"))
                 assertEquals("nowhere", never.scope!!.key)
-                assertEquals(EpicProgressLevel.UNIT, client.epicProgress("connectionId=$connC").level)
             } finally {
                 suspendTransaction(sharedDatabaseForTests()) {
                     store.deleteDims(connA)
@@ -777,6 +707,7 @@ class ReportEpicProgressTest {
         try {
             val known = "connectionId=$connId"
             for (query in listOf(
+                known, // no scope at all: the whole unit is refused (the reports scope guard)
                 "$known&epicId=${goldenEpic.issueKey}&domain=FLO", // more than one scope
                 "$known&epicId=${goldenEpic.issueKey}&teamId=$team",
                 "$known&domain=FLO&teamId=$team",

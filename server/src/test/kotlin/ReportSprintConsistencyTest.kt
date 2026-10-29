@@ -168,7 +168,7 @@ class ReportSprintConsistencyTest {
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-consistency-partition")
 
-        val body = client.consistency("connectionId=$connId&lastSprints=52")
+        val body = client.consistency("connectionId=$connId&teamId=${DerivedStubFixture.teamId()}&lastSprints=52")
 
         assertTrue(body.sprints.size > 1, "expected several closed sprints, got ${body.sprints.size}")
         for (sprint in body.sprints) {
@@ -184,9 +184,9 @@ class ReportSprintConsistencyTest {
             )
             assertEquals(sprint.finalItems, sprint.committedItems + sprint.addedItems, "$what: final items = committed + added")
         }
-        // UNIT groups sum every figure per team, so Σ groups == Σ sprints for all fourteen.
-        assertFigures(body.sprints.map { it.figures() }.total(), body.groups.map { it.figures() }.total(), "UNIT groups")
-        assertLabelThenIdOrder("UNIT", body.groups.map { GroupIdentity(it.label, it.teamId, it.accountId) })
+        // TEAM groups split the rows per assignee, so Σ groups == Σ sprints for all fourteen.
+        assertFigures(body.sprints.map { it.figures() }.total(), body.groups.map { it.figures() }.total(), "TEAM groups")
+        assertLabelThenIdOrder("TEAM", body.groups.map { GroupIdentity(it.label, it.teamId, it.accountId) })
     }
 
     @Test
@@ -513,7 +513,7 @@ class ReportSprintConsistencyTest {
         val categories = kinds.mapNotNull { it.second }.distinct()
         assertTrue(activityTypes.size > 1, "the stub scope spans several activity types: $activityTypes")
 
-        for (level in listOf("", "&teamId=$floTeamId")) {
+        for (level in listOf("&teamId=$floTeamId")) {
             val unsliced = client.consistency(base + level)
             assertTrue(unsliced.sprints.isNotEmpty())
             assertTrue(unsliced.sprints.any { it.snapshot != null }, "the unsliced report keeps its snapshot")
@@ -523,7 +523,7 @@ class ReportSprintConsistencyTest {
             for ((type, sliced) in slices) {
                 assertEquals(unsliced.sprints.map { it.sprintId }, sliced.sprints.map { it.sprintId }, "$type keeps the sprint rows")
                 assertTrue(sliced.sprints.all { it.snapshot == null && !it.drift }, "$type: a sliced figure has no snapshot and no drift")
-                // UNIT groups sum the sliced sprints per team, TEAM groups split the rows per assignee: either way Σ groups == Σ sprints.
+                // TEAM groups split the rows per assignee, so Σ groups == Σ sprints.
                 assertFigures(sliced.sprints.map { it.figures() }.total(), sliced.groups.map { it.figures() }.total(), "$type groups")
             }
             val unslicedItems = unsliced.sprints.sumOf { it.finalItems }

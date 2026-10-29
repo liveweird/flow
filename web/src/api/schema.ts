@@ -1232,9 +1232,8 @@ export interface paths {
          *     `initialMd`/`initialItems` are the committed scope, `finalMd`/`finalItems` the final scope
          *     (A17). `snapshot` is the frozen `fact_sprint_snapshot` figures (null until the sprint was
          *     first seen closed and team-mapped by a DERIVE run — D13); `drift` compares the two live vs.
-         *     frozen (0.005 MD tolerance). Levels, from the shared filter: UNIT (default) groups every
-         *     team's own closed sprints in the period by team (`groups`, Σ final MD/items); `teamId`
-         *     narrows to TEAM level, `sprints` becomes that one team's own sprints and `groups` becomes a
+         *     frozen (0.005 MD tolerance). `teamId` is required (`400` otherwise): this report carries no domain slice and is read per team, never for the whole unit. Levels, from the shared filter: `teamId`
+         *     sets TEAM level, `sprints` are that one team's own sprints and `groups` is a
          *     per-user split (`fact_sprint_scope.assignee_at_commitment`, Σ committed/final MD — the same
          *     removed-row rule the team total itself follows, so Σ users == the team total); `teamId` AND
          *     `accountId` together narrow to USER level — `accountId` repeats here (and on throughput, cycle time,
@@ -1292,7 +1291,7 @@ export interface paths {
          *     `domainView`: TASK = the task's own domain, EPIC = the epic's domain with an epic-less task
          *     falling back to its own when `epic_domain_key` is null, which also covers an epic outside the ingested
          *     scope — A21), `activityType` and `workCategory` (`UNCATEGORIZED` = none)
-         *     slice the period view only; the sprint view carries no slice. Levels: UNIT (default) — `groups`
+         *     slice the period view only; the sprint view carries no slice. Levels: UNIT (a `domain` with no `teamId`) — `groups`
          *     are one per credit team (a `teamId: null` group is UNASSIGNED); `teamId` narrows to TEAM level
          *     (`bySprint` to that team's sprints, the period view to tasks credited to that team — `teamId=0`
          *     selects UNASSIGNED credit for the period view and yields no sprints) and `groups` becomes one per
@@ -1321,6 +1320,7 @@ export interface paths {
          *     sprint ends now; a worklog inside two overlapping sprints of a team counts in both); the sprint view applies no slice, as Delivered. At USER level it is the picked people's own logged time (worklog
          *     AUTHOR) on the team's items — Delivered's per-person split is by ASSIGNEE, AC's by author — summed in the row and split per
          *     picked account in `byUser[].actualCostMd`. The frozen `snapshot` carries no actual cost (it is live); `groups` carry none.
+         *     **Scope:** `teamId` or `domain` is required (`400` otherwise): a report is read per team or per domain, never for the whole unit.
          */
         get: operations["getReportThroughput"];
         put?: never;
@@ -1364,6 +1364,8 @@ export interface paths {
          *     `accountId` only for exactly one author), `teamId` null; `bar.sumMd` is the rounded exact sum, i.e. the chart's `actualCostMd`.
          *     At USER level only the picked authors' time is listed and `segmentAccountId` narrows to one person's (`byUser[].actualCostMd`).
          *     `epicSegment` is a 400 with this measure.
+         *     **Scope:** `teamId` or `domain` is required (`400` otherwise): a report is read per team or per domain, never for the whole unit.
+         *     The sprint mode (a `sprintId` period with no `bucketStart`) additionally needs `teamId` (`400` otherwise): a sprint's items are read for the sprint's own team.
          */
         get: operations["getReportThroughputItems"];
         put?: never;
@@ -1389,9 +1391,9 @@ export interface paths {
          *     final = delivered + carried over + dropped always, and committed + added = final in items. `snapshot`
          *     is the frozen `fact_sprint_snapshot` figures (null until the sprint was first seen closed and
          *     team-mapped by a DERIVE run — D13); `drift` is true when any live figure differs from it (0.005 MD
-         *     tolerance, item counts exactly). Same period/level semantics as commitments: UNIT (default) — `groups`
-         *     sum every figure per team; `teamId` narrows to TEAM level, `sprints` to that team's own sprints and
-         *     `groups` becomes a per-user split (`fact_sprint_scope.assignee_at_commitment`, the same bucket
+         *     tolerance, item counts exactly). Same period/level semantics as commitments: `teamId` is required (`400` otherwise): this report carries no domain slice and is read per team, never for the whole unit. `teamId` sets
+         *     TEAM level, `sprints` are that team's own sprints and
+         *     `groups` is a per-user split (`fact_sprint_scope.assignee_at_commitment`, the same bucket
          *     predicates the team figures use, so Σ groups == the team figures for every bucket; a null
          *     `accountId` is the unassigned-at-commitment bucket); `teamId` AND `accountId` narrow to USER level —
          *     `sprints` narrows to that account's own rows per sprint (its `snapshot` is that account's frozen
@@ -1438,6 +1440,7 @@ export interface paths {
          *     `segmentAccountId` needs USER level and must be one of the picked `accountId`s, else 400. `epicSegment` (an epic's issue id,
          *     `NO_EPIC` or `OTHER_EPICS` with the chart's `topEpicId`s) narrows the list AND the bar to one segment of a by-epic chart
          *     (`byEpic[]` of Commitments / Throughput), so `bar` equals that segment's figure; it composes with `segmentAccountId`.
+         *     **Scope:** `teamId` is required (`400` otherwise): this report carries no domain slice and is read per team, never for the whole unit.
          */
         get: operations["getReportSprintConsistencyItems"];
         put?: never;
@@ -1467,7 +1470,7 @@ export interface paths {
          *     `neverStarted` (no `started_at`, so no estimate at start — `atStart` only), `unestimatedAtStart`
          *     (no estimate at start, including estimated-late) / `unestimatedAtDone` (no estimate at done). So
          *     `atStart.n + noWorklogs + neverStarted + unestimatedAtStart = population` and
-         *     `atDone.n + noWorklogs + unestimatedAtDone = population`. Levels: UNIT (default) — `groups` one per
+         *     `atDone.n + noWorklogs + unestimatedAtDone = population`. Levels: UNIT (a `domain` with no `teamId`) — `groups` one per
          *     credit team (`teamId` null = UNASSIGNED); `teamId` narrows to TEAM (`teamId=0` = the UNASSIGNED
          *     credit) and `groups` becomes one per assignee at done (null `accountId` = unassigned); `teamId` AND
          *     `accountId` narrow to USER, where `accountId` repeats (and on commitments, throughput, cycle time, reported
@@ -1481,6 +1484,7 @@ export interface paths {
          *     `atStart` / `atDone` summarise (the union at USER level, never per person), null while that distribution is
          *     hidden. The relative error of a PRED / MdMRE / sMAPE reading is taken against the ACTUAL (`MRE = |actual −
          *     estimate| ÷ actual`), and a ratio of exactly 1 is a perfect estimate.
+         *     **Scope:** `teamId` or `domain` is required (`400` otherwise): a report is read per team or per domain, never for the whole unit.
          */
         get: operations["getReportTaskEstimationAccuracy"];
         put?: never;
@@ -1509,6 +1513,7 @@ export interface paths {
          *     listed task's `figure` is its ratio and `anchorAt` its `done_at`. Sorting, the 500 cap, `total`/`truncated`,
          *     `segmentAccountId` (USER level, one of the picked accounts: the person's share of the bucket, the histogram's
          *     `byUser` count) and the 400 matrix are those of `GET /api/v1/reports/cycle-time/items`.
+         *     **Scope:** `teamId` or `domain` is required (`400` otherwise): a report is read per team or per domain, never for the whole unit.
          */
         get: operations["getReportTaskEstimationAccuracyItems"];
         put?: never;
@@ -1542,7 +1547,7 @@ export interface paths {
          *     estimate at start — `atStart` only, checked first), `unestimatedAtStart` (no estimate at start, including estimated-late) /
          *     `unestimatedAtDone` (no estimate at done; an estimate of 0 is stored as none). So
          *     `atStart.n + neverStarted + unestimatedAtStart = population` and `atDone.n + unestimatedAtDone = population`.
-         *     Levels: UNIT (default) — `groups` one per credit team (`teamId` null = UNASSIGNED); `teamId` narrows to TEAM
+         *     Levels: UNIT (a `domain` with no `teamId`) — `groups` one per credit team (`teamId` null = UNASSIGNED); `teamId` narrows to TEAM
          *     (`teamId=0` = the UNASSIGNED credit) and `groups` becomes one per assignee at done (null `accountId` = unassigned);
          *     `teamId` AND `accountId` narrow to USER, where `accountId` repeats (and on commitments, throughput, cycle time, reported
          *     time, adjustments, task accuracy and WIP too, no other report): 1 to 8 distinct accounts, more is a 400. At USER level
@@ -1550,6 +1555,7 @@ export interface paths {
          *     order, splitting every histogram bucket (the open tail bucket included) per person; `groups` lists each picked account
          *     with its own plain distributions, an empty entry when it has no task. For `lastSprints`/`sprintId` the period is the
          *     resolved sprints' overall envelope, as in throughput.
+         *     **Scope:** `teamId` or `domain` is required (`400` otherwise): a report is read per team or per domain, never for the whole unit.
          */
         get: operations["getReportTaskEstimates"];
         put?: never;
@@ -1578,6 +1584,7 @@ export interface paths {
          *     open tail); a listed task's `figure` is its estimate in MD and `anchorAt` its `done_at`. Sorting, the 500 cap,
          *     `total`/`truncated`, `segmentAccountId` (USER level, one of the picked accounts: the person's share of the bucket, the
          *     histogram's `byUser` count) and the 400 matrix are those of `GET /api/v1/reports/cycle-time/items`.
+         *     **Scope:** `teamId` or `domain` is required (`400` otherwise): a report is read per team or per domain, never for the whole unit.
          */
         get: operations["getReportTaskEstimatesItems"];
         put?: never;
@@ -1608,7 +1615,7 @@ export interface paths {
          *     `atStart` only), else `unestimatedAtStart` / `unestimatedAtDone` (no OWN estimate at that snapshot —
          *     e.g. a budget that is only the child sum). `epics` lists every DONE epic
          *     in scope, newest `doneAt` first (then connection id, then issue id), at most 200 (`epicsTruncated` says when more
-         *     matched); `ratio`/`ratioAtDone` are null for an excluded epic. Levels: UNIT (default) — `groups` one
+         *     matched); `ratio`/`ratioAtDone` are null for an excluded epic. Levels: UNIT (a `domain` with no `teamId`) — `groups` one
          *     per owner team; TEAM narrows to that owner team and has no groups (epics carry no user); USER
          *     (`teamId` AND `accountId`) is always empty. Sprint-relative periods use the resolved sprints'
          *     envelope, as in throughput. `accuracyAtStart` / `accuracyAtDone` are the accuracy measures
@@ -1616,6 +1623,7 @@ export interface paths {
          *     `ratioAtDone`), null while that distribution is hidden. The relative error of a PRED / MdMRE / sMAPE
          *     reading is taken against the ACTUAL (`MRE = |actual − estimate| ÷ actual`), and a ratio of exactly 1
          *     is a perfect estimate.
+         *     **Scope:** `teamId` or `domain` is required (`400` otherwise): a report is read per team or per domain, never for the whole unit.
          */
         get: operations["getReportEpicEstimationAccuracy"];
         put?: never;
@@ -1645,6 +1653,7 @@ export interface paths {
          *     `done_at`. Epics carry no user, so there is no `segmentAccountId`; USER level reads no epics, so it answers 400 ("epics are
          *     not read per person"). Sorting, the 500 cap, `total`/`truncated` and the remaining 400 matrix are those of
          *     `GET /api/v1/reports/cycle-time/items`.
+         *     **Scope:** `teamId` or `domain` is required (`400` otherwise): a report is read per team or per domain, never for the whole unit.
          */
         get: operations["getReportEpicEstimationAccuracyItems"];
         put?: never;
@@ -1682,7 +1691,7 @@ export interface paths {
          *     `estimatedAfterDone` is a breakout of `unestimated`). Attribution
          *     (A25): a DONE task is attributed to its credit team and assignee at done, a still-OPEN task to its
          *     current team and current assignee (branching on `done_at`; a DONE task with no credit team is
-         *     legitimately UNASSIGNED). Levels: UNIT (default) — `groups` one per team (both kinds; `teamId` null =
+         *     legitimately UNASSIGNED). Levels: UNIT (a `domain` with no `teamId`) — `groups` one per team (both kinds; `teamId` null =
          *     UNASSIGNED tasks / UNOWNED epics); TEAM narrows to that team, `groups` one per assignee at done
          *     (tasks only, `epics` null); `teamId` AND `accountId` narrow to USER, where `accountId` repeats (and on
          *     commitments, throughput, cycle time, reported time, task accuracy, task estimates and WIP too, no other report): 1 to 8 distinct accounts, more
@@ -1692,6 +1701,7 @@ export interface paths {
          *     person, so the shares sum to each bucket's count; `groups` lists each picked account (tasks only, `epics`
          *     null, an empty entry when it has no task) with its own plain figures. `epics` stays all-zero (epics carry
          *     no user). Sprint-relative periods use the resolved sprints' envelope, as in throughput.
+         *     **Scope:** `teamId` or `domain` is required (`400` otherwise): a report is read per team or per domain, never for the whole unit.
          */
         get: operations["getReportEstimateAdjustments"];
         put?: never;
@@ -1723,6 +1733,7 @@ export interface paths {
          *     read per person"). `segmentAccountId` (USER level, one of the picked accounts) narrows a `TASKS` list to the person's share
          *     of the bucket, the histogram's `byUser` count. Sorting, the 500 cap, `total`/`truncated` and the 400 matrix are those of
          *     `GET /api/v1/reports/cycle-time/items`.
+         *     **Scope:** `teamId` or `domain` is required (`400` otherwise): a report is read per team or per domain, never for the whole unit.
          */
         get: operations["getReportEstimateAdjustmentsItems"];
         put?: never;
@@ -1752,7 +1763,7 @@ export interface paths {
          *     created straight into DONE); a cycle of zero working days is a real value and stays in. So
          *     `workingDays.n = population − neverStarted`. `trend` has one bucket per week (Monday start) or month
          *     (`bucket`, default WEEK, in the configured zone) across the whole window, zero-filled, by `done_at`, on
-         *     working days: `p50`/`p90` null when the bucket's `n` is below `minSampleSize`. Levels: UNIT (default) —
+         *     working days: `p50`/`p90` null when the bucket's `n` is below `minSampleSize`. Levels: UNIT (a `domain` with no `teamId`) —
          *     `groups` one per credit team (`teamId` null = UNASSIGNED); `teamId` narrows to TEAM (`teamId=0` = the
          *     UNASSIGNED credit) and `groups` becomes one per assignee at done; `teamId` AND `accountId` narrow to
          *     USER, where `accountId` repeats (and on commitments, throughput, reported time, adjustments, task accuracy, task estimates and WIP too, no other report): 1 to 8
@@ -1768,6 +1779,7 @@ export interface paths {
          *     `workCategory` slice it; `activityType` is ignored). Its `groups` are one per owner team at UNIT level and
          *     empty at TEAM level; at USER level the whole block is an all-zero answer (epics carry no user). `epics` has
          *     no trend.
+         *     **Scope:** `teamId` or `domain` is required (`400` otherwise): a report is read per team or per domain, never for the whole unit.
          */
         get: operations["getReportCycleTime"];
         put?: never;
@@ -1801,6 +1813,7 @@ export interface paths {
          *     `accountId`s, else 400. A missing or unknown `view`, a `bucketIndex` that is not a non-negative integer or lies outside the
          *     histogram, and a hidden distribution (fewer than `minSampleSize` measured items, so no bar exists — at USER level that is
          *     always the case for the epic views) are 400s.
+         *     **Scope:** `teamId` or `domain` is required (`400` otherwise): a report is read per team or per domain, never for the whole unit.
          */
         get: operations["getReportCycleTimeItems"];
         put?: never;
@@ -1831,9 +1844,8 @@ export interface paths {
          *     that has started with nothing actively worked on, a queue, and BLOCKED the same held by an impediment, both admin-mapped stages (A30, A36); UNMAPPED, a status with no stage
          *     mapping, is its own key; work in progress is IN_PROGRESS plus WAITING plus BLOCKED), `STATUS` (the Jira status id, labelled with its name) or `COLUMN` (the mapped
          *     board's column, read from `norm.board_columns` at query time; a status no column holds is "(no column)").
-         *     `isWorkingDay` lets a chart hide weekends. Levels: UNIT (default) sums every TEAM scope — including
-         *     UNASSIGNED tasks and UNOWNED epics — or, with `domain`, reads that DOMAIN scope (a task's as-was domain, an
-         *     epic's own space); `teamId` reads that team's TEAM scope (tasks: the D5 team as of each day, epics: the
+         *     `isWorkingDay` lets a chart hide weekends. Levels: UNIT (a `domain` with no `teamId`) reads that DOMAIN scope (a task's as-was
+         *     domain, an epic's own space); `teamId` reads that team's TEAM scope (tasks: the D5 team as of each day, epics: the
          *     domain's owner team, A19); `teamId=0` is UNASSIGNED on the task side and UNOWNED on the epic side. USER level
          *     (`teamId` and `accountId`, which repeats — also on commitments, throughput, cycle time, reported time, adjustments, task accuracy and task estimates, no other report:
          *     1 to 8 distinct accounts, more is a 400) has no storage in the aggregate and is computed at query time: the level-0 tasks the
@@ -1852,6 +1864,7 @@ export interface paths {
          *     it a connection's history is incomplete by construction (items finished long before and not updated since were
          *     never fetched), so no earlier day is listed, and a period that begins earlier says so in the `note`. `domainView` is
          *     accepted but the report always reads the task's own domain, so `meta.domainView` is always TASK.
+         *     **Scope:** `teamId` or `domain` is required (`400` otherwise): a report is read per team or per domain, never for the whole unit.
          */
         get: operations["getReportWip"];
         put?: never;
@@ -1877,13 +1890,10 @@ export interface paths {
          *     zone), each the END-of-day item count and man-days (a day with no aggregate row is zero). `current` is the
          *     last listed day (`asOfDay`) plus report 13's backlog in sprints: `backlogInSprints = md ÷ meanDeliveredMd`,
          *     where `meanDeliveredMd` is the mean `delivered_md` of the team's last `windowSprints`
-         *     (`backlog_window_sprints`) closed sprints as of that day — `sprintsUsed` of them when fewer exist (at UNIT level
-         *     the minimum across the teams that have closed a sprint, so "some team has fewer than N" is detectable) — and
+         *     (`backlog_window_sprints`) closed sprints as of that day — `sprintsUsed` of them when fewer exist (at UNIT level there is no velocity) — and
          *     `null` (with `backlogInSprints`) when there is no closed sprint or the mean is 0. The backlog is owned by
-         *     the OWNER team of the task's domain (A19). Levels: UNIT (default) sums every owner team — including the
-         *     UNOWNED backlog — and its `meanDeliveredMd` is the SUM of each team's own mean (the unit's delivery per
-         *     sprint); with `domain` it reads that DOMAIN scope and, as for `teamId=0` (the UNOWNED backlog), has no
-         *     velocity of its own (`meanDeliveredMd` and `backlogInSprints` null); `teamId` reads that owner team.
+         *     the OWNER team of the task's domain (A19). Levels: UNIT (a `domain` with no `teamId`) reads that DOMAIN scope and, as for `teamId=0` (the UNOWNED
+         *     backlog), has no velocity of its own (`meanDeliveredMd` and `backlogInSprints` null); `teamId` reads that owner team.
          *     USER level (`teamId` and `accountId`) is answered empty with a `note` — the aggregate has no per-user
          *     scope. `400` for `domain` together with `teamId` and for `activityType` / `workCategory` (not stored per
          *     day). Sprint-relative periods use the resolved sprints' envelope. A period reaching past the last derived day
@@ -1898,6 +1908,7 @@ export interface paths {
          *     `hiddenItems` / `hiddenMd` the complement (`items + hiddenItems` is the unfiltered figure) and `touchedWithinDays` echoes the
          *     effective filter; with the parameter absent or `0` the figures are the stored aggregate, the hidden fields are 0 and
          *     `touchedWithinDays` is null. Computed at query time, nothing DERIVE stores moves.
+         *     **Scope:** `teamId` or `domain` is required (`400` otherwise): a report is read per team or per domain, never for the whole unit.
          */
         get: operations["getReportBacklog"];
         put?: never;
@@ -1927,12 +1938,13 @@ export interface paths {
          *     the same over DONE epics — hidden (only `n`, every `workingDays` null) below `minSampleSize`. An item's `band`
          *     is the highest threshold its age is above (`P85` = above p85 but not above the next), `WITHIN` when above none,
          *     null when its thresholds are hidden. Thresholds belong to the team, so `accountId` narrows the listed items
-         *     only; at UNIT level they span the whole unit. `blocked` = blocked as of the connection's last DERIVE (a Flagged or BLOCKED-stage spell covers its clock); `waiting` = the item's
+         *     only; at UNIT level they span the whole domain. `blocked` = blocked as of the connection's last DERIVE (a Flagged or BLOCKED-stage spell covers its clock); `waiting` = the item's
          *     current stage is WAITING (started, nothing actively worked on, a queue — a BLOCKED-stage item is `blocked`, never `waiting`). Each item also says where it sits — `statusId`/`statusName`/`stage`
          *     from its OPEN `item_stage` row (the same DERIVE as the stage that lists it) and `position`, a key of the top-level `positions`, the
          *     chart's x-axis (board columns for one team with a mapped board, statuses otherwise). Levels:
-         *     UNIT (default), `teamId` (`0` = UNASSIGNED tasks / UNOWNED epics), USER (`teamId` and `accountId` — tasks only,
+         *     UNIT (a `domain` with no `teamId`), `teamId` (`0` = UNASSIGNED tasks / UNOWNED epics), USER (`teamId` and `accountId` — tasks only,
          *     epics have no user). `domain`, `activityType` and `workCategory` slice as elsewhere.
+         *     **Scope:** `teamId` or `domain` is required (`400` otherwise): a report is read per team or per domain, never for the whole unit.
          */
         get: operations["getReportAgingWip"];
         put?: never;
@@ -1966,6 +1978,7 @@ export interface paths {
          *     Levels: UNIT `groups` per team (tasks and epics), TEAM per assignee at done (tasks only — epics have no user,
          *     so Σ groups is the tasks' total there), USER none and no epics. Sprint-relative periods use the resolved
          *     sprints' envelope.
+         *     **Scope:** `teamId` or `domain` is required (`400` otherwise): a report is read per team or per domain, never for the whole unit.
          */
         get: operations["getReportBlockedTime"];
         put?: never;
@@ -1994,6 +2007,7 @@ export interface paths {
          *     blocked working days or its share of the cycle and `anchorAt` its `done_at`. The histograms carry no per-person split, so
          *     there is no `segmentAccountId`. Sorting, the 500 cap, `total`/`truncated` and the 400 matrix are those of
          *     `GET /api/v1/reports/cycle-time/items`.
+         *     **Scope:** `teamId` or `domain` is required (`400` otherwise): a report is read per team or per domain, never for the whole unit.
          */
         get: operations["getReportBlockedTimeItems"];
         put?: never;
@@ -2017,15 +2031,13 @@ export interface paths {
          *     value and actual cost in man-days, read off the per-day INCREMENTS in `agg_daily_flow` (A23) and summed at query
          *     time. `asOf` and every row's top-level figures are CUMULATIVE (from the beginning of time); `period` and every
          *     row's `period` are the same figures inside the period `[period.firstDay, asOf.day]` (A37), and `basis` (the
-         *     request's, else the level's default — PERIOD at DOMAIN, TEAM and UNIT, CUMULATIVE at EPIC) picks what `series`
+         *     request's, else the level's default — PERIOD at DOMAIN and TEAM, CUMULATIVE at EPIC) picks what `series`
          *     shows: CUMULATIVE points include everything before the period, PERIOD points are rebased to start near 0.
          *     `period`'s and the rows' `spi` / `cpi` are `null` while ΔPV / ΔAC is under 1 man-day (EV arrives in lumps, so a
          *     ratio over a sliver is noise). `trend` is SPI and CPI per week end (Monday-start weeks, the last one cut at
-         *     `asOf.day`) over the trailing `trendWindowDays`, null under the same minimum. Select the scope with AT MOST ONE of `epicId` (an epic's issue key, level EPIC),
+         *     `asOf.day`) over the trailing `trendWindowDays`, null under the same minimum. Select the scope with EXACTLY ONE of `epicId` (an epic's issue key, level EPIC),
          *     `domain` (level DOMAIN — epic-attributed work only), `teamId` (level TEAM, sprint and author based, A20;
-         *     `0` = UNASSIGNED) — none is the whole UNIT: its `asOf` is the sum of every DOMAIN scope (the epic basis, consistent
-         *     with the EPIC domain view; the domain rows add up to it), it lists no `series`, and `rows` drills into the domains
-         *     and the teams. `400` for more than
+         *     `0` = UNASSIGNED) — none is the whole unit, which is refused. `400` for none of them, for more than
          *     one of them, for a blank `epicId`, for `accountId` (no user-level EVM), for an explicit `domainView=TASK` (EVM is always the EPIC
          *     view, D3), for `activityType` / `workCategory` (not stored per day), and for an unknown epic, domain, team,
          *     sprint or connection (never 404); an `epicId` that exists in several connections in scope is ambiguous — narrow
@@ -2043,10 +2055,7 @@ export interface paths {
          *     the share of the team authors' logged MD from the beginning of time up to `asOf.day` — the same cumulative window
          *     as CPI — that was foreign work (A20 — read team CPI with it), and `foreignWorkSharePeriod` the same over the
          *     worklogs started inside the period (the window of the period CPI). `rows` is the drill table as of `asOf.day`: at DOMAIN
-         *     level one row per epic of that domain with a current baseline or any EV/AC; at UNIT level one row per domain
-         *     (epic basis, summing to the unit's `asOf`) and one per team (sprint/author basis — a different view that does NOT
-         *     sum to the unit headline; `active` is false for a soft-deleted team, whose own drill answers 400), told apart by
-         *     `kind`; empty at EPIC and TEAM level. Sprint-relative periods use the resolved sprints'
+         *     level one row per epic of that domain with a current baseline or any EV/AC; empty at EPIC and TEAM level. Sprint-relative periods use the resolved sprints'
          *     envelope. Nothing derived yet gives an empty answer with a `note` ("Not derived yet").
          */
         get: operations["getReportEpicProgress"];
@@ -2086,6 +2095,7 @@ export interface paths {
          *     `itemsAboveEpic`, `snapshotDrift`, `deriveWarnings`) are not narrowed by the team; `domain` narrows `domainsWithoutOwner`. A real
          *     `teamId` sees no `domainsWithoutOwner` and no `authorsWithoutTeam` (they belong to no team); `teamId=0` sees them.
          *     `domainView` (default TASK) picks the domain a task/worklog is sliced by.
+         *     **Scope:** `teamId` or `domain` is required (`400` otherwise): a report is read per team or per domain, never for the whole unit.
          */
         get: operations["getReportDataQuality"];
         put?: never;
@@ -2111,7 +2121,7 @@ export interface paths {
          *     period reads the resolved sprints' envelope), narrowed by the shared slices: `domain` (with `domainView`: `EPIC`, the default,
          *     uses the task's epic's domain, an epic-less task falling back to its own; `TASK` the task's own domain; a worklog logged on an
          *     epic takes the epic's own domain in both views, A21), `activityType`, `workCategory` (`UNCATEGORIZED` = none) and
-         *     `connectionId`. The level narrows the worklogs by their AUTHOR's team as of `started_at`: UNIT (default) every worklog;
+         *     `connectionId`. The level narrows the worklogs by their AUTHOR's team as of `started_at`: UNIT (a `domain` with no `teamId`) every worklog of the domain;
          *     `teamId` the worklogs authored by that team's members (`teamId=0`: the authors in no team); `teamId` and `accountId` that one
          *     person's. `totalMd` is the rounded EXACT sum of every worklog in scope (never a sum of rounded parts, so it can differ from
          *     its displayed addends by up to 0.005 per addend). `foreignShare` = `foreignMd` ÷ `totalMd` (A21: the author's team differs
@@ -2136,6 +2146,7 @@ export interface paths {
          *     to every viewer (A44), null at USER level. A worklog inside two overlapping listed sprints counts in both. `outsideSprintsMd`
          *     is the rounded exact MD the same slice logged in the period inside none of the listed sprints (null without a team; with a
          *     team and no sprint it equals `totalMd`). `sprints` is empty and `outsideSprintsMd` null at UNIT level and for `teamId=0`.
+         *     **Scope:** `teamId` or `domain` is required (`400` otherwise): a report is read per team or per domain, never for the whole unit.
          */
         get: operations["getReportCosts"];
         put?: never;
@@ -2175,6 +2186,7 @@ export interface paths {
          *     400 for the parent's parser errors, an unknown or blank `by`, a donut slice without a `key` (or more than 100, or a control
          *     character), `key` or `epicSegment` on the wrong shape (`key` belongs to the donut slices, `epicSegment` to `by=EPIC`, which
          *     needs it), and a sprint bar without a `sprintId` period or without a real `teamId`.
+         *     **Scope:** `teamId` or `domain` is required (`400` otherwise): a report is read per team or per domain, never for the whole unit.
          */
         get: operations["getReportCostsItems"];
         put?: never;
@@ -2490,6 +2502,7 @@ export interface paths {
          *     `zeroCycle` = `cycle_ms` of 0, so `flowEfficiency.n + neverStarted + zeroCycle = population`); worklogs play
          *     no part, so a task with none is still measured. Reported time ratios can be dominated by very short
          *     cycles, a real outlier that is never dropped: the mean, p95 and histogram reflect it.
+         *     **Scope:** `teamId` or `domain` is required (`400` otherwise): a report is read per team or per domain, never for the whole unit.
          */
         get: operations["getReportReportedTimeRatio"];
         put?: never;
@@ -2517,6 +2530,7 @@ export interface paths {
          *     `bar.from`/`bar.to` its range (`to` null = the open tail); a listed task's `figure` is its ratio or fraction and `anchorAt`
          *     its `done_at`. Sorting, the 500 cap, `total`/`truncated`, `segmentAccountId` (USER level, one of the picked accounts) and the
          *     400 matrix are those of `GET /api/v1/reports/cycle-time/items`.
+         *     **Scope:** `teamId` or `domain` is required (`400` otherwise): a report is read per team or per domain, never for the whole unit.
          */
         get: operations["getReportReportedTimeRatioItems"];
         put?: never;
@@ -4046,7 +4060,7 @@ export interface components {
             finalMd: number;
             finalItems: number;
         };
-        /** @description A team's own sums (UNIT level), one user's `assignee_at_commitment` sums (TEAM level) or, at USER level, one picked account's period totals (zero when it has no scope row). `teamId`/`accountId`/`label` are mutually exclusive with each other's absence: exactly one of `teamId` or `accountId` is set per row (a null `accountId` with a null `label` is the unassigned-at-commitment bucket, never a stored sentinel). */
+        /** @description A team's own sums (UNIT level — no longer answered: commitments is read per team), one user's `assignee_at_commitment` sums (TEAM level) or, at USER level, one picked account's period totals (zero when it has no scope row). `teamId`/`accountId`/`label` are mutually exclusive with each other's absence: exactly one of `teamId` or `accountId` is set per row (a null `accountId` with a null `label` is the unassigned-at-commitment bucket, never a stored sentinel). */
         CommitmentsGroup: {
             /** Format: int32 */
             teamId?: number | null;
@@ -4425,7 +4439,7 @@ export interface components {
             snapshot: components["schemas"]["SprintFigures"] | null;
             drift: boolean;
         };
-        /** @description A team's summed figures (UNIT level, `teamId` set) or one user's `assignee_at_commitment` figures (TEAM level; a null `accountId` with a null `label` is the unassigned-at-commitment bucket) — always empty at USER level. */
+        /** @description A team's summed figures (UNIT level, `teamId` set — no longer answered: sprint consistency is read per team) or one user's `assignee_at_commitment` figures (TEAM level; a null `accountId` with a null `label` is the unassigned-at-commitment bucket) — always empty at USER level. */
         SprintConsistencyGroup: {
             /** Format: int32 */
             teamId?: number | null;
@@ -5039,12 +5053,12 @@ export interface components {
             hiddenMd: number;
             /**
              * Format: double
-             * @description Mean `delivered_md` of the team's last `windowSprints` closed sprints as of `asOfDay` (at UNIT level the sum of each team's own mean); null with no closed sprint, or for a scope with no velocity of its own.
+             * @description Mean `delivered_md` of the team's last `windowSprints` closed sprints as of `asOfDay`; null with no closed sprint, or for a scope with no velocity of its own.
              */
             meanDeliveredMd?: number | null;
             /** @description The configured window (`backlog_window_sprints`). */
             windowSprints: number;
-            /** @description How many closed sprints the mean was taken over: fewer than the window when fewer exist, and at UNIT level the minimum across the teams that have closed a sprint. */
+            /** @description How many closed sprints the mean was taken over: fewer than the window when fewer exist. */
             sprintsUsed: number;
             /**
              * Format: double
@@ -5432,7 +5446,7 @@ export interface components {
         EpicProgressReport: {
             meta: components["schemas"]["ReportMeta"];
             /**
-             * @description What the report is about (`meta.level` keeps the shared UNIT/TEAM/USER meaning of `teamId`).
+             * @description What the report is about (`meta.level` keeps the shared UNIT/TEAM/USER meaning of `teamId`). UNIT, the whole unit, is no longer answered: a request names an epic, a domain or a team.
              * @enum {string}
              */
             level: "UNIT" | "DOMAIN" | "EPIC" | "TEAM";
@@ -6832,11 +6846,13 @@ export interface components {
         ReportLastSprints: number;
         /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
         ReportSprintId: number;
-        /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+        /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
         ReportTeamId: number;
-        /** @description One epic's issue key (as `issueKey` lists it, e.g. `FLO-33`) — selects epic progress at level EPIC. Mutually exclusive with `domain` and `teamId`. */
+        /** @description The team (required: this report carries no domain slice, so a request without `teamId` is `400`). Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+        ReportTeamIdRequired: number;
+        /** @description One epic's issue key (as `issueKey` lists it, e.g. `FLO-33`) — selects epic progress at level EPIC. Mutually exclusive with `domain` and `teamId`; one of the three is required on epic progress. */
         ReportEpicId: string;
-        /** @description Epic progress only: what the `series` (and its `pvOriginal`) is measured over. `CUMULATIVE` sums from the beginning of time; `PERIOD` rebases every point to what was planned, earned and spent inside the period. Defaults per level — CUMULATIVE at EPIC, PERIOD at DOMAIN, TEAM and UNIT; the effective value is echoed as `basis`. An unknown value is `400`. */
+        /** @description Epic progress only: what the `series` (and its `pvOriginal`) is measured over. `CUMULATIVE` sums from the beginning of time; `PERIOD` rebases every point to what was planned, earned and spent inside the period. Defaults per level — CUMULATIVE at EPIC, PERIOD at DOMAIN and TEAM; the effective value is echoed as `basis`. An unknown value is `400`. */
         ReportEpicProgressBasis: "PERIOD" | "CUMULATIVE";
         /** @description Epic progress only: the trailing window (days) each `trend` point's SPI and CPI are measured over. Outside `7..182` or not an integer is `400`. */
         ReportTrendWindowDays: number;
@@ -6852,7 +6868,7 @@ export interface components {
         ReportAccountId: string;
         /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
         ReportDomainView: "TASK" | "EPIC";
-        /** @description Restricts to one domain key. */
+        /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
         ReportDomain: string;
         /** @description The domain key (required; a missing or unknown one is `400`). */
         ReportDomainRequired: string;
@@ -8739,7 +8755,7 @@ export interface operations {
     };
     getReportCommitments: {
         parameters: {
-            query?: {
+            query: {
                 /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
                 from?: components["parameters"]["ReportFrom"];
                 /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
@@ -8748,8 +8764,8 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
-                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description The team (required: this report carries no domain slice, so a request without `teamId` is `400`). Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId: components["parameters"]["ReportTeamIdRequired"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
@@ -8795,13 +8811,13 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -8850,13 +8866,13 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -8896,7 +8912,7 @@ export interface operations {
     };
     getReportSprintConsistency: {
         parameters: {
-            query?: {
+            query: {
                 /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
                 from?: components["parameters"]["ReportFrom"];
                 /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
@@ -8905,8 +8921,8 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
-                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description The team (required: this report carries no domain slice, so a request without `teamId` is `400`). Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId: components["parameters"]["ReportTeamIdRequired"];
                 /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountId"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
@@ -8956,8 +8972,8 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
-                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description The team (required: this report carries no domain slice, so a request without `teamId` is `400`). Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId: components["parameters"]["ReportTeamIdRequired"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
@@ -9005,13 +9021,13 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -9060,13 +9076,13 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -9111,13 +9127,13 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -9166,13 +9182,13 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -9217,13 +9233,13 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountId"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
                 workCategory?: components["parameters"]["ReportWorkCategory"];
@@ -9270,13 +9286,13 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountId"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
                 workCategory?: components["parameters"]["ReportWorkCategory"];
@@ -9317,13 +9333,13 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -9372,13 +9388,13 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -9423,13 +9439,13 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -9480,13 +9496,13 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -9533,13 +9549,13 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -9590,13 +9606,13 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountId"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -9645,13 +9661,13 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountId"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -9698,13 +9714,13 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountId"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -9755,13 +9771,13 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountId"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -9806,15 +9822,15 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description One epic's issue key (as `issueKey` lists it, e.g. `FLO-33`) — selects epic progress at level EPIC. Mutually exclusive with `domain` and `teamId`. */
+                /** @description One epic's issue key (as `issueKey` lists it, e.g. `FLO-33`) — selects epic progress at level EPIC. Mutually exclusive with `domain` and `teamId`; one of the three is required on epic progress. */
                 epicId?: components["parameters"]["ReportEpicId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountId"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -9822,7 +9838,7 @@ export interface operations {
                 workCategory?: components["parameters"]["ReportWorkCategory"];
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
-                /** @description Epic progress only: what the `series` (and its `pvOriginal`) is measured over. `CUMULATIVE` sums from the beginning of time; `PERIOD` rebases every point to what was planned, earned and spent inside the period. Defaults per level — CUMULATIVE at EPIC, PERIOD at DOMAIN, TEAM and UNIT; the effective value is echoed as `basis`. An unknown value is `400`. */
+                /** @description Epic progress only: what the `series` (and its `pvOriginal`) is measured over. `CUMULATIVE` sums from the beginning of time; `PERIOD` rebases every point to what was planned, earned and spent inside the period. Defaults per level — CUMULATIVE at EPIC, PERIOD at DOMAIN and TEAM; the effective value is echoed as `basis`. An unknown value is `400`. */
                 basis?: components["parameters"]["ReportEpicProgressBasis"];
                 /** @description Epic progress only: the trailing window (days) each `trend` point's SPI and CPI are measured over. Outside `7..182` or not an integer is `400`. */
                 trendWindowDays?: components["parameters"]["ReportTrendWindowDays"];
@@ -9865,13 +9881,13 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountId"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -9920,13 +9936,13 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountId"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -9973,13 +9989,13 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountId"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -10107,7 +10123,7 @@ export interface operations {
     listReportDeepDiveEpics: {
         parameters: {
             query?: {
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
@@ -10163,7 +10179,7 @@ export interface operations {
                 accountId: components["parameters"]["ReportComparePeopleAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -10212,7 +10228,7 @@ export interface operations {
                 accountId: components["parameters"]["ReportComparePeopleAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -10267,7 +10283,7 @@ export interface operations {
                 accountId: components["parameters"]["ReportPersonTrendAccountId"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -10314,7 +10330,7 @@ export interface operations {
                 accountId: components["parameters"]["ReportPersonTrendAccountId"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -10365,13 +10381,13 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];
@@ -10420,13 +10436,13 @@ export interface operations {
                 lastSprints?: components["parameters"]["ReportLastSprints"];
                 /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
                 sprintId?: components["parameters"]["ReportSprintId"];
-                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
                 accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
-                /** @description Restricts to one domain key. */
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
                 domain?: components["parameters"]["ReportDomain"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
                 activityType?: components["parameters"]["ReportActivityType"];

@@ -86,7 +86,7 @@ class ReportCommitmentsTest {
     }
 
     @Test
-    fun `UNIT level lists the FLO team's sprints with finalMd matching fact_sprint`() = testApplication {
+    fun `TEAM level lists the FLO team's sprints with finalMd matching fact_sprint`() = testApplication {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
         val golden = reportCommitmentsGolden
@@ -94,22 +94,21 @@ class ReportCommitmentsTest {
         val client = seededClient("reports-commitments-unit")
 
         val response = client.get(
-            "/api/v1/reports/commitments?connectionId=$connId&from=2025-09-01&to=2026-03-06",
+            "/api/v1/reports/commitments?connectionId=$connId&teamId=$floTeamId&from=2025-09-01&to=2026-03-06",
         )
         assertEquals(HttpStatusCode.OK, response.status)
         val body = response.body<CommitmentsReport>()
 
-        val floSprints = body.sprints.filter { it.teamId == floTeamId }
+        val floSprints = body.sprints
+        assertTrue(floSprints.all { it.teamId == floTeamId }, "a team read lists only that team's sprints")
         assertTrue(floSprints.isNotEmpty(), "expected at least the FLO team's own sprints in the period")
         val goldenSprint = floSprints.single { it.sprintId == golden.sprintId }
         assertEquals(golden.finalMd, goldenSprint.finalMd, "finalMd must match fact_sprint")
         assertEquals(golden.finalItems, goldenSprint.finalItems)
         assertTrue(!goldenSprint.drift, "the fixture's snapshots are reconstructed from the same data — drift must be false")
-
-        val floGroup = body.groups.single { it.teamId == floTeamId }
-        assertLabelThenIdOrder("UNIT", body.groups.map { GroupIdentity(it.label, it.teamId, it.accountId) })
-        assertEquals(floSprints.sumOf { it.finalMd }, floGroup.finalMd, ABS_TOLERANCE)
-        assertEquals(floSprints.sumOf { it.finalItems }, floGroup.finalItems)
+        assertLabelThenIdOrder("TEAM", body.groups.map { GroupIdentity(it.label, it.teamId, it.accountId) })
+        assertEquals(floSprints.sumOf { it.finalMd }, body.groups.sumOf { it.finalMd }, ABS_TOLERANCE)
+        assertEquals(floSprints.sumOf { it.finalItems }, body.groups.sumOf { it.finalItems })
     }
 
     @Test
@@ -434,7 +433,7 @@ class ReportCommitmentsTest {
         }
 
     @Test
-    fun `capacity is the stored fact_sprint capacity and source at UNIT and TEAM level, and null at USER level`() = testApplication {
+    fun `capacity is the stored fact_sprint capacity and source at TEAM level, and null at USER level`() = testApplication {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
         val golden = reportCommitmentsGolden
@@ -442,12 +441,13 @@ class ReportCommitmentsTest {
         val client = seededClient("reports-commitments-capacity")
         val stored = storedCapacities(connId)
 
-        val unit = client.get("/api/v1/reports/commitments?connectionId=$connId&from=2025-09-01&to=2026-03-06").body<CommitmentsReport>()
-        assertTrue(unit.sprints.isNotEmpty())
-        for (sprint in unit.sprints) {
+        val period = client.get("/api/v1/reports/commitments?connectionId=$connId&teamId=$floTeamId&from=2025-09-01&to=2026-03-06")
+            .body<CommitmentsReport>()
+        assertTrue(period.sprints.isNotEmpty())
+        for (sprint in period.sprints) {
             val (capacityMd, source) = stored.getValue(sprint.sprintId)
-            assertEquals(capacityMd, sprint.capacityMd, "UNIT sprint ${sprint.sprintId} capacityMd")
-            assertEquals(source, sprint.capacitySource, "UNIT sprint ${sprint.sprintId} capacitySource")
+            assertEquals(capacityMd, sprint.capacityMd, "TEAM sprint ${sprint.sprintId} capacityMd")
+            assertEquals(source, sprint.capacitySource, "TEAM sprint ${sprint.sprintId} capacitySource")
             assertTrue(sprint.byUser.isEmpty(), "byUser is USER level only")
         }
         // The shared fixture configures no override: the FLO team's sprints carry the members x working days DEFAULT.
@@ -471,7 +471,7 @@ class ReportCommitmentsTest {
     }
 
     @Test
-    fun `a sprint calendar and a team default override the default at UNIT and TEAM level`() = testApplication {
+    fun `a sprint calendar and a team default override the default at TEAM level`() = testApplication {
         usePostgresTestcontainer()
         val sprintId = reportCommitmentsGolden.sprintId
         val (connId, teamId) = FrozenScopeFixtures.derivedDisabledClone("jira-commitments-capacity", "commitments-capacity-team")
@@ -483,10 +483,6 @@ class ReportCommitmentsTest {
             DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) { DerivedStubFixture.derivePinned(connId, jobId) }
             // The expectation is the stored row, not the report.
             assertEquals(expectedMd to source, storedCapacities(connId).getValue(sprintId))
-            val unit = client.get("/api/v1/reports/commitments?connectionId=$connId&sprintId=$sprintId")
-                .body<CommitmentsReport>().sprints.single()
-            assertEquals(expectedMd, unit.capacityMd)
-            assertEquals(source, unit.capacitySource)
             val team = client.get("/api/v1/reports/commitments?connectionId=$connId&teamId=$teamId&sprintId=$sprintId")
                 .body<CommitmentsReport>().sprints.single()
             assertEquals(expectedMd, team.capacityMd)
@@ -512,7 +508,7 @@ class ReportCommitmentsTest {
     }
 
     @Test
-    fun `a pre-V24 CONFIGURED row is served as stored at UNIT and TEAM level`() = testApplication {
+    fun `a pre-V24 CONFIGURED row is served as stored at TEAM level`() = testApplication {
         usePostgresTestcontainer()
         val sprintId = reportCommitmentsGolden.sprintId
         val (connId, teamId) = FrozenScopeFixtures.derivedDisabledClone("jira-commitments-legacy", "commitments-legacy-team")
@@ -528,14 +524,10 @@ class ReportCommitmentsTest {
                 (MetricsTables.FactSprint.connectionId eq connId) and (MetricsTables.FactSprint.sprintId eq sprintId)
             }) { it[capacityMd] = BigDecimal("33.00") }
         }
-        for (url in listOf(
-            "/api/v1/reports/commitments?connectionId=$connId&sprintId=$sprintId",
-            "/api/v1/reports/commitments?connectionId=$connId&teamId=$teamId&sprintId=$sprintId",
-        )) {
-            val sprint = client.get(url).body<CommitmentsReport>().sprints.single()
-            assertEquals(33.0, sprint.capacityMd, url)
-            assertEquals("CONFIGURED", sprint.capacitySource, url)
-        }
+        val url = "/api/v1/reports/commitments?connectionId=$connId&teamId=$teamId&sprintId=$sprintId"
+        val sprint = client.get(url).body<CommitmentsReport>().sprints.single()
+        assertEquals(33.0, sprint.capacityMd, url)
+        assertEquals("CONFIGURED", sprint.capacitySource, url)
     }
 
     private data class PickedAccounts(val connId: UInt, val teamId: UInt, val sprintId: Long, val accounts: List<String>)

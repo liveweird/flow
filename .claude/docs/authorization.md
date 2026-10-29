@@ -333,7 +333,10 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     `GET /reports/filters` (this commit)
     takes no query parameters and declares no `400`; a later report's own filter parameters are
     validated by `reports/ReportFilter.kt`'s shared parser (`400`, the client-supplied-FK idiom:
-    structural checks only — mutual exclusion, ranges, ISO date syntax — never a DB existence
+    structural checks only — mutual exclusion, ranges, ISO date syntax, and the **scope guard**: a request naming no `teamId`/`domain`
+    (Commitments and Sprint consistency: no `teamId`; Epic progress: no `epicId`/`domain`/`teamId`) is `400`, a validation refusal, not a denial — no
+    `403`, no audit — checked right after `call.caller()` and the period / `accountId requires teamId` checks, before the cache validators; no ADMIN
+    exemption, `reports.md` "Scope" — never a DB existence
     check, which is each report's own service's job once it reads the filter back). Tests:
     `ReportFilterTest` (the parser's own 400 matrix, no DB), `ReportRoutesTest` (`200` for a
     non-admin caller). **The one exception to "everyone sees the same response"** (A41): Compare people's per-person capacity

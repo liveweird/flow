@@ -19,7 +19,6 @@ import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import java.math.BigDecimal
-import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -142,7 +141,7 @@ class ReportBacklogTest {
         for (end in periodEnds) {
             val asOfEnd = windowBounds(zone, end, end).second
             val (mean, used) = expectedMean(sprints, setOf(teamId), windowSprints, asOfEnd)
-            for (query in listOf("teamId=$teamId", "")) { // TEAM level, and UNIT level (one team ⇒ the same mean)
+            for (query in listOf("teamId=$teamId")) {
                 val current = client.backlog("connectionId=$connId&from=$from&to=$end&$query").current
                 assertEquals(end, current.asOfDay, "as of $end $query")
                 assertEquals(used, current.sprintsUsed, "sprints used as of $end $query")
@@ -152,11 +151,8 @@ class ReportBacklogTest {
                 } else {
                     assertEquals(mean, assertNotNull(current.meanDeliveredMd), EPS, "mean as of $end $query")
                 }
-                val md = if (query.isEmpty()) {
-                    flow.filter { it.scopeKind == "TEAM" && it.day == end }.sumOf { it.md.toDouble() }
-                } else {
-                    flow.filter { it.scopeKind == "TEAM" && it.scopeId == teamId.toString() && it.day == end }.sumOf { it.md.toDouble() }
-                }
+                val md = flow.filter { it.scopeKind == "TEAM" && it.scopeId == teamId.toString() && it.day == end }
+                    .sumOf { it.md.toDouble() }
                 assertEquals(md, current.md, EPS, "md as of $end $query")
                 val want = if (mean != null && mean > 0.0) md / mean else null
                 if (want == null) assertNull(current.backlogInSprints) else assertEquals(want, assertNotNull(current.backlogInSprints), EPS)
@@ -371,16 +367,6 @@ class ReportBacklogTest {
             assertNull(w.backlogInSprints)
             assertEquals(listOf(0, 0, 0), client.backlog("$base&teamId=$teamW").trend.map { it.items })
 
-            // UNIT: every TEAM scope incl. UNOWNED (24 + 2.5 + 3 + 0.5 = 30 MD, 9 items); the mean is the SUM of the team means
-            // (X 8 + Y 5 + Z 0 = 13); sprintsUsed is the MINIMUM across the teams (X 3, Y 1, Z 2), so Y's "fewer than N" shows.
-            // A DOMAIN row never leaks into it.
-            val unit = client.backlog(base)
-            assertEquals(listOf(4, 0, 9), unit.trend.map { it.items })
-            assertEquals(listOf(10.0, 0.0, 30.0), unit.trend.map { it.md })
-            assertEquals(13.0, unit.current.meanDeliveredMd!!, EPS)
-            assertEquals(1, unit.current.sprintsUsed)
-            assertEquals(30.0 / 13.0, unit.current.backlogInSprints!!, EPS)
-
             // A domain reads its own scope and has no velocity of its own; teamId=0 is the UNOWNED backlog.
             val domain = client.backlog("$base&domain=AAA")
             assertEquals(listOf(3, 0, 6), domain.trend.map { it.items })
@@ -392,8 +378,6 @@ class ReportBacklogTest {
             assertEquals(listOf(0, 0, 1), unowned.trend.map { it.items })
             assertEquals(0.5, unowned.current.md, EPS)
             assertNull(unowned.current.backlogInSprints)
-            val teamsMd = x.current.md + y.md + z.md + unowned.current.md
-            assertTrue(abs(unit.current.md - teamsMd) < EPS, "UNIT md is the sum of its team scopes")
         } finally {
             deleteFlowRows(connId)
             deleteFactSprints(connId)
@@ -681,7 +665,7 @@ class ReportBacklogTest {
         insertHandWorklog(conn2, 4L, noonOf(6))
         try {
             val merged = suspendTransaction(sharedDatabaseForTests()) {
-                readTouchedBacklog(listOf(conn1, conn2), SnapshotScope.AllTeams, "2026-01-01", "2026-01-10", 3)
+                readTouchedBacklog(listOf(conn1, conn2), SnapshotScope.Domain("AAA"), "2026-01-01", "2026-01-10", 3)
             }
             val shown1 = listOf(2, 2, 2, 0, 0, 1, 1, 1, 0, 0)
             val shown2 = listOf(3, 3, 3, 0, 0, 1, 1, 1, 1, 1)
@@ -696,7 +680,7 @@ class ReportBacklogTest {
             }
             // One connection alone reads its own half: the merge is a plain sum.
             val only2 = suspendTransaction(sharedDatabaseForTests()) {
-                readTouchedBacklog(listOf(conn2), SnapshotScope.AllTeams, "2026-01-01", "2026-01-10", 3)
+                readTouchedBacklog(listOf(conn2), SnapshotScope.Domain("AAA"), "2026-01-01", "2026-01-10", 3)
             }
             assertEquals(shown2, (1..10).map { only2.getValue("2026-01-%02d".format(it)).items })
         } finally {
@@ -735,7 +719,7 @@ class ReportBacklogTest {
                 assertEquals(listOf(conn1), connectionsToRead(both, SnapshotScope.Team(teamX)), "only the owning connection is read")
                 assertEquals(listOf(conn2), connectionsToRead(both, SnapshotScope.Team(teamOther)))
                 assertEquals(emptyList(), connectionsToRead(both, SnapshotScope.Team(teamNone)), "a team owning nothing reads nothing")
-                for (scope in listOf(SnapshotScope.AllTeams, SnapshotScope.Unassigned, SnapshotScope.Domain("AAA"))) {
+                for (scope in listOf(SnapshotScope.Unassigned, SnapshotScope.Domain("AAA"))) {
                     assertEquals(both, connectionsToRead(both, scope), "$scope reads every connection")
                 }
                 val team = readTouchedBacklog(both, SnapshotScope.Team(teamX), "2026-01-01", "2026-01-05", 3)

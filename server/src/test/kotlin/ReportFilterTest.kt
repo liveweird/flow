@@ -4,6 +4,7 @@ import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.reports.DomainView
 import ch.nokillswit.reports.ReportLevel
 import ch.nokillswit.reports.ReportPeriod
+import ch.nokillswit.reports.ReportScopeRule
 import ch.nokillswit.reports.parseReportFilter
 import io.ktor.http.parametersOf
 import io.ktor.server.plugins.BadRequestException
@@ -277,5 +278,83 @@ class ReportFilterTest {
         assertFailsWith<BadRequestException> {
             parametersOf(floScope, "tailPercent" to listOf("5", "6")).parseReportFilter(utcCalendar, now, DomainView.TASK)
         }
+    }
+
+    // The scope guard (CLAUDE.md: a report is read per team or per domain, never for the whole unit).
+
+    private fun refusal(rule: ReportScopeRule, vararg query: Pair<String, List<String>>, teamless: Boolean = false): String? = try {
+        parametersOf(*query).parseReportFilter(utcCalendar, now, DomainView.TASK, teamless = teamless, scope = rule)
+        null
+    } catch (failure: BadRequestException) {
+        failure.message
+    }
+
+    @Test
+    fun `TEAM_OR_DOMAIN refuses a request naming neither, accepts a team (0 included) or a domain`() {
+        val rule = ReportScopeRule.TEAM_OR_DOMAIN
+        val refused = "teamId or domain is required: a report is read per team or per domain, never for the whole unit"
+        assertEquals(refused, refusal(rule))
+        assertEquals(refused, refusal(rule, "from" to listOf("2026-01-01")), "the period alone is no scope")
+        assertEquals(refused, refusal(rule, "domain" to listOf("")), "a blank domain is absent")
+        assertEquals(refused, refusal(rule, "domain" to listOf("  ")), "a blank domain is absent")
+        assertEquals(refused, refusal(rule, "epicId" to listOf("FLO-1")), "an epic is no scope here")
+        assertEquals(refused, refusal(rule, "connectionId" to listOf("3")), "a connection is no scope")
+        assertNull(refusal(rule, "teamId" to listOf("3")))
+        assertNull(refusal(rule, "teamId" to listOf("0")), "0 is the UNASSIGNED bucket, a real team value")
+        assertNull(refusal(rule, "domain" to listOf("FLO")))
+        assertNull(refusal(rule, "domain" to listOf("FLO"), "teamId" to listOf("3")))
+    }
+
+    @Test
+    fun `TEAM_ONLY wants a team and a domain is no scope`() {
+        val rule = ReportScopeRule.TEAM_ONLY
+        val refused = "teamId is required: this report carries no domain slice and is read per team, never for the whole unit"
+        assertEquals(refused, refusal(rule))
+        assertEquals(refused, refusal(rule, "domain" to listOf("FLO")), "a domain slices nothing on these reports")
+        assertEquals(refused, refusal(rule, "epicId" to listOf("FLO-1")))
+        assertNull(refusal(rule, "teamId" to listOf("3")))
+        assertNull(refusal(rule, "teamId" to listOf("0")))
+        assertNull(refusal(rule, "teamId" to listOf("3"), "domain" to listOf("FLO")))
+    }
+
+    @Test
+    fun `TEAM_DOMAIN_OR_EPIC takes an epic, a domain or a team, an epic by raw presence`() {
+        val rule = ReportScopeRule.TEAM_DOMAIN_OR_EPIC
+        val refused =
+            "epicId, domain or teamId is required: epic progress is read per epic, per domain or per team, never for the whole unit"
+        assertEquals(refused, refusal(rule))
+        assertEquals(refused, refusal(rule, "domain" to listOf(" ")))
+        assertNull(refusal(rule, "epicId" to listOf("FLO-1")))
+        assertNull(refusal(rule, "domain" to listOf("FLO")))
+        assertNull(refusal(rule, "teamId" to listOf("0")))
+        // A blank epicId is present: the guard lets it through so the route keeps its own "epicId must not be blank".
+        assertNull(refusal(rule, "epicId" to listOf("")))
+        // A repeated epicId is the shared singleValue 400, not a scope refusal.
+        assertEquals("Parameter 'epicId' must not be repeated", refusal(rule, "epicId" to listOf("A-1", "B-2")))
+    }
+
+    @Test
+    fun `a teamless person is a scope, a teamless request without one is not, UNSCOPED lifts the guard`() {
+        val person = "accountId" to listOf("acc-1")
+        assertNull(refusal(ReportScopeRule.TEAM_OR_DOMAIN, person, teamless = true))
+        assertEquals(
+            "teamId or domain is required: a report is read per team or per domain, never for the whole unit",
+            refusal(ReportScopeRule.TEAM_OR_DOMAIN, teamless = true),
+        )
+        assertNull(refusal(ReportScopeRule.UNSCOPED))
+        val unscoped = parametersOf().parseReportFilter(utcCalendar, now, DomainView.TASK, scope = ReportScopeRule.UNSCOPED)
+        assertEquals(ReportLevel.UNIT, unscoped.level)
+    }
+
+    @Test
+    fun `the scope guard follows the period checks and accountId requires teamId, and precedes tailPercent`() {
+        val rule = ReportScopeRule.TEAM_OR_DOMAIN
+        // A bad period is reported first, whatever the scope.
+        assertEquals("from/to span must not exceed 1100 days", refusal(rule, "from" to listOf("2020-01-01"), "to" to listOf("2026-01-01")))
+        // accountId without a team keeps its own message (the team is the missing piece).
+        assertEquals("accountId requires teamId", refusal(rule, "accountId" to listOf("acc-1"), "domain" to listOf("FLO")))
+        // The scope precedes the later structural checks.
+        val refused = refusal(rule, "tailPercent" to listOf("99"))
+        assertTrue(refused!!.startsWith("teamId or domain is required"), refused)
     }
 }
