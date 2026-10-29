@@ -38,6 +38,8 @@ class SyncJobsService internal constructor(
      */
     afterClaimLock: suspend (connectionId: UInt) -> Unit,
     private val deriveQuietMillis: Long = 0,
+    /** The retry of the worker's terminal writes on a lost database connection ([TerminalWriteRetry]); a test shortens or records it. */
+    private val terminalRetry: TerminalWriteRetry = TerminalWriteRetry(),
 ) {
     constructor(
         database: R2dbcDatabase,
@@ -279,12 +281,15 @@ class SyncJobsService internal constructor(
         boundMillis: Long? = null,
     ): HeartbeatOutcome = leases.renewLease(jobId, workerId, attempt, leaseSeconds, now, boundMillis)
 
+    // The five terminal/release writes below retry on a lost database connection ([TerminalWriteRetry]); they are fenced, so a repeat is safe.
+
     /** Fenced terminal write (SUCCEEDED) — see [SyncJobLeases.finish]. */
-    suspend fun finish(jobId: UInt, attempt: Int, now: Long = clock()): Boolean = leases.finish(jobId, attempt, now)
+    suspend fun finish(jobId: UInt, attempt: Int, now: Long = clock()): Boolean =
+        terminalRetry.run(jobId, "finish") { leases.finish(jobId, attempt, now) }
 
     /** Fenced terminal write (FAILED) — see [SyncJobLeases.fail]. */
     suspend fun fail(jobId: UInt, attempt: Int, errorCode: String, errorDetail: String? = null, now: Long = clock()): Boolean =
-        leases.fail(jobId, attempt, errorCode, errorDetail, now)
+        terminalRetry.run(jobId, "fail") { leases.fail(jobId, attempt, errorCode, errorDetail, now) }
 
     /**
      * Fenced terminal write (FAILED) of a SYNC that stopped at a ceiling,
@@ -297,13 +302,16 @@ class SyncJobsService internal constructor(
         errorDetail: String?,
         pauseAfterTrips: Int,
         now: Long = clock(),
-    ): FailedWrite? = leases.failTripped(jobId, attempt, trip, errorDetail, pauseAfterTrips, now)
+    ): FailedWrite? =
+        terminalRetry.run(jobId, "fail") { leases.failTripped(jobId, attempt, trip, errorDetail, pauseAfterTrips, now) }
 
     /** The worker honoured `cancel_requested_at` — see [SyncJobLeases.markCancelled]. */
-    suspend fun markCancelled(jobId: UInt, attempt: Int, now: Long = clock()): Boolean = leases.markCancelled(jobId, attempt, now)
+    suspend fun markCancelled(jobId: UInt, attempt: Int, now: Long = clock()): Boolean =
+        terminalRetry.run(jobId, "cancel") { leases.markCancelled(jobId, attempt, now) }
 
     /** Shutdown: releases a still-RUNNING job back to `PENDING` for reclaim — see [SyncJobLeases.release]. */
-    suspend fun release(jobId: UInt, workerId: String, attempt: Int): Boolean = leases.release(jobId, workerId, attempt)
+    suspend fun release(jobId: UInt, workerId: String, attempt: Int): Boolean =
+        terminalRetry.run(jobId, "release") { leases.release(jobId, workerId, attempt) }
 
     /**
      * Hard-deletes terminal rows older than `ingest.jobRetentionDays` — the documented

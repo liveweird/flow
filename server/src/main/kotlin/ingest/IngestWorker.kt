@@ -283,28 +283,31 @@ class IngestWorker internal constructor(
             }
             onSucceeded(claim, deriveRevisionUsed)
         } catch (cancelled: CancellationException) {
+            // A release that fails (after its connection-loss retries) must not replace the cancellation: the lease expiry reclaims the row.
             withContext(NonCancellable) {
-                if (syncJobs.release(claim.id, config.workerId, claim.attempt)) {
-                    audit(
-                        "sync_job.released",
-                        "jobId" to claim.id.toLong(),
-                        "dataSourceId" to claim.connectionId.toLong(),
-                        "workerId" to config.workerId,
-                    )
-                } else {
-                    logStale(claim, "release")
+                claim.closeBestEffort("release") {
+                    if (syncJobs.release(claim.id, config.workerId, claim.attempt)) {
+                        audit(
+                            "sync_job.released",
+                            "jobId" to claim.id.toLong(),
+                            "dataSourceId" to claim.connectionId.toLong(),
+                            "workerId" to config.workerId,
+                        )
+                    } else {
+                        logStale(claim, "release")
+                    }
                 }
             }
             throw cancelled
         } catch (lost: LeaseLostException) {
             log.warn("Sync job {} lost its lease mid-run: {}", claim.id, lost.message)
         } catch (cancelledJob: JobCancelRequestedException) {
-            if (!syncJobs.markCancelled(claim.id, claim.attempt, clock())) logStale(claim, "cancel")
+            claim.closeBestEffort("cancel") { if (!syncJobs.markCancelled(claim.id, claim.attempt, clock())) logStale(claim, "cancel") }
             log.info("Sync job {} cancelled on request: {}", claim.id, cancelledJob.message)
         } catch (e: Exception) {
-            onFailed(claim, e)
+            claim.closeBestEffort("fail") { onFailed(claim, e) }
         } catch (overflow: StackOverflowError) {
-            onFailed(claim, JobStackOverflowException(overflow)) // an Error: the clause above never sees it
+            claim.closeBestEffort("fail") { onFailed(claim, JobStackOverflowException(overflow)) } // an Error: the clause above never sees it
         }
     }
 
