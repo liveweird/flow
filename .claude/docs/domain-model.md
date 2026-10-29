@@ -911,10 +911,18 @@ carries the per-measure detail).
     next DERIVE. A DERIVE pass between the item pass and the task pass reads them (a connection-wide map, one short list per epic) before any task is evaluated.
   - **The anchor.** `fact_task_delivery`: `done_at`, else the DERIVE clock; the task's own domain and epic use it already. `agg_daily_flow` EV DOMAIN inherits it from the fact. `fact_worklog`: the worklog's `started_at`, the instant its task domain and epic already use; AC DOMAIN inherits it. PV DOMAIN reads the
     epic's history at the END of each planned day (the aggregates' covering rule, `(from, to]`), so a baseline spanning a move splits its budget between the two domains by day and the sum
-    stays the budget. Half-open `[from, to)` everywhere else: a task done exactly at the move belongs to the NEW domain.
-  - **Fallbacks, the task rule.** A covering row wins; a covering row whose key is `null`, or no covering row (the anchor precedes the epic's creation), falls back to the epic's CURRENT domain
-    (`domain_map`, else its project key). A project Jira names that `domain_map` does not list stays a domain by its raw project key, never `null` (`null` means "no epic", A21): it has no
-    `dim_domain` row, so it is not a selectable filter, exactly as an unmapped TASK domain already is.
+    stays the budget; a move exactly AT a day's end instant leaves that day in the OLD domain (the row that ends there still covers it). Half-open `[from, to)` everywhere else: a task done exactly at the move belongs to the NEW domain.
+  - **A project the connection does not ingest is not a domain (decided 2026-10-30, tasks AND epics).** The connection's own domains are the domains of the projects its live items
+    carry (`domain_map` applied, else the project key itself: the set the metrics-config options offer; a move BETWEEN them is attributed as-was). A history row whose project is outside
+    it (typically the origin of a bulk migration out of a foreign project) carries the item's CURRENT domain instead of the raw key, so such a move re-attributes nothing: its pre-move
+    work stays where the item lives now. An item whose own current project is not ingested either keeps the raw key (there is no current domain to prefer). The rule lives in the one
+    kernel (`DomainScope.historyDomainKey`, applied by `taskDomainHistory`), so every reader (Kotlin attribution, the worklog laterals, PV, the backlog and domain-WIP reads) follows. Adjacent
+    rows that end up with one key are left as tiled; every reader is a covering lookup. This replaces the raw-key rule the task kernel had (`CCC`, a project nobody maps, is still a domain
+    when it is ingested; `OUT`, which no item carries, is not). It never maps to `null` (`null` means "no epic", A21).
+  - **Fallbacks and the epic's first row.** A covering row wins; a covering row whose key is `null` (a malformed issue key), or no covering row, falls back to the epic's CURRENT domain
+    (`domain_map`, else its project key). An EPIC's first row starts at instant 0, not at its `created_at` (`coverFromTheStart`), so every anchor is covered: a task done, a worklog
+    started or a plan day ending before the epic existed (a backdated plan start) reads the domain the epic had when it was created, never a flip current, then old, then new. Tasks keep
+    their rule (`created_at`; their own anchors never precede it).
   - **Epic-logged worklogs.** A worklog logged on the epic itself takes the epic's domain as of `started_at` for BOTH `task_domain_key` and `epic_domain_key` (they stay equal, invariant 6), and
     A22's owner-team fallback for foreign work keys on that as-of domain (its owner is the team looked up, not the current domain's).
   - **Sub-tasks (D2)** are orthogonal: a sub-task resolves its epic through its parent's CURRENT epic; whichever epic that is, it is read at the anchor through that epic's own history.

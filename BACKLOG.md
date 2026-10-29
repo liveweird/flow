@@ -25,12 +25,10 @@ The first real-Jira sync works end to end (2026-10-08, #112–#116): SYNC, PROCE
 
 Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 override the body.
 
-- [parked] **`epic_domain_key` as-of.** Today it uses the epic's current domain, because no epic-domain history
-  exists. Real data is in now; evaluate whether a parent move across projects shows up in the first real project's changelog.
-  - Evaluated 2026-10-09: the first real project's changelog (14 months) has NO `project` or `Key` change on any issue.
-    Its 100 `IssueParentAssociation` changes are re-parentings inside the project (30 tasks, 4 epics under the
-    Program), which never change an epic's domain. Nothing to fix on real data; a candidate for [parked].
-  - Parked by the user 2026-10-23: nothing to fix on real data.
+- [new] **Epic-level facts as-of.** A47 (1.28.0) made `epic_domain_key` as-of on task deliveries, worklogs and PV, but
+  the epic's OWN domain columns stay current: `dim_epic.domain_key`, `fact_epic_delivery.domain_key`/`owner_team_id`, the
+  WIP epic band and A34's done band, and Report 15's per-domain epic list. So a moved epic's row lists under its current
+  domain at its full value while the domain totals split at the move (documented in `measures.md`).
 - [blocked] **Sprint capacities from Jira Plans.** Probed 2026-10-08: the Plans REST API (`/rest/api/3/plans/plan`, then
   `…/team/atlassian/{id}` for `capacity`, `planningStyle`, `sprintLength` and `issueSourceId`) returns 403 to the sync
   service account: "You do not have the Administer Jira global permission". Every Plans endpoint needs it, reads included.

@@ -920,7 +920,8 @@ Throughput is what is delivered over any time unit by any group of people, in MD
   `null` = UNASSIGNED, selected by `teamId=0`), user = `assignee_account_id_at_done`. Honours
   `domain` (TASK view, the default and what `meta.domainView` echoes: the task's own `domain_key`;
   EPIC view: `COALESCE(epic_domain_key, domain_key)`, A21 -- `epic_domain_key` is the epic's domain as of `done_at`, A47; the fallback keys on
-  `epic_domain_key IS NULL`, so it also covers an epic outside the ingested scope), `activityType` and `workCategory`
+  `epic_domain_key IS NULL`: the task has no epic, or its epic is not an ingested item -- an epic that moved in from a project the connection
+  does not ingest is not null, its earlier rows read its current domain, A47), `activityType` and `workCategory`
   (`UNCATEGORIZED` = no category -- so a real category literally named that cannot be selected).
 - **Bucket rule.** `bucket=WEEK` weeks start Monday, `MONTH` starts on the 1st, both cut in the
   configured zone (`metrics.settings.time_zone`, never UTC -- a task done Monday 00:30 local belongs
@@ -1805,7 +1806,7 @@ empty but the open ones remain.
   DERIVE clock -- its newest SUCCEEDED `derive_runs.started_at`, else the request clock -- `inPvHorizon`: no PV curve,
   A23; a half-dated epic is "without dates" only).
 - **`outsideSprint`** (D10) -- DONE tasks with no sprint at done, `md` = their estimate at done. A task done inside a sprint of an
-  unmapped board is not here: it is counted under `unmappedBoards[].doneTasks`. **`crossDomain`** -- DONE tasks whose epic is in another
+  unmapped board is not here: it is counted under `unmappedBoards[].doneTasks`. **`crossDomain`** -- DONE tasks whose epic's domain as of `done_at` (A47) is not the task's own
   domain. **`epicDrift`** (D11) -- epics with a drift flag, `flags` naming them.
 - **`epicEstimateGap`** -- epics with BOTH an own estimate (`fact_epic_delivery.own_estimate_current_md` > 0) and estimated tasks
   (`child_sum_estimate_md` > 0) whose two figures differ by MORE than the configured tolerance of the own estimate: `|child − own| > own × tolerance`

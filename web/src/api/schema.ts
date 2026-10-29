@@ -1295,8 +1295,9 @@ export interface paths {
          *     request's now, and a future sprint yields an empty period view. `domain` (with
          *     `domainView`: TASK = the task's own domain, EPIC = the epic's domain as of the row's anchor (`done_at`,
          *     or `started_at` for worklogs, A47) with an epic-less task
-         *     falling back to its own when `epic_domain_key` is null, which also covers an epic outside the ingested
-         *     scope — A21), `activityType` and `workCategory` (`UNCATEGORIZED` = none)
+         *     falling back to its own when `epic_domain_key` is null: the task has no epic, or its epic is not an ingested
+         *     item — A21; an epic that moved in from a project the connection does not ingest is not null, its
+         *     earlier rows read its current domain, A47), `activityType` and `workCategory` (`UNCATEGORIZED` = none)
          *     slice the period view only; the sprint view carries no slice. Levels: UNIT (a `domain` with no `teamId`) — `groups`
          *     are one per credit team (a `teamId: null` group is UNASSIGNED); `teamId` narrows to TEAM level
          *     (`bySprint` to that team's sprints, the period view to tasks credited to that team — `teamId=0`
@@ -5845,7 +5846,7 @@ export interface components {
             missing: components["schemas"]["DataQualityMissing"];
             /** @description DONE tasks with no sprint at done (D10); `md` is their estimate at done. */
             outsideSprint: components["schemas"]["DataQualityTaskFinding"];
-            /** @description DONE tasks whose epic lives in another domain. */
+            /** @description DONE tasks whose epic's domain as of `done_at` (A47) is not the task's own domain. */
             crossDomain: components["schemas"]["DataQualityTaskFinding"];
             /** @description Epics with a D11 drift flag. */
             epicDrift: components["schemas"]["DataQualityEpicList"];

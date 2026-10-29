@@ -58,8 +58,10 @@ private suspend fun epicSums(ctx: ProgressContext, domain: String, fromDay: Stri
 
 /**
  * A domain's epics: those of `dim_epic.domain_key = domain` with a CURRENT baseline or any EV/AC up to asOf, each with its own
- * EPIC-scope figures — cumulative, and (A37) inside the period beside them. An epic is listed under its current domain, so a
- * domain the epic left keeps that epic's earlier EV/AC in its DOMAIN total (as-was attribution) but not in these rows.
+ * EPIC-scope figures — cumulative, and (A37) inside the period beside them. An epic is listed under its current domain at its
+ * full value, so a domain the epic left keeps that epic's earlier PV, EV and AC in its DOMAIN total (as-was attribution, A47) but not
+ * in these rows, and the epic's current domain's total holds only the part after the move: for an epic that moved, the rows and the
+ * DOMAIN totals do not add up.
  */
 internal suspend fun domainRows(ctx: ProgressContext, domain: String): List<EpicProgressRow> {
     val connectionIds = ctx.scope.connectionIds

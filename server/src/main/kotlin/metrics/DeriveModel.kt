@@ -106,6 +106,9 @@ internal class DeriveContext(
     fun stageMapFor(domainKey: String): Map<String, ItemStage> = configMaps.stageMapByDomain[domainKey] ?: stageMap
 
     val domainByProject get() = configMaps.domainByProject
+
+    /** The projects this connection ingests, for `task_domain` rows (A47): the live items' project keys plus the domain map's. */
+    val domainScope: DomainScope by lazy { DomainScope(domainByProject, itemsById.values.mapTo(HashSet()) { it.projectKey }) }
     val activityTypeByIssueType get() = configMaps.activityTypeByIssueType
     val workCategoryMap get() = configMaps.workCategoryMap
     val boardTeamByBoardId get() = configMaps.boardTeamByBoardId

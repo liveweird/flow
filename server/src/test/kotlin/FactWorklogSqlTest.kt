@@ -315,8 +315,9 @@ class FactWorklogSqlTest {
                 Expected(1023, "TB", "DOMB", 14, "DOMB", "Planning", null, null, null, false, null, null, "0.1250", 0),
                 // Day 3: DOMA, whose owner is TA: foreign for aC.
                 Expected(1024, "TC", "DOMA", 14, "DOMA", "Planning", null, null, null, true, null, null, "0.1250", 0),
-                // Before the epic existed: no covering epic-domain row, the epic's current domain (A) applies.
-                Expected(1025, "TC", "DOMA", 14, "DOMA", "Delivery", null, null, null, false, null, null, "0.1250", 0),
+                // Before the epic existed: an epic's first domain row reaches back to instant 0 (A47), so the domain it had when it was
+                // created (B) applies, not its current one (A); the task itself (created earlier, never moved) is A.
+                Expected(1025, "TC", "DOMA", 14, "DOMB", "Delivery", null, null, null, false, null, null, "0.1250", 0),
             )
 
             val rows = jdbc { conn ->

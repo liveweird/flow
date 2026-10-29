@@ -15,6 +15,8 @@ import ch.nokillswit.norm.WorklogFact
 import kotlinx.coroutines.runBlocking
 import org.junit.BeforeClass
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -24,9 +26,10 @@ import kotlin.test.assertTrue
  * `issuekey` history at the task's anchor (`done_at`, else the DERIVE clock), and the PV DOMAIN scope from the epic's history at
  * the END of each planned day. One hand-built world on a private DISABLED connection (`.claude/docs/testing.md` "The derived
  * fixture"): epic [EPIC] lives in `BBB` now and started in `AAA`, moved at [MOVE]; its children are tasks of `AAA` done before the
- * move, after it, exactly at it (half-open: the NEW row covers), never (open) and before the epic existed (no covering row, so the
- * epic's current domain); a second test does the same for the worklog statement (`started_at`). Every figure is graded from the
- * stored rows via plain SQL, never through the report code.
+ * move, after it, exactly at it (half-open: the NEW row covers), never (open) and before the epic existed (the epic's first row reaches
+ * back to instant 0, so the domain at its creation); a second test does the same for the worklog statement (`started_at`), a third
+ * pins PV days before an epic's creation, a move exactly at a day's end and an origin the connection does not ingest. Every figure is
+ * graded from the stored rows via plain SQL, never through the report code.
  */
 class MetricsEpicDomainAsOfTest {
     private val epicCreated = at("2026-01-12T12:00:00Z")
@@ -138,10 +141,8 @@ class MetricsEpicDomainAsOfTest {
         connId.toLong(),
     ).associate { (it[0] as String to it[1] as String) to (it[2] as Number).toDouble() }
 
-    @Test
-    fun `a task reads its epic's domain as of its done instant, and the PV DOMAIN scope as of each planned day's end`() = runBlocking {
-        val connId = SyncedStubFixture.createConnection(namePrefix = "jira-epic-domain-asof", enabled = false)
-        // The profile (custom field ids) comes from the shared connection, copied the way `cloneProcessedData` does.
+    /** Copies the shared connection's profile onto [connId] (as `cloneProcessedData` does) and returns three custom field ids to use. */
+    private suspend fun cloneProfileFields(connId: UInt): Triple<String, String, String> {
         PostgresTestSupport.connect().use { c ->
             c.createStatement().use { st ->
                 val table = DataSourceService.Connections.tableName
@@ -154,8 +155,13 @@ class MetricsEpicDomainAsOfTest {
         val profileFields = SyncedStubFixture.dataSources().readProfileSections(connId)?.customFields.orEmpty()
         val free = profileFields.filter { it.role != "SPRINT" }.map { it.id }
         assertTrue(free.size >= 3, "the stub's profile lists three custom fields to use as the estimate and the epic start/due")
-        val (estimateField, startField, dueField) = free
+        return Triple(free[0], free[1], free[2])
+    }
 
+    @Test
+    fun `a task reads its epic's domain as of its done instant, and the PV DOMAIN scope as of each planned day's end`() = runBlocking {
+        val connId = SyncedStubFixture.createConnection(namePrefix = "jira-epic-domain-asof", enabled = false)
+        val (estimateField, startField, dueField) = cloneProfileFields(connId)
         SyncedStubFixture.workItems().replaceStatuses(
             connId,
             listOf(
@@ -175,7 +181,7 @@ class MetricsEpicDomainAsOfTest {
         seedChild(connId, AFTER_MOVE, 11, taskCreated, MOVE + DAY, 5.0, estimateField)
         seedChild(connId, OPEN, 12, taskCreated, null, 1.0, estimateField)
         seedChild(connId, AT_MOVE, 13, taskCreated, MOVE, 7.0, estimateField)
-        // Done (and created) before the epic existed: the anchor precedes its first history row, so its CURRENT domain applies.
+        // Done (and created) before the epic existed: the epic's first row is stretched back to 0, so the domain at its creation applies.
         seedChild(connId, BEFORE_EPIC, 14, taskCreated, epicCreated - 3 * DAY, 2.0, estimateField)
 
         val config = DerivedStubFixture.metricsConfig()
@@ -193,9 +199,9 @@ class MetricsEpicDomainAsOfTest {
 
         // The epic's own history: one row per project it lived in, tiled at the move.
         assertEquals(
-            listOf(Triple("AAA", epicCreated, MOVE), Triple("BBB", MOVE, null)),
+            listOf(Triple("AAA", 0L, MOVE), Triple("BBB", MOVE, null)),
             domainRows(connId, EPIC),
-            "the epic's task_domain history is [AAA, created..move) [BBB, move..)",
+            "the epic's task_domain history is [AAA, 0..move) [BBB, move..): the first row covers every anchor before the creation too",
         )
         // A task's own history stays a single AAA row (it never moved), unaffected by its epic.
         assertEquals(listOf(Triple("AAA", taskCreated, null)), domainRows(connId, BEFORE_MOVE))
@@ -204,14 +210,17 @@ class MetricsEpicDomainAsOfTest {
         assertEquals(Delivery(EPIC, "AAA", "BBB", true), delivery(connId, AFTER_MOVE), "done after the move: the epic is in BBB")
         assertEquals(Delivery(EPIC, "AAA", "BBB", true), delivery(connId, OPEN), "an open task is read at the DERIVE clock: current domain")
         assertEquals(Delivery(EPIC, "AAA", "BBB", true), delivery(connId, AT_MOVE), "done exactly at the move: the NEW row covers")
-        assertEquals(Delivery(EPIC, "AAA", "BBB", true), delivery(connId, BEFORE_EPIC), "before the epic's first row: its current domain")
+        assertEquals(
+            Delivery(EPIC, "AAA", "AAA", false), delivery(connId, BEFORE_EPIC),
+            "done before the epic existed: the domain the epic had when it was created, not the one it has now",
+        )
 
         // EV, DOMAIN: each done task's estimate lands on its done day in the epic's domain AT THAT instant.
         val ev = domainFlow(connId, "ev_md")
         assertEquals(3.0, ev[("AAA" to dayOf(MOVE - DAY))], "the pre-move completion is delivered into AAA")
         assertEquals(5.0, ev[("BBB" to dayOf(MOVE + DAY))], "the post-move completion is delivered into BBB")
         assertEquals(7.0, ev[("BBB" to dayOf(MOVE))], "the completion at the move is delivered into BBB")
-        assertEquals(2.0, ev[("BBB" to dayOf(epicCreated - 3 * DAY))], "the pre-epic completion falls back to BBB")
+        assertEquals(2.0, ev[("AAA" to dayOf(epicCreated - 3 * DAY))], "the pre-epic completion is delivered into the domain at creation")
         assertEquals(4, ev.size, "no other DOMAIN EV row exists on this connection")
 
         // PV, DOMAIN: the budget's working days before the move's day (their END precedes it) sit in AAA, the others in BBB.
@@ -231,6 +240,92 @@ class MetricsEpicDomainAsOfTest {
         )
         assertEquals(budget, pv.values.sum(), 1e-9, "the DOMAIN split still sums to the budget")
     }
+
+    @Test
+    fun `PV DOMAIN covers days before creation, a move at a day's end instant, and a project the connection does not ingest`() =
+        runBlocking {
+            val connId = SyncedStubFixture.createConnection(namePrefix = "jira-epic-domain-asof-pv", enabled = false)
+            val (estimateField, startField, dueField) = cloneProfileFields(connId)
+            SyncedStubFixture.workItems().replaceStatuses(
+                connId,
+                listOf(StatusRef("7", "In progress", StatusCategory.IN_PROGRESS), StatusRef("9", "Done", StatusCategory.DONE)),
+            )
+            val inProgress = listOf(StatusStep("7", "In progress", StatusCategory.IN_PROGRESS, epicCreated))
+            // AAA is one of the connection's projects only because it has an item (the scope is the live items' projects).
+            seed(connId, AAA_ITEM, "AAA-20", 0, null, taskCreated, inProgress.map { it.copy(atMs = taskCreated) }, "{}")
+            // BACKDATED: created Monday 12 January midday, planned Thu 8 - Wed 14 January (five working days; the first two end before the
+            // epic existed), moved to BBB at MOVE. Every planned day belongs to AAA, the domain at its creation; reading the CURRENT
+            // domain for the pre-creation days would flip the budget BBB, BBB, AAA, AAA, AAA.
+            seed(
+                connId, BACKDATED, "BBB-2", 1, null, epicCreated, inProgress,
+                """{"$estimateField": 10.0, "$startField": "2026-01-08", "$dueField": "2026-01-14"}""",
+                keyChange = FieldChangeFact("Key", MOVE, "AAA-2", "AAA-2", "BBB-2", "BBB-2", fieldId = "issuekey"),
+            )
+            // BOUNDARY: planned Mon 9 - Fri 13 February, moved exactly at the END instant of Tuesday 10 February (`dim_date.day_end_ms`,
+            // which is also Wednesday's start): PV reads the history at the day's END with the aggregates' `(from, to]` convention
+            // (`coveringAt`), so the row that ENDS at that instant still covers Tuesday - Monday and Tuesday are AAA's, Wednesday on BBB's.
+            val zone = ZoneId.of(jdbcRows("SELECT time_zone FROM metrics.settings").single().single() as String)
+            val boundary = LocalDate.parse("2026-02-10").plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+            seed(
+                connId, BOUNDARY, "BBB-3", 1, null, epicCreated, inProgress,
+                """{"$estimateField": 10.0, "$startField": "2026-02-09", "$dueField": "2026-02-13"}""",
+                keyChange = FieldChangeFact("Key", boundary, "AAA-3", "AAA-3", "BBB-3", "BBB-3", fieldId = "issuekey"),
+            )
+            // FOREIGN: moved in from OUT, a project this connection never ingests (no item of it exists), at MOVE; planned Mon 2 - Fri 6
+            // February, before the move, with a child done the day before it. OUT is not one of the connection's domains, so the
+            // pre-move work keeps the epic's CURRENT domain (BBB) instead of re-attributing to a domain `OUT`.
+            seed(
+                connId, FOREIGN, "BBB-4", 1, null, epicCreated, inProgress,
+                """{"$estimateField": 10.0, "$startField": "2026-02-02", "$dueField": "2026-02-06"}""",
+                keyChange = FieldChangeFact("Key", MOVE, "OUT-4", "OUT-4", "BBB-4", "BBB-4", fieldId = "issuekey"),
+            )
+            seed(
+                connId, FOREIGN_CHILD, "BBB-5", 0, FOREIGN, taskCreated,
+                listOf(
+                    StatusStep("7", "In progress", StatusCategory.IN_PROGRESS, taskCreated),
+                    StatusStep("9", "Done", StatusCategory.DONE, MOVE - DAY),
+                ),
+                """{"$estimateField": 4.0}""",
+            )
+            val config = DerivedStubFixture.metricsConfig()
+            val current = config.effectiveConfig(connId)
+            assertEquals(setOf("AAA", "BBB"), current.domains.map { it.domainKey }.toSet(), "OUT is not offered: nothing of it is ingested")
+            config.replaceConfig(
+                connId,
+                current.asRequest().copy(
+                    fields = current.fields.copy(
+                        estimateTask = estimateField, estimateEpic = null, epicStart = startField, epicDue = dueField,
+                    ),
+                ),
+            )
+            DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) { DerivedStubFixture.derivePinned(connId) }
+
+            assertEquals(listOf(Triple("BBB", 0L, MOVE), Triple("BBB", MOVE, null)), domainRows(connId, FOREIGN), "no row names OUT")
+            assertEquals(Delivery(FOREIGN, "BBB", "BBB", false), delivery(connId, FOREIGN_CHILD), "pre-move work keeps the current domain")
+            assertEquals(listOf(Triple("AAA", 0L, MOVE), Triple("BBB", MOVE, null)), domainRows(connId, BACKDATED))
+            assertEquals(listOf(Triple("AAA", 0L, boundary), Triple("BBB", boundary, null)), domainRows(connId, BOUNDARY))
+            assertEquals(
+                jdbcRows("SELECT day_end_ms FROM metrics.dim_date WHERE day = '2026-02-10'").single().single(), boundary,
+                "the move sits exactly on Tuesday's day_end_ms",
+            )
+            // The two epics share days (and a domain), so grade the sums per (domain, day): 2.0 md per planned day per epic.
+            assertEquals(
+                mapOf(
+                    ("AAA" to "2026-01-08") to 2.0, ("AAA" to "2026-01-09") to 2.0, ("AAA" to "2026-01-12") to 2.0,
+                    ("AAA" to "2026-01-13") to 2.0, ("AAA" to "2026-01-14") to 2.0,
+                    ("AAA" to "2026-02-09") to 2.0, ("AAA" to "2026-02-10") to 2.0,
+                    ("BBB" to "2026-02-11") to 2.0, ("BBB" to "2026-02-12") to 2.0,
+                    ("BBB" to "2026-02-13") to 2.0,
+                    ("BBB" to "2026-02-02") to 2.0, ("BBB" to "2026-02-03") to 2.0, ("BBB" to "2026-02-04") to 2.0,
+                    ("BBB" to "2026-02-05") to 2.0, ("BBB" to "2026-02-06") to 2.0,
+                ),
+                domainFlow(connId, "pv_md"),
+                "pre-creation days are AAA's; the day whose end instant is the move is still the OLD domain's; OUT is never a domain",
+            )
+            assertEquals(
+                mapOf(("BBB" to dayOf(MOVE - DAY)) to 4.0), domainFlow(connId, "ev_md"), "the pre-move completion is delivered into BBB",
+            )
+        }
 
     private data class Logged(val taskDomainKey: String?, val epicId: Long?, val epicDomainKey: String?, val md: Double)
 
@@ -291,6 +386,11 @@ class MetricsEpicDomainAsOfTest {
         private const val HOUR = 3_600_000L
         private const val DAY = 24 * HOUR
         private const val EPIC = 920_001L
+        private const val BACKDATED = 920_002L
+        private const val BOUNDARY = 920_003L
+        private const val FOREIGN = 920_004L
+        private const val FOREIGN_CHILD = 920_005L
+        private const val AAA_ITEM = 920_006L
         private const val BEFORE_MOVE = 920_010L
         private const val AFTER_MOVE = 920_011L
         private const val OPEN = 920_012L

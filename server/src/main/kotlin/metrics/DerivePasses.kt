@@ -57,7 +57,8 @@ internal suspend fun runPass1(
 
 /**
  * The epic-domain pass between pass 1 and pass 2 (A47): every epic's `issuekey` changes are read in batches of
- * [DERIVE_BATCH_SIZE], tiled by [taskDomainHistory] (the task rule, unchanged), stored in `metrics.task_domain` beside the tasks'
+ * [DERIVE_BATCH_SIZE], tiled by [taskDomainHistory] with the first row stretched to instant 0 ([coverFromTheStart]), stored in
+ * `metrics.task_domain` beside the tasks'
  * rows and kept in [DeriveContext.epicDomainHistoryById] so pass 2 reads a task's `epic_domain_key` as-of its anchor. Pass 2
  * reassigns [DeriveContext.issueKeyChangesByIssue] per task batch, so this pass leaves nothing behind it relies on.
  */
@@ -75,7 +76,7 @@ internal suspend fun runEpicDomainPass(
             workItemStore.fieldChangesByFieldIds(connectionId, listOf(ISSUE_KEY_FIELD_ID), batch.map { it.issueId }).groupBy { it.issueId }
         val rowsBatch = mutableListOf<TaskDomainRow>()
         for (epic in batch) {
-            val history = taskDomainHistory(epic, context)
+            val history = coverFromTheStart(taskDomainHistory(epic, context))
             historyById[epic.issueId] = history
             rowsBatch += history
         }

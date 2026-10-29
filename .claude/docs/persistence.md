@@ -642,8 +642,8 @@ the page write aborts the whole page transaction; `JiraProcessStream` then retri
 issue (each in its own transaction, via `replaceWorkItem`/`markProcessed`), so one bad row never
 blocks its page (ingestion.md "PROCESS batching, failure isolation and progress").
 
-**`PROCESSING_VERSION`** (`norm/Normalization.kt`, currently `2` — bumped from `1` by V14, "The
-normalized layer gaps (V14)" below) — bump it on ANY change to the tiling/write-shape rules.
+**`PROCESSING_VERSION`** (`norm/Normalization.kt`, currently `3` — bumped from `1` to `2` by V14, "The
+normalized layer gaps (V14)" below, and to `3` by A47's name-only issue-key change item) — bump it on ANY change to the tiling/write-shape rules.
 `JiraRawStore.issuesToProcess` claims a raw issue whose `processing_version IS DISTINCT FROM` the
 current constant (or is `NULL`, or `needs_processing` is flagged), so a version bump reprocesses
 every issue automatically on the next PROCESS pass — proven by `NormalizationPipelineTest`'s "a
@@ -780,7 +780,7 @@ exception to "never edit an applied migration": this is a NEW file, not a retroa
 and every `metrics.*` star table: `dim_date`/`dim_domain`/`dim_task`/`dim_epic`/`dim_sprint`,
 `task_epic`/`task_domain`/`task_assignee`/`task_sprint`/`item_estimate`/`item_stage`/`item_blocked`
 (the effective-dated bridges; `task_domain` holds the EPICS' `issuekey` history too since A47 — it has no foreign key to `dim_task`, the
-name stays, no migration: a connection gets its epic rows at its next DERIVE; a reader that joins it to an item picks the side by the item's own table), `fact_task_delivery`/`fact_epic_delivery` (accumulating snapshots),
+name stays; an epic's first row starts at instant 0 rather than at its `created_at`, and a row for a project the connection does not ingest carries the item's current domain, A47; no migration: a connection gets its epic rows at its next DERIVE; a reader that joins it to an item picks the side by the item's own table), `fact_task_delivery`/`fact_epic_delivery` (accumulating snapshots),
 `fact_sprint_scope`/`fact_sprint`/`fact_sprint_snapshot`/`fact_worklog`/`fact_epic_plan` and
 `agg_daily_wip`/`agg_daily_flow` (their table objects land in this commit; commits 8/9 add the
 writers). Interval storage mirrors `metrics.team_membership`'s own precedent (V15): half-open
