@@ -533,4 +533,51 @@ class JiraNormalizerTest {
         assertNull(input.parentEvents.single().toValueId)
         assertEquals("100", input.parentEvents.single().fromValueId)
     }
+
+    @Test
+    fun `a real name-only Key item (no fieldId) is kept with field_id=issuekey and its key texts`() {
+        val changelogs = listOf(
+            """{"id":"1","created":"2026-01-01T01:00:00.000Z","items":[
+                {"field":"Key","fieldtype":"jira","from":null,"fromString":"OLD-12","to":null,"toString":"NEW-34"},
+                {"field":"project","fieldtype":"jira","fieldId":"project","from":"10000","fromString":"Old","to":"10001","toString":"New"}
+            ]}""",
+        )
+        val input = JiraNormalizer.normalizeIssue(minimalIssuePayload(), changelogs, emptyList(), noFieldIds, TombstoneKind.NONE)
+
+        val keyChange = input.fieldChanges.single { it.fieldId == "issuekey" }
+        assertEquals("Key", keyChange.field)
+        assertNull(keyChange.fromValue)
+        assertNull(keyChange.toValue)
+        assertEquals("OLD-12", keyChange.fromText)
+        assertEquals("NEW-34", keyChange.toText)
+        assertEquals(listOf("issuekey", "project"), input.fieldChanges.map { it.fieldId }, "order is the changelog's own")
+    }
+
+    @Test
+    fun `a Key item with fieldId=issuekey still works, and both spellings in one history count once`() {
+        val changelogs = listOf(
+            """{"id":"1","created":"2026-01-01T01:00:00.000Z","items":[
+                {"field":"Key","fieldId":"issuekey","from":null,"fromString":"OLD-12","to":null,"toString":"NEW-34"}
+            ]}""",
+            """{"id":"2","created":"2026-01-02T01:00:00.000Z","items":[
+                {"field":"Key","from":null,"fromString":"NEW-34","to":null,"toString":"NEW-35"},
+                {"field":"Key","fieldId":"issuekey","from":null,"fromString":"NEW-34","to":null,"toString":"NEW-35"}
+            ]}""",
+        )
+        val input = JiraNormalizer.normalizeIssue(minimalIssuePayload(), changelogs, emptyList(), noFieldIds, TombstoneKind.NONE)
+
+        val keyChanges = input.fieldChanges.filter { it.fieldId == "issuekey" }
+        assertEquals(listOf("OLD-12" to "NEW-34", "NEW-34" to "NEW-35"), keyChanges.map { it.fromText to it.toText })
+    }
+
+    @Test
+    fun `a name-only item that merely mentions Key but carries another fieldId is not an issue-key change`() {
+        val changelogs = listOf(
+            """{"id":"1","created":"2026-01-01T01:00:00.000Z","items":[
+                {"field":"Key","fieldId":"customfield_77777","from":null,"fromString":"a","to":null,"toString":"b"}
+            ]}""",
+        )
+        val input = JiraNormalizer.normalizeIssue(minimalIssuePayload(), changelogs, emptyList(), noFieldIds, TombstoneKind.NONE)
+        assertEquals(listOf("customfield_77777"), input.fieldChanges.map { it.fieldId })
+    }
 }

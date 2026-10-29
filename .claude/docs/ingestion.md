@@ -1088,6 +1088,13 @@ exercises the `fieldId == "parent"` path. The first PARENT interval seeds from t
 move's `from` value (else the issue's current parent) — `Tiling.fieldIntervals`' own construction
 rule needs no special-casing for this.
 
+**Issue-key changes (A47, `PROCESSING_VERSION = 3`).** Real Jira sends a key change (a move to another
+project) NAME-ONLY: `{"field":"Key","fieldtype":"jira","from":null,"fromString":"OLD-1","to":null,"toString":"NEW-2"}`, no
+`fieldId`, the keys in the `*String` texts only; the stub spells it `fieldId: "issuekey"`. `fieldChangesFromHistory` keeps both
+(a name-only match is the English display name `Key`, like the parent one), stores them with `field_id = 'issuekey'`, and
+collapses an identical pair seen under both spellings in one history to one row. The metrics domain history reads the keys
+from `from_text`/`to_text` when the value columns are null. Version 3 reprocesses every issue so already-synced histories gain the rows.
+
 **Field changes.** `norm.work_item_field_changes` (`jira/JiraNormalizer.kt`'s
 `fieldChangesFromHistory`) keeps EVERY tracked changelog item verbatim, never tiled: status,
 assignee, Sprint, Flagged, Rank, priority, resolution, issuetype, project, Key, story points,
