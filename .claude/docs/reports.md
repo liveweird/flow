@@ -1896,8 +1896,8 @@ day under `basis=PERIOD`. Takes the shared `from`/`to`/`lastSprints`/`sprintId` 
 ```
 EpicProgressReport {
   meta: ReportMeta                     // domainView always EPIC; level is the shared UNIT/TEAM/USER of teamId
-  level: UNIT | DOMAIN | EPIC | TEAM   // what the report is about (UNIT is never answered since the scope guard)
-  scope: { kind: EPIC|DOMAIN|TEAM, id?, key?, name } | null        // never null now (UNIT is not answered)
+  level: DOMAIN | EPIC | TEAM          // what the report is about (there is no whole-unit level: the scope guard refuses a request naming none)
+  scope: { kind: EPIC|DOMAIN|TEAM, id?, key?, name } | null        // never null now (no whole-unit read)
   basis: PERIOD | CUMULATIVE           // the EFFECTIVE basis of `series` (A37)
   series: [{ date, pv, ev, ac, pvOriginal? }]                      // on `basis`, one point per calendar day
   asOf: { day?, pv, ev, ac, sv, spi?, cv, cpi? }                   // always CUMULATIVE
@@ -1914,7 +1914,7 @@ EpicProgressReport {
 
 - **Scope -- at most one of `epicId` / `domain` / `teamId`** (`400` for two or more): `epicId` is an epic's ISSUE KEY
   (`FLO-33`, what every other report lists as `issueKey`; there is no numeric epic id on the wire) -> level `EPIC`; `domain` ->
-  `DOMAIN`; `teamId` -> `TEAM` (`0` = UNASSIGNED, a legal value); none is `400` ("Scope" above; `EpicProgressLevel.UNIT` stays in the wire enum until the web drops its UNIT rows, BACKLOG). What each reads, from the aggregate's own scopes:
+  `DOMAIN`; `teamId` -> `TEAM` (`0` = UNASSIGNED, a legal value); none is `400` ("Scope" above; the wire `level` enum has no unit value). What each reads, from the aggregate's own scopes:
   - **EPIC** / **DOMAIN**: the `EPIC` / `DOMAIN` scope rows. EV is the `estimate_at_done_md` of the level-0 tasks done under
     the epic, AC the worklog MD logged on the epic's tasks and on the epic itself, PV the epic's CURRENT baseline spread over the
     working days -- **epic-attributed work only** (a task with no epic has no plan to compare against, A23).

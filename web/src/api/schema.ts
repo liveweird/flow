@@ -5448,18 +5448,18 @@ export interface components {
         EpicProgressReport: {
             meta: components["schemas"]["ReportMeta"];
             /**
-             * @description What the report is about (`meta.level` keeps the shared UNIT/TEAM/USER meaning of `teamId`). UNIT, the whole unit, is no longer answered: a request names an epic, a domain or a team.
+             * @description What the report is about (`meta.level` keeps the shared UNIT/TEAM/USER meaning of `teamId`). A request always names an epic, a domain or a team: the whole unit is never answered.
              * @enum {string}
              */
-            level: "UNIT" | "DOMAIN" | "EPIC" | "TEAM";
-            /** @description The epic, domain or team; null at UNIT level. */
+            level: "DOMAIN" | "EPIC" | "TEAM";
+            /** @description The epic, domain or team the report is about. */
             scope: components["schemas"]["EpicProgressScope"] | null;
             /**
-             * @description The EFFECTIVE basis of `series`: the request's, else the level's default (PERIOD at DOMAIN, TEAM and UNIT, CUMULATIVE at EPIC).
+             * @description The EFFECTIVE basis of `series`: the request's, else the level's default (PERIOD at DOMAIN and TEAM, CUMULATIVE at EPIC).
              * @enum {string}
              */
             basis: "PERIOD" | "CUMULATIVE";
-            /** @description One point per calendar day of the period up to `asOf.day`, on `basis`; empty at UNIT level. */
+            /** @description One point per calendar day of the period up to `asOf.day`, on `basis`. */
             series: components["schemas"]["EpicProgressPoint"][];
             asOf: components["schemas"]["EpicProgressAsOf"];
             period: components["schemas"]["EpicProgressPeriod"];
@@ -5477,7 +5477,7 @@ export interface components {
              * @description TEAM level only: the same share over the worklogs started inside the period (0..1) — the window of the period CPI; null when they logged none or the period lies after asOf.day.
              */
             foreignWorkSharePeriod: number | null;
-            /** @description The drill table as of `asOf.day`: a domain's epics (DOMAIN), the domains then the teams (UNIT); empty at EPIC and TEAM level. */
+            /** @description The drill table as of `asOf.day`: a domain's epics (DOMAIN); empty at EPIC and TEAM level. */
             rows: components["schemas"]["EpicProgressRow"][];
             /** @description Why the answer is empty or partial — nothing derived yet, no sprint resolved (incl. `teamId=0` with a sprint-relative period), connections that never derived and were left out of the cut-off, a period that lies after `asOf.day`; null otherwise. */
             note: string | null;
