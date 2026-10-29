@@ -20,22 +20,32 @@ internal object JiraTrimCandidates {
 
     private fun quoted(values: Collection<String>): String = values.sorted().joinToString(", ") { "'$it'" }
 
-    private val keptUserKeys = quoted(KEPT_USER_KEYS)
+    /** [value] (a jsonb expression) is an object with a key outside [kept]. */
+    private fun fatObject(value: String, kept: Collection<String>): String =
+        "CASE WHEN jsonb_typeof($value) = 'object' THEN " +
+            "EXISTS (SELECT 1 FROM jsonb_object_keys($value) AS k WHERE k NOT IN (${quoted(kept)})) ELSE false END"
 
     /** [value] (a jsonb expression) is an object with a key outside [KEPT_USER_KEYS]. */
-    private fun fatUser(value: String): String =
-        "CASE WHEN jsonb_typeof($value) = 'object' THEN " +
-            "EXISTS (SELECT 1 FROM jsonb_object_keys($value) AS k WHERE k NOT IN ($keptUserKeys)) ELSE false END"
+    private fun fatUser(value: String): String = fatObject(value, KEPT_USER_KEYS)
 
     /** [value] is an object that has one of [keys]. */
     private fun hasAnyKey(value: String, keys: Collection<String>): String =
         "CASE WHEN jsonb_typeof($value) = 'object' THEN " +
             "EXISTS (SELECT 1 FROM jsonb_object_keys($value) AS k WHERE k IN (${quoted(keys)})) ELSE false END"
 
+    /** [fields] holds an `issuelinks` array with an element that [slimIssueLink] would change. */
+    private fun fatLinks(fields: String): String {
+        val link = "it"
+        val fat = (listOf(fatObject(link, KEPT_LINK_KEYS), fatObject("($link -> 'type')", KEPT_LINK_TYPE_KEYS)) +
+            LINKED_ISSUE_KEYS.map { fatObject("($link -> '$it')", KEPT_LINKED_ISSUE_KEYS) }).joinToString(" OR ")
+        return "CASE WHEN jsonb_typeof($fields -> '$ISSUE_LINKS_FIELD') = 'array' THEN " +
+            "EXISTS (SELECT 1 FROM jsonb_array_elements($fields -> '$ISSUE_LINKS_FIELD') AS it WHERE $fat) ELSE false END"
+    }
+
     private val issue: String = run {
         val fields = "($PAYLOAD -> 'fields')"
         val users = SLIMMED_ISSUE_USER_FIELDS.sorted().joinToString(" OR ") { fatUser("($fields -> '$it')") }
-        "(${hasAnyKey(fields, DROPPED_ISSUE_FIELDS)} OR $users)"
+        "(${hasAnyKey(fields, DROPPED_ISSUE_FIELDS)} OR $users OR ${fatLinks(fields)})"
     }
 
     private val history: String = run {

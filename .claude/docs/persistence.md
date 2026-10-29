@@ -429,12 +429,15 @@ tables in the `raw` schema — the REFERENCE and ISSUES streams' target
   never a re-fetch that happened to return the same document.
 - **The trimmed payloads (`jira/JiraPayloadTrim.kt`, 1.17.1).** The raw store keeps what Flow reads, not everything Jira sends; the
   trim runs on every write path (`upsertIssue`/`upsertIssues`, `insertChangelog(s)`, `upsertWorklog(s)`) BEFORE canonicalization and
-  hashing, so the stored text and its `sha256` agree. An issue loses `fields.comment`, `fields.worklog`, `fields.description` and
+  hashing, so the stored text and its `sha256` agree. An issue loses `fields.comment`, `fields.worklog`, `fields.description`,
   `fields.attachment` (free text and copies of data held elsewhere: worklogs have their own table, a description or comment can
-  carry personal data), and its `fields.assignee`/`reporter`/`creator` are reduced to `{accountId, displayName, accountType}`
+  carry personal data), `fields.subtasks` (embedded child issues; the edge is the child's own `parent`) and `fields.environment` (free
+  text, empty on every real install measured); each `fields.issuelinks[]` element is reduced to `{id, type: {name, inward, outward},
+  inwardIssue/outwardIssue: {id, key}}` (`jira/JiraIssueLinks.kt`; Jira embeds the linked issue's summary, status, priority and type
+  with icon URLs and `self` links in every link, ~15 % of the stored issue text on a real install - trim rules v2, 1.25.0); and its `fields.assignee`/`reporter`/`creator` are reduced to `{accountId, displayName, accountType}`
   (`jira/JiraUserReferences.kt`; the normalizer reads the assignee's `accountId`/`displayName` and the reporter's `accountId`).
   Everything else stays verbatim: every other system field, **every `customfield_*` (nested ADF included - a user picker in a custom
-  field keeps its full user)**, `timetracking`, `issuelinks`, `subtasks`, `expand`, `self`. The raw issue inspector therefore returns
+  field keeps its full user)**, `timetracking`, `expand`, `self`. The raw issue inspector therefore returns
   the trimmed document. **The equivalence property** (`JiraPayloadTrimTest`): normalizing a trimmed payload gives exactly the
   rows the untrimmed one gives, over a rich synthetic issue and over every raw row of the stub fixture with the dropped keys
   injected - a key joins the drop list only after every reader was grepped (`ingestion.md` "Normalized layer"). A change confined

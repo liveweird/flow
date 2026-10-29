@@ -548,8 +548,8 @@ above).
   (its token belongs to the old unbounded query) or a finished sweep a crash left behind is
   dropped and a FRESH pass starts (`passStartedAt` = now, the scratch ids drained).
 
-- **`trim`** (`jira/JiraTrimStream.kt`'s `TrimCursor`): `phase` (`ISSUES` → `CHANGELOGS` → `WORKLOGS` → `DONE`), `afterKey` (the last issue / history / worklog id finished in that phase, -1 before the first) and `completedAt`
-  (set when the phase becomes `DONE`, also the row's `last_completed_at`). **The one cursor that is never cleared**: `DONE` is the answer "this install is trimmed", and a missing row would mean "not
+- **`trim`** (`jira/JiraTrimStream.kt`'s `TrimCursor`): `phase` (`ISSUES` → `CHANGELOGS` → `WORKLOGS` → `DONE`), `afterKey` (the last issue / history / worklog id finished in that phase, -1 before the first), `completedAt`
+  (set when the phase becomes `DONE`, also the row's `last_completed_at`) and `version` (the trim RULES version the walk applies, `TRIM_RULES_VERSION`; a cursor written before it existed has none and is 1). **The one cursor that is never cleared**: `DONE` is the answer "this install is trimmed", and a missing row would mean "not
   started" and walk three tables again; "Sync status endpoint" lists it like any other. See "TRIM stream" below.
 
 **Per-page transaction with the cursor advance.** Every page (or, for REFERENCE's single-shot
@@ -864,17 +864,26 @@ step of the job it gets all four, and an install that never syncs again has noth
   against the synced stamps (`JiraRawStreamScans`), so touching it would re-fetch every changelog; and the normalized rows do not change (the equivalence property,
   `JiraPayloadTrimTest`), so nothing is flagged for PROCESS. A row the trim does not change is not written. The new `sha256` is the hash of the new canonical text, the one
   `upsertIssue`/`upsertWorklog` compute for the same Jira document, so the next fetch of an unchanged row is `UNCHANGED` (`JiraTrimStreamTest`). The changelog table has no hash.
-- **The cursor** (`{phase, afterKey, completedAt}`, "Cursor shapes") ends as `DONE` with `last_completed_at` and is never cleared, so every later SYNC/REPROCESS reads one row and returns.
+- **The cursor** (`{phase, afterKey, completedAt, version}`, "Cursor shapes") ends as `DONE` with `last_completed_at` and is never cleared, so every later SYNC/REPROCESS reads one row and returns.
   A PURGE leaves it (the rows it guarded are gone; new writes are trimmed). To re-run TRIM on purpose (e.g. after a rollback to a build that wrote untrimmed rows), delete the connection's
   `trim` row from `sync_cursors`. A test clone made with `cloneRawData` copies no cursor, so it runs TRIM once.
+- **Rules versions (1.25.0).** `TRIM_RULES_VERSION` is the version of the trim rules the walk applies: **1** = the 1.17.1 rules; **2** = v1 plus `fields.subtasks` and `fields.environment` dropped and every `fields.issuelinks[]`
+  element slimmed to `{id, type: {name, inward, outward}, inwardIssue / outwardIssue: {id, key}}` (`jira/JiraIssueLinks.kt`: the linked issue's embedded `fields`, every `self`, the type's `id` and any unknown key go).
+  A cursor of an OLDER version restarts at the ISSUES phase from -1 under the current one (a fresh walk starts at the current version; a cursor of a newer version, after a rollback, is left alone). That covers a `DONE`
+  v1 cursor (the upgrade: rows the old walk finished are changed by the new rules) and a v1 walk left half-done (its issues below `afterKey` were trimmed by the old rules). CHANGELOGS and WORKLOGS are walked again
+  too, on purpose: v2 changes issue payloads only, so on a v1-`DONE` install both find no candidate (two filtered index scans, once), and skipping them would need a "from version" in the cursor for a run that
+  happens once, plus a second rule for the half-done case. Raise the version only when a rule changes what an ALREADY stored row should hold. Nothing is flagged for PROCESS (the keys are unread by the normalizer,
+  the profile, the metrics and the reports - grepped for v2); the new `sha256` is the hash of the new canonical text, so the next fetch of an unchanged issue is `UNCHANGED`. A write BEFORE TRIM v2 reaches a row
+  (a RECONCILE, which never runs TRIM) sees the old hash, answers `CHANGED` once and flags the issue for PROCESS once: a spurious re-derive, never wrong data. Every write path (`upsertIssue`/`upsertIssues`) trims
+  with the same `trimIssue`, so new rows are v2 from the first write (`JiraTrimV2Test`).
 - **Counters and log.** `issuesTrimmed`, `changelogsTrimmed`, `worklogsTrimmed` (rows rewritten) and `trimHashDrift` (rewritten rows whose STORED sha256 was not the hash of their read-back
   canonical text: a `jsonb` round trip that is not lossless, e.g. an exponent number; the row then gets at most one spurious `CHANGED` when Jira next serves it, never a wrong normalized
   row), each absent when zero; one INFO line per table (candidate rows read, rewritten, drift), no audit event (no new mutation kind: the data is the same document, trimmed).
 - **Cost.** On the clean stub (1,201 issues, 5,445 histories, the worklogs) a whole run reads no row and rewrites none in ~15 ms (the filter detoasts every payload server-side). A dev database
-  of 13k issues / 500k histories / 77k worklogs, all of it untrimmed, is at most ~260 + 2,500 + 390 = ~3,200 batches. **Irreversibility:** trimmed data does not come back by itself. Getting a
+  of 13k issues / 500k histories / 77k worklogs, all of it untrimmed, is at most ~260 + 2,500 + 390 = ~3,200 batches. **Irreversibility:** trimmed data does not come back by itself (v2 included: the linked issues' summaries, statuses and priorities, the sub-task list and the environment text are gone from every stored issue). Getting a
   dropped key back takes a drop-list code change, then a PURGE and a full re-sync - a re-sync alone strips it again (every write trims), and the ISSUES stream only re-reads issues updated inside
   its window; REPROCESS never calls Jira. A stripped history item is the same story, and changelogs are fetched only while `changelog_synced_at` is stale.
-- **Retiring it.** Once every install's cursor is `DONE` the stream is dead code (BACKLOG).
+- **Retiring it.** Once every install's cursor is `DONE` at v2 the stream is dead code (BACKLOG).
 
 ## RECONCILE stream
 
