@@ -59,7 +59,7 @@ for the ingestion worker.
 `2 x ingest.workerSlots` (a DERIVE holds two connections; `ingest/IngestWorkerConfig.kt`), and when its heap cannot hold
 `ingest.workerSlots` slots, each the largest of a worst-case response tree, a PROCESS slot and a CHANGELOGS / WORKLOGS answer-text slot, plus the
 bodies in flight and a reserve (`jira/JiraHeapFit.kt`, `jira-integration.md` "Node and depth ceiling", "Stored-size ceilings", build-times WHY 48: 2 slots x
-(2 - 1) x 137 MiB (PROCESS) + 160 MiB (WORKLOGS text + the converting tree) + 4 x 8 MiB + 96 MiB = 425 MiB against the 448 MiB old generation of `-Xmx512m -Xmn64m`). The heap message
+(2 - 1) x 137 MiB (PROCESS) + 171.5 MiB (WORKLOGS text + the flush rows + the converting tree) + 4 x 8 MiB + 96 MiB = 436.5 MiB against the 448 MiB old generation of `-Xmx512m -Xmn64m`). The heap message
 names `ingest.workerSlots`, `jira.maxConcurrentRequests`, the knobs of the dominating term (`jira.maxResponseBytes`, or `jira.processPageBytes` and
 `jira.maxStoredPayloadBytes`) and the `-Xmx` needed, so raising a slot count or a cap
 means raising the worker's `JAVA_OPTS` heap (and its memory limit) with it. A `web` role only logs a WARN. The `all` role (compose,

@@ -16,8 +16,9 @@ import java.lang.management.MemoryType
 //
 // The STORED text a stream later re-reads into trees is bounded the same way (the stored-size ceilings, `JiraStoredCeilings.kt`): a
 // worker slot's PROCESS page (UTF-16 worst case, with its customFieldsJson copies), the CHANGELOGS answer text and the WORKLOGS text
-// retained are the other terms a slot can pin (those two streams convert every page to text under the big-parse lock, so only ONE slot
-// at a time has a tree on top of its text); every other slot is budgeted at its own largest term ([heapFitVerdict]). What stays outside
+// retained, with the rows its flush keeps ([worklogSlotBytes]), are the other terms a slot can pin (those two streams convert every page
+// to text under the big-parse lock, so only ONE slot at a time has a tree on top of its text); every other slot is budgeted at its own
+// largest term ([heapFitVerdict]). What stays outside
 // it (named)
 // is in `.claude/docs/jira-integration.md` "What the boot check does NOT bound yet". The `all` role is budgeted for its worker only: a
 // Test connection's own tree (one big parse at a time) is not added to it.
@@ -108,6 +109,13 @@ internal fun changelogTextBytes(): Long = 2 * MAX_ANSWER_CHARS
  */
 internal fun worklogTextBytes(window: Int, ceilings: WorklogCeilings = WorklogCeilings()): Long = 2 * ceilings.retentionChars(window)
 
+/**
+ * What a WORKLOGS slot pins on its own: the text ([worklogTextBytes]) plus the rows its flush keeps and writes ([batchBytes]: the held
+ * rows of a batch of up to `BACKFILL_FLUSH_WORKLOGS - 1 + maxItems` worklogs and ONE insert group's statement rows, WHY 51).
+ */
+internal fun worklogSlotBytes(window: Int, ceilings: WorklogCeilings = WorklogCeilings()): Long =
+    worklogTextBytes(window, ceilings) + ceilings.batchBytes()
+
 /** Which of a slot's terms dominates it, so a refusal names the knobs that move it. */
 internal enum class SlotTerm { RESPONSE, PROCESS, CHANGELOG, WORKLOG }
 
@@ -165,7 +173,7 @@ internal fun heapFitVerdict(
         if (role == HeapFitRole.WORKER) {
             add(SlotTerm.PROCESS to processSlotBytes(stored))
             add(SlotTerm.CHANGELOG to changelogTextBytes())
-            add(SlotTerm.WORKLOG to worklogTextBytes(maxConcurrentRequests))
+            add(SlotTerm.WORKLOG to worklogSlotBytes(maxConcurrentRequests))
         }
     }
     // ... and what ONE slot pins at the moment it is converting a page under the big-parse lock: its text AND that tree. The lock lets
@@ -212,8 +220,8 @@ internal fun heapFitMessage(
                 "the others up to $otherMib MiB each"
         verdict.slotTerm == SlotTerm.WORKLOG ->
             "ingest.workerSlots ($slots) slots, the largest a WORKLOGS slot of $slotMib MiB " +
-                "(the worklog text of ${maxConcurrentRequests + 1} issue answers and a batch held as UTF-16 + the big response tree " +
-                "being converted), the others up to $otherMib MiB each"
+                "(the worklog text of ${maxConcurrentRequests + 1} issue answers and a batch held as UTF-16 + the batch's rows being " +
+                "flushed + the big response tree being converted), the others up to $otherMib MiB each"
         else -> "ingest.workerSlots ($slots) x ${role.treesPerSlot} tree(s) of up to $nodes x $TREE_BYTES_PER_NODE B"
     }
     val knobs = when {

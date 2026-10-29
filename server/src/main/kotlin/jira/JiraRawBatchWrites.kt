@@ -72,8 +72,20 @@ internal class JiraRawBatchWrites(
     /** What the stored row of a key says about the rule: its hash and whether it is tombstoned. */
     private class Stored(val hash: String, val tombstoned: Boolean)
 
-    /** One input with the key, canonical text and hash the rule works on (computed once). */
-    private class Prepared<I, K>(val input: I, val key: K, val canonical: String, val hash: String)
+    /**
+     * One input with the key, canonical text and hash the rule works on (computed once). A row whose canonical text is large
+     * and plentiful (a worklog: up to ~30,000 rows in one batch) passes `canonical = null` and a [render]: only its hash is held
+     * for the batch, and the text is rendered again where it is written (one statement's rows at a time), byte for byte the same.
+     */
+    private class Prepared<I, K>(
+        val input: I,
+        val key: K,
+        private val held: String?,
+        val hash: String,
+        private val render: ((I) -> String)? = null,
+    ) {
+        val canonical: String get() = held ?: checkNotNull(render) { "a row with no held text needs a renderer" }(input)
+    }
 
     /** The table-specific half of [diffBatch]. */
     private class Ops<I, K>(
@@ -190,6 +202,8 @@ internal class JiraRawBatchWrites(
         }
     }
 
+    private fun renderWorklog(input: RawWorklogInput): String = trimmedWorklogCanonicalJson(input.payloadJson)
+
     /** Same outcomes and rows as N [JiraRawWrites.upsertWorklog] calls. */
     suspend fun upsertWorklogs(connectionId: UInt, worklogs: List<RawWorklogInput>, now: Long): List<RawUpsertOutcome> {
         if (worklogs.isEmpty()) return emptyList()
@@ -202,8 +216,9 @@ internal class JiraRawBatchWrites(
                     if (textRefused("worklog", it.worklogId.toString(), it.payloadJson, connectionId, ceilings.maxWorklogBytes)) {
                         return@prepare null
                     }
-                    val canonical = trimmedWorklogCanonicalJson(it.payloadJson)
-                    Prepared(it, it.worklogId, canonical, sha256Hex(canonical))
+                    // Only the hash is kept for the batch: the canonical text (a second copy of the payload) is rendered again, per
+                    // statement, where it is written (build-times WHY 51); the render is deterministic, so the stored bytes are the same.
+                    Prepared(it, it.worklogId, null, sha256Hex(trimmedWorklogCanonicalJson(it.payloadJson)), ::renderWorklog)
                 },
                 ops = Ops(
                     load = { keys ->
@@ -215,16 +230,22 @@ internal class JiraRawBatchWrites(
                         }.associate { it[Worklogs.worklogId] to Stored(it[Worklogs.sha256], it[Worklogs.deletedAt] != null) }
                     },
                     insert = { rows ->
-                        Worklogs.insertRows(rows) {
-                            this[Worklogs.connectionId] = connectionId
-                            this[Worklogs.worklogId] = it.input.worklogId
-                            this[Worklogs.issueId] = it.input.issueId
-                            this[Worklogs.worklogUpdatedAt] = it.input.worklogUpdatedAt
-                            this[Worklogs.payload] = it.canonical
-                            this[Worklogs.sha256] = it.hash
-                            this[Worklogs.firstSeenAt] = now
-                            this[Worklogs.fetchedAt] = now
-                            this[Worklogs.changedAt] = now
+                        // Groups bounded in rows and characters, so the rows in flight (their texts, boxed values, encoded parameters)
+                        // are one group's, not the batch's: the term `worklogBatchBytes` counts.
+                        val chars = { row: Prepared<RawWorklogInput, Long> -> row.input.payloadJson.length }
+                        val groups = rows.insertGroups(WORKLOG_INSERT_GROUP_ROWS, WORKLOG_INSERT_GROUP_CHARS, chars)
+                        for (group in groups) {
+                            Worklogs.insertRows(group) {
+                                this[Worklogs.connectionId] = connectionId
+                                this[Worklogs.worklogId] = it.input.worklogId
+                                this[Worklogs.issueId] = it.input.issueId
+                                this[Worklogs.worklogUpdatedAt] = it.input.worklogUpdatedAt
+                                this[Worklogs.payload] = it.canonical
+                                this[Worklogs.sha256] = it.hash
+                                this[Worklogs.firstSeenAt] = now
+                                this[Worklogs.fetchedAt] = now
+                                this[Worklogs.changedAt] = now
+                            }
                         }
                     },
                     touch = { keys ->

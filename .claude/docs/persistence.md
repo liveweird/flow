@@ -62,7 +62,7 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   prepared-statement cache is bounded (`PREPARED_STATEMENT_CACHE_QUERIES` = 256 in `Database.kt`, applied in
   `connectPooledDatabase`, so the test pool has it too; r2dbc-postgresql's default is unbounded and every cached text stays a
   named server-side statement for the connection's life) — it matters because `MultiRowInsert.kt`'s SQL text varies with the row count
-  (quantized to a handful of sizes per table). **Statement timeouts: use the transaction's `queryTimeout`, nothing else.** Exposed's R2DBC executor *requests* the
+  (quantized to a handful of sizes per table). `insertRows` / `insertRowsIgnoringConflicts` build each row (run the caller's body) only while the statement that carries it is assembled, so the rows in flight are one statement's, not the call's (`upsertRows` builds them all first: its collapse of repeated keys needs every key; `build-times.md` WHY 51). **Statement timeouts: use the transaction's `queryTimeout`, nothing else.** Exposed's R2DBC executor *requests* the
   transaction's `queryTimeout` (whole seconds, default 0, never null) from the driver before EVERY statement. The reports use it
   through `ReportService.reportTransaction` (`reports.md` "Query budget"), the post-commit ANALYZE through
   `MetricsStore.analyzeDerivedTables` (`SET LOCAL lock_timeout` is effective, the statement budget is the `queryTimeout`).

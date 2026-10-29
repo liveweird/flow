@@ -16,6 +16,16 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
  */
 private const val MAX_BIND_PARAMETERS = 32_000
 
+/** The most rows one statement of a table whose statement lists [columnCount] columns carries (its bind-parameter cap). */
+internal fun maxRowsPerStatement(columnCount: Int): Int = (MAX_BIND_PARAMETERS / columnCount).coerceAtLeast(1)
+
+/**
+ * Test seam (`MultiRowInsertTest`): called with the number of rows a statement carries, just before it runs. Those are the only
+ * rows [insertRows] and [insertRowsIgnoringConflicts] have in flight (an upsert's are all built first, see [upsertRows]).
+ */
+@Volatile
+internal var rowsInStatementProbe: ((Int) -> Unit)? = null
+
 /** The row a [insertRows] body fills: `this[Column] = value`, the same DSL as `batchInsert`'s lambda. */
 class InsertRow {
     internal val values = LinkedHashMap<Column<*>, Any?>()
@@ -64,6 +74,13 @@ class InsertRow {
  * distinct text becomes one named server-side prepared statement that the driver caches per connection,
  * so a chunk is either the table's maximum rows per statement or a power of two — a handful of texts per
  * table, however many rows a batch has.
+ *
+ * **Rows are built per statement.** [insertRows] and [insertRowsIgnoringConflicts] run `body` for a row only while the statement that
+ * carries it is assembled, so the rows in flight are one statement's (at most [maxRowsPerStatement]), not the call's: the
+ * `InsertRow` maps, the boxed numbers and the payload texts `body` renders for the rest of a large call do not exist yet (WORKLOGS
+ * batches of up to ~30,000 rows, `build-times.md` WHY 51). `body` therefore runs lazily, once per row, and must be pure. A row that
+ * sets other columns than the first fails the call when its statement is assembled, after the earlier statements ran: the caller's
+ * transaction rolls them back. [upsertRows] still builds every row first, because its collapse of repeated keys needs them all.
  *
  * **Memory (`build-times.md` WHY 14, `MultiRowInsertRetentionTest`):** every chunk's executed statement is released
  * as soon as it ran (`clearExecutedStatements`), so a transaction's heap does not grow with the rows it writes.
@@ -115,18 +132,24 @@ private suspend fun <T : Table, E> T.writeRows(
     conflictKeys: List<Column<*>>?,
     ignoreConflicts: Boolean = false,
 ) {
-    val allRows = rows.map { row -> InsertRow().also { it.body(row) }.values }
-    if (allRows.isEmpty()) return
-    val setColumns = allRows.first().keys
+    val source = rows as? List<E> ?: rows.toList()
+    if (source.isEmpty()) return
+    fun build(element: E): Map<Column<*>, Any?> = InsertRow().also { it.body(element) }.values
+    // An upsert collapses repeated keys over the WHOLE call, which needs every row's key first, so it materialises them (every row
+    // validated before the collapse); the other two build each row only while its statement is being assembled (see "Memory").
+    val eager = if (conflictKeys == null) null else source.map(::build)
+    val setColumns = (eager?.first() ?: build(source.first())).keys
     require(setColumns.isNotEmpty()) { "$caller: a row that sets no column cannot be inserted" }
-    require(allRows.all { it.keys == setColumns }) { "$caller: every row must set the same columns" }
+    fun checked(row: Map<Column<*>, Any?>) = row.also { require(it.keys == setColumns) { "$caller: every row must set the same columns" } }
+    eager?.forEach(::checked)
     setColumns.firstOrNull { it.table != this }?.let { foreign ->
         throw IllegalArgumentException("$caller: column ${foreign.name} belongs to ${foreign.table.tableName}, not ${this.tableName}")
     }
     require(this.columns.none { (it.columnType as? AutoIncColumnType<*>)?.sequence != null }) {
         "$caller: ${this.tableName} has a sequence-backed autoIncrement column; use batchInsert"
     }
-    val collected = if (conflictKeys == null) allRows else lastPerKey(caller, allRows, conflictKeys)
+    val collected = if (eager != null && conflictKeys != null) lastPerKey(caller, eager, conflictKeys) else null
+    val total = collected?.size ?: source.size
     val columns = this.columns.filter { it in setColumns || it.defaultValueFun != null }
     val tx = TransactionManager.current()
     val header = "INSERT INTO ${tx.identity(this)} (${columns.joinToString(", ") { tx.identity(it) }}) VALUES "
@@ -135,15 +158,13 @@ private suspend fun <T : Table, E> T.writeRows(
         conflictKeys == null -> ""
         else -> conflictSuffix(caller, tx, columns, conflictKeys)
     }
-    val maxRows = (MAX_BIND_PARAMETERS / columns.size).coerceAtLeast(1)
     var offset = 0
-    for (size in chunkSizes(collected.size, maxRows)) {
-        val chunk = collected.subList(offset, offset + size)
-        offset += size
-        val arguments = ArrayList<Pair<IColumnType<*>, Any?>>(chunk.size * columns.size)
+    for (size in chunkSizes(total, maxRowsPerStatement(columns.size))) {
+        val arguments = ArrayList<Pair<IColumnType<*>, Any?>>(size * columns.size)
         val sql = StringBuilder(header)
-        chunk.forEachIndexed { index, row ->
-            if (index > 0) sql.append(", ")
+        for (index in offset until offset + size) {
+            val row = collected?.get(index) ?: checked(build(source[index]))
+            if (index > offset) sql.append(", ")
             sql.append('(')
             columns.forEachIndexed { columnIndex, column ->
                 val value = if (column in row) row[column] else column.defaultValueFun?.invoke()
@@ -154,7 +175,9 @@ private suspend fun <T : Table, E> T.writeRows(
             }
             sql.append(')')
         }
+        offset += size
         sql.append(suffix)
+        rowsInStatementProbe?.invoke(size)
         tx.exec(sql.toString(), arguments)
         // Exposed keeps every executed statement until the transaction ends (commit or rollback; `closeStatementsAndConnection`
         // only clears the list, closing nothing, and `executeIn` itself clears it when `!supportsMultipleResultSets`, so this

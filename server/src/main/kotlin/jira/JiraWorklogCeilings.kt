@@ -17,8 +17,9 @@ internal data class WorklogCeilings(
 
 /**
  * One issue's whole worklog answer: 4 Mi characters of TRIMMED worklog text (~500 B each, so ~8k worklogs; an untrimmed Jira
- * worklog is ~2 KB; the largest real issue measured is ~1,200 worklogs / ~514 KiB stored, so this is 8x that), 25,000 worklogs (~700 B
- * of row objects each, 20x) and 200 pages (an endless `total`). Sized with the backfill's other bounds against the worker heap
+ * worklog is ~2 KB; the largest real issue measured is ~1,200 worklogs / ~514 KiB stored, so this is 8x that), 25,000 worklogs (20x;
+ * their flush rows are counted by [batchBytes]) and 200 pages (an endless `total`). Sized with the backfill's other bounds against the
+ * worker heap
  * ([retentionChars], `JiraHeapFit.kt`'s `worklogTextBytes`): `fetchAheadInOrder` keeps up to `jira.maxConcurrentRequests` (4) issues in
  * flight plus the batch it is flushing, so 5 x 4 Mi + [BACKFILL_FLUSH_CHARS] = 24 Mi characters, 48 MiB as UTF-16; the page TREES are not
  * held beside it (each page is converted to trimmed text under the big-parse lock, `JiraClient.issueWorklogPageAs`), except the one being
@@ -47,8 +48,56 @@ internal const val MAX_FEED_PAGES_PER_RUN = 300
 /** How far ahead of Flow's own clock a feed page's `until` may be (Jira's clock running a little fast); anything later is refused. */
 internal const val FEED_CLOCK_SKEW_MILLIS = 5L * MILLIS_PER_MINUTE
 
-/** The backfill batch flushes early at this many characters of stored text, beside the 5,000-worklog count. */
+/** The backfill batch flushes early at this many worklogs, so a batch of long-lived tickets stays bounded. */
+internal const val BACKFILL_FLUSH_WORKLOGS = 5_000
+
+/** The backfill batch flushes early at this many characters of stored text, beside the [BACKFILL_FLUSH_WORKLOGS] count. */
 internal const val BACKFILL_FLUSH_CHARS = 4 * 1024 * 1024
+
+/**
+ * The most worklog rows one `INSERT` group carries (`JiraRawBatchWrites.upsertWorklogs`): a power of two, so a full group is ONE
+ * statement of a size the statement cache already holds (`chunkSizes`), well under the bind-parameter cap (3,555 rows of 9 columns).
+ */
+internal const val WORKLOG_INSERT_GROUP_ROWS = 1_024
+
+/** The most characters of worklog text one `INSERT` group carries (a row alone over it is a group of its own): ~1,000 real worklogs. */
+internal const val WORKLOG_INSERT_GROUP_CHARS = 512 * 1024
+
+/**
+ * Heap bytes ONE worklog row costs while its statement is assembled and sent, beyond the text: measured on the perf stack at 25,000
+ * rows of 149 characters in `upsertWorklogs` (build-times WHY 51): 1,390 B beyond the held input while the rows were built, ~1,690 B
+ * while their statement was being encoded (the `InsertRow` map ~560, boxed numbers ~180, a `Pair` and a `Prepared`, the canonical
+ * text ~224, r2dbc's encoding ~150-250). Rounded up; it includes a short payload's own text.
+ */
+internal const val WORKLOG_STATEMENT_ROW_BYTES = 1_700L
+
+/**
+ * Heap bytes per CHARACTER of a group's text on top of the row figure: the canonical text (UTF-16 worst case, 2 B) and its encoding
+ * onto the wire (UTF-8, up to 3 B a character).
+ */
+internal const val WORKLOG_STATEMENT_CHAR_BYTES = 5L
+
+/**
+ * Heap bytes ONE row of the flushing batch keeps for the whole flush, beyond its text: the `Prepared` (its hash `String` ~104 B,
+ * the object ~32, the boxed key ~16) and the bookkeeping `diffBatch` keeps per key (a `HashSet` entry, a boxed index, the outcome
+ * slot). ESTIMATED from the object layouts, not measured; the canonical text is not kept (rendered again per group).
+ */
+internal const val WORKLOG_BATCH_HELD_ROW_BYTES = 256L
+
+/** This list cut, in order, into groups of at most [maxRows] rows and [maxChars] characters ([chars] each); a row over it is alone. */
+internal fun <T> List<T>.insertGroups(maxRows: Int, maxChars: Int, chars: (T) -> Int): Sequence<List<T>> = sequence {
+    var start = 0
+    while (start < size) {
+        var end = start
+        var used = 0L
+        while (end < size && end - start < maxRows && (end == start || used + chars(this@insertGroups[end]) <= maxChars)) {
+            used += chars(this@insertGroups[end])
+            end++
+        }
+        yield(subList(start, end))
+        start = end
+    }
+}
 
 /**
  * The most characters of worklog text the WORKLOGS stream can hold at once: the backfill's [window] issues being fetched ahead and
@@ -57,6 +106,17 @@ internal const val BACKFILL_FLUSH_CHARS = 4 * 1024 * 1024
  */
 internal fun WorklogCeilings.retentionChars(window: Int): Long =
     maxOf((window + 1L) * backfill.maxChars + BACKFILL_FLUSH_CHARS, feedAnswer.maxChars)
+
+/**
+ * What the WORKLOGS flush adds to a slot beyond the text its batch and fetched-ahead answers hold ([retentionChars]): the batch is the
+ * unflushed worklogs (up to [BACKFILL_FLUSH_WORKLOGS] - 1) plus one whole answer ([AnswerCeiling.maxItems]), each keeping
+ * [WORKLOG_BATCH_HELD_ROW_BYTES] for the flush, plus the ONE insert group in flight: [WORKLOG_INSERT_GROUP_ROWS] rows at
+ * [WORKLOG_STATEMENT_ROW_BYTES] and [WORKLOG_INSERT_GROUP_CHARS] characters at [WORKLOG_STATEMENT_CHAR_BYTES]. (It was the whole
+ * batch's rows at ~1.7 KB, ~48 MiB at the ceiling, not counted at all.) The feed's page (at most [MAX_FEED_PAGE_ENTRIES]) is smaller.
+ */
+internal fun WorklogCeilings.batchBytes(): Long =
+    (BACKFILL_FLUSH_WORKLOGS - 1L + backfill.maxItems) * WORKLOG_BATCH_HELD_ROW_BYTES +
+        WORKLOG_INSERT_GROUP_ROWS * WORKLOG_STATEMENT_ROW_BYTES + WORKLOG_INSERT_GROUP_CHARS * WORKLOG_STATEMENT_CHAR_BYTES
 
 /** `GET /rest/api/3/worklog/updated` and `/deleted`, as named in a failure (never a URL). */
 internal const val WORKLOG_UPDATED_ENDPOINT = "/rest/api/3/worklog/updated"

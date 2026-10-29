@@ -14,7 +14,10 @@ import ch.nokillswit.jira.JiraWorklogIdsPage
 import ch.nokillswit.jira.JiraWorklogStream
 import ch.nokillswit.jira.PageCeiling
 import ch.nokillswit.jira.RawIssueInput
+import ch.nokillswit.jira.WORKLOG_INSERT_GROUP_ROWS
 import ch.nokillswit.jira.WorklogCeilings
+import ch.nokillswit.jira.insertGroups
+import ch.nokillswit.infra.db.maxRowsPerStatement
 import ch.nokillswit.jira.WorklogsCursor
 import ch.nokillswit.jira.requirePlausible
 import io.ktor.client.HttpClient
@@ -574,5 +577,19 @@ class JiraWorklogCeilingTest {
         assertEquals("INVALID_RESPONSE", assertFailsWith<JiraFetchException> {
             page(until = NOW, lastPage = false).requirePlausible("/e", NOW, NOW, 2)
         }.code)
+    }
+
+    @Test
+    fun `insert groups are cut by rows and by characters, in order, and a row over the character bound is a group alone`() {
+        val rows = listOf(10, 10, 10, 10, 10, 10, 10)
+        assertEquals(listOf(3, 3, 1), rows.insertGroups(3, 1_000) { it }.map { it.size }.toList())
+        assertEquals(listOf(2, 2, 2, 1), rows.insertGroups(10, 20) { it }.map { it.size }.toList())
+        assertEquals(listOf(1, 1, 1), listOf(50, 60, 70).insertGroups(10, 40) { it }.map { it.size }.toList())
+        assertEquals(listOf(1, 2), listOf(50, 4, 4).insertGroups(10, 40) { it }.map { it.size }.toList())
+        assertEquals(emptyList(), emptyList<Int>().insertGroups(3, 10) { it }.toList())
+        assertEquals(rows, rows.insertGroups(3, 1_000) { it }.flatten().toList(), "every row once, in order")
+        // The shipped group: a power of two (one cached statement text when full) under the bind cap of the 9-column table.
+        assertEquals(1, Integer.bitCount(WORKLOG_INSERT_GROUP_ROWS))
+        assertTrue(WORKLOG_INSERT_GROUP_ROWS <= maxRowsPerStatement(JiraRawStore.Worklogs.columns.size - 1))
     }
 }

@@ -405,7 +405,7 @@ it will store (`RawWorklogInput`, its payload already trimmed: `trimWorklog` is 
 canonical text), and an issue's whole chain is bounded by `BACKFILL_ANSWER_CEILING` ("Worklog answer ceilings"), so the worst case held at
 once is bounded in characters too: `limit` fetches in flight or finished-but-unconsumed (the window is the most `fetchAheadInOrder` ever
 holds) x the per-issue ceiling (4 Mi characters) + the `FetchedBatch` (flushed at 5,000 worklogs or 4 Mi characters, plus the issue that
-crossed the line) = ~24 Mi characters at the default `limit` of 4, up to ~48 MiB as UTF-16 (it was 8 Mi per issue and 8 Mi flush: 48 Mi characters, 96 MiB); a normal tenant (trimmed worklogs ~0.5 KB)
+crossed the line) = ~24 Mi characters at the default `limit` of 4, up to ~48 MiB as UTF-16 (the flush then writes the batch in groups of at most 1,024 rows / 512 Ki characters, so the rows in flight are one group's, `WorklogCeilings.batchBytes()`) (it was 8 Mi per issue and 8 Mi flush: 48 Mi characters, 96 MiB); a normal tenant (trimmed worklogs ~0.5 KB)
 holds a few MB at the peak. Each response is bounded by `jira.maxResponseBytes` (default 8 MiB; `readBounded` transiently holds it ~3-4
 times over: the buffer, its copy and the JSON tree; the parse reads the bytes directly, there is no decoded string), which is the transient on top.
 
@@ -658,10 +658,18 @@ covered). **CHANGELOGS and WORKLOGS keep their accumulated TEXT but no page tree
 client call, under the big-parse lock (`JiraHttp.requestAs`, `JiraClient.*As`, `JiraPageTexts.kt`), so the previous page's tree is garbage before the next
 is parsed (measured before this: ~5 trees of ~108 MiB per WORKLOGS slot from the fetch-ahead window, ~206 MiB per CHANGELOGS slot, build-times WHY 48).
 Their own terms are the text at UTF-16: CHANGELOGS `2 x MAX_ANSWER_CHARS` = 32 MiB; WORKLOGS `2 x ((jira.maxConcurrentRequests + 1) x 4 Mi characters +
-the 4 Mi flush bound)` = 48 MiB. The lock lets only ONE tree be built at a time, but that does not make the tree a shared allowance: the
+the 4 Mi flush bound)` = 48 MiB **plus the rows its flush keeps and writes, `WorklogCeilings.batchBytes()` = 11.48 MiB** (build-times WHY 51): a batch is the
+unflushed worklogs (up to `BACKFILL_FLUSH_WORKLOGS` - 1 = 4,999) plus ONE whole answer (`BACKFILL_ANSWER_CEILING.maxItems` = 25,000), 29,999 rows that each keep
+`WORKLOG_BATCH_HELD_ROW_BYTES` = 256 B for the flush (the `Prepared`: its hash `String`, the object, the boxed key, `diffBatch`'s per-key bookkeeping; estimated from the
+object layouts, not measured) = 7.3 MiB, and ONE insert group in flight: `WORKLOG_INSERT_GROUP_ROWS` = 1,024 rows at `WORKLOG_STATEMENT_ROW_BYTES` = 1,700 B (measured, WHY 51:
+the `InsertRow` map, boxed numbers, the canonical text, r2dbc's encoding) = 1.7 MiB + `WORKLOG_INSERT_GROUP_CHARS` = 512 Ki characters at
+`WORKLOG_STATEMENT_CHAR_BYTES` = 5 B (the canonical text at UTF-16 plus its UTF-8 encoding) = 2.5 MiB. The group is bounded because the writer builds rows PER STATEMENT
+(`MultiRowInsert.kt`'s `insertRows` runs its body only while the statement that carries the row is assembled) and cuts the batch into groups of at most 1,024 rows /
+512 Ki characters (`insertGroups`); it keeps only each row's hash, not its canonical text, and renders the same text again where it is written, so the batch's rows are
+not the whole batch's ~1.7 KB each (~48 MiB at the ceiling, which used to be uncounted). The lock lets only ONE tree be built at a time, but that does not make the tree a shared allowance: the
 ISSUES / REFERENCE / RECONCILE page trees outlive the lock and PROCESS takes none, so while one slot converts a page (its text + the 112 MiB tree) the
 others may each be at their own largest. The need is therefore `(slots - 1) x max(own terms) + max(own terms, text + tree)`: (2 - 1) x 137 (PROCESS)
-+ 160 (WORKLOGS text 48 + tree 112; CHANGELOGS is 144) + 4 x 8 + 96 = 425 MiB against 448 MiB. (The WORKLOGS answer ceilings were 8 Mi characters with an
++ 171.5 (WORKLOGS text 48 + flush rows 11.5 + tree 112; CHANGELOGS is 144) + 4 x 8 + 96 = 436.5 MiB against 448 MiB (425 before the flush rows were counted). (The WORKLOGS answer ceilings were 8 Mi characters with an
 8 Mi flush bound, 96 MiB of text, 208 MiB under the lock: 137 + 208 + 128 = 473 MiB did not fit, so they were lowered to 4 Mi, still 8x the largest
 real issue and 20x its worklog count.) The inspector is bounded by the same stored-byte figure and a two-at-a-time permit (`ingestion.md` "Raw issue
 inspector"): the `web` role never parses what PROCESS would refuse.
@@ -754,7 +762,7 @@ non-Latin-1 character).
 **Serialised big parses.** The parse of a body over 1 MiB (`BIG_BODY_BYTES`) runs behind one `Mutex` in `JiraHttp`; smaller
 bodies take no lock, so at most one potentially hostile big tree is being built at a time. The lock is taken inside `attemptOnce`, after
 the body is read, so **a call waiting for it KEEPS its permit, its body bytes and its open response**: up to three of the four
-permits can sit idle for the length of the parse ahead of them (~50 ms for an 8 MiB page, ~23 ms for 4 MB, ~7-9 ms for 1.3 MB per queued
+permits can sit idle for the length of the parse ahead of them (~90-105 ms for an 8 MiB page on the shipped C1 JVM, ~19 % slower than the old String path, measured in build-times WHY 51; ~23 ms for 4 MB, ~7-9 ms for 1.3 MB per queued
 big parse), the wait is cancellable, and there is no deadlock because the holder never suspends while it holds the lock (the parse
 is plain CPU). The construction peak of the four in-flight calls (`jira.maxConcurrentRequests`) is one big tree (<= ~108 MiB) plus
 three bodies of <= 1 MiB (<= ~40 MiB each: 131k `{"a":0},` objects or 524k `0,` scalars) = ~230 MiB, against 4 x ~108 = ~430 MiB
@@ -771,8 +779,9 @@ that worker until the data source is disabled or the host stops.
 
 **What the boot check does NOT bound yet (named; BACKLOG).** Since 1.24.1 the check budgets the stored-text paths too (a PROCESS slot, and the
 CHANGELOGS and WORKLOGS answer text with one converting tree, "Stored-size ceilings" above), so the PROCESS page, the history/worklog per-item
-parse and the entity sets (REFERENCE's PROJECT_FIELDS and the data PROFILE, read in chunks) are bounded. Left, named: the rows beside the WORKLOGS
-text (each worklog is also ~700 B of row objects on its way into Postgres, not counted); the `all` role, which carries the worker terms AND the one web share ("What remains in the `all` role" below); the 112 B a node, the
+parse and the entity sets (REFERENCE's PROJECT_FIELDS and the data PROFILE, read in chunks) are bounded. Left, named: the CHANGELOGS equivalent of the WORKLOGS flush rows (the WORKLOGS rows ARE counted now, `batchBytes()`): `insertChangelogs` builds its rows per statement too,
+but its `prepared` list still holds each history's canonical text beside the answer text for the whole answer (up to the text again, 32 MiB at UTF-16 worst case, which would
+lift that slot to ~176 MiB and the shipped need to ~441 of 448 MiB: still fits, not counted); the `all` role, which carries the worker terms AND the one web share ("What remains in the `all` role" below); the 112 B a node, the
 one-tree-a-slot and the dense-text figures are measured or derived but not yet re-measured end to end.
 
 The raw-issue inspector on the `web` role IS inside the web fit now (`JiraHeapShare.kt`): the web-side Jira consumers draw from ONE shared,
@@ -794,7 +803,7 @@ stress over real threads). A Test connection (both endpoints) holds
 the WHOLE share while it runs (`share.withShare(share.capacityBytes)` around the connector call only), so it is inside the web fit too and
 excludes concurrent inspections and other Test connections ("Test connection" above for the wait it can cost).
 
-What remains in the `all` role: the worker terms and the one web share coexist there, so the need is about 425 + 112 = 537 MiB against the
+What remains in the `all` role: the worker terms and the one web share coexist there, so the need is about 436.5 + 112 = 548.5 MiB against the
 448 MiB old generation of `-Xmx512m -Xmn64m`. This is accepted: production runs `web` and `worker` as separate processes (each fits its own
 heap), and `all` is the dev / `docker compose` convenience. A hostile Test connection during two hostile SYNCs in `all` can therefore still
 exhaust the heap.
@@ -822,12 +831,12 @@ it needs, and the knobs of the term that dominates the slot (`jira.maxResponseBy
 only the slots or `jira.maxConcurrentRequests` for the CHANGELOGS / WORKLOGS answer text); a `web` role (`HeapFitRole.WEB`: it parses only Test connection responses, one at a time behind the big-parse lock, and stores
 none: ONE tree, `jira.maxConcurrentRequests` bodies (a call waiting for the big-parse lock keeps its body), a 40 MiB
 `WEB_RESERVE_BYTES`; its message names only the knobs it uses) logs ONE WARN instead. The `all` role is still judged as the worker only: the web
-share is not added (425 + 112 = 537 MiB would refuse the shipped compose and `:server:run` heaps), which is the accepted residual above. The constants are measured (WHY 48):
+share is not added (436.5 + 112 = 548.5 MiB would refuse the shipped compose and `:server:run` heaps), which is the accepted residual above. The constants are measured (WHY 48):
 `TREE_BYTES_PER_NODE` = 112 B (108 B a node measured on a hostile `GET /field` + ~4 %, i.e. 112 MiB a tree at the default 1 Mi-node
 ceiling), `STORED_RESPONSE_TREES` = 1 a worker slot (**provisional**: measured as 3 before the no-reparse fix, set to 1 by it, to be
 re-measured in WHY 48), `RESERVE_BYTES` = 96 MiB for a worker (idle live set + the collector's slack at the two-slot peak). Shipped defaults:
-(2 - 1) x 137 MiB (PROCESS, the largest own term) + 160 MiB (the WORKLOGS slot under the lock: 48 MiB of text + the 112 MiB tree) + 4 x 8 MiB + 96 MiB = 425 MiB against 448 MiB, so the shipped worker (and the compose `all` role, and `:server:run`, which
-raises its heap to 512m for this: the baked `-Xmx256m -Xmn64m` is a 192 MiB old generation) passes with 23 MiB to spare; the baked
+(2 - 1) x 137 MiB (PROCESS, the largest own term) + 171.5 MiB (the WORKLOGS slot under the lock: 48 MiB of text + 11.5 MiB of flush rows, `batchBytes()` + the 112 MiB tree) + 4 x 8 MiB + 96 MiB = 436.5 MiB against 448 MiB, so the shipped worker (and the compose `all` role, and `:server:run`, which
+raises its heap to 512m for this: the baked `-Xmx256m -Xmn64m` is a 192 MiB old generation) passes with 11.5 MiB to spare; the baked
 `-Xmx256m` does not, which is why a worker role must carry `JAVA_OPTS=-Xmx512m`. The `web` role as shipped (`-Xmx256m`): 112 + 4 x 8 + 40
 = 184 MiB against 192 MiB, so it boots without a WARN. `JiraHeapFitTest` pins the arithmetic, the shipped values and both role outcomes. `JiraHeapFitTest` also pins the inspector's share (112 MiB, the web verdict unchanged at 184 MiB) and that a 64 MiB process page still boots in the `web` role.
 What would close the response path for good (BACKLOG): a per-slot heap budget (admission by estimated tree size before the parse) or a
@@ -1115,7 +1124,7 @@ backs off or waits out its tenant's pause, so the deadline bounds the call's own
   its old row (stale) until a later edit or a full resync.
 - `JiraPagingCeilingTest` — "Paging ceilings": a `MockEngine` host that never stops paging, cycles or over-lengthens its `nextPageToken`, or packs a giant boards answer, against the REFERENCE, PROJECT_FIELDS, ISSUES and RECONCILE loops with small ceilings: the typed failure, exact call counts, committed rows and the cursor left at the last committed page (a resumed ISSUES run completes; no RECONCILE anti-join on an incomplete sweep).
 - `JiraRequestAsTest` — `JiraHttp.requestAs`: concurrent big fetches never overlap their transforms (at most one big tree), a source scan that the changelog and worklog streams use only the `As` calls, a failing transform propagates and frees the lock.
-- `JiraHeapFitTest` — "Node and depth ceiling" boot check: the pure `heapFitVerdict` (the shipped defaults need 425 MiB against the 448 MiB old generation of `-Xmx512m -Xmn64m`, read from `application.yaml`, `k8s/worker-deployment.yaml` and `server/build.gradle.kts`; more slots, a bigger cap or more requests without heap fail with a message naming the knobs of the dominating term and the `-Xmx`; the dense-tree, PROCESS-slot and CHANGELOGS-slot arithmetic and which term dominates), one boot per role (`worker`/`all` refuse, `web` warns once and boots).
+- `JiraHeapFitTest` — "Node and depth ceiling" boot check: the pure `heapFitVerdict` (the shipped defaults need 436.5 MiB against the 448 MiB old generation of `-Xmx512m -Xmn64m`, read from `application.yaml`, `k8s/worker-deployment.yaml` and `server/build.gradle.kts`; more slots, a bigger cap or more requests without heap fail with a message naming the knobs of the dominating term and the `-Xmx`; the dense-tree, PROCESS-slot and CHANGELOGS-slot arithmetic and which term dominates), one boot per role (`worker`/`all` refuse, `web` warns once and boots).
 - `JiraStoredCeilingTest` / `JiraProcessBudgetTest` — "Stored-size ceilings": a padded item per page (stub overrides) for the issue, entity, history and worklog writers (REFUSED, the row touched not changed, the counters, the cursor advanced, the rest stored, the WARN without the payload; inclusive at the ceiling), the full stub SYNC refusing nothing, the PROCESS claim by stored bytes (page splits, an always-fitting first issue, the oversized skip, PROCESS over reference kinds spanning many chunks writing the very rows an unchunked read does, a 2,100-entity USER kind tripping nothing, PROJECT_FIELDS storing every project at a 1 KiB chunk), the rendered-size estimate (70 x `1e131071` refused, `1.0E7` stored, the estimate never below PostgreSQL's own rendering).
 - `JiraWorklogCeilingTest` — "Worklog answer ceilings": a Ktor `MockEngine` host that never stops paging (`total`, `lastPage=false`), packs a giant answer or
   sends a far-future/non-advancing `until`; the typed failure, the bounded call counts (peak in flight within the window), the skipped issue left unsynced,

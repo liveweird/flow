@@ -5,6 +5,7 @@ import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JiraConnectionRequest
 import ch.nokillswit.infra.json.canonicalJson
 import ch.nokillswit.infra.json.sha256Hex
+import ch.nokillswit.infra.db.rowsInStatementProbe
 import ch.nokillswit.ingest.defaultBackfillFrom
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.RawChangelogInput
@@ -25,6 +26,7 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
 import java.util.UUID
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -652,6 +654,48 @@ class JiraRawStoreTest {
         assertEquals(rowsOf(worklogs, worklogs.connectionId, perRow), rowsOf(worklogs, worklogs.connectionId, batch))
         assertEquals(5L, store.countWorklogs(batch))
     }
+
+    @Test
+    fun `upsertWorklogs writes a big batch in bounded groups - the same rows the per-row path leaves`() = runBlocking {
+        val perRow = createConnection()
+        val batch = createConnection()
+        val store = rawStore()
+        val worklogs = JiraRawStore.Worklogs
+        // 1,100 rows: a full 1,024-row group is ONE statement; the 76 left decompose (64 + 8 + 4).
+        val page = (1L..1_100L).map { RawWorklogInput(8L, 900_000L + it, it, worklogPayload(900_000L + it, 8L, timeSpent = it)) }
+        val sizes = CopyOnWriteArrayList<Int>()
+        rowsInStatementProbe = { sizes += it }
+        try {
+            assertEquals(List(1_100) { RawUpsertOutcome.INSERTED }, store.upsertWorklogs(batch, page, now = 2_000))
+        } finally {
+            rowsInStatementProbe = null
+        }
+        assertEquals(listOf(1_024, 64, 8, 4), sizes)
+        page.forEach { store.upsertWorklog(perRow, it.issueId, it.worklogId, it.worklogUpdatedAt, it.payloadJson, now = 2_000) }
+        assertEquals(rowsOf(worklogs, worklogs.connectionId, perRow), rowsOf(worklogs, worklogs.connectionId, batch))
+        assertEquals(1_100L, store.countWorklogs(batch))
+    }
+
+    @Test
+    fun `upsertWorklogs bounds a group by its characters too - 100 worklogs of 12,000 characters go out in groups of at most 43 rows`() =
+        runBlocking {
+            val connId = createConnection()
+            val store = rawStore()
+            val padding = "x".repeat(12_000)
+            val page = (1L..100L).map {
+                RawWorklogInput(8L, 910_000L + it, it, """{"id":"${910_000L + it}","issueId":"8","comment":"$padding"}""")
+            }
+            val sizes = CopyOnWriteArrayList<Int>()
+            rowsInStatementProbe = { sizes += it }
+            try {
+                store.upsertWorklogs(connId, page, now = 2_000)
+            } finally {
+                rowsInStatementProbe = null
+            }
+            // Groups of 43, 43 and 14 rows (43 x ~12,050 characters <= 512 Ki), each decomposed into power-of-two statements.
+            assertEquals(listOf(32, 8, 2, 1, 32, 8, 2, 1, 8, 4, 2), sizes)
+            assertEquals(100L, store.countWorklogs(connId))
+        }
 
     @Test
     fun `insertChangelogs leaves the rows the per-row inserts do - a present history and a repeated one keep the first write`() =
