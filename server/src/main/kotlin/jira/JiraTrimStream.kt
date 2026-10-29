@@ -2,8 +2,6 @@ package ch.nokillswit.jira
 
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
-import kotlinx.serialization.EncodeDefault
-import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
 
@@ -33,13 +31,12 @@ internal const val TRIM_RULES_VERSION = 2
  * `sync_cursors.cursor` shape of the TRIM stream. [afterKey] is the last issue/history/worklog id finished in [phase]; [version] is the
  * [TRIM_RULES_VERSION] the walk applies (a cursor written before it existed has none and is version 1).
  */
-@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 internal data class TrimCursor(
     val phase: TrimPhase = TrimPhase.ISSUES,
     val afterKey: Long = BEFORE_FIRST_KEY,
     val completedAt: Long? = null,
-    @EncodeDefault val version: Int = LEGACY_TRIM_VERSION,
+    val version: Int = LEGACY_TRIM_VERSION,
 )
 
 /** The rules version of a cursor stored before [TrimCursor.version] existed. */
@@ -74,7 +71,13 @@ internal class JiraTrimStream(private val rawStore: JiraRawStore) : Stream {
     override val name: String = "trim"
 
     override suspend fun run(context: StreamContext) {
-        var cursor = startCursor(context.cursor(name)?.cursor?.let { decodeCursor<TrimCursor>(it) })
+        val stored = context.cursor(name)?.cursor?.let { decodeCursor<TrimCursor>(it) }
+        var cursor = startCursor(stored)
+        // A stored cursor the walk does not start from as it is (older: restarted; NEWER, i.e. a rollback: re-stamped) is written first,
+        // even when the result is DONE and the loop below never writes: a later, newer build must find a version below its own.
+        if (stored != null && cursor != stored) {
+            context.transaction { context.putCursor(name, encodeCursor(cursor), lastCompletedAt = cursor.completedAt) }
+        }
         var tally = PhaseTally()
         while (cursor.phase != TrimPhase.DONE) {
             val table = checkNotNull(cursor.phase.table)
@@ -99,14 +102,20 @@ internal class JiraTrimStream(private val rawStore: JiraRawStore) : Stream {
     }
 
     /**
-     * Where this run starts: a fresh walk at the current rules when nothing is stored, the stored cursor when it is at (or past) the
-     * current rules, and a restart from the first issue when it is older. The restart covers a DONE cursor (the upgrade: the new
-     * rules change rows the old walk finished) and a half-walked one alike - its ISSUES keys below `afterKey` were trimmed by the old
-     * rules. CHANGELOGS and WORKLOGS are walked again too: v2 changes issue payloads only, so on a v1-DONE install both find no
-     * candidate (two filtered index scans, once); skipping them would take a "from" version in the cursor for that single run.
+     * Where this run starts: a fresh walk at the current rules when nothing is stored, the stored cursor when it is at the
+     * current rules, the stored position re-stamped with the current version when it is NEWER (a rollback from a later build:
+     * that build must see a version below its own and walk again), and a restart from the first issue when it is older. The
+     * restart covers a DONE cursor (the upgrade: the new rules change rows the old walk finished) and a half-walked one alike -
+     * its ISSUES keys below `afterKey` were trimmed by the old rules. CHANGELOGS and WORKLOGS are walked again too: v2 changes
+     * issue payloads only, so on a v1-DONE install both find no candidate (two filtered index scans, once); skipping them would
+     * take a "from" version in the cursor for that single run.
      */
     private fun startCursor(stored: TrimCursor?): TrimCursor =
-        if (stored == null || stored.version < TRIM_RULES_VERSION) TrimCursor(version = TRIM_RULES_VERSION) else stored
+        when {
+            stored == null || stored.version < TRIM_RULES_VERSION -> TrimCursor(version = TRIM_RULES_VERSION)
+            stored.version > TRIM_RULES_VERSION -> stored.copy(version = TRIM_RULES_VERSION)
+            else -> stored
+        }
 
     private fun nextCursor(cursor: TrimCursor, batch: TrimBatch, now: Long): TrimCursor {
         val last = batch.lastKey

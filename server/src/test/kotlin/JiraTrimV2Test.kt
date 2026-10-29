@@ -200,6 +200,33 @@ class JiraTrimV2Test {
     }
 
     @Test
+    fun `a cursor of a NEWER rules version keeps its position and is re-stamped with this version, not walked again`() = runBlocking {
+        val done = clone("jira-trim-v2-newer-done")
+        val doneIds = issueKeys(done).take(10)
+        makeFat(done, doneIds)
+        val v3Done = """{"phase":"DONE","afterKey":-1,"completedAt":1700000000000,"version":3}"""
+        cursors.put(done, "trim", v3Done, lastCompletedAt = 1_700_000_000_000L)
+        val untouchedRun = context(done)
+        JiraTrimStream(store).run(untouchedRun)
+        assertEquals(emptyMap(), untouchedRun.progressSnapshot(), "the newer build's DONE walk is not repeated")
+        val stamped = assertNotNull(cursors.get(done, "trim"))
+        assertEquals(TrimCursor(TrimPhase.DONE, -1, 1_700_000_000_000L, TRIM_RULES_VERSION), trimCursor(done))
+        assertEquals(1_700_000_000_000L, stamped.lastCompletedAt, "the row's completion time is kept")
+        assertTrue(payloads(done).getValue(doneIds.first()).first.toString().contains("subtasks"), "the fat rows are still fat")
+
+        // A newer build interrupted in ISSUES continues from its position (keys below it are its business), under our version.
+        val mid = clone("jira-trim-v2-newer-mid")
+        val ids = issueKeys(mid).take(10)
+        makeFat(mid, ids)
+        cursors.put(mid, "trim", """{"phase":"ISSUES","afterKey":${ids[4]},"completedAt":null,"version":3}""")
+        val midRun = context(mid)
+        JiraTrimStream(store).run(midRun)
+        assertEquals(5L, midRun.progressSnapshot()["issuesTrimmed"], "only the issues after the position")
+        assertEquals(TRIM_RULES_VERSION, trimCursor(mid).version)
+        assertEquals(TrimPhase.DONE, trimCursor(mid).phase)
+    }
+
+    @Test
     fun `the SQL candidate filter selects exactly the issues the Kotlin trim changes, over a table of payloads`() = runBlocking {
         val connId = clone("jira-trim-v2-sql")
         val slimType = """{"name":"Blocks","inward":"in","outward":"out"}"""

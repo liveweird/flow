@@ -434,7 +434,7 @@ tables in the `raw` schema — the REFERENCE and ISSUES streams' target
   carry personal data), `fields.subtasks` (embedded child issues; the edge is the child's own `parent`) and `fields.environment` (free
   text, empty on every real install measured); each `fields.issuelinks[]` element is reduced to `{id, type: {name, inward, outward},
   inwardIssue/outwardIssue: {id, key}}` (`jira/JiraIssueLinks.kt`; Jira embeds the linked issue's summary, status, priority and type
-  with icon URLs and `self` links in every link, ~15 % of the stored issue text on a real install - trim rules v2, 1.25.0); and its `fields.assignee`/`reporter`/`creator` are reduced to `{accountId, displayName, accountType}`
+  with icon URLs and `self` links in every link, ~15 % of the stored issue text on a real install - trim rules v2); and its `fields.assignee`/`reporter`/`creator` are reduced to `{accountId, displayName, accountType}`
   (`jira/JiraUserReferences.kt`; the normalizer reads the assignee's `accountId`/`displayName` and the reporter's `accountId`).
   Everything else stays verbatim: every other system field, **every `customfield_*` (nested ADF included - a user picker in a custom
   field keeps its full user)**, `timetracking`, `expand`, `self`. The raw issue inspector therefore returns
