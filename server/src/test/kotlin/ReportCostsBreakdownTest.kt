@@ -41,7 +41,11 @@ private class BreakdownWorld(
     val carol: String,
     val dave: String,
 ) {
-    val range get() = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
+    /** The period alone: a read that names its own `domain` (BBB) starts from this. */
+    val period get() = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
+
+    /** The world's UNIT-level read: the domain AAA holds every worklog but the one BBB slice (task 107). */
+    val range get() = "$period&domain=AAA"
 }
 
 /** A worklog `issueId` logged by [account] (`epicId` set = logged ON that epic). */
@@ -59,14 +63,16 @@ private fun log(
 ): FactWorklogRow = wl(id, team, account, day, md, domain, activity = activity, category = category).copy(issueId = issue, epicId = epicId)
 
 /**
- * January 2026, Europe/Warsaw. Task 101 (Alice, Bob) with a sub-task 102 (Alice), task 103 (domain BBB, Alice), the epic 104 logged on
- * by Bob, task 105 (Carol, three thirds) and task 106 (Dave, no team, whose activity type is NULL in the stored row):
+ * January 2026, Europe/Warsaw. Task 101 (Alice, Bob) with a sub-task 102 (Alice), task 103 (Alice), the epic 104 logged on by Bob,
+ * task 105 (Carol, three thirds), task 106 (Dave, no team, whose activity type is NULL in the stored row) and task 107 (the one
+ * worklog of domain BBB, Alice; every other worklog is domain AAA, the world's UNIT-level scope):
  *
  *  - w1 101 Alice 1.0 / w2 101 Bob 0.5 / w3 102 (sub-task of 101) Alice 0.25 — Development, category Run
- *  - w4 103 Alice 2.0 — Testing, no category, domain BBB
+ *  - w4 103 Alice 2.0 — Testing, no category
  *  - w5 104 (an epic) Bob 1.5 — Planning, Run
  *  - w6/w7/w8 105 Carol 0.3333 each — Support Run / Support none / Testing Build
  *  - w9 106 Dave 0.5 — activity NULL, Build, no team; w10 Alice 99 MD on 2026-02-20 (outside January)
+ *  - w11 107 Alice 2.0 — Testing, no category, domain BBB (a BBB read selects it alone; the domain AAA read never sees it)
  */
 private suspend fun withBreakdownWorld(block: suspend (BreakdownWorld) -> Unit) {
     val connId = SyncedStubFixture.createConnection(namePrefix = "cost-breakdown", enabled = false)
@@ -90,7 +96,8 @@ private suspend fun withBreakdownWorld(block: suspend (BreakdownWorld) -> Unit) 
             listOf(
                 DimTaskRow(101, "CB-101", "Story", "Development", "Run", "NONE", false, null, "AAA", null),
                 DimTaskRow(102, "CB-102", "Sub-task", "Development", "Run", "NONE", true, 101, "AAA", null),
-                DimTaskRow(103, "CB-103", "Story", "Testing", null, "NONE", false, null, "BBB", null),
+                DimTaskRow(103, "CB-103", "Story", "Testing", null, "NONE", false, null, "AAA", null),
+                DimTaskRow(107, "CB-107", "Story", "Testing", null, "NONE", false, null, "BBB", null),
                 DimTaskRow(105, "CB-105", "Story", "Support", "Run", "NONE", false, null, "AAA", null),
                 DimTaskRow(106, "CB-106", "Story", "Other", "Build", "NONE", false, null, "AAA", null),
             ),
@@ -107,7 +114,8 @@ private suspend fun withBreakdownWorld(block: suspend (BreakdownWorld) -> Unit) 
                 log(1, 101, t1, alice, "2026-01-10", 1.0, "Development", "Run"),
                 log(2, 101, t1, bob, "2026-01-11", 0.5, "Development", "Run"),
                 log(3, 102, t1, alice, "2026-01-12", 0.25, "Development", "Run"),
-                log(4, 103, t1, alice, "2026-01-13", 2.0, "Testing", null, domain = "BBB"),
+                log(4, 103, t1, alice, "2026-01-13", 2.0, "Testing", null),
+                log(11, 107, t1, alice, "2026-01-13", 2.0, "Testing", null, domain = "BBB"),
                 log(5, 104, t1, bob, "2026-01-14", 1.5, "Planning", "Run", epicId = 104),
                 log(6, 105, t2, carol, "2026-01-15", 0.3333, "Support", "Run"),
                 log(7, 105, t2, carol, "2026-01-16", 0.3333, "Support", null),
@@ -210,12 +218,12 @@ class ReportCostsBreakdownTest {
             assertEquals(listOf("UNCATEGORIZED" to 2.33), none.byWorkCategory.map { it.key to it.md })
             assertEquals(listOf("Testing" to 2.0, "Support" to 0.33), none.byActivityType.map { it.key to it.md })
             assertEquals(2.33, none.totalMd)
-            // The domain slice follows the view's column: only task 103's worklog is BBB.
-            val domain = client.cost("${w.range}&domain=BBB")
+            // The domain slice follows the view's column: only task 107's worklog is BBB.
+            val domain = client.cost("${w.period}&domain=BBB")
             assertEquals(listOf("Testing" to 2.0), domain.byActivityType.map { it.key to it.md })
             assertEquals(listOf("UNCATEGORIZED" to 2.0), domain.byWorkCategory.map { it.key to it.md })
             // A report with nothing in it has empty lists.
-            val empty = client.cost("connectionId=${w.connId}&from=2024-01-01&to=2024-01-31")
+            val empty = client.cost("connectionId=${w.connId}&from=2024-01-01&to=2024-01-31&domain=AAA")
             assertTrue(empty.byActivityType.isEmpty() && empty.byWorkCategory.isEmpty())
         }
     }
@@ -293,9 +301,10 @@ class ReportCostsBreakdownTest {
             // An unknown key and an empty period are valid empty answers (never 404).
             val unknown = client.items("${w.range}&by=ACTIVITY_TYPE&key=Nonexistent")
             assertEquals(listOf(0, 0.0, false), listOf(unknown.bar.count, unknown.bar.sumMd, unknown.truncated))
-            assertEquals(0, client.items("connectionId=${w.connId}&from=2024-01-01&to=2024-01-31&by=ACTIVITY_TYPE&key=Development").total)
+            val emptyPeriod = "connectionId=${w.connId}&from=2024-01-01&to=2024-01-31&domain=AAA"
+            assertEquals(0, client.items("$emptyPeriod&by=ACTIVITY_TYPE&key=Development").total)
             // domainView=TASK moves nothing of a breakdown (it is a column concern), but the domain slice follows the view.
-            assertEquals(2.0, client.items("${w.range}&domain=BBB&by=ACTIVITY_TYPE&key=Testing").bar.sumMd)
+            assertEquals(2.0, client.items("${w.period}&domain=BBB&by=ACTIVITY_TYPE&key=Testing").bar.sumMd)
         }
     }
 
@@ -324,7 +333,7 @@ class ReportCostsBreakdownTest {
                 HttpStatusCode.OK, client.status("$base&by=ACTIVITY_TYPE&key=Development&key=Development"),
                 "duplicates collapse before the bound",
             )
-            val reversed = "connectionId=${w.connId}&from=2026-02-01&to=2026-01-01"
+            val reversed = "connectionId=${w.connId}&from=2026-02-01&to=2026-01-01&domain=AAA"
             assertEquals(HttpStatusCode.BadRequest, client.status("$reversed&by=ACTIVITY_TYPE&key=x"), "from after to")
             assertEquals(
                 HttpStatusCode.BadRequest, client.status("$base&accountId=${w.alice}&by=ACTIVITY_TYPE&key=x"), "accountId needs teamId",
@@ -383,13 +392,16 @@ class ReportCostsBreakdownTest {
 
     // ---- the derived fixture: an independent read of fact_worklog ----------------------------------------------------------------
 
-    private data class Stored(val activity: String?, val category: String?, val startedAt: Long, val md: BigDecimal)
+    /** [domain] is the EPIC view's column (the default): the epic's domain, an epic-less worklog's own. */
+    private data class Stored(val activity: String?, val category: String?, val startedAt: Long, val md: BigDecimal, val domain: String?)
 
     private suspend fun storedWorklogs(connId: UInt, bounds: Pair<Long, Long>): List<Stored> =
         suspendTransaction(sharedDatabaseForTests()) {
             val w = MetricsTables.FactWorklog
             w.selectAll().where { w.connectionId eq connId }.toList()
-                .map { Stored(it[w.activityType], it[w.workCategory], it[w.startedAt], it[w.md]) }
+                .map {
+                    Stored(it[w.activityType], it[w.workCategory], it[w.startedAt], it[w.md], it[w.epicDomainKey] ?: it[w.taskDomainKey])
+                }
                 .filter { it.startedAt >= bounds.first && it.startedAt < bounds.second }
         }
 
@@ -401,9 +413,10 @@ class ReportCostsBreakdownTest {
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("cb-fixture")
         val bounds = windowBounds(reportZone(), "2024-01-01", "2026-12-31")
-        val logs = storedWorklogs(connId, bounds)
+        // UNIT level is the FLO domain read (a `domain` with no `teamId`): graded against the FLO domain's worklogs.
+        val logs = storedWorklogs(connId, bounds).filter { it.domain == DerivedStubFixture.DOMAIN }
         assertTrue(logs.isNotEmpty(), "the window must hold worklogs")
-        val query = "connectionId=$connId&from=2024-01-01&to=2026-12-31"
+        val query = "connectionId=$connId&from=2024-01-01&to=2026-12-31&domain=${DerivedStubFixture.DOMAIN}"
         val report = client.cost(query)
         val expected = mapOf<String, (Stored) -> String?>("ACTIVITY_TYPE" to { it.activity }, "WORK_CATEGORY" to { it.category })
         for ((by, slices) in listOf("ACTIVITY_TYPE" to report.byActivityType, "WORK_CATEGORY" to report.byWorkCategory)) {

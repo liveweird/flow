@@ -77,8 +77,11 @@ class ReportAgingWipTest {
             val inProgressEpics = d.selectAll().where { (d.connectionId eq connId) and (d.currentStage eq "IN_PROGRESS") }.toList()
                 .map { it[d.issueId] }.toSet()
             Triple(
-                t.selectAll().where { (t.connectionId eq connId) and (t.isSubtask eq false) }.toList(),
-                e.selectAll().where { e.connectionId eq connId }.toList().filter { it[e.issueId] in inProgressEpics },
+                t.selectAll().where {
+                    (t.connectionId eq connId) and (t.isSubtask eq false) and (t.domainKey eq DerivedStubFixture.DOMAIN)
+                }.toList(),
+                e.selectAll().where { (e.connectionId eq connId) and (e.domainKey eq DerivedStubFixture.DOMAIN) }.toList()
+                    .filter { it[e.issueId] in inProgressEpics },
                 MetricsTables.DeriveRuns.selectAll().toList().size,
             )
         }
@@ -88,7 +91,7 @@ class ReportAgingWipTest {
         val openEpics = facts.second.count { it[e.doneAt] == null && it[e.startedAt] != null }
         assertTrue(openTasks > 0 && openEpics >= 0, "the fixture must carry in-progress tasks")
 
-        val body = client.aging("connectionId=$connId")
+        val body = client.aging("connectionId=$connId&domain=${DerivedStubFixture.DOMAIN}")
         // `blocked` = an item_blocked row covering the connection's derive clock (the deriver closes open spells AT it).
         val clock = DerivedStubFixture.PINNED_NOW
         val blockedIds = suspendTransaction(sharedDatabaseForTests()) {
@@ -271,8 +274,12 @@ class ReportAgingWipTest {
     fun `the endpoint answers any signed-in user and 400s a bad filter`() = testApplication {
         usePostgresTestcontainer()
         val client = seededClient("reports-aging-400")
-        assertEquals(HttpStatusCode.OK, client.get("/api/v1/reports/aging-wip").status)
-        val bad = listOf("accountId=abc", "connectionId=999999", "teamId=999999", "from=2026-01-01&to=2025-01-01", "sprintId=999999999")
+        val unit = "domain=${DerivedStubFixture.DOMAIN}"
+        assertEquals(HttpStatusCode.OK, client.get("/api/v1/reports/aging-wip?$unit").status)
+        val bad = listOf(
+            "accountId=abc&$unit", "connectionId=999999&$unit", "teamId=999999", "from=2026-01-01&to=2025-01-01&$unit",
+            "sprintId=999999999&$unit",
+        )
         for (query in bad) {
             assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/aging-wip?$query").status, query)
         }

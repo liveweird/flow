@@ -40,6 +40,9 @@ private class CrowdedWorld(val connId: UInt, val team: UInt, val alice: String, 
     fun sprintQuery(id: Long) = "connectionId=$connId&teamId=$team&sprintId=$id"
     val periodQuery get() = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
 
+    /** The UNIT-level read of the world: a `domain` with no `teamId` (every row of the world is domain AAA). */
+    val unitQuery get() = "$periodQuery&domain=AAA"
+
     companion object {
         const val EPIC_BASE = 880_100L
         const val EPICS = 9
@@ -174,18 +177,18 @@ class ReportDrillPushdownGoldenTest {
         usePostgresTestcontainer()
         withCrowdedWorld { w ->
             val client = seededClient("pdg-slice")
-            val everything = client.costsGolden("${w.periodQuery}&by=ACTIVITY_TYPE&key=Story&key=Bug")
+            val everything = client.costsGolden("${w.unitQuery}&by=ACTIVITY_TYPE&key=Story&key=Bug")
             assertTrue(everything.truncated && everything.items.size == PAGE && everything.total > PAGE, "the cut was exercised")
             assertEquals(everything.total, everything.bar.count)
             // The ties across the cut: figures are drawn from a handful of values, so the 500th and 501st item share one.
             assertTrue(everything.items.distinctBy { it.figure to it.anchorAt }.size < everything.items.size, "ties in figure and anchor")
             assertTrue(everything.items.any { it.itemKind == DrillItemKind.EPIC }, "an epic logged on directly")
-            client.costsGolden("${w.periodQuery}&by=ACTIVITY_TYPE&key=Story")
-            client.costsGolden("${w.periodQuery}&by=ACTIVITY_TYPE&key=Bug")
-            client.costsGolden("${w.periodQuery}&by=ACTIVITY_TYPE&key=Nothing")
-            client.costsGolden("${w.periodQuery}&by=WORK_CATEGORY&key=Run")
-            client.costsGolden("${w.periodQuery}&by=WORK_CATEGORY&key=UNCATEGORIZED")
-            client.costsGolden("${w.periodQuery}&by=WORK_CATEGORY&key=UNCATEGORIZED&key=Run")
+            client.costsGolden("${w.unitQuery}&by=ACTIVITY_TYPE&key=Story")
+            client.costsGolden("${w.unitQuery}&by=ACTIVITY_TYPE&key=Bug")
+            client.costsGolden("${w.unitQuery}&by=ACTIVITY_TYPE&key=Nothing")
+            client.costsGolden("${w.unitQuery}&by=WORK_CATEGORY&key=Run")
+            client.costsGolden("${w.unitQuery}&by=WORK_CATEGORY&key=UNCATEGORIZED")
+            client.costsGolden("${w.unitQuery}&by=WORK_CATEGORY&key=UNCATEGORIZED&key=Run")
             client.costsGolden("${w.periodQuery}&teamId=${w.team}&by=ACTIVITY_TYPE&key=Story")
             client.costsGolden("${w.periodQuery}&teamId=${w.team}&accountId=${w.alice}&by=ACTIVITY_TYPE&key=Story&key=Bug")
             client.costsGolden("${w.periodQuery}&teamId=0&by=ACTIVITY_TYPE&key=Story")
@@ -231,12 +234,12 @@ class ReportDrillPushdownGoldenTest {
                 val client = seededClient("pdg-edge")
                 // x.xx5 rounds up (HALF_UP), x.xx49 down, in an item's figure and in a bar: 0.125 -> 0.13 / 0.1249 -> 0.12, 0.0025 + 0.0025
                 // on one item -> 0.01 / 0.0049 -> 0.0, 2.675 -> 2.68 / 2.6749 -> 2.67; a BAR of 0.0025 + 0.0025 and a bar of 1 + 0.125.
-                val edge = client.costsGolden("${w.periodQuery}&by=ACTIVITY_TYPE&key=Edge")
+                val edge = client.costsGolden("${w.unitQuery}&by=ACTIVITY_TYPE&key=Edge")
                 assertEquals(setOf(0.13, 0.12, 0.01, 0.0, 2.68, 2.67), edge.items.map { it.figure }.toSet())
                 assertEquals(6, edge.bar.count)
-                assertEquals(0.01, client.costsGolden("${w.periodQuery}&by=ACTIVITY_TYPE&key=EdgeBar").bar.sumMd)
-                assertEquals(1.13, client.costsGolden("${w.periodQuery}&by=ACTIVITY_TYPE&key=EdgeBar2").bar.sumMd)
-                client.costsGolden("${w.periodQuery}&by=ACTIVITY_TYPE&key=Edge&key=EdgeBar&key=EdgeBar2")
+                assertEquals(0.01, client.costsGolden("${w.unitQuery}&by=ACTIVITY_TYPE&key=EdgeBar").bar.sumMd)
+                assertEquals(1.13, client.costsGolden("${w.unitQuery}&by=ACTIVITY_TYPE&key=EdgeBar2").bar.sumMd)
+                client.costsGolden("${w.unitQuery}&by=ACTIVITY_TYPE&key=Edge&key=EdgeBar&key=EdgeBar2")
                 // The orphan sub-tasks: one with no parent lists itself, one whose parent has no row lists the parent's id.
                 val whole = client.costsGolden(w.sprintQuery)
                 assertTrue(whole.items.any { it.issueKey == "20901" }, "a sub-task without a parent lists itself")

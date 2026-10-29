@@ -82,6 +82,9 @@ class ReportBacklogTest {
     private val from = "2025-06-01"
     private val to = "2026-03-05"
 
+    /** UNIT level is the FLO domain read (a `domain` with no `teamId`): the DOMAIN scope of the stub's one populated domain. */
+    private val flo = "domain=${DerivedStubFixture.DOMAIN}"
+
     @Test
     fun `UNIT trend and current equal an independent sum of agg_daily_flow and the scopes isolate`() = testApplication {
         usePostgresTestcontainer()
@@ -91,12 +94,12 @@ class ReportBacklogTest {
         val days = isoDays(from, to)
         assertEquals(dayOfInstant(DerivedStubFixture.PINNED_NOW, reportZone()), to, "the test range must end on the pinned DERIVE day")
 
-        val unit = client.backlog("connectionId=$connId&from=$from&to=$to")
-        unit.assertTrend("UNIT", rows.filter { it.scopeKind == "TEAM" }, days)
+        val unit = client.backlog("connectionId=$connId&from=$from&to=$to&$flo")
+        unit.assertTrend("UNIT", rows.filter { it.scopeKind == "DOMAIN" && it.scopeId == DerivedStubFixture.DOMAIN }, days)
         assertEquals("UNIT", unit.meta.level.name)
         assertTrue(unit.trend.any { it.items > 0 && it.md > 0.0 }, "the fixture must carry an estimated backlog")
         assertNull(unit.note)
-        assertEquals("TASK", client.backlog("connectionId=$connId&from=$from&to=$to&domainView=EPIC").meta.domainView.name)
+        assertEquals("TASK", client.backlog("connectionId=$connId&from=$from&to=$to&$flo&domainView=EPIC").meta.domainView.name)
 
         val domain = rows.filter { it.scopeKind == "DOMAIN" }.groupBy { it.scopeId }.maxBy { (_, group) -> group.sumOf { it.items } }.key
         client.backlog("connectionId=$connId&from=$from&to=$to&domain=$domain")
@@ -133,7 +136,7 @@ class ReportBacklogTest {
         val ordered = sprints.filter { dayOfInstant(it.completeAt, zone) < to }
         assertTrue(ordered.size >= 5, "the fixture must carry at least five team sprints closed before the derive day")
         val periodEnds = listOf(to) + listOf(4, 1, 0).map { dayOfInstant(ordered[it].completeAt, zone) }
-        val windowSprints = client.backlog("connectionId=$connId&from=$from&to=$to").current.windowSprints
+        val windowSprints = client.backlog("connectionId=$connId&from=$from&to=$to&teamId=$teamId").current.windowSprints
         assertTrue(windowSprints >= 1)
         var sawNonNull = false
         for (end in periodEnds) {
@@ -173,10 +176,10 @@ class ReportBacklogTest {
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-backlog-window")
 
-        val clamped = client.backlog("connectionId=$connId&from=2026-02-20&to=2026-12-31")
+        val clamped = client.backlog("connectionId=$connId&from=2026-02-20&to=2026-12-31&$flo")
         assertEquals(isoDays("2026-02-20", to), clamped.trend.map { it.day }, "days past the last derived day are cut off, not zero")
         assertEquals(to, clamped.current.asOfDay)
-        val beyond = client.backlog("connectionId=$connId&from=2026-06-01&to=2026-06-30")
+        val beyond = client.backlog("connectionId=$connId&from=2026-06-01&to=2026-06-30&$flo")
         assertTrue(beyond.trend.isEmpty())
         assertNull(beyond.current.asOfDay)
         assertEquals(0, beyond.current.items)
@@ -184,19 +187,19 @@ class ReportBacklogTest {
         assertNull(beyond.current.backlogInSprints)
 
         // lastSprints=2 resolves the two newest sprints — closed in August, past the derived coverage: nothing to read yet.
-        val newest = client.backlog("connectionId=$connId&lastSprints=2")
+        val newest = client.backlog("connectionId=$connId&lastSprints=2&$flo")
         assertTrue(newest.meta.resolvedSprints.flatMap { it.sprintIds }.isNotEmpty() && newest.trend.isEmpty())
         assertNull(newest.current.asOfDay)
 
         // sprintId reads that sprint's own envelope, day by day.
         val zone = reportZone()
         val sprint = readClosedSprints(connId).filter { dayOfInstant(it.completeAt, zone) < to }[4]
-        val body = client.backlog("connectionId=$connId&sprintId=${sprint.sprintId}")
+        val body = client.backlog("connectionId=$connId&sprintId=${sprint.sprintId}&$flo")
         assertEquals(listOf(sprint.teamId), body.meta.resolvedSprints.map { it.teamId })
         assertNull(body.meta.from)
         body.assertTrend(
             "sprintId",
-            readFlowBacklogRows(connId).filter { it.scopeKind == "TEAM" },
+            readFlowBacklogRows(connId).filter { it.scopeKind == "DOMAIN" && it.scopeId == DerivedStubFixture.DOMAIN },
             isoDays(dayOfInstant(sprint.startAt ?: sprint.completeAt, zone), dayOfInstant(sprint.completeAt, zone)),
         )
 
@@ -215,10 +218,10 @@ class ReportBacklogTest {
         val team = TestTeams.seed(SyncedStubFixture.unique("backlog-400"))
         try {
             for (query in listOf(
-                "from=2026-01-01&to=2025-01-01", "accountId=abc", "connectionId=999999", "teamId=999999", "sprintId=999999999",
-                "domain=AAA&teamId=$team", "activityType=Story", "workCategory=UNCATEGORIZED",
-                "touchedWithinDays=3651", "touchedWithinDays=-1", "touchedWithinDays=abc", "touchedWithinDays=1.5",
-                "touchedWithinDays=7&touchedWithinDays=8",
+                "from=2026-01-01&to=2025-01-01&$flo", "accountId=abc&$flo", "connectionId=999999&$flo", "teamId=999999",
+                "sprintId=999999999&$flo", "domain=AAA&teamId=$team", "activityType=Story&$flo", "workCategory=UNCATEGORIZED&$flo",
+                "touchedWithinDays=3651&$flo", "touchedWithinDays=-1&$flo", "touchedWithinDays=abc&$flo", "touchedWithinDays=1.5&$flo",
+                "touchedWithinDays=7&touchedWithinDays=8&$flo",
             )) {
                 assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/backlog?$query").status, query)
             }
@@ -427,8 +430,8 @@ class ReportBacklogTest {
             val domain = rows.filter { it.scopeKind == "DOMAIN" }.groupBy { it.scopeId }.maxBy { (_, g) -> g.sumOf { it.items } }.key
             val base = "connectionId=$connId&from=$from&to=$to"
             var sawHidden = false
-            for (scope in listOf("", "&teamId=$teamId", "&teamId=0", "&domain=$domain")) {
-                val label = scope.ifEmpty { "UNIT" }
+            for (scope in listOf("&$flo", "&teamId=$teamId", "&teamId=0", "&domain=$domain")) {
+                val label = scope
                 val unfiltered = client.backlog(base + scope)
                 assertNull(unfiltered.touchedWithinDays, "$label: the filter is off")
                 assertTrue(unfiltered.trend.all { it.hiddenItems == 0 && it.hiddenMd == 0.0 } && unfiltered.current.hiddenItems == 0)
@@ -491,11 +494,11 @@ class ReportBacklogTest {
         }
         val teamId = readFlowBacklogRows(connId).filter { it.scopeKind == "TEAM" }.map { it.scopeId }.filter { it.all(Char::isDigit) }
             .distinct().single().toUInt()
-        val busy = client.backlog("connectionId=$connId&from=$from&to=$to").trend.filter { it.items > 0 }.map { it.day }
+        val busy = client.backlog("connectionId=$connId&from=$from&to=$to&$flo").trend.filter { it.items > 0 }.map { it.day }
         assertTrue(busy.size >= 3, "the fixture needs at least three days with a backlog to sample")
         val sampled = listOf(busy.first(), busy[busy.size / 2], busy.last())
         val scopes = listOf<Triple<String, String, (IndependentBacklogItem) -> Boolean>>(
-            Triple("UNIT", "") { true },
+            Triple("UNIT", "&$flo") { item -> item.domainKey == DerivedStubFixture.DOMAIN },
             Triple("TEAM", "&teamId=$teamId") { item -> item.domainKey?.let { owners[it] } == teamId },
         )
         var sawHidden = false
@@ -595,7 +598,7 @@ class ReportBacklogTest {
             val base = "connectionId=$connId&from=2026-01-01&to=2026-01-10&touchedWithinDays=3"
             val shown = listOf(5, 5, 5, 1, 0, 2, 3, 3, 2, 1)
             val hidden = shown.map { 5 - it }
-            for (scope in listOf("", "&teamId=$teamX", "&domain=AAA")) {
+            for (scope in listOf("&teamId=$teamX", "&domain=AAA")) {
                 val report = client.backlog(base + scope)
                 assertEquals((1..10).map { "2026-01-%02d".format(it) }, report.trend.map { it.day }, "scope '$scope': one point per day")
                 assertEquals(shown, report.trend.map { it.items }, "scope '$scope' items")
@@ -614,7 +617,7 @@ class ReportBacklogTest {
                 assertEquals(List(10) { 0 }, client.backlog("$base&teamId=$other").trend.map { it.items + it.hiddenItems }, "teamId=$other")
             }
             // A longer window shows more: at 30 days every item (created on the 1st) is touched recently on every day of the period.
-            val wide = client.backlog("connectionId=$connId&from=2026-01-01&to=2026-01-10&touchedWithinDays=30")
+            val wide = client.backlog("connectionId=$connId&from=2026-01-01&to=2026-01-10&touchedWithinDays=30&domain=AAA")
             assertEquals(List(10) { 5 }, wide.trend.map { it.items })
             assertEquals(List(10) { 0 }, wide.trend.map { it.hiddenItems })
         } finally {
@@ -788,7 +791,7 @@ class ReportBacklogTest {
         }
         try {
             val client = seededClient("reports-backlog-prune")
-            val report = client.backlog("connectionId=$connId&from=2026-01-03&to=2026-01-05&touchedWithinDays=3650")
+            val report = client.backlog("connectionId=$connId&from=2026-01-03&to=2026-01-05&touchedWithinDays=3650&domain=AAA")
             assertEquals(listOf("2026-01-03", "2026-01-04", "2026-01-05"), report.trend.map { it.day })
             assertEquals(listOf(2, 1, 1), report.trend.map { it.items }, "P is in on day 3 only, T on all three; Q, R and S never")
             assertEquals(listOf(6.0, 3.0, 3.0), report.trend.map { it.md })
