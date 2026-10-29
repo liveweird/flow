@@ -96,8 +96,9 @@ endpoint (`requireAdmin` server-side).
   (`useSearchParams`), so a lookup is a shareable deep link (`dataSourceInspectPath(id, key)`); the
   query only runs once a key is present. Shows the canonical raw payload (the trimmed document: no comment or description text), tombstones, changelog/
   worklog payloads, and — once processed — the `norm.*` work item, its status/field intervals and
-  anomaly badges (orange, the fixed `TilingAnomaly` vocabulary). A `400`/`404` renders INLINE under
-  the form, never replacing the page, so the admin can simply try another key.
+  anomaly badges (orange, the fixed `TilingAnomaly` vocabulary). A `400`/`404`/`413` renders INLINE under
+  the form, never replacing the page, so the admin can simply try another key (`413`, `dataSources.inspect.tooLarge`: the issue's stored
+  text is over `jira.processPageBytes`, the server answers before reading it; `saveErrorMessage`'s `tooLarge` key).
 - **`utils/dataSourceLinks.ts`** is the ONE place the route family is spelled out
   (`dataSourcesPath`, `dataSourcePath`, `dataSourceProfilePath`, `dataSourceInspectPath`) — never
   hand-assemble these URLs. `utils/dataSourceState.ts` holds the state→colour map and

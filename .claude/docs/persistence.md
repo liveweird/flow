@@ -429,17 +429,26 @@ tables in the `raw` schema — the REFERENCE and ISSUES streams' target
   never a re-fetch that happened to return the same document.
 - **The trimmed payloads (`jira/JiraPayloadTrim.kt`, 1.17.1).** The raw store keeps what Flow reads, not everything Jira sends; the
   trim runs on every write path (`upsertIssue`/`upsertIssues`, `insertChangelog(s)`, `upsertWorklog(s)`) BEFORE canonicalization and
-  hashing, so the stored text and its `sha256` agree. An issue loses `fields.comment`, `fields.worklog`, `fields.description` and
+  hashing, so the stored text and its `sha256` agree. An issue loses `fields.comment`, `fields.worklog`, `fields.description`,
   `fields.attachment` (free text and copies of data held elsewhere: worklogs have their own table, a description or comment can
-  carry personal data), and its `fields.assignee`/`reporter`/`creator` are reduced to `{accountId, displayName, accountType}`
+  carry personal data), `fields.subtasks` (embedded child issues; the edge is the child's own `parent`) and `fields.environment` (free
+  text, empty on every real install measured); each `fields.issuelinks[]` element is reduced to `{id, type: {name, inward, outward},
+  inwardIssue/outwardIssue: {id, key}}` (`jira/JiraIssueLinks.kt`; Jira embeds the linked issue's summary, status, priority and type
+  with icon URLs and `self` links in every link, ~15 % of the stored issue text on a real install - trim rules v2); and its `fields.assignee`/`reporter`/`creator` are reduced to `{accountId, displayName, accountType}`
   (`jira/JiraUserReferences.kt`; the normalizer reads the assignee's `accountId`/`displayName` and the reporter's `accountId`).
   Everything else stays verbatim: every other system field, **every `customfield_*` (nested ADF included - a user picker in a custom
-  field keeps its full user)**, `timetracking`, `issuelinks`, `subtasks`, `expand`, `self`. The raw issue inspector therefore returns
+  field keeps its full user)**, `timetracking`, `expand`, `self`. The raw issue inspector therefore returns
   the trimmed document. **The equivalence property** (`JiraPayloadTrimTest`): normalizing a trimmed payload gives exactly the
   rows the untrimmed one gives, over a rich synthetic issue and over every raw row of the stub fixture with the dropped keys
   injected - a key joins the drop list only after every reader was grepped (`ingestion.md` "Normalized layer"). A change confined
   to a dropped key (a new comment, an e-mail address) is no content change: the hash is the same, `UNCHANGED`, `changed_at` stays
   put. Rows stored before the trim existed are rewritten once by the TRIM stream ("The Jira changelog/worklog raw store (V11)" below).
+- **A stored-row size bound (1.24.1, no migration).** Every write path also refuses an item over its stored-size ceiling BEFORE the diff
+  (`RawUpsertOutcome.REFUSED`, `jira/JiraStoredCeilings.kt`): an issue or entity over `jira.maxStoredPayloadBytes` as canonical text, a history
+  over 512 KiB and a worklog over 16 KiB as the text arrived. Nothing is written; an existing row keeps its payload, hash and `changed_at` and
+  only has `fetched_at` (issue, worklog) or `last_seen_at` (entity) touched, so the end-of-pass sweep never tombstones it. PROCESS reads rows by
+  stored bytes (`octet_length(payload::text)`; `jira.processPageBytes`) and reads a whole entity kind only in chunks of at most that many bytes (`JiraEntityReads`; `ingestion.md`
+  "Normalized layer"). A refusal is no change: it does not set `needs_processing` and is no progress for the pause.
 - **Tombstones and resurrection.** `raw.jira_entities.deleted_at` is set by
   `markEntitiesDeletedNotSeenSince` at the end of a REFERENCE pass, for every kind, over rows whose
   `last_seen_at` is older than the pass's own start time (`passStartedAt`) and not already deleted —

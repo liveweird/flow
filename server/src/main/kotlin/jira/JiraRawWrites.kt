@@ -19,6 +19,9 @@ import org.jetbrains.exposed.v1.r2dbc.insertIgnore
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
+import org.slf4j.LoggerFactory
+
+private val log = LoggerFactory.getLogger(JiraRawWrites::class.java)
 
 /**
  * The raw store's diff-rule writes (v0.2.0 plan §7): the sha256 upsert per issue/entity/worklog, the append-only
@@ -26,7 +29,7 @@ import org.jetbrains.exposed.v1.r2dbc.update
  * enclosing one — see [JiraRawStore]). The whole-page forms of the four writers are [JiraRawBatchWrites], which shares the one
  * diff rule ([classifyUpsert]) and the per-row change updates at the bottom of this file.
  */
-internal class JiraRawWrites(private val database: R2dbcDatabase) {
+internal class JiraRawWrites(private val database: R2dbcDatabase, private val ceilings: JiraStoredCeilings = JiraStoredCeilings()) {
 
     /**
      * Diffs and writes one issue (v0.2.0 plan §7 "ISSUES", A1): unchanged sha256 (and not
@@ -37,6 +40,12 @@ internal class JiraRawWrites(private val database: R2dbcDatabase) {
     suspend fun upsertIssue(connectionId: UInt, issue: RawIssueInput, now: Long): RawUpsertOutcome =
         suspendTransaction(database) {
             val canonical = canonicalJson(trimIssue(issue.payload))
+            val size = canonical.renderedBytes()
+            if (size > ceilings.maxPayloadBytes) {
+                log.warnRefused("issue", issue.issueKey, connectionId, size, ceilings.maxPayloadBytes)
+                Issues.update({ (Issues.connectionId eq connectionId) and (Issues.issueId eq issue.issueId) }) { it[fetchedAt] = now }
+                return@suspendTransaction RawUpsertOutcome.REFUSED
+            }
             val hash = sha256Hex(canonical)
             val existing = Issues.selectAll()
                 .where { (Issues.connectionId eq connectionId) and (Issues.issueId eq issue.issueId) }
@@ -63,6 +72,7 @@ internal class JiraRawWrites(private val database: R2dbcDatabase) {
                     Issues.update({ (Issues.connectionId eq connectionId) and (Issues.issueId eq issue.issueId) }) { it[fetchedAt] = now }
                 RawUpsertOutcome.CHANGED, RawUpsertOutcome.RESURRECTED ->
                     changeIssueRow(connectionId, issue, canonical, hash, now, tombstoned)
+                RawUpsertOutcome.REFUSED -> error(NEVER_REFUSES)
             }
             outcome
         }
@@ -71,6 +81,12 @@ internal class JiraRawWrites(private val database: R2dbcDatabase) {
     suspend fun upsertEntity(connectionId: UInt, kind: String, entityId: String, document: JsonElement, now: Long): RawUpsertOutcome =
         suspendTransaction(database) {
             val canonical = canonicalJson(document)
+            val size = canonical.renderedBytes()
+            if (size > ceilings.maxPayloadBytes) {
+                log.warnRefused("$kind entity", entityId, connectionId, size, ceilings.maxPayloadBytes)
+                touchEntity(connectionId, kind, entityId, now)
+                return@suspendTransaction RawUpsertOutcome.REFUSED
+            }
             val hash = sha256Hex(canonical)
             val existing = Entities.selectAll()
                 .where { (Entities.connectionId eq connectionId) and (Entities.kind eq kind) and (Entities.entityId eq entityId) }
@@ -94,6 +110,7 @@ internal class JiraRawWrites(private val database: R2dbcDatabase) {
                 }) { it[lastSeenAt] = now }
                 RawUpsertOutcome.CHANGED, RawUpsertOutcome.RESURRECTED ->
                     changeEntityRow(connectionId, kind, entityId, canonical, hash, now)
+                RawUpsertOutcome.REFUSED -> error(NEVER_REFUSES)
             }
             outcome
         }
@@ -123,19 +140,23 @@ internal class JiraRawWrites(private val database: R2dbcDatabase) {
         authorAccountId: String?,
         payloadJson: String,
         now: Long,
-    ) {
-        suspendTransaction(database) {
-            val canonical = trimmedHistoryCanonicalJson(payloadJson)
-            Changelogs.insertIgnore {
-                it[Changelogs.connectionId] = connectionId
-                it[Changelogs.historyId] = historyId
-                it[Changelogs.issueId] = issueId
-                it[Changelogs.createdAt] = createdAt
-                it[Changelogs.authorAccountId] = authorAccountId
-                it[payload] = canonical
-                it[fetchedAt] = now
-            }
+    ): RawUpsertOutcome = suspendTransaction(database) {
+        val size = payloadJson.renderedBytes()
+        if (size > ceilings.maxHistoryBytes) {
+            log.warnRefused("history", historyId.toString(), connectionId, size, ceilings.maxHistoryBytes)
+            return@suspendTransaction RawUpsertOutcome.REFUSED
         }
+        val canonical = trimmedHistoryCanonicalJson(payloadJson)
+        Changelogs.insertIgnore {
+            it[Changelogs.connectionId] = connectionId
+            it[Changelogs.historyId] = historyId
+            it[Changelogs.issueId] = issueId
+            it[Changelogs.createdAt] = createdAt
+            it[Changelogs.authorAccountId] = authorAccountId
+            it[payload] = canonical
+            it[fetchedAt] = now
+        }
+        RawUpsertOutcome.INSERTED
     }
 
     /**
@@ -153,6 +174,12 @@ internal class JiraRawWrites(private val database: R2dbcDatabase) {
         now: Long,
     ): RawUpsertOutcome =
         suspendTransaction(database) {
+            val size = payloadJson.renderedBytes()
+            if (size > ceilings.maxWorklogBytes) {
+                log.warnRefused("worklog", worklogId.toString(), connectionId, size, ceilings.maxWorklogBytes)
+                Worklogs.update({ (Worklogs.connectionId eq connectionId) and (Worklogs.worklogId eq worklogId) }) { it[fetchedAt] = now }
+                return@suspendTransaction RawUpsertOutcome.REFUSED
+            }
             val canonical = trimmedWorklogCanonicalJson(payloadJson)
             val hash = sha256Hex(canonical)
             val existing = Worklogs.selectAll()
@@ -179,6 +206,7 @@ internal class JiraRawWrites(private val database: R2dbcDatabase) {
                     }
                 RawUpsertOutcome.CHANGED, RawUpsertOutcome.RESURRECTED ->
                     changeWorklogRow(connectionId, issueId, worklogId, worklogUpdatedAt, canonical, hash, now)
+                RawUpsertOutcome.REFUSED -> error(NEVER_REFUSES)
             }
             outcome
         }
@@ -204,6 +232,9 @@ internal class JiraRawWrites(private val database: R2dbcDatabase) {
             }) { it[deletedAt] = now }
         }
 }
+
+/** [classifyUpsert] only classifies a stored row against a new hash; a refusal happens before it, so it never returns REFUSED. */
+internal const val NEVER_REFUSES = "classifyUpsert never refuses"
 
 /**
  * The ONE diff rule of every raw upsert (issue, entity, worklog), shared by the single-row methods above and the batch writers

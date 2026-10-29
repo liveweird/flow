@@ -5,6 +5,7 @@ import ch.nokillswit.norm.NormalizedStatusInterval
 import ch.nokillswit.norm.StatusCategory
 import ch.nokillswit.norm.TilingAnomaly
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
 /** All-digits — looked up by the stable Jira id; anything else must match this before a key lookup (v0.2.0 plan §9/§12 item 8b). */
@@ -39,7 +40,9 @@ data class RawIssueWorkItem(
  * `GET /api/v1/data-sources/{id}/raw-issues/{issueKey}` (v0.2.0 plan §9/§12 item 8b, ADMIN only):
  * one Jira issue's raw store row, its changelog/worklog history and — if it has been through
  * PROCESS at least once — its normalized `norm.*` shape. [payload]/[changelogs]/[worklogs] are the
- * exact JSON documents Jira returned (canonicalized), never reparsed into a Jira-specific shape.
+ * exact JSON documents Jira returned (canonicalized), never reparsed into a Jira-specific shape; on the SERVER they are the stored
+ * text embedded as an unquoted literal (`storedJson`), never parsed, so the `web` role builds no tree of a document (the wire shape is
+ * the objects they always were).
  */
 @Serializable
 data class RawIssueInspection(
@@ -51,9 +54,9 @@ data class RawIssueInspection(
     val deletedAt: Long? = null,
     val movedOutAt: Long? = null,
     val needsProcessing: Boolean,
-    val payload: JsonObject,
-    val changelogs: List<JsonObject> = emptyList(),
-    val worklogs: List<JsonObject> = emptyList(),
+    val payload: JsonElement,
+    val changelogs: List<JsonElement> = emptyList(),
+    val worklogs: List<JsonElement> = emptyList(),
     val workItem: RawIssueWorkItem? = null,
     val statusIntervals: List<NormalizedStatusInterval> = emptyList(),
     val fieldIntervals: List<NormalizedFieldInterval> = emptyList(),

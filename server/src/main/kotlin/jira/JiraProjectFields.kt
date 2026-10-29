@@ -42,12 +42,40 @@ internal object JiraProjectFields {
      * Project key → numeric project id, from `PROJECT` entity payloads (`project/search` values). Total: an entry of an
      * unexpected shape is skipped, never thrown on — the Test-connection probe that seeds from it is REQUIRED and must not fail here.
      */
-    fun projectIdsByKey(projects: List<JsonElement>): Map<String, Long> = projects.mapNotNull { project ->
-        val obj = project as? JsonObject ?: return@mapNotNull null
+    fun projectIdsByKey(projects: List<JsonElement>): Map<String, Long> = projects.mapNotNull(::projectIdEntry).toMap()
+
+    private fun projectIdEntry(project: JsonElement): Pair<String, Long>? {
+        val obj = project as? JsonObject ?: return null
         val key = (obj["key"] as? JsonPrimitive)?.contentOrNull
         val id = (obj["id"] as? JsonPrimitive)?.contentOrNull?.toLongOrNull()
-        if (key == null || id == null) null else key to id
-    }.toMap()
+        return if (key == null || id == null) null else key to id
+    }
+
+    /**
+     * What the step reads off the stored `PROJECT`/`PROJECT_STATUSES`/`ISSUE_TYPE` entities: the project ids, the issue-type ids of each
+     * project's statuses document (a project whose document does not parse has none) and the hierarchy levels - never the documents' text.
+     */
+    class StoredInputs(val projectIds: Map<String, Long>, val workTypeIds: Map<String, List<Long>>, val hierarchy: Map<String, Int>)
+
+    /** [StoredInputs] of [connectionId]: each kind is read in chunks and reduced to its values first ([JiraRawStore.mapEntities]). */
+    suspend fun storedInputs(rawStore: JiraRawStore, connectionId: UInt) = StoredInputs(
+        rawStore.mapEntities(connectionId, JiraEntityKind.PROJECT.name) { _, payload ->
+            projectIdEntry(Json.parseToJsonElement(payload))
+        }.toMap(),
+        rawStore.mapEntities(connectionId, JiraEntityKind.PROJECT_STATUSES.name) { projectKey, payload ->
+            projectKey to issueTypeIdsOfText(payload)
+        }.toMap(),
+        rawStore.mapEntities(connectionId, JiraEntityKind.ISSUE_TYPE.name) { _, payload ->
+            JiraReferenceRows.issueTypeLevel(payload)
+        }.toMap(),
+    )
+
+    /** The issue-type ids of a stored statuses document; empty when it is not the expected array (what the step treats as "no types"). */
+    private fun issueTypeIdsOfText(payload: String): List<Long> = try {
+        issueTypeIds(Json.parseToJsonElement(payload).jsonArray)
+    } catch (_: IllegalArgumentException) {
+        emptyList()
+    }
 
     /** The issue-type ids of a project's statuses document (one entry per type); total like [projectIdsByKey]. */
     fun issueTypeIds(statuses: JsonArray): List<Long> = statuses.mapNotNull {
@@ -114,7 +142,7 @@ internal object JiraProjectFields {
     class FetchedScheme(val fieldIds: List<String>, val byWorkType: Map<Long, Set<String>>?)
 
     /**
-     * The `PROJECT_FIELDS` payload. [hierarchy] (issue-type id → `hierarchyLevel`, `JiraNormalizer.issueTypeHierarchy`) splits the
+     * The `PROJECT_FIELDS` payload. [hierarchy] (issue-type id → `hierarchyLevel`, `JiraReferenceRows.issueTypeHierarchy`) splits the
      * scheme: a field is an epic field when any work type at level 1 carries it, a task field when any at level 0 or -1 (a
      * sub-task) does; a work type missing from [hierarchy] counts as a task type, and one above level 1 counts for neither.
      * Without the split (an empty [hierarchy], or [FetchedScheme.byWorkType] unknown) only the union `fieldIds` is stored — readers

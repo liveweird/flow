@@ -57,10 +57,11 @@ for the ingestion worker.
 
 **Two boot checks follow the role.** A role that runs the worker fails startup when `postgres.pool.maxSize` is not greater than
 `2 x ingest.workerSlots` (a DERIVE holds two connections; `ingest/IngestWorkerConfig.kt`), and when its heap cannot hold
-`ingest.workerSlots` worst-case Jira trees plus the bodies in flight and a reserve (`jira/JiraHeapFit.kt`, `jira-integration.md` "Node and
-depth ceiling", build-times WHY 48: 2 slots x 1 tree x 112 MiB + 4 x 8 MiB + 96 MiB = 352 MiB against the 448 MiB old generation of
-`-Xmx512m -Xmn64m`). The heap message
-names `ingest.workerSlots`, `jira.maxResponseBytes`, `jira.maxConcurrentRequests` and the `-Xmx` needed, so raising a slot count or a cap
+`ingest.workerSlots` slots, each the largest of a worst-case response tree, a PROCESS slot and a CHANGELOGS / WORKLOGS answer-text slot, plus the
+bodies in flight and a reserve (`jira/JiraHeapFit.kt`, `jira-integration.md` "Node and depth ceiling", "Stored-size ceilings", build-times WHY 48: 2 slots x
+(2 - 1) x 137 MiB (PROCESS) + 160 MiB (WORKLOGS text + the converting tree) + 4 x 8 MiB + 96 MiB = 425 MiB against the 448 MiB old generation of `-Xmx512m -Xmn64m`). The heap message
+names `ingest.workerSlots`, `jira.maxConcurrentRequests`, the knobs of the dominating term (`jira.maxResponseBytes`, or `jira.processPageBytes` and
+`jira.maxStoredPayloadBytes`) and the `-Xmx` needed, so raising a slot count or a cap
 means raising the worker's `JAVA_OPTS` heap (and its memory limit) with it. A `web` role only logs a WARN. The `all` role (compose,
 `:server:run`) is a worker role, so it carries `-Xmx512m` too (`:server:run` raises it in `server/build.gradle.kts`).
 
@@ -547,8 +548,8 @@ above).
   (its token belongs to the old unbounded query) or a finished sweep a crash left behind is
   dropped and a FRESH pass starts (`passStartedAt` = now, the scratch ids drained).
 
-- **`trim`** (`jira/JiraTrimStream.kt`'s `TrimCursor`): `phase` (`ISSUES` → `CHANGELOGS` → `WORKLOGS` → `DONE`), `afterKey` (the last issue / history / worklog id finished in that phase, -1 before the first) and `completedAt`
-  (set when the phase becomes `DONE`, also the row's `last_completed_at`). **The one cursor that is never cleared**: `DONE` is the answer "this install is trimmed", and a missing row would mean "not
+- **`trim`** (`jira/JiraTrimStream.kt`'s `TrimCursor`): `phase` (`ISSUES` → `CHANGELOGS` → `WORKLOGS` → `DONE`), `afterKey` (the last issue / history / worklog id finished in that phase, -1 before the first), `completedAt`
+  (set when the phase becomes `DONE`, also the row's `last_completed_at`) and `version` (the trim RULES version the walk applies, `TRIM_RULES_VERSION`; a cursor written before it existed has none and is 1). **The one cursor that is never cleared**: `DONE` is the answer "this install is trimmed", and a missing row would mean "not
   started" and walk three tables again; "Sync status endpoint" lists it like any other. See "TRIM stream" below.
 
 **Per-page transaction with the cursor advance.** Every page (or, for REFERENCE's single-shot
@@ -693,6 +694,30 @@ stored), so only a later edit of the issue or a full resync heals it. The other 
 WORKLOGS and REFERENCE still fail the page on a database error (their only per-row skips are the `LIMIT_EXCEEDED` ones in
 `jira-integration.md`). `JiraIssuesSkipTest` pins it (incl. the RECONCILE case, an outage-class and a class-23 failure being
 rethrown, and the all-skipped page).
+
+**A stored item over its ceiling is refused, loudly (decision 2026-10-28, 1.24.1).** `jira.maxResponseBytes` bounds a RESPONSE, not what the
+raw writers store, and everything stored is later re-read into trees (PROCESS, the data profile, PROJECT_FIELDS, the inspector). So every
+raw writer refuses an item over a stored-size ceiling (`jira/JiraStoredCeilings.kt`, `jira-integration.md` "Stored-size ceilings"):
+`RawUpsertOutcome.REFUSED`, in the single-row and the batch form alike (the batch partitions BEFORE its diff and returns the outcomes in input
+order). **Nothing is written** for a refused item; **an existing row is only touched** (`fetched_at` for an issue or worklog, `last_seen_at`
+for an entity, so REFERENCE's end-of-pass sweep never tombstones it) and keeps its old payload, hash, `changed_at` and `needs_processing`.
+The ceilings: an issue or reference entity over `jira.maxStoredPayloadBytes` (default 2 MiB, 256 KiB to 8 MiB) as canonical text; a history
+over 512 KiB and a worklog over 16 KiB (constants) measured on the text as it arrived, BEFORE any parse. Each is measured as its RENDERED size
+(`String.renderedBytes`): the text plus the plain digits PostgreSQL writes for an exponent number (`payload::text` of `[1e131071]` is 131,074 bytes) and the space it writes after every `,` and `:` outside strings, so what
+PROCESS's claim and the inspector measure with `octet_length(payload::text)` is bounded too; an exponent alone refuses nothing. Startup fails unless
+`jira.processPageBytes >= jira.maxStoredPayloadBytes + 512 KiB`, which guarantees a payload at the ceiling plus one history fits a page (an issue with many histories or worklogs can still total more and is skipped by PROCESS: stale, not absent). One WARN per refusal
+(`Stored-size ceiling: refused <what> <id> of data source <id>: <bytes> bytes over the <n>-byte ceiling`, never the payload) and a counter
+per stream: ISSUES `issuesSkipped` (and `issuesUpserted` excludes it), RECONCILE `indexGapSkipped`, REFERENCE `entitiesSkipped`, CHANGELOGS
+`historiesSkipped`, WORKLOGS `worklogsSkipped` (the same counter as a `worklog/list` worklog over the response cap). A refusal is **not a
+change** for the pause's progress signal (`heartbeat(changed)`, `RawUpsertOutcome.isChange`: REFUSED is neither a change nor an absence of one - the
+row simply did not move, so it does not set `needs_processing` either). The cursor advances and the rest of the page,
+batch or answer lands.
+*The trade-off*, as for a bad issue: the gap is the lesser evil next to a stream that could never finish. A **new** refused issue is absent
+from the raw store, so from every report, until a later run sees it updated (and it is then under the ceiling) or a full resync; a refused
+**update** of a stored issue leaves the OLD payload (stale, not missing; its old `norm` rows stay as they were, a pending tombstone included, until the issue is
+processed again, and a PROCESS-oversized issue likewise keeps its old `norm` rows: stale, not absent); a refused history is simply never stored (the issue is still
+stamped synced, so it is not re-fetched until it changes); a refused entity keeps its previous row live. Real data is far below every figure,
+and `SyncedStubFixture` fails if the full stub SYNC fires one (`JiraStoredCeilingTest`, with a padded item per page for each writer).
 
 **Lease loss.** Every stream (REFERENCE, ISSUES, CHANGELOGS, WORKLOGS, PROCESS, PROFILE) lets
 `context.heartbeat()`'s `LeaseLostException` propagate uncaught after every committed
@@ -839,17 +864,26 @@ step of the job it gets all four, and an install that never syncs again has noth
   against the synced stamps (`JiraRawStreamScans`), so touching it would re-fetch every changelog; and the normalized rows do not change (the equivalence property,
   `JiraPayloadTrimTest`), so nothing is flagged for PROCESS. A row the trim does not change is not written. The new `sha256` is the hash of the new canonical text, the one
   `upsertIssue`/`upsertWorklog` compute for the same Jira document, so the next fetch of an unchanged row is `UNCHANGED` (`JiraTrimStreamTest`). The changelog table has no hash.
-- **The cursor** (`{phase, afterKey, completedAt}`, "Cursor shapes") ends as `DONE` with `last_completed_at` and is never cleared, so every later SYNC/REPROCESS reads one row and returns.
+- **The cursor** (`{phase, afterKey, completedAt, version}`, "Cursor shapes") ends as `DONE` with `last_completed_at` and is never cleared, so every later SYNC/REPROCESS reads one row and returns.
   A PURGE leaves it (the rows it guarded are gone; new writes are trimmed). To re-run TRIM on purpose (e.g. after a rollback to a build that wrote untrimmed rows), delete the connection's
   `trim` row from `sync_cursors`. A test clone made with `cloneRawData` copies no cursor, so it runs TRIM once.
+- **Rules versions.** `TRIM_RULES_VERSION` is the version of the trim rules the walk applies: **1** = the 1.17.1 rules; **2** = v1 plus `fields.subtasks` and `fields.environment` dropped and every `fields.issuelinks[]`
+  element slimmed to `{id, type: {name, inward, outward}, inwardIssue / outwardIssue: {id, key}}` (`jira/JiraIssueLinks.kt`: the linked issue's embedded `fields`, every `self`, the type's `id` and any unknown key go).
+  A cursor of an OLDER version restarts at the ISSUES phase from -1 under the current one (a fresh walk starts at the current version; a cursor of a NEWER version, after a rollback from a later build, keeps its position and is re-stamped with this build's version - written even when it is `DONE` - so that the later build finds a version below its own and walks again). That covers a `DONE`
+  v1 cursor (the upgrade: rows the old walk finished are changed by the new rules) and a v1 walk left half-done (its issues below `afterKey` were trimmed by the old rules). CHANGELOGS and WORKLOGS are walked again
+  too, on purpose: v2 changes issue payloads only, so on a v1-`DONE` install both find no candidate (two filtered index scans, once), and skipping them would need a "from version" in the cursor for a run that
+  happens once, plus a second rule for the half-done case. Raise the version only when a rule changes what an ALREADY stored row should hold. Nothing is flagged for PROCESS (the keys are unread by the normalizer,
+  the profile, the metrics and the reports - grepped for v2); the new `sha256` is the hash of the new canonical text, so the next fetch of an unchanged issue is `UNCHANGED`. A write BEFORE TRIM v2 reaches a row
+  (a RECONCILE, which never runs TRIM) sees the old hash, answers `CHANGED` once and flags the issue for PROCESS once: a spurious re-derive, never wrong data. Every write path (`upsertIssue`/`upsertIssues`) trims
+  with the same `trimIssue`, so new rows are v2 from the first write (`JiraTrimV2Test`).
 - **Counters and log.** `issuesTrimmed`, `changelogsTrimmed`, `worklogsTrimmed` (rows rewritten) and `trimHashDrift` (rewritten rows whose STORED sha256 was not the hash of their read-back
   canonical text: a `jsonb` round trip that is not lossless, e.g. an exponent number; the row then gets at most one spurious `CHANGED` when Jira next serves it, never a wrong normalized
   row), each absent when zero; one INFO line per table (candidate rows read, rewritten, drift), no audit event (no new mutation kind: the data is the same document, trimmed).
-- **Cost.** On the clean stub (1,201 issues, 5,445 histories, the worklogs) a whole run reads no row and rewrites none in ~15 ms (the filter detoasts every payload server-side). A dev database
-  of 13k issues / 500k histories / 77k worklogs, all of it untrimmed, is at most ~260 + 2,500 + 390 = ~3,200 batches. **Irreversibility:** trimmed data does not come back by itself. Getting a
+- **Cost.** **The v2 upgrade walk rewrites every stored issue once**: Jira sends `subtasks: []` and `environment: null` on every issue, so every row has a candidate key; expect one UPDATE per issue (13k on the dev database, ~260 batches of 50) and a table full of dead tuples afterwards - run a `VACUUM (ANALYZE) raw.jira_issues` once the walk is done. While the re-walk runs the `trim` row's `last_completed_at` reads null (the restart cursor has no `completedAt`); it is set again when the phase becomes `DONE`. On the clean stub (1,201 issues, 5,445 histories, the worklogs) a whole run reads no row and rewrites none in ~15 ms (the filter detoasts every payload server-side). A dev database
+  of 13k issues / 500k histories / 77k worklogs, all of it untrimmed, is at most ~260 + 2,500 + 390 = ~3,200 batches. **Irreversibility:** trimmed data does not come back by itself (v2 included: the linked issues' summaries, statuses and priorities, the sub-task list and the environment text are gone from every stored issue). Getting a
   dropped key back takes a drop-list code change, then a PURGE and a full re-sync - a re-sync alone strips it again (every write trims), and the ISSUES stream only re-reads issues updated inside
   its window; REPROCESS never calls Jira. A stripped history item is the same story, and changelogs are fetched only while `changelog_synced_at` is stale.
-- **Retiring it.** Once every install's cursor is `DONE` the stream is dead code (BACKLOG).
+- **Retiring it.** Once every install's cursor is `DONE` at v2 the stream is dead code (BACKLOG).
 
 ## RECONCILE stream
 
@@ -1117,8 +1151,19 @@ raw issue read — and the per-issue fallback's — is `FOR UPDATE` (the page's 
 held until the transaction commits (~50 rows, ~30 ms), so a concurrent re-flag of an issue (a changed payload
 from ISSUES) waits and lands after the commit instead of being overwritten by the page's
 `needs_processing = false`; the mark stamps `processed_hash` with the sha256 that was READ (a per-row
-`CASE`), not the column's value at update time. **Memory:** a page holds its 50 issues' payloads,
-changelogs and worklogs at once — bounded by the data, fine at this scale (a few MB per page).
+`CASE`), not the column's value at update time. **Memory:** a page holds its issues' payloads,
+changelogs and worklogs at once, so it is CLAIMED BY STORED BYTES (1.24.1): `JiraRawProcessReads.issuesToProcessWithin` selects up to 50
+stale ids after the keyset with `octet_length(payload::text)` of the issue plus correlated sums of its histories and its live worklogs (one
+statement, only numbers in the SQL text) and claims them in order while the running sum stays within `jira.processPageBytes` (default 8 MiB,
+2 to 64 MiB; the `payload::text` rendering is evaluated only for the <= 50 LIMITed ids, never for every stale row); the first issue that fits is always claimed. An issue whose OWN total is over the budget is **skipped, loudly**: one WARN with
+its id and byte count (never the payload), the `issuesOversized` counter, left `needs_processing` (every run examines it again) and no
+`norm` row written for it (an issue that already has `norm` rows keeps them: stale, not absent). The page's `FOR UPDATE` read, its heartbeat and
+`issuesProcessed`/`issuesFailed` are unchanged. The reference kinds PROCESS rebuilds from (STATUS, USER, BOARD, BOARD_CONFIGURATION, SPRINT, and FIELD / ISSUE_TYPE for
+the run's lookups) are read **in keyset chunks of at most `jira.processPageBytes` stored bytes, one kind at a time** (`JiraEntityReads`, `jira-integration.md`
+"Stored-size ceilings"): each payload is parsed, reduced to its small row and dropped before the next, BOARD_CONFIGURATION is reduced to `(board id, columns)`
+first and joined to its boards by id, so no kind size refuses, skips or stalls PROCESS (a whole-kind budget did, falsely, for a big tenant's USER kind, and
+was removed). The same chunked reads serve the data profile, PROJECT_FIELDS' stored inputs and RECONCILE's `resolveProjectIds`. A BOARD_CONFIGURATION is parsed only when its board is live (boards are read first). **Read order is now ascending `entity_id`** (it was the heap's physical order): `FieldIdsCollector` takes the FIRST `FIELD` matching a marker, so when two fields match the same name marker (`story point`, `flagged`) the chosen id is now deterministic and may flip ONCE relative to a previous run; no `PROCESSING_VERSION` bump is needed (the next ordinary reprocess of an issue picks the new id up). The boot-time heap fit budgets the page (`jira-integration.md` "Stored-size ceilings"). Pinned by
+`JiraProcessBudgetTest`.
 `context.heartbeat()` and the `issuesProcessed`/`issuesFailed` counters are flushed once PER PAGE.
 Why not per issue: measured on the stub (`.claude/docs/build-times.md` "PROCESS"), one issue cost
 ~13 statement round trips (three reads, four deletes, four inserts, a select, an upsert, a mark)
@@ -1206,11 +1251,11 @@ The counter names in use today (all stream-local, not enumerated anywhere — a 
 name its own): `pages` (REFERENCE per-step-or-page, ISSUES per page, RECONCILE per id-sweep page),
 `entities` (REFERENCE, per entity upserted), `issuesUpserted` (ISSUES per page — the issues actually stored — and RECONCILE's own
 index-gap fetch), `issuesSkipped` (ISSUES: issues the database rejected as a bad value or row, skipped with a WARN so the cursor can
-advance — absent when zero, see "ISSUES: a bad issue is skipped, loudly"), `movedOutOfScope` (ISSUES, once per run: rows tombstoned because their project
+advance — absent when zero, see "ISSUES: a bad issue is skipped, loudly"; also the issues the stored-size ceiling refused, "A stored item over its ceiling is refused, loudly"), `entitiesSkipped` (REFERENCE: entities over `jira.maxStoredPayloadBytes`), `historiesSkipped` (CHANGELOGS: histories over 512 KiB), `issuesOversized` (PROCESS: issues whose own stored text is over `jira.processPageBytes`, left unprocessed), `movedOutOfScope` (ISSUES, once per run: rows tombstoned because their project
 left `projectKeys`), `changelogs` (CHANGELOGS, per history inserted), `worklogs` (WORKLOGS, per worklog
-upserted), `worklogsOutOfScope` (WORKLOGS, A1's scope-filter drop count), `changelogsSkipped` (CHANGELOGS, an issue over `jira.maxResponseBytes` (or its node/depth ceiling) even alone, left stale for the next run), `worklogsSkipped` (WORKLOGS, one `worklog/list` worklog over the cap) and `worklogsIssuesSkipped` (WORKLOGS, a backfilled issue whose per-issue page is over the cap, left unsynced) — see `jira-integration.md` "Oversized changelog/worklog batch", `tombstoned` (RECONCILE,
+upserted), `worklogsOutOfScope` (WORKLOGS, A1's scope-filter drop count), `changelogsSkipped` (CHANGELOGS, an issue over `jira.maxResponseBytes` (or its node/depth ceiling) even alone, left stale for the next run), `worklogsSkipped` (WORKLOGS, one `worklog/list` worklog over the cap, or a worklog over 16 KiB refused by the stored-size ceiling) and `worklogsIssuesSkipped` (WORKLOGS, a backfilled issue whose per-issue page is over the cap, left unsynced) — see `jira-integration.md` "Oversized changelog/worklog batch", `tombstoned` (RECONCILE,
 per issue flagged `deleted_at`/`moved_out_at`), `indexGapSkipped` (RECONCILE: ids left unfetched because the
-ISSUES stream has not yet covered the scope, or whose fetched issue the database rejected as a bad value), `projectFieldsSkipped` (REFERENCE, one per project whose optional `PROJECT_FIELDS` step was skipped), `usersSkipped` (REFERENCE, `1` in the attempt that found the users fresh and did not fetch them),
+ISSUES stream has not yet covered the scope, or whose fetched issue the database rejected as a bad value or the stored-size ceiling refused), `projectFieldsSkipped` (REFERENCE, one per project whose optional `PROJECT_FIELDS` step was skipped), `usersSkipped` (REFERENCE, `1` in the attempt that found the users fresh and did not fetch them),
 `issuesProcessed`/`issuesFailed` (PROCESS, per issue
 in a batch — see "Normalized layer" above), `referenceRowsSkipped` (PROCESS, once per run: reference rows left out, see
 "Reference-row robustness"), `issuesTrimmed`/`changelogsTrimmed`/`worklogsTrimmed` (TRIM: raw rows rewritten, absent when zero) and `trimHashDrift` (TRIM: rewritten rows whose stored sha256 was not the hash of their read-back canonical text, absent when zero), `profileComputed` (PROFILE, always `1` — a single
@@ -1356,6 +1401,16 @@ writes, assembled here rather than duplicated:
   populated too (`WorkItemStore.workItemView`/`statusIntervalsForIssue`/`fieldIntervalsForIssue`) —
   `workItem` (and the interval lists) stay empty/absent for an issue this connection has fetched but
   never yet processed.
+- **A stored-size cap, and no tree (1.24.1).** BEFORE reading any of the issue's text the route sums its stored bytes in the database
+  (`JiraRawStore.storedBytesForIssue`: the payload, the histories and the live worklogs, `octet_length` of the jsonb text) and answers
+  **413** `application/problem+json` with the constant detail "The stored issue is too large to inspect" when the sum is over
+  `jira.processPageBytes` - the very figure PROCESS refuses an issue at, so the inspector never serves what PROCESS would not process
+  (the web page shows `dataSources.inspect.tooLarge`). The route answers it itself (`respondProblem`): `ErrorHandling`'s
+  `PayloadTooLargeException` mapping is the REQUEST-body text. An id is resolved first (`issueIdByKey` for a key), so a 404 still precedes
+  the cap. Under the cap the stored text is embedded in the response AS TEXT (`JsonUnquotedLiteral`, Postgres's jsonb output - valid JSON by
+  construction), never parsed, so the `web` role builds no tree of a document; the wire shape is the objects they always were
+  (`RawIssueInspectorTest` pins the verbatim embedding and the 413). At most TWO issues are read, built and serialized at once per process
+  (a `Semaphore`, `MAX_CONCURRENT_INSPECTIONS`); further requests wait for a permit, so the `web` heap bounds the inspector at 2 x `jira.processPageBytes`.
 - **A tombstoned issue is still returned, never `404`.** `deletedAt`/`movedOutAt` being set is
   itself part of the answer a debugging view exists to show; only a genuinely unknown id/key 404s.
 

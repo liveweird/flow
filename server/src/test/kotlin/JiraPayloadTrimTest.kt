@@ -4,7 +4,11 @@ import ch.nokillswit.DirtyJira.ADF
 import ch.nokillswit.DirtyJira.DESCRIPTION_EDIT
 import ch.nokillswit.DirtyJira.REMOTE_LINK
 import ch.nokillswit.DirtyJira.REMOTE_WORK_ITEM_LINK
+import ch.nokillswit.DirtyJira.FAT_LINK_TYPE
+import ch.nokillswit.DirtyJira.SUBTASKS
 import ch.nokillswit.DirtyJira.adf
+import ch.nokillswit.DirtyJira.fatLink
+import ch.nokillswit.DirtyJira.fatLinkedIssue
 import ch.nokillswit.DirtyJira.injectIntoHistory
 import ch.nokillswit.DirtyJira.injectIntoIssue
 import ch.nokillswit.DirtyJira.injectIntoWorklog
@@ -12,6 +16,7 @@ import ch.nokillswit.DirtyJira.item
 import ch.nokillswit.DirtyJira.obj
 import ch.nokillswit.infra.json.canonicalJson
 import ch.nokillswit.infra.json.sha256Hex
+import ch.nokillswit.jira.JiraReferenceRows
 import ch.nokillswit.jira.DROPPED_HISTORY_ITEM_FIELDS
 import ch.nokillswit.jira.DROPPED_HISTORY_ITEM_FIELD_IDS
 import ch.nokillswit.jira.DROPPED_ISSUE_FIELDS
@@ -19,6 +24,11 @@ import ch.nokillswit.jira.DROPPED_WORKLOG_KEYS
 import ch.nokillswit.jira.JiraEntityKind
 import ch.nokillswit.jira.JiraNormalizer
 import ch.nokillswit.jira.JiraRawStore
+import ch.nokillswit.jira.KEPT_LINKED_ISSUE_KEYS
+import ch.nokillswit.jira.KEPT_LINK_KEYS
+import ch.nokillswit.jira.KEPT_LINK_TYPE_KEYS
+import ch.nokillswit.jira.slimIssueLink
+import ch.nokillswit.jira.slimIssueLinks
 import ch.nokillswit.jira.SLIMMED_ISSUE_USER_FIELDS
 import ch.nokillswit.jira.trimHistory
 import ch.nokillswit.jira.trimIssue
@@ -68,7 +78,8 @@ private val RICH_ISSUE = """
       "issuetype":{"id":"10000","name":"Story","subtask":false},"project":{"id":"10010","key":"ABC","name":"Abc"},
       "created":"2025-09-02T12:40:17.309+0000","updated":"2025-09-11T12:40:17.309+0000","resolutiondate":null,"resolution":null,
       "priority":{"id":"3","name":"Medium"},"labels":["a","b"],"components":[{"id":"1","name":"Core"}],"fixVersions":[{"id":"2","name":"1.0"}],
-      "duedate":"2026-01-05","parent":{"id":"7","key":"ABC-7"},"issuelinks":[{"id":"1","type":{"name":"Blocks"}}],"subtasks":[],
+      "duedate":"2026-01-05","parent":{"id":"7","key":"ABC-7"},"issuelinks":[${fatLink("1", "outwardIssue", "9002", "ABC-2")},${fatLink("2", "inwardIssue", "9003", "ABC-3")}],
+      "subtasks":$SUBTASKS,"environment":$ADF,
       "assignee":${fullUser("acc-1", "Ann")},"reporter":${fullUser("acc-2", "Bob")},"creator":${fullUser("acc-3", "Cy")},
       "timetracking":{"originalEstimate":"1h","originalEstimateSeconds":3600,"remainingEstimateSeconds":1800},
       "timespent":1800,"timeoriginalestimate":3600,"aggregatetimespent":1800,
@@ -146,7 +157,10 @@ class JiraPayloadTrimTest {
 
     @Test
     fun `the dropped sets are exactly the decided ones`() {
-        assertEquals(setOf("comment", "worklog", "description", "attachment"), DROPPED_ISSUE_FIELDS)
+        assertEquals(setOf("comment", "worklog", "description", "attachment", "subtasks", "environment"), DROPPED_ISSUE_FIELDS)
+        assertEquals(listOf("id", "type", "inwardIssue", "outwardIssue"), KEPT_LINK_KEYS)
+        assertEquals(listOf("name", "inward", "outward"), KEPT_LINK_TYPE_KEYS)
+        assertEquals(listOf("id", "key"), KEPT_LINKED_ISSUE_KEYS)
         assertEquals(setOf("assignee", "reporter", "creator"), SLIMMED_ISSUE_USER_FIELDS)
         assertEquals(setOf("self", "comment"), DROPPED_WORKLOG_KEYS)
         assertEquals(setOf("description"), DROPPED_HISTORY_ITEM_FIELD_IDS)
@@ -154,14 +168,14 @@ class JiraPayloadTrimTest {
     }
 
     @Test
-    fun `an issue loses exactly the four fields, slims the three users and keeps everything else untouched`() {
+    fun `an issue loses exactly the six fields, slims the three users and its links and keeps everything else untouched`() {
         val original = obj(RICH_ISSUE)
         val trimmed = trimIssue(original)
 
         val originalFields = original.fields()
         val trimmedFields = trimmed.fields()
         assertEquals(originalFields.keys - DROPPED_ISSUE_FIELDS, trimmedFields.keys)
-        for (key in trimmedFields.keys - SLIMMED_ISSUE_USER_FIELDS) {
+        for (key in trimmedFields.keys - SLIMMED_ISSUE_USER_FIELDS - "issuelinks") {
             assertEquals(originalFields.getValue(key), trimmedFields.getValue(key), "fields.$key is kept verbatim")
         }
         assertEquals(obj(slimUser("acc-1", "Ann")), trimmedFields.getValue("assignee"))
@@ -172,7 +186,76 @@ class JiraPayloadTrimTest {
         assertTrue(trimmedFields.getValue("customfield_12222").jsonObject.containsKey("emailAddress"))
         assertEquals(originalFields.getValue("customfield_11111"), trimmedFields.getValue("customfield_11111"), "nested ADF is kept")
         assertEquals(originalFields.getValue("timetracking"), trimmedFields.getValue("timetracking"))
-        assertEquals(originalFields.getValue("issuelinks"), trimmedFields.getValue("issuelinks"))
+        val slimType = """{"name":"Blocks","inward":"is blocked by","outward":"blocks"}"""
+        assertEquals(
+            Json.parseToJsonElement(
+                """[{"id":"1","type":$slimType,"outwardIssue":{"id":"9002","key":"ABC-2"}},""" +
+                    """{"id":"2","type":$slimType,"inwardIssue":{"id":"9003","key":"ABC-3"}}]""",
+            ),
+            trimmedFields.getValue("issuelinks"),
+        )
+        assertFalse("subtasks" in trimmedFields || "environment" in trimmedFields)
+    }
+
+    // --- issue links (trim rules v2) ------------------------------------------------------------------------
+
+    private fun link(text: String) = Json.parseToJsonElement(text)
+
+    @Test
+    fun `a link is slimmed to id, type name-inward-outward and the linked issue id and key, in both directions`() {
+        val slimType = """{"name":"Blocks","inward":"is blocked by","outward":"blocks"}"""
+        assertEquals(
+            link("""{"id":"1","type":$slimType,"outwardIssue":{"id":"9002","key":"ABC-2"}}"""),
+            slimIssueLink(link(fatLink("1", "outwardIssue", "9002", "ABC-2"))),
+        )
+        assertEquals(
+            link("""{"id":"2","type":$slimType,"inwardIssue":{"id":"9003","key":"ABC-3"}}"""),
+            slimIssueLink(link(fatLink("2", "inwardIssue", "9003", "ABC-3"))),
+        )
+        val both = """{"id":"3","type":$FAT_LINK_TYPE,"inwardIssue":${fatLinkedIssue("1", "A-1")},""" +
+            """"outwardIssue":${fatLinkedIssue("2", "A-2")}}"""
+        assertEquals(
+            link("""{"id":"3","type":$slimType,"inwardIssue":{"id":"1","key":"A-1"},"outwardIssue":{"id":"2","key":"A-2"}}"""),
+            slimIssueLink(link(both)),
+            "a link that (unusually) names both ends keeps both",
+        )
+        val fatIssue = """{"id":"1","fields":{"issuelinks":[${fatLink("1", "outwardIssue", "9002", "ABC-2")}]}}"""
+        val canonical = trimmedIssueCanonicalJson(fatIssue)
+        for (dropped in listOf("self", "iconUrl", "summary", "priority", "status", "issuetype", "extra", "10000", "linked ")) {
+            assertFalse(canonical.contains(dropped), "$dropped is gone: $canonical")
+        }
+    }
+
+    @Test
+    fun `missing keys are tolerated, unknown keys inside a link are dropped, and odd shapes are left as they are`() {
+        assertEquals(link("""{"id":"1"}"""), slimIssueLink(link("""{"id":"1","self":"u","extra":{"a":1}}""")))
+        assertEquals(
+            link("""{"type":{"name":"Blocks"}}"""),
+            slimIssueLink(link("""{"type":{"name":"Blocks","id":"1","self":"u","x":1}}""")),
+        )
+        assertEquals(link("""{"outwardIssue":{"key":"A-1"}}"""), slimIssueLink(link("""{"outwardIssue":{"key":"A-1","fields":{}}}""")))
+        assertEquals(link("""{"id":"1","type":{}}"""), slimIssueLink(link("""{"id":"1","type":{"id":"7"}}""")))
+        // A value that is not the expected shape is neither dropped nor an exception.
+        assertEquals(link("""{"id":"1","type":"Blocks","inwardIssue":null,"outwardIssue":[1]}"""),
+            slimIssueLink(link("""{"id":"1","type":"Blocks","inwardIssue":null,"outwardIssue":[1],"self":"u"}""")))
+        for (odd in listOf("1", "\"x\"", "null", "[1]")) assertEquals(link(odd), slimIssueLink(link(odd)), odd)
+        for (odd in listOf("{}", "\"x\"", "null", "7")) assertEquals(link(odd), slimIssueLinks(link(odd)), "issuelinks: $odd")
+        assertEquals(link("[]"), slimIssueLinks(link("[]")))
+        assertEquals(link("""[1,null,{"id":"2"}]"""), slimIssueLinks(link("""[1,null,{"id":"2","self":"u"}]""")))
+        val noLinks = obj("""{"id":"1","fields":{"issuelinks":"oops","subtasks":null,"environment":"text"}}""")
+        assertEquals(obj("""{"id":"1","fields":{"issuelinks":"oops"}}"""), trimIssue(noLinks), "subtasks/environment go in any shape")
+    }
+
+    @Test
+    fun `slimming links is idempotent and a slimmed link hashes like the same link sent fat`() {
+        val fat = link("""[${fatLink("1", "outwardIssue", "9002", "ABC-2")},${fatLink("2", "inwardIssue", "9003", "ABC-3")}]""")
+        val once = slimIssueLinks(fat)
+        assertEquals(once, slimIssueLinks(once))
+        val issue = """{"id":"1","fields":{"issuelinks":$fat,"subtasks":$SUBTASKS,"environment":null}}"""
+        val text = trimmedIssueCanonicalJson(issue)
+        assertEquals(text, trimmedIssueCanonicalJson(text))
+        val reworded = issue.replace("linked ABC-2", "renamed summary").replace("Done", "Open")
+        assertEquals(sha256Hex(text), sha256Hex(trimmedIssueCanonicalJson(reworded)))
     }
 
     @Test
@@ -310,7 +393,7 @@ class JiraPayloadTrimTest {
 
     // --- THE EQUIVALENCE PROPERTY -------------------------------------------------------------------------
 
-    private val syntheticFieldIds = JiraNormalizer.discoverFieldIds(
+    private val syntheticFieldIds = JiraReferenceRows.discoverFieldIds(
         listOf(FIELD_PAYLOADS_SPRINT, FIELD_PAYLOADS_RANK, FIELD_PAYLOADS_TEAM, FIELD_PAYLOADS_POINTS, FIELD_PAYLOADS_FLAGGED),
     )
 
@@ -348,8 +431,8 @@ class JiraPayloadTrimTest {
         val connId = SyncedStubFixture.connectionId()
         val db = sharedDatabaseForTests()
         val store = SyncedStubFixture.rawStore()
-        val fieldIds = JiraNormalizer.discoverFieldIds(store.entityPayloadsByKind(connId, JiraEntityKind.FIELD.name))
-        val hierarchy = JiraNormalizer.issueTypeHierarchy(store.entityPayloadsByKind(connId, JiraEntityKind.ISSUE_TYPE.name))
+        val fieldIds = JiraReferenceRows.discoverFieldIds(store.entityPayloadsByKind(connId, JiraEntityKind.FIELD.name))
+        val hierarchy = JiraReferenceRows.issueTypeHierarchy(store.entityPayloadsByKind(connId, JiraEntityKind.ISSUE_TYPE.name))
 
         val issues = suspendTransaction(db) {
             JiraRawStore.Issues.select(JiraRawStore.Issues.issueId, JiraRawStore.Issues.payload)

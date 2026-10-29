@@ -48,6 +48,7 @@ interface JiraClient {
     suspend fun worklogUpdated(sinceEpochMillis: Long): JiraWorklogIdsPage
     suspend fun worklogDeleted(sinceEpochMillis: Long): JiraWorklogIdsPage
     suspend fun worklogList(ids: List<Long>): JsonArray
+
     suspend fun fields(): JsonArray
     /**
      * `GET /field/search` (`PageBeanField`): ONLY the Test-connection `field_search` probe calls it, to compare its `total` with
@@ -170,26 +171,44 @@ class HttpJiraClient(
         return decode(get("/rest/api/3/issue/$id", query), endpoint)
     }
 
-    override suspend fun changelogBulk(issueIds: List<String>, nextPageToken: String?, maxResults: Int): JsonObject {
+    override suspend fun changelogBulk(issueIds: List<String>, nextPageToken: String?, maxResults: Int): JsonObject =
+        changelogBulkAs(issueIds, nextPageToken, maxResults) { it }
+
+    internal suspend fun <T> changelogBulkAs(
+        issueIds: List<String>,
+        nextPageToken: String?,
+        maxResults: Int,
+        convert: (JsonObject) -> T,
+    ): T {
         val endpoint = "/rest/api/3/changelog/bulkfetch"
         val body = buildJsonObject {
             putJsonArray("issueIdsOrKeys") { issueIds.forEach { add(JsonPrimitive(requireIssueIdOrKey(it, endpoint))) } }
             put("maxResults", maxResults)
             nextPageToken?.let { put("nextPageToken", it) }
         }
-        return decode(post(endpoint, body), endpoint)
+        return postAs(endpoint, body) { convert(decode<JsonObject>(it, endpoint)) }
     }
 
-    override suspend fun issueChangelogPage(issueId: String, startAt: Int): JiraChangelogPage {
+    override suspend fun issueChangelogPage(issueId: String, startAt: Int): JiraChangelogPage =
+        issueChangelogPageAs(issueId, startAt) { it }
+
+    internal suspend fun <T> issueChangelogPageAs(issueId: String, startAt: Int, convert: (JiraChangelogPage) -> T): T {
         val endpoint = "/rest/api/3/issue/{id}/changelog"
         val id = requireIssueIdOrKey(issueId, endpoint)
-        return decode(get("/rest/api/3/issue/$id/changelog", mapOf("startAt" to startAt.toString())), endpoint)
+        return getAs("/rest/api/3/issue/$id/changelog", mapOf("startAt" to startAt.toString())) {
+            convert(decode<JiraChangelogPage>(it, endpoint))
+        }
     }
 
-    override suspend fun issueWorklogPage(issueId: String, startAt: Int): JiraWorklogStartAtPage {
+    override suspend fun issueWorklogPage(issueId: String, startAt: Int): JiraWorklogStartAtPage =
+        issueWorklogPageAs(issueId, startAt) { it }
+
+    internal suspend fun <T> issueWorklogPageAs(issueId: String, startAt: Int, convert: (JiraWorklogStartAtPage) -> T): T {
         val endpoint = "/rest/api/3/issue/{id}/worklog"
         val id = requireIssueIdOrKey(issueId, endpoint)
-        return decode(get("/rest/api/3/issue/$id/worklog", mapOf("startAt" to startAt.toString())), endpoint)
+        return getAs("/rest/api/3/issue/$id/worklog", mapOf("startAt" to startAt.toString())) {
+            convert(decode<JiraWorklogStartAtPage>(it, endpoint))
+        }
     }
 
     override suspend fun worklogUpdated(sinceEpochMillis: Long): JiraWorklogIdsPage {
@@ -202,10 +221,12 @@ class HttpJiraClient(
         return decode(get(endpoint, mapOf("since" to sinceEpochMillis.toString())), endpoint)
     }
 
-    override suspend fun worklogList(ids: List<Long>): JsonArray {
+    override suspend fun worklogList(ids: List<Long>): JsonArray = worklogListAs(ids) { it }
+
+    internal suspend fun <T> worklogListAs(ids: List<Long>, convert: (JsonArray) -> T): T {
         val endpoint = "/rest/api/3/worklog/list"
         val body = buildJsonObject { putJsonArray("ids") { ids.forEach { add(JsonPrimitive(it)) } } }
-        return decode(post(endpoint, body), endpoint)
+        return postAs(endpoint, body) { convert(decode<JsonArray>(it, endpoint)) }
     }
 
     override suspend fun fields(): JsonArray {
@@ -291,6 +312,13 @@ class HttpJiraClient(
 
     private suspend fun post(path: String, body: JsonElement, query: Map<String, String> = emptyMap()): JsonElement =
         http.request(HttpMethod.Post, "${requireGateway()}$path", query, body, auth, pauseKey = gatewayBase)
+
+    /** [get]/[post] that convert the tree under the big-parse lock ([JiraHttp.requestAs]). */
+    private suspend fun <T> getAs(path: String, query: Map<String, String> = emptyMap(), transform: (JsonElement) -> T): T =
+        http.requestAs(HttpMethod.Get, "${requireGateway()}$path", query, null, auth, pauseKey = gatewayBase, transform = transform)
+
+    private suspend fun <T> postAs(path: String, body: JsonElement, transform: (JsonElement) -> T): T =
+        http.requestAs(HttpMethod.Post, "${requireGateway()}$path", emptyMap(), body, auth, pauseKey = gatewayBase, transform = transform)
 
     /**
      * [MED-2] Any Jira-supplied identifier spliced into a gateway PATH — the search probe's raw

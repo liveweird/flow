@@ -260,6 +260,7 @@
     "empty": "Look up an issue key or id to inspect its raw and normalized data.",
     "invalidKey": "Enter a valid issue key (e.g. ENG-123) or numeric id",
     "notFound": "No issue with that key or id was found for this data source",
+    "tooLarge": "This issue's stored data is too large to inspect (over the processing page limit, JIRA_PROCESS_PAGE_BYTES).",
     "needsProcessing": "Needs processing",
     "deleted": "Deleted",
     "movedOut": "Moved out of scope",

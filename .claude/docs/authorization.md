@@ -224,7 +224,9 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     payload, changelog/worklog history and (once processed at least once) its `norm.*` shape.
     `requireAdmin` runs before the data-source existence check (guard-before-read, the data-sources
     idiom); `issueKey` is validated (`ISSUE_ID_PATTERN`/`ISSUE_KEY_PATTERN`, `400` otherwise) before
-    the lookup itself. A tombstoned issue is still returned, never `404`. No mutation, so no audit
+    the lookup itself, and a `404` precedes the size cap: an issue whose stored text is over
+    `jira.processPageBytes` is `413` `problem+json` (constant detail, answered by the route itself, before any of its text is read). A
+    tombstoned issue is still returned, never `404`. No mutation, so no audit
     event of its own — see `.claude/docs/ingestion.md` "Raw issue inspector". Tests:
     `RawIssueInspectorTest`.
   - `GET /api/v1/data-sources/{id}/profile` (v0.2.0 plan §8/§9/§12 item 9, `ingest/DataProfileRoutes.kt`)

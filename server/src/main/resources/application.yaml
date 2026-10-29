@@ -290,14 +290,25 @@ jira:
   # 512 levels of nesting (jira/JiraNodeCeiling.kt), and a body over 1 MiB is parsed under one lock, one big tree at a time. A dense
   # hostile document is still ~108 MiB of tree per response at the default (~230-300 MiB before), and an OOM exits the worker
   # (ExitOnOutOfMemoryError): narrowed, not closed (`.claude/docs/jira-integration.md` "Node and depth ceiling", BACKLOG). A boot check
-  # (jira/JiraHeapFit.kt) refuses a worker role whose heap cannot hold ingest.workerSlots such trees (112 B a node, one tree a slot:
-  # the raw writers canonicalize the tree they are given) + maxConcurrentRequests bodies of this size + a 96 MiB reserve (352 MiB
-  # of the 448 MiB old generation of -Xmx512m at the defaults), so raising this value (or the slots, or the requests) means raising the
-  # worker's -Xmx with it (build-times WHY 48).
+  # (jira/JiraHeapFit.kt) refuses a worker role whose heap cannot hold ingest.workerSlots slots, each the largest of one such tree
+  # (112 B a node: the raw writers canonicalize the tree they are given), a PROCESS slot (processPageBytes, below) and the CHANGELOGS /
+  # WORKLOGS answer text (those two convert every page under the big-parse lock, so one slot at a time adds a tree on top of its text),
+  # + maxConcurrentRequests bodies of this size + a 96 MiB reserve (425 MiB of the 448 MiB old generation of -Xmx512m at the defaults), so raising this value (or the slots, or the requests) means raising the worker's -Xmx with it (build-times WHY 48).
   # A page over the cap is halved (ISSUES, CHANGELOGS, WORKLOGS batches) or its single id skipped, but a one-shot list cannot be: the
   # largest real one is `GET /field` (~4 MB on a site with ~10k fields; a WARN fires past half the cap), so a site whose own list
   # outgrows 8 MiB must raise this (`.claude/docs/jira-integration.md` "Response size cap"). The answer ceilings do not move with it.
   maxResponseBytes: "$JIRA_MAX_RESPONSE_BYTES:8388608"
+  # The stored-size ceiling of ONE issue or reference entity (256 KiB..8 MiB; default 2 MiB, far above any real issue):
+  # the raw writers REFUSE a larger canonical document (nothing is written, an existing row keeps its old payload and is only touched;
+  # a WARN and the issuesSkipped/entitiesSkipped counters say so) because the stored text is re-read into a tree by PROCESS, the data
+  # profile and PROJECT_FIELDS. A history (512 KiB) and a worklog (16 KiB) have constant ceilings (jira/JiraStoredCeilings.kt). It is
+  # part of the heap fit budget: raising it means raising the worker's -Xmx (`.claude/docs/jira-integration.md` "Stored-size ceilings").
+  maxStoredPayloadBytes: "$JIRA_MAX_STORED_PAYLOAD_BYTES:2097152"
+  # The stored text one PROCESS page may claim (an issue's payload + its histories + its live worklogs; 2..64 MiB, default 8 MiB; 50
+  # issues at most): pages are cut by these bytes, not only by count; an issue that alone exceeds it is left unprocessed (issuesOversized)
+  # and the raw issue inspector answers 413 for it. Also the size of each chunk a reference kind is read in, and the heap fit's PROCESS term (4 x this + dense trees of one stored
+  # item); startup fails unless it is at least maxStoredPayloadBytes + 512 KiB (an issue must be processable once stored).
+  processPageBytes: "$JIRA_PROCESS_PAGE_BYTES:8388608"
   # A Semaphore cap on concurrent in-flight Jira calls (per process).
   maxConcurrentRequests: "$JIRA_MAX_CONCURRENT_REQUESTS:4"
   maxRetries: "$JIRA_MAX_RETRIES:4"

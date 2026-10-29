@@ -33,6 +33,26 @@ internal object DirtyJira {
     val REMOTE_LINK = item("RemoteIssueLink", null, null, "10000", null, "https://example.com/page")
     val REMOTE_WORK_ITEM_LINK = item("RemoteWorkItemLink", null, null, "10001", null, "https://example.com/other")
 
+    /** `fields.subtasks` as Jira sends it: the embedded child issues. */
+    const val SUBTASKS: String =
+        """[{"id":"10002","key":"ABC-2","self":"https://x.atlassian.net/rest/api/3/issue/10002","fields":{"summary":"child"}}]"""
+
+    /** A linked issue as Jira embeds it in a link: `self` and a whole `fields` object next to the `id` and `key` Flow keeps. */
+    fun fatLinkedIssue(id: String, key: String) =
+        """{"id":"$id","key":"$key","self":"https://x.atlassian.net/rest/api/3/issue/$id","fields":{"summary":"linked $key",""" +
+            """"status":{"name":"Done","iconUrl":"https://x/s.png"},"priority":{"name":"High","iconUrl":"https://x/p.png"},""" +
+            """"issuetype":{"id":"1","name":"Bug","iconUrl":"https://x/b.png","subtask":false}}}"""
+
+    /** A link type as Jira sends it (with `id` and `self`). */
+    const val FAT_LINK_TYPE: String =
+        """{"id":"10000","name":"Blocks","inward":"is blocked by","outward":"blocks",""" +
+            """"self":"https://x.atlassian.net/rest/api/3/issueLinkType/10000"}"""
+
+    /** An `issuelinks` element as Jira sends it, in [direction] (`inwardIssue` or `outwardIssue`), with an unknown extra key. */
+    fun fatLink(id: String, direction: String, linkedId: String, linkedKey: String) =
+        """{"id":"$id","self":"https://x.atlassian.net/rest/api/3/issueLink/$id","type":$FAT_LINK_TYPE,""" +
+            """"$direction":${fatLinkedIssue(linkedId, linkedKey)},"extra":true}"""
+
     /** [user] with the keys Jira adds to an embedded user (e-mail address, time zone, ...); a non-user value as it is. */
     fun fullOf(user: JsonElement): JsonElement {
         val base = user as? JsonObject ?: return user
@@ -55,6 +75,8 @@ internal object DirtyJira {
         dirty["comment"] = obj("""{"comments":[{"id":"1","body":$ADF}],"total":1}""")
         dirty["worklog"] = obj("""{"worklogs":[{"id":"1","comment":$ADF}],"total":1}""")
         dirty["attachment"] = Json.parseToJsonElement("""[{"id":"3","filename":"secret.pdf"}]""")
+        dirty["subtasks"] = Json.parseToJsonElement(SUBTASKS)
+        dirty["environment"] = obj(adf("prod"))
         return JsonObject(issue + ("fields" to JsonObject(dirty))).toString()
     }
 

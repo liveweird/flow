@@ -10,7 +10,8 @@
 //
 // Zero dependencies (Node >=24 stdlib only), no randomness and no clock: two runs produce byte-identical output.
 //
-// Usage: node sample-data/jira/hostile.mjs --out DIR [--pages N] [--pad issue|page] [--overlay] [--max-response-bytes B]
+// Usage: node sample-data/jira/hostile.mjs --out DIR [--pages N] [--pad issue|page|history|worklog] [--stored-bytes B] [--overlay]
+//                                          [--max-response-bytes B]
 //        node sample-data/jira/hostile.mjs --out DIR --check
 //
 //   --out DIR      the directory whose `jira-stub/` child is written (the same meaning as generate.mjs's --out, and what
@@ -19,6 +20,14 @@
 //   --pad WHERE    `issue` (default): the padding is a field of each page's one issue, so it is RETAINED with the issue (the
 //                  worst case: the tree lives on in the stream's page); `page`: a top-level key of the response, which the
 //                  typed decode drops once it is read (construction only).
+//                  `history` / `worklog` (the stored-size ceilings, `.claude/docs/jira-integration.md` "Stored-size ceilings"): the
+//                  search pages carry a PLAIN hostile issue and the padding is ONE changelog history (answering
+//                  `POST changelog/bulkfetch` for the hostile issue ids) or ONE worklog (answering `GET issue/{id}/worklog`) per
+//                  hostile issue, dense `{"a":0}` objects under a key the raw trims KEEP (`historyMetadata`, `properties`).
+//   --stored-bytes B  aim the padded item's own JSON text at B bytes (the stored canonical text is within a few bytes of it:
+//                  the trims only slim the author), to land just under or just over a stored-size ceiling (512 KiB a history,
+//                  16 KiB a worklog, `jira.maxStoredPayloadBytes` an issue). Default: history 500000, worklog 15000 (just under
+//                  their ceilings); for `issue`/`page` the default stays "just under the node ceiling".
 //   --overlay      layer the hostile mappings over the normal stub already generated into DIR (run generate.mjs --out DIR
 //                  first): the normal mappings the hostile ones supersede (search/jql with the ISSUES `fields`, and GET /field)
 //                  are removed, every other endpoint (reference data, changelog, worklog, boards...) stays, and the hostile
@@ -35,13 +44,19 @@ import path from "node:path";
 
 const CLOUD_ID = "b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c"; // the normal stub's fixed gateway cloudId
 const GATEWAY = `/ex/jira/${CLOUD_ID}/rest/api/3`;
-const ISSUE_SEARCH_FIELDS = "*all,-comment,-worklog,-description,-attachment"; // jira/JiraIssuesStream.kt
+const ISSUE_SEARCH_FIELDS = "*all,-comment,-worklog,-description,-attachment,-subtasks,-environment"; // jira/JiraIssuesStream.kt
 const BYTES_PER_NODE = 8; // jira/JiraNodeCeiling.kt RESPONSE_BYTES_PER_NODE
 const MAX_DEPTH = 512; // jira/JiraNodeCeiling.kt MAX_RESPONSE_DEPTH
 const DEFAULT_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 /** Tokens kept below the ceiling, so the document is "just under" without an off-by-one risk. */
 const TOKEN_MARGIN = 64;
 const HOSTILE_PREFIX = "hostile-";
+const PAD_WHERE = ["issue", "page", "history", "worklog"];
+/** `--pad history|worklog` default sizes: just under `MAX_STORED_HISTORY_BYTES` (512 KiB) and `MAX_STORED_WORKLOG_BYTES` (16 KiB). */
+const DEFAULT_STORED_BYTES = { history: 500000, worklog: 15000 };
+const HOSTILE_ID_BASE = 900000;
+/** Matches the hostile issue ids (900001..): the bulkfetch mapping answers any batch that names one. */
+const HOSTILE_ID_REGEX = "^9[0-9]{5}$";
 const TOKEN_PREFIX = "Hostile-page-";
 
 // ---------------------------------------------------------------------------------------------
@@ -114,6 +129,19 @@ export function paddingCountFor(build, maxResponseBytes) {
   return n;
 }
 
+/**
+ * The padding count that puts `build(n)` at `targetBytes` of minified JSON (never over): `n` dense objects add 8n - 1 bytes to the
+ * empty-padding document (7 bytes an object plus the commas between them). Verified by measuring, so a drift fails loudly.
+ */
+export function paddingCountForBytes(build, targetBytes) {
+  const base = Buffer.byteLength(JSON.stringify(build(0)), "utf8");
+  if (targetBytes <= base) throw new Error(`--stored-bytes ${targetBytes} is not over the item's own ${base} bytes`);
+  const n = Math.floor((targetBytes - base + 1) / 8);
+  const actual = Buffer.byteLength(JSON.stringify(build(n)), "utf8");
+  if (n >= 1 && actual !== base + 8 * n - 1) throw new Error(`byte arithmetic drifted: ${actual} bytes for ${n} objects over a base of ${base}`);
+  return n;
+}
+
 const pageToken = (page) => `${TOKEN_PREFIX}${page}`;
 
 /** A restIso-shaped timestamp (jira/JiraTime.kt accepts `+0000`); fixed, never the clock. */
@@ -121,12 +149,12 @@ const UPDATED = "2026-08-31T12:00:00.000+0000";
 
 function hostileIssue(template, page, padWhere, n) {
   // A fixed id range far above the normal stub's (30001..), keys under the template's own in-scope project.
-  const id = 900000 + page;
+  const id = HOSTILE_ID_BASE + page;
   const projectKey = template.fields.project.key;
   const issue = {
     ...template,
     id: String(id),
-    key: `${projectKey}-${900000 + page}`,
+    key: `${projectKey}-${HOSTILE_ID_BASE + page}`,
     fields: { ...template.fields, updated: UPDATED },
   };
   if (padWhere === "issue") issue.fields.a = padding(n);
@@ -174,10 +202,49 @@ function searchMapping(page) {
   return mapping("/search/jql", query, `${HOSTILE_PREFIX}search-jql-page-${page}.json`);
 }
 
+/** The one padded history of hostile issue `page`: `historyMetadata` is kept verbatim by the raw trim, so the stored text carries the padding. */
+function hostileHistory(page, n) {
+  return {
+    id: String(HOSTILE_ID_BASE + 50000 + page), // far above the normal stub's history ids (500000..)
+    created: 1790330188061,
+    author: { accountId: "hostile-author" },
+    items: [],
+    historyMetadata: { a: padding(n) },
+  };
+}
+
+/** The one padded worklog of hostile issue `page`: `properties` is kept verbatim by the worklog trim. */
+function hostileWorklog(page, n) {
+  const id = HOSTILE_ID_BASE + page;
+  return {
+    id: String(HOSTILE_ID_BASE + 70000 + page),
+    issueId: String(id),
+    author: { accountId: "hostile-author" },
+    started: UPDATED,
+    created: UPDATED,
+    updated: UPDATED,
+    timeSpentSeconds: 3600,
+    properties: padding(n),
+  };
+}
+
+function bulkfetchMapping(bodyFileName) {
+  return {
+    priority: 1,
+    request: {
+      method: "POST",
+      urlPath: `${GATEWAY}/changelog/bulkfetch`,
+      bodyPatterns: [{ matchesJsonPath: `$.issueIdsOrKeys[?(@ =~ /${HOSTILE_ID_REGEX}/)]` }],
+      headers: AUTH_HEADER,
+    },
+    response: { status: 200, headers: { "Content-Type": "application/json" }, bodyFileName },
+  };
+}
+
 /** True when a normal-stub mapping is one the hostile set supersedes (same URL and ISSUES `fields`, or GET /field). */
-function isSuperseded(m) {
+function isSuperseded(m, replacesField = true) {
   const req = m?.request ?? {};
-  if (req.urlPath === `${GATEWAY}/field`) return true;
+  if (req.urlPath === `${GATEWAY}/field`) return replacesField;
   return req.urlPath === `${GATEWAY}/search/jql` && req.queryParameters?.fields?.equalTo === ISSUE_SEARCH_FIELDS;
 }
 
@@ -202,10 +269,21 @@ export function assertNotCommittedStub(outDir) {
   }
 }
 
-export function generate({ outDir, pages = 20, padWhere = "issue", overlay = false, maxResponseBytes = DEFAULT_MAX_RESPONSE_BYTES }) {
+export function generate({
+  outDir,
+  pages = 20,
+  padWhere = "issue",
+  overlay = false,
+  maxResponseBytes = DEFAULT_MAX_RESPONSE_BYTES,
+  storedBytes = null,
+}) {
   if (!Number.isInteger(pages) || pages < 1) throw new Error(`--pages must be a positive integer, got: ${pages}`);
-  if (padWhere !== "issue" && padWhere !== "page") throw new Error(`--pad must be issue or page, got: ${padWhere}`);
+  if (!PAD_WHERE.includes(padWhere)) throw new Error(`--pad must be one of ${PAD_WHERE.join(", ")}, got: ${padWhere}`);
+  if (storedBytes !== null && (!Number.isInteger(storedBytes) || storedBytes < 1)) {
+    throw new Error(`--stored-bytes must be a positive integer, got: ${storedBytes}`);
+  }
   assertNotCommittedStub(outDir);
+  const itemPad = padWhere === "history" || padWhere === "worklog"; // the padding is a stored history/worklog, not the issue or /field
   const stubDir = path.join(path.resolve(outDir), "jira-stub");
   const mappingsDir = path.join(stubDir, "mappings");
   const filesDir = path.join(stubDir, "__files");
@@ -222,7 +300,7 @@ export function generate({ outDir, pages = 20, padWhere = "issue", overlay = fal
     fieldList = JSON.parse(readFileSync(path.join(filesDir, "field.json"), "utf8"));
     for (const file of readdirSync(mappingsDir)) {
       if (file.startsWith(HOSTILE_PREFIX) || !file.endsWith(".json")) continue;
-      if (isSuperseded(JSON.parse(readFileSync(path.join(mappingsDir, file), "utf8")))) rmSync(path.join(mappingsDir, file));
+      if (isSuperseded(JSON.parse(readFileSync(path.join(mappingsDir, file), "utf8")), !itemPad)) rmSync(path.join(mappingsDir, file));
     }
   }
   // Re-running replaces the previous hostile set (a smaller --pages must not leave stale pages behind).
@@ -238,18 +316,50 @@ export function generate({ outDir, pages = 20, padWhere = "issue", overlay = fal
     written.push(verifyBody(bodyFile, text, maxResponseBytes));
   };
 
-  const buildPage = (n) => searchPage(issueTemplate, 1, 2, padWhere, n); // the densest page shape: a token, an id, a key
-  const pageN = paddingCountFor(buildPage, maxResponseBytes);
+  // The search pages: dense padding in the issue (or the page) by default, a PLAIN hostile issue when the padding is a history/worklog.
+  const buildPage = (n) => searchPage(issueTemplate, 1, 2, itemPad ? "none" : padWhere, n); // the densest page shape: a token, an id, a key
+  const pageN = itemPad ? 0 : storedBytes ? paddingCountForBytes(buildPage, storedBytes) : paddingCountFor(buildPage, maxResponseBytes);
   for (let page = 1; page <= pages; page++) {
     const bodyFile = `${HOSTILE_PREFIX}search-jql-page-${page}.json`;
-    emit(`${HOSTILE_PREFIX}search-jql-page-${page}.json`, searchMapping(page), bodyFile, searchPage(issueTemplate, page, pages, padWhere, pageN));
+    const doc = searchPage(issueTemplate, page, pages, itemPad ? "none" : padWhere, pageN);
+    emit(`${HOSTILE_PREFIX}search-jql-page-${page}.json`, searchMapping(page), bodyFile, doc);
   }
 
-  // GET /field: the (normal or minimal) list plus one entity carrying the padding - every entity needs an `id`, and an entity
-  // per padding object would be 350k database rows, so the padding is one entity's key, as in the page above.
-  const buildFields = (n) => [...fieldList, { id: "customfield_99999", name: "Hostile padding", custom: true, a: padding(n) }];
-  const fieldN = paddingCountFor(buildFields, maxResponseBytes);
-  emit(`${HOSTILE_PREFIX}field.json`, mapping("/field", null, `${HOSTILE_PREFIX}field.json`), `${HOSTILE_PREFIX}field.json`, buildFields(fieldN));
+  if (padWhere === "history") {
+    // ONE bulkfetch answer for the hostile issues: as many padded histories as fit under the byte cap AND the node ceiling (the rest of the
+    // hostile issues get none; a batch that mixes in a normal issue gets no normal history either - a measurement stub, not a whole SYNC).
+    const target = storedBytes ?? DEFAULT_STORED_BYTES.history;
+    const n = paddingCountForBytes((count) => hostileHistory(1, count), target);
+    const itemText = JSON.stringify(hostileHistory(1, n));
+    const itemTokens = scanTokens(itemText).tokens;
+    const fit = Math.min(
+      pages,
+      Math.floor((maxResponseBytes - 1024) / (Buffer.byteLength(itemText, "utf8") + 64)),
+      Math.floor((nodeCeiling(maxResponseBytes) - TOKEN_MARGIN) / (itemTokens + 8)),
+    );
+    if (fit < 1) throw new Error(`one ${Buffer.byteLength(itemText, "utf8")}-byte history does not fit a ${maxResponseBytes}-byte answer`);
+    const issueChangeLogs = Array.from({ length: fit }, (_, i) => ({
+      issueId: String(HOSTILE_ID_BASE + 1 + i),
+      changeHistories: [hostileHistory(1 + i, n)],
+    }));
+    const bodyFile = `${HOSTILE_PREFIX}changelog-bulkfetch.json`;
+    emit(`${HOSTILE_PREFIX}changelog-bulkfetch.json`, bulkfetchMapping(bodyFile), bodyFile, { issueChangeLogs });
+  } else if (padWhere === "worklog") {
+    const target = storedBytes ?? DEFAULT_STORED_BYTES.worklog;
+    const n = paddingCountForBytes((count) => hostileWorklog(1, count), target);
+    for (let page = 1; page <= pages; page++) {
+      const issueId = HOSTILE_ID_BASE + page;
+      const bodyFile = `${HOSTILE_PREFIX}issue-${issueId}-worklog.json`;
+      const doc = { startAt: 0, maxResults: 100, total: 1, worklogs: [hostileWorklog(page, n)] };
+      emit(`${HOSTILE_PREFIX}issue-${issueId}-worklog.json`, mapping(`/issue/${issueId}/worklog`, null, bodyFile), bodyFile, doc);
+    }
+  } else {
+    // GET /field: the (normal or minimal) list plus one entity carrying the padding - every entity needs an `id`, and an entity
+    // per padding object would be 350k database rows, so the padding is one entity's key, as in the page above.
+    const buildFields = (n) => [...fieldList, { id: "customfield_99999", name: "Hostile padding", custom: true, a: padding(n) }];
+    const fieldN = storedBytes ? paddingCountForBytes(buildFields, storedBytes) : paddingCountFor(buildFields, maxResponseBytes);
+    emit(`${HOSTILE_PREFIX}field.json`, mapping("/field", null, `${HOSTILE_PREFIX}field.json`), `${HOSTILE_PREFIX}field.json`, buildFields(fieldN));
+  }
   return { stubDir, written };
 }
 
@@ -262,7 +372,15 @@ export function checkDir({ outDir, maxResponseBytes = DEFAULT_MAX_RESPONSE_BYTES
 }
 
 function parseArgs(argv) {
-  const opts = { outDir: null, pages: 20, padWhere: "issue", overlay: false, check: false, maxResponseBytes: DEFAULT_MAX_RESPONSE_BYTES };
+  const opts = {
+    outDir: null,
+    pages: 20,
+    padWhere: "issue",
+    overlay: false,
+    check: false,
+    maxResponseBytes: DEFAULT_MAX_RESPONSE_BYTES,
+    storedBytes: null,
+  };
   const value = (a, i, flag) => (a.startsWith(`${flag}=`) ? [a.slice(flag.length + 1), i] : [argv[i + 1], i + 1]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -272,6 +390,7 @@ function parseArgs(argv) {
     else if (a === "--out" || a.startsWith("--out=")) ([v, i] = value(a, i, "--out"), (opts.outDir = v));
     else if (a === "--pages" || a.startsWith("--pages=")) ([v, i] = value(a, i, "--pages"), (opts.pages = Number(v)));
     else if (a === "--pad" || a.startsWith("--pad=")) ([v, i] = value(a, i, "--pad"), (opts.padWhere = v));
+    else if (a === "--stored-bytes" || a.startsWith("--stored-bytes=")) ([v, i] = value(a, i, "--stored-bytes"), (opts.storedBytes = Number(v)));
     else if (a === "--max-response-bytes" || a.startsWith("--max-response-bytes="))
       ([v, i] = value(a, i, "--max-response-bytes"), (opts.maxResponseBytes = Number(v)));
     else throw new Error(`Unknown argument: ${a}`);

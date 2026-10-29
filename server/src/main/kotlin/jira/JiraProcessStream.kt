@@ -7,6 +7,7 @@ import ch.nokillswit.norm.Normalization
 import ch.nokillswit.norm.NormalizedIssue
 import ch.nokillswit.norm.PROCESSING_VERSION
 import ch.nokillswit.norm.StatusCategory
+import ch.nokillswit.norm.StatusRef
 import ch.nokillswit.norm.TombstoneKind
 import ch.nokillswit.norm.WorkItemStore
 import org.slf4j.LoggerFactory
@@ -54,23 +55,37 @@ class JiraProcessStream(
 
     override suspend fun run(context: StreamContext) {
         val connectionId = context.connectionId
-        val fieldIds = JiraNormalizer.discoverFieldIds(rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.FIELD.name))
-        val statusLookup = buildStatusLookup(rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.STATUS.name))
+        // Every reference kind is read in chunks and reduced to the small value PROCESS needs (`JiraRawStore.mapEntities`), one kind at
+        // a time: no kind's text, however large a host made it, is ever held at once.
+        val fieldIds = JiraReferenceRows.FieldIdsCollector()
+            .also { collector -> rawStore.forEachEntity(connectionId, JiraEntityKind.FIELD.name) { _, p -> collector.accept(p) } }.build()
+        val statusRefs = rawStore.mapEntities(connectionId, JiraEntityKind.STATUS.name) { _, p -> JiraReferenceRows.statusRef(p) }
+        val statusLookup = statusRefs.associate { it.statusId to (it.name to it.category) }
         val issueTypeHierarchy =
-            JiraNormalizer.issueTypeHierarchy(rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.ISSUE_TYPE.name))
-        val skippedReferenceRows = rebuildReferenceRows(connectionId)
+            rawStore.mapEntities(connectionId, JiraEntityKind.ISSUE_TYPE.name) { _, p -> JiraReferenceRows.issueTypeLevel(p) }.toMap()
+        val skippedReferenceRows = rebuildReferenceRows(connectionId, statusRefs)
         if (skippedReferenceRows > 0) context.incrementProgress("referenceRowsSkipped", skippedReferenceRows.toLong())
 
         // Keyset paging: each stale issue is visited ONCE per run. An issue that fails stays flagged
         // for the NEXT PROCESS pass (plan §8) instead of being re-claimed by this loop forever.
         var afterIssueId: Long? = null
         while (true) {
-            val batchIds = rawStore.issuesToProcess(connectionId, PROCESSING_VERSION, PROCESS_BATCH_SIZE, afterIssueId)
-            if (batchIds.isEmpty()) break
-            processBatch(context, connectionId, batchIds, fieldIds, statusLookup, issueTypeHierarchy)
-            afterIssueId = batchIds.last()
-            context.heartbeat(changed = true)
+            val claim = rawStore.issuesToProcessWithin(connectionId, PROCESSING_VERSION, PROCESS_BATCH_SIZE, afterIssueId)
+            claim.oversized.forEach { skipOversized(context, it) }
+            afterIssueId = claim.lastExaminedId ?: break
+            if (claim.ids.isNotEmpty()) processBatch(context, connectionId, claim.ids, fieldIds, statusLookup, issueTypeHierarchy)
+            context.heartbeat(changed = claim.ids.isNotEmpty())
         }
+    }
+
+    /** The "skip, loudly" of an issue whose own stored text is over the page budget: the id and the sizes, never a payload. */
+    private fun skipOversized(context: StreamContext, issue: OversizedIssue) {
+        log.warn(
+            "PROCESS skipped issue {} of data source {}: {} bytes of stored text are over the {}-byte page budget " +
+                "(jira.processPageBytes); it stays unprocessed",
+            issue.issueId, context.connectionId, issue.totalBytes, rawStore.ceilings.processPageBytes,
+        )
+        context.incrementProgress("issuesOversized")
     }
 
     private suspend fun processBatch(
@@ -127,10 +142,9 @@ class JiraProcessStream(
      * failed NORMALIZATION — they were skipped without touching the database, so the transaction stays
      * valid and every other issue of the page still lands (an issue a concurrent PURGE removed is
      * simply absent from the read and counts as done, as in the per-issue path). A DB error
-     * propagates and aborts the page. Memory: a page holds its 50 issues' payloads, changelogs and
-     * worklogs at once, parsed — bounded by the data, NOT by a ceiling: fine at this scale (~a few MB per page), but a hostile host can
-     * store dense documents, which the boot-time heap fit check (`JiraHeapFit.kt`, the response path only) does not count. Named residual
-     * in BACKLOG ("being closed by a per-item stored-size ceiling and a PROCESS byte budget").
+     * propagates and aborts the page. Memory: a page holds its issues' payloads, changelogs and
+     * worklogs at once, parsed — bounded by the claim ([JiraRawStore.issuesToProcessWithin]: at most `jira.processPageBytes` of stored
+     * text, 50 issues), which the boot-time heap fit check budgets (`JiraHeapFit.kt` `processSlotBytes`).
      */
     private suspend fun processPage(
         connectionId: UInt,
@@ -230,20 +244,25 @@ class JiraProcessStream(
      * 23 — NOT NULL, duplicate keys: the wholesale delete-then-insert rebuild has no legitimate collision, so that is
      * a writer bug that must be loud, unlike a per-issue row that can collide with stale state).
      */
-    private suspend fun rebuildReferenceRows(connectionId: UInt): Int {
-        val statusPayloads = rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.STATUS.name)
-        val userPayloads = rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.USER.name)
-        val boardPayloads = rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.BOARD.name)
-        val boardConfigPayloads = rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.BOARD_CONFIGURATION.name)
-        val sprintPayloads = rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.SPRINT.name)
+    private suspend fun rebuildReferenceRows(connectionId: UInt, statusRefs: List<StatusRef>): Int {
+        // Each kind is read in chunks and reduced to its rows before the next kind is touched.
         return rebuildReferenceTable("norm.statuses") {
-            workItemStore.replaceStatuses(connectionId, JiraNormalizer.statusRefs(statusPayloads))
+            workItemStore.replaceStatuses(connectionId, statusRefs)
         } + rebuildReferenceTable("norm.people") {
-            workItemStore.replacePeople(connectionId, JiraNormalizer.peopleRefs(userPayloads))
+            val people = rawStore.mapEntities(connectionId, JiraEntityKind.USER.name) { _, p -> JiraReferenceRows.personRef(p) }
+            workItemStore.replacePeople(connectionId, people)
         } + rebuildReferenceTable("norm.boards") {
-            workItemStore.replaceBoards(connectionId, JiraNormalizer.boardRefs(boardPayloads, boardConfigPayloads))
+            // The boards first (their rows, no columns yet); then only the configurations OF those boards are parsed, reduced to
+            // (board id, columns): an orphan configuration is never parsed, and a board tree and a configuration tree never coexist.
+            val boards = rawStore.mapEntities(connectionId, JiraEntityKind.BOARD.name) { _, p -> JiraReferenceRows.boardRef(p, emptyMap()) }
+            val liveBoardIds = boards.mapTo(HashSet()) { it.boardId.toString() }
+            val columnsByBoardId = rawStore.mapEntities(connectionId, JiraEntityKind.BOARD_CONFIGURATION.name) { entityId, p ->
+                if (entityId in liveBoardIds) JiraReferenceRows.boardColumns(p) else null
+            }.toMap()
+            workItemStore.replaceBoards(connectionId, boards.map { it.copy(columns = columnsByBoardId[it.boardId.toString()].orEmpty()) })
         } + rebuildReferenceTable("norm.sprints") {
-            workItemStore.replaceSprints(connectionId, JiraNormalizer.sprintRefs(sprintPayloads))
+            val sprints = rawStore.mapEntities(connectionId, JiraEntityKind.SPRINT.name) { _, p -> JiraReferenceRows.sprintRef(p) }
+            workItemStore.replaceSprints(connectionId, sprints)
         }
     }
 
@@ -256,7 +275,4 @@ class JiraProcessStream(
             1
         },
     )
-
-    private fun buildStatusLookup(statusPayloads: List<String>): Map<String, Pair<String, StatusCategory>> =
-        JiraNormalizer.statusRefs(statusPayloads).associate { it.statusId to (it.name to it.category) }
 }

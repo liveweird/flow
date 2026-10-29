@@ -19,13 +19,28 @@ internal enum class TrimPhase(val table: TrimTable?) {
     fun next(): TrimPhase = entries.getOrElse(ordinal + 1) { DONE }
 }
 
-/** `sync_cursors.cursor` shape of the TRIM stream. [afterKey] is the last issue/history/worklog id finished in [phase]. */
+/**
+ * The version of the trim RULES the TRIM walk applies. 1 = the 1.17.1 rules (comment/worklog/description/attachment dropped, users and
+ * history/worklog slimmed); 2 = v1 plus `fields.subtasks` and `fields.environment` dropped and `fields.issuelinks[]` slimmed
+ * (`JiraIssueLinks.kt`). Raise it whenever a trim rule changes what an ALREADY stored row should hold; a cursor of an older version
+ * walks again (see [JiraTrimStream]).
+ */
+internal const val TRIM_RULES_VERSION = 2
+
+/**
+ * `sync_cursors.cursor` shape of the TRIM stream. [afterKey] is the last issue/history/worklog id finished in [phase]; [version] is the
+ * [TRIM_RULES_VERSION] the walk applies (a cursor written before it existed has none and is version 1).
+ */
 @Serializable
 internal data class TrimCursor(
     val phase: TrimPhase = TrimPhase.ISSUES,
     val afterKey: Long = BEFORE_FIRST_KEY,
     val completedAt: Long? = null,
+    val version: Int = LEGACY_TRIM_VERSION,
 )
+
+/** The rules version of a cursor stored before [TrimCursor.version] existed. */
+private const val LEGACY_TRIM_VERSION = 1
 
 /** Raw keys are positive Jira ids; the walk starts before all of them. */
 internal const val BEFORE_FIRST_KEY = -1L
@@ -43,8 +58,10 @@ internal const val BEFORE_FIRST_KEY = -1L
  * resumes at the last committed batch and finds the same rows (the trim is idempotent). A batch shorter than its size ends the
  * table. When the walk is done the cursor stays as `DONE` with `lastCompletedAt` - unlike a REFERENCE or RECONCILE cursor it is
  * never cleared, because "no row" would mean "not started" and walk three tables again for nothing
- * (deleting the `trim` cursor row on purpose re-runs TRIM, e.g. after a rollback to a build that wrote untrimmed rows). The
- * normalized layer does not change (the equivalence property), so nothing is flagged for PROCESS.
+ * (deleting the `trim` cursor row on purpose re-runs TRIM, e.g. after a rollback to a build that wrote untrimmed rows). The cursor
+ * carries the [TRIM_RULES_VERSION] it was walked under: one of an older version walks again from the first issue ([startCursor]),
+ * which is how a rule added after an install finished (v2: issue links, subtasks, environment) reaches rows stored under the old
+ * rules. The normalized layer does not change (the equivalence property), so nothing is flagged for PROCESS.
  *
  * Counters (only when non-zero): `issuesTrimmed`, `changelogsTrimmed`, `worklogsTrimmed` (rows rewritten) and `trimHashDrift`
  * (rewritten rows whose stored sha256 was not the hash of their read-back canonical text - a `jsonb` round trip that is not
@@ -54,7 +71,13 @@ internal class JiraTrimStream(private val rawStore: JiraRawStore) : Stream {
     override val name: String = "trim"
 
     override suspend fun run(context: StreamContext) {
-        var cursor = context.cursor(name)?.cursor?.let { decodeCursor<TrimCursor>(it) } ?: TrimCursor()
+        val stored = context.cursor(name)?.cursor?.let { decodeCursor<TrimCursor>(it) }
+        var cursor = startCursor(stored)
+        // A stored cursor the walk does not start from as it is (older: restarted; NEWER, i.e. a rollback: re-stamped) is written first,
+        // even when the result is DONE and the loop below never writes: a later, newer build must find a version below its own.
+        if (stored != null && cursor != stored) {
+            context.transaction { context.putCursor(name, encodeCursor(cursor), lastCompletedAt = cursor.completedAt) }
+        }
         var tally = PhaseTally()
         while (cursor.phase != TrimPhase.DONE) {
             val table = checkNotNull(cursor.phase.table)
@@ -78,11 +101,27 @@ internal class JiraTrimStream(private val rawStore: JiraRawStore) : Stream {
         }
     }
 
+    /**
+     * Where this run starts: a fresh walk at the current rules when nothing is stored, the stored cursor when it is at the
+     * current rules, the stored position re-stamped with the current version when it is NEWER (a rollback from a later build:
+     * that build must see a version below its own and walk again), and a restart from the first issue when it is older. The
+     * restart covers a DONE cursor (the upgrade: the new rules change rows the old walk finished) and a half-walked one alike -
+     * its ISSUES keys below `afterKey` were trimmed by the old rules. CHANGELOGS and WORKLOGS are walked again too: v2 changes
+     * issue payloads only, so on a v1-DONE install both find no candidate (two filtered index scans, once); skipping them would
+     * take a "from" version in the cursor for that single run.
+     */
+    private fun startCursor(stored: TrimCursor?): TrimCursor =
+        when {
+            stored == null || stored.version < TRIM_RULES_VERSION -> TrimCursor(version = TRIM_RULES_VERSION)
+            stored.version > TRIM_RULES_VERSION -> stored.copy(version = TRIM_RULES_VERSION)
+            else -> stored
+        }
+
     private fun nextCursor(cursor: TrimCursor, batch: TrimBatch, now: Long): TrimCursor {
         val last = batch.lastKey
         if (last != null && batch.scanned >= cursor.phase.batchSize()) return cursor.copy(afterKey = last)
         val next = cursor.phase.next()
-        return TrimCursor(next, BEFORE_FIRST_KEY, completedAt = if (next == TrimPhase.DONE) now else null)
+        return cursor.copy(phase = next, afterKey = BEFORE_FIRST_KEY, completedAt = if (next == TrimPhase.DONE) now else null)
     }
 
     private fun countProgress(context: StreamContext, table: TrimTable, batch: TrimBatch) {

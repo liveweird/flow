@@ -163,6 +163,17 @@ describe("RawIssueInspector page", () => {
     expect(await screen.findByText("No issue with that key or id was found for this data source")).toBeInTheDocument();
   });
 
+  test("a 413 renders inline — the stored issue is too large to inspect", async () => {
+    mockFetch.mockImplementation(() => Promise.resolve(jsonResponse(413, { title: "Payload Too Large", status: 413 })));
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.type(screen.getByLabelText("Issue key or id"), "ENG-1");
+    await user.click(screen.getByRole("button", { name: "Look up" }));
+
+    expect(await screen.findByText(/stored data is too large to inspect/)).toBeInTheDocument();
+  });
+
   test("a 400 (malformed key) renders inline", async () => {
     mockFetch.mockImplementation(() => Promise.resolve(jsonResponse(400, { title: "Bad Request", status: 400 })));
     const user = userEvent.setup();

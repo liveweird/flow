@@ -222,8 +222,8 @@ digest-pinning style as Lettuce's `teams-stub`).
     `nextPageToken`, later pages require the exact opaque token the previous page returned
     (`"<Scenario>-page-N"`). **The stub ignores JQL text entirely** — project/date scoping is
     baked into the fixed response set, keyed only by the `fields` query parameter and the
-    scenario. There are exactly two `fields` variants: `fields=*all,-comment,-worklog,-description,-attachment` (the ISSUES stream's
-    full-field search: every field minus the four the raw store drops; the stub's documents carry none of them) and `fields=id` (the reconcile id-sweep and the Test-connection probe, a single page up to 5000 ids). A
+    scenario. There are exactly two `fields` variants: `fields=*all,-comment,-worklog,-description,-attachment,-subtasks,-environment` (the ISSUES stream's
+    full-field search: every field minus the six the raw store drops; the stub's documents carry none of them) and `fields=id` (the reconcile id-sweep and the Test-connection probe, a single page up to 5000 ids). A
     search with no `fields` matches nothing: real `search/jql` returns only `id` then, unlike the retired `/search`.
   - `changelog/bulkfetch` chunks are **ascending, exact-order** 50-id batches
     (`equalToJson` with `ignoreArrayOrder: false`) — see `expected.json` →
@@ -311,6 +311,18 @@ the hostile endpoints exist (the response path, not a whole SYNC). Other flags: 
 each page (built, then dropped by the typed decode) instead of inside the issue (retained with it, the worst case, the default);
 `--max-response-bytes B` re-aims the padding when the target runs a raised `JIRA_MAX_RESPONSE_BYTES`. Every emitted body is
 re-read and verified (valid JSON, tokens under the ceiling, bytes under the cap, depth under 512) before the script exits.
+
+**The stored-size ceilings (`--pad history|worklog`, `--stored-bytes B`).** The raw writers refuse an item over a stored-size ceiling
+(`.claude/docs/jira-integration.md` "Stored-size ceilings": 512 KiB a history, 16 KiB a worklog, `jira.maxStoredPayloadBytes` an issue or
+entity), so to measure the stored-text paths (PROCESS pages, the per-item history/worklog parse) the padded item must be one the ceiling lets
+through, and to see the refusal one it does not. `--pad history` makes the search pages carry a PLAIN hostile issue and answers
+`POST changelog/bulkfetch` for the hostile issue ids (any batch naming a `9xxxxx` id) with one dense history per issue, as many as fit under the byte
+cap and the node ceiling, the padding being `historyMetadata.a`, a key the raw trim keeps; `--pad worklog` answers `GET issue/{id}/worklog` for
+each hostile issue with one dense worklog whose padding is `properties`. `--stored-bytes B` aims the padded item's own JSON text at B bytes (never over,
+within 8 bytes; the stored canonical text is within a few bytes of it) so a run can land just under or just over a ceiling: the defaults are
+500000 for a history and 15000 for a worklog (just under); with `--pad issue|page` it replaces "just under the node ceiling" for the page
+and the `GET /field` entity. With `--overlay`, `--pad history|worklog` keep the normal `GET /field` mapping (the field list is not the subject).
+A batch that mixes a normal issue with a hostile one gets no normal history in the hostile answer: a measurement stub, not a whole SYNC.
 
 Run it on the **flow-perf** stack ONLY, never the dev stack (`docker-compose.perf.yaml` mounts `$FLOW_PERF_STUB_DIR/jira-stub`
 into the stub; `.claude/docs/metrics.md` "Performance (scale 20)"):
