@@ -28,8 +28,11 @@ data class RawIssueWorkItem(
     val hierarchyLevel: Int? = null,
     /** The system `duedate` field's current value, epoch millis at start of day UTC (v0.3.0 M1 commit 2). */
     val dueAt: Long? = null,
-    /** Every non-null `customfield_*` current value, keyed by field id (v0.3.0 M1 commit 2) — never filtered. */
-    val customFields: JsonObject = JsonObject(emptyMap()),
+    /**
+     * Every non-null `customfield_*` current value, keyed by field id (v0.3.0 M1 commit 2) — never filtered. Always a JSON object; typed
+     * [JsonElement] because on the SERVER it is the stored text embedded unparsed (`storedJson`), like the payload.
+     */
+    val customFields: JsonElement = JsonObject(emptyMap()),
     val processedAt: Long,
     val processingVersion: Int,
     val deletedAt: Long? = null,
@@ -40,9 +43,9 @@ data class RawIssueWorkItem(
  * `GET /api/v1/data-sources/{id}/raw-issues/{issueKey}` (v0.2.0 plan §9/§12 item 8b, ADMIN only):
  * one Jira issue's raw store row, its changelog/worklog history and — if it has been through
  * PROCESS at least once — its normalized `norm.*` shape. [payload]/[changelogs]/[worklogs] are the
- * exact JSON documents Jira returned (canonicalized), never reparsed into a Jira-specific shape; on the SERVER they are the stored
- * text embedded as an unquoted literal (`storedJson`), never parsed, so the `web` role builds no tree of a document (the wire shape is
- * the objects they always were).
+ * exact JSON documents Jira returned (canonicalized), never reparsed into a Jira-specific shape; on the SERVER they (and the work
+ * item's `customFields`) are the stored text embedded as an unquoted literal (`storedJson`), never parsed, so the `web` role builds no
+ * tree of a document (the wire shape is the objects they always were).
  */
 @Serializable
 data class RawIssueInspection(

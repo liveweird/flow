@@ -96,6 +96,13 @@ one Test connection is one response tree and it also excludes the raw-issue insp
 guard, the stored-row read, the `cloudId` persist and the audit stay outside the hold. The 30 s budget starts inside `testConnection`
 (`deadline = now() + TOTAL_BUDGET_MS`), so waiting for the share never becomes `TIMEOUT` rows (`DataSourceTestConnectionTest`).
 
+**What a waiter pays (recorded decision, kept as is).** The endpoint is ADMIN-only and rate limited (`DATA_SOURCE_TEST`, 10 a minute per IP);
+the share is FIFO and its wait has no limit and no 503. So the worst case is every Test connection ahead of a request holding the share for its
+whole ~30 s connector call: an inspection (or a Test connection) arriving behind N queued Test connections waits up to N x 30 s, and N is
+bounded by the admins' request rate (10 a minute per IP). A hung caller does not extend it: a cancelled waiter leaves the queue and a cancelled
+holder releases at once (`JiraHeapShareTest`). Accepted because only an ADMIN can start one and the alternative (a per-call tree budget) is the
+BACKLOG item named in "The boot-time heap fit check".
+
 On a scoped API token, a missing scope comes back from the gateway as **401**
 (`AUTHENTICATION_FAILED`), not 403. So one failing probe while `myself` passes means a missing scope,
 not bad credentials.
@@ -744,7 +751,7 @@ response in flight: the body bytes (up to 8 MiB) and the buffer copy `readBounde
 (`Json.decodeFromStream` over a `ByteArrayInputStream`), so there is no decoded String (it was 8 MiB for an ASCII body, 16 MiB with a
 non-Latin-1 character).
 
-**Serialised big parses.** The parse of a body over 1 MiB (`BIG_BODY_BYTES`) run behind one `Mutex` in `JiraHttp`; smaller
+**Serialised big parses.** The parse of a body over 1 MiB (`BIG_BODY_BYTES`) runs behind one `Mutex` in `JiraHttp`; smaller
 bodies take no lock, so at most one potentially hostile big tree is being built at a time. The lock is taken inside `attemptOnce`, after
 the body is read, so **a call waiting for it KEEPS its permit, its body bytes and its open response**: up to three of the four
 permits can sit idle for the length of the parse ahead of them (~50 ms for an 8 MiB page, ~23 ms for 4 MB, ~7-9 ms for 1.3 MB per queued
@@ -752,7 +759,7 @@ big parse), the wait is cancellable, and there is no deadlock because the holder
 is plain CPU). The construction peak of the four in-flight calls (`jira.maxConcurrentRequests`) is one big tree (<= ~108 MiB) plus
 three bodies of <= 1 MiB (<= ~40 MiB each: 131k `{"a":0},` objects or 524k `0,` scalars) = ~230 MiB, against 4 x ~108 = ~430 MiB
 without it, and that still holds with the waiters, which keep only their body bytes (<= 8 MiB each), not a tree. The cost is the parse time
-itself, in turn, noise next to the network round trip (decode 0.2-0.7 ms). **The lock bounds construction, not retention:** a finished tree stays alive with the stream
+itself, in turn, noise next to the network round trip (parse 0.2-0.7 ms). **The lock bounds construction, not retention:** a finished tree stays alive with the stream
 that asked for it (a page being written, a WORKLOGS fetch-ahead batch), which this does not limit.
 
 **The residual, stated plainly: narrowed, not closed.** A hostile host behind the allow-list can still keep ONE ~108 MiB tree alive per
@@ -771,14 +778,21 @@ one-tree-a-slot and the dense-text figures are measured or derived but not yet r
 The raw-issue inspector on the `web` role IS inside the web fit now (`JiraHeapShare.kt`): the web-side Jira consumers draw from ONE shared,
 FIFO, weighted budget (`JiraHeapShare`, published as `JiraHeapShareKey` by `configureJira`) whose capacity is exactly the single response tree
 the web fit already counts (`TREE_BYTES_PER_NODE x defaultMaxResponseNodes(jira.maxResponseBytes)` = 112 MiB at the defaults), so it adds
-nothing to the 184 MiB need and needs no new knob. An inspection holds `INSPECTION_BYTES_PER_STORED_BYTE` (5: the stored text as UTF-16 2x +
-the encoded response JSON 2x + its bytes 1x) x the issue's stored bytes (<= `jira.processPageBytes`, so <= 40 MiB at the defaults) from the
-read until the body is written, after the 413 size check and inside the 2-permit semaphore. A request heavier than the capacity is clamped
-to it and admitted alone; a cancelled waiter leaves the queue and a cancelled holder releases (`JiraHeapShareTest`). Boot pin
-`requireInspectionFitsHeapShare`: `5 x jira.processPageBytes <= TREE_BYTES_PER_NODE x nodes(jira.maxResponseBytes)` (40 <= 112 MiB; 64 MiB
-pages need a response cap of at least 22.86 MiB), failing startup in EVERY role and naming both knobs. A Test connection (both endpoints) holds
+nothing to the 184 MiB need and needs no new knob. An inspection holds `INSPECTION_BYTES_PER_STORED_BYTE` (8) x the issue's stored bytes (the raw payload, histories and live worklogs PLUS the
+work item's `custom_fields` text, summed in the database before any of it is read) from the first read until the encoded body exists: the
+stored text as UTF-16 2x, the response encoded by `Json.encodeToStream` into a buffer sized from the stored bytes (the serializer's `CharArray`
+for the largest string up to 2x + the buffer 1x) and the final `toByteArray()` copy 1x peak at 6x; 8 is that with room for the driver's row buffer
+and the library's chunking, which this code does not control. The body is written (`respondBytes`) AFTER the share is released, so a slow reader
+pins no share (it pins one of the 2 semaphore permits, and its one encoded body, bounded by that permit count). The `custom_fields` text is
+embedded unparsed (`JsonUnquotedLiteral`), like the payload, so no tree of it is ever built and the weight counts all the heap the inspection
+holds. There is NO boot pin: the inspector's 413 threshold is what keeps an inspection inside the share. It answers 413 when the raw text is over
+`jira.processPageBytes` (as before) OR when the stored bytes (raw + `custom_fields`) are over `capacityBytes / 8` (14 MiB at the defaults: the
+shipped 8 MiB page is always served, 8 MiB of raw text plus an equally large `custom_fields` may not be), so an inspection always fits the share and no config that booted
+before refuses now (a 64 MiB `jira.processPageBytes` boots in every role; its inspector then refuses what the share cannot hold). `JiraHeapShare` itself still
+clamps a request heavier than its capacity and admits it alone (a Test connection asks for exactly the capacity); a cancelled waiter leaves the queue and a cancelled holder releases (`JiraHeapShareTest`, which also runs a multi-threaded
+stress over real threads). A Test connection (both endpoints) holds
 the WHOLE share while it runs (`share.withShare(share.capacityBytes)` around the connector call only), so it is inside the web fit too and
-excludes concurrent inspections and other Test connections.
+excludes concurrent inspections and other Test connections ("Test connection" above for the wait it can cost).
 
 What remains in the `all` role: the worker terms and the one web share coexist there, so the need is about 425 + 112 = 537 MiB against the
 448 MiB old generation of `-Xmx512m -Xmn64m`. This is accepted: production runs `web` and `worker` as separate processes (each fits its own
@@ -815,9 +829,7 @@ re-measured in WHY 48), `RESERVE_BYTES` = 96 MiB for a worker (idle live set + t
 (2 - 1) x 137 MiB (PROCESS, the largest own term) + 160 MiB (the WORKLOGS slot under the lock: 48 MiB of text + the 112 MiB tree) + 4 x 8 MiB + 96 MiB = 425 MiB against 448 MiB, so the shipped worker (and the compose `all` role, and `:server:run`, which
 raises its heap to 512m for this: the baked `-Xmx256m -Xmn64m` is a 192 MiB old generation) passes with 23 MiB to spare; the baked
 `-Xmx256m` does not, which is why a worker role must carry `JAVA_OPTS=-Xmx512m`. The `web` role as shipped (`-Xmx256m`): 112 + 4 x 8 + 40
-= 184 MiB against 192 MiB, so it boots without a WARN. `JiraHeapFitTest` pins the arithmetic, the shipped values and both role outcomes. A second boot pin, in every role, rides beside it:
-`requireInspectionFitsHeapShare` (`5 x jira.processPageBytes <= the web share`, see the raw-issue inspector paragraph above), pinned by the
-same test (defaults pass, a 64 MiB page with the 8 MiB response cap fails naming `jira.processPageBytes` and `jira.maxResponseBytes`).
+= 184 MiB against 192 MiB, so it boots without a WARN. `JiraHeapFitTest` pins the arithmetic, the shipped values and both role outcomes. `JiraHeapFitTest` also pins the inspector's share (112 MiB, the web verdict unchanged at 184 MiB) and that a 64 MiB process page still boots in the `web` role.
 What would close the response path for good (BACKLOG): a per-slot heap budget (admission by estimated tree size before the parse) or a
 streaming parse that never builds the tree.
 

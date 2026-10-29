@@ -5,12 +5,22 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 
 /**
- * Heap bytes the raw issue inspector (`ingest/RawIssueInspectorRoutes.kt`) holds per STORED byte of the issue it serves, at the
- * worst case: the stored text as read (UTF-16 worst case, 2 bytes a character that is 1 byte in UTF-8: 2x), the response's encoded JSON
- * text built from it (the serializer's `String`/`StringBuilder`, again 2x) and the bytes the engine writes from that (1x) = 5x.
- * `jira.processPageBytes` (8 MiB) therefore costs up to 40 MiB, which [requireInspectionFitsHeapShare] pins to fit the share.
+ * Heap bytes the raw issue inspector (`ingest/RawIssueInspectorRoutes.kt`) holds per STORED byte of the issue it serves (its payload,
+ * histories, live worklogs and the work item's `custom_fields` text), at the worst case, from the first read until the encoded body
+ * exists (the share is released before the body is written):
+ *
+ *  - the stored text as read: UTF-16 `String`s, 2 bytes a character that is 1 byte in UTF-8 = 2x (the driver's row buffer is
+ *    transient and on top of this while the last text is read);
+ *  - the response encoded by `Json.encodeToStream`: the serializer's chunk buffer for the largest string, a `CharArray` of up to 2x
+ *    that string, and the `ByteArrayOutputStream` sized from the stored bytes (1x, it never grows) = up to 3x;
+ *  - the final `toByteArray()` copy = 1x, taken while the stream buffer is still live.
+ *
+ * That peaks at 2x + 3x + 1x = 6x, and the driver's row buffer and the library's chunking are not under this code's control, so the
+ * figure is 8x rather than the derived 6x (the previous, `encodeToString` + engine write, path was 5x counted and ~8x real).
+ * `jira.processPageBytes` (8 MiB) plus a same-size `custom_fields` therefore costs up to 128 MiB, more than the share: the inspector
+ * answers 413 for an issue whose weight is over the share (`capacityBytes / this`), so no inspection is larger than the share.
  */
-const val INSPECTION_BYTES_PER_STORED_BYTE = 5L
+const val INSPECTION_BYTES_PER_STORED_BYTE = 8L
 
 /** The capacity of the web role's [JiraHeapShare]: the ONE parsed response tree the web heap fit already counts ([TREE_BYTES_PER_NODE]). */
 internal fun jiraHeapShareCapacityBytes(maxResponseBytes: Long): Long = TREE_BYTES_PER_NODE * defaultMaxResponseNodes(maxResponseBytes)
@@ -49,6 +59,10 @@ class JiraHeapShare(val capacityBytes: Long) {
 
     private fun fits(weight: Long) = inUse + weight <= capacityBytes
 
+    // The waiters admitted under the lock are completed AFTER it is left: completing may resume a waiter inline on this thread
+    // (Ktor's dispatcher can), and its continuation must never run inside the monitor.
+    private fun complete(granted: List<Waiter>) = granted.forEach { it.gate.complete(Unit) }
+
     private suspend fun acquire(weight: Long) {
         val waiter = synchronized(lock) {
             if (waiters.isEmpty() && fits(weight)) {
@@ -62,27 +76,35 @@ class JiraHeapShare(val capacityBytes: Long) {
         } catch (e: CancellationException) {
             // Cancelled while queued (it leaves, so the next waiter is not blocked behind it) or just after being granted (the weight
             // is handed back): either way nothing leaks.
-            synchronized(lock) {
-                if (waiter.granted) inUse -= weight else waiters.remove(waiter)
-                admitWaiters()
-            }
+            complete(
+                synchronized(lock) {
+                    if (waiter.granted) inUse -= weight else waiters.remove(waiter)
+                    admitWaiters()
+                },
+            )
             throw e
         }
     }
 
-    private fun release(weight: Long) = synchronized(lock) {
-        inUse -= weight
-        admitWaiters()
-    }
+    private fun release(weight: Long) = complete(
+        synchronized(lock) {
+            inUse -= weight
+            admitWaiters()
+        },
+    )
 
-    /** Admits waiters from the head while they fit; stops at the first that does not (strict FIFO). Caller holds [lock]. */
-    private fun admitWaiters() {
+    /**
+     * Admits waiters from the head while they fit (marking them granted and counting their weight); stops at the first that does not
+     * (strict FIFO). Returns them for the caller to [complete] once it has left [lock], which it holds here.
+     */
+    private fun admitWaiters(): List<Waiter> {
+        val granted = mutableListOf<Waiter>()
         while (true) {
-            val head = waiters.firstOrNull()?.takeIf { fits(it.weight) } ?: return
+            val head = waiters.firstOrNull()?.takeIf { fits(it.weight) } ?: return granted
             waiters.removeFirst()
             inUse += head.weight
             head.granted = true
-            head.gate.complete(Unit)
+            granted += head
         }
     }
 }

@@ -10,6 +10,7 @@ import ch.nokillswit.jira.JiraRawStoreKey
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.norm.WorkItemStoreKey
 import ch.nokillswit.plugins.servesApi
+import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.resources.Resource
 import io.ktor.server.application.Application
@@ -17,8 +18,10 @@ import io.ktor.server.auth.authenticate
 import ch.nokillswit.plugins.respondProblem
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.resources.get
-import io.ktor.server.response.respond
+import io.ktor.server.response.respondBytes
+import io.ktor.serialization.kotlinx.json.DefaultJson
 import io.ktor.server.routing.routing
+import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.Serializable
@@ -26,6 +29,7 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonUnquotedLiteral
+import kotlinx.serialization.json.encodeToStream
 
 @Serializable
 @Resource("raw-issues/{issueKey}")
@@ -36,6 +40,9 @@ private const val TOO_LARGE_DETAIL = "The stored issue is too large to inspect"
 
 /** How many raw issues one process inspects at once: each is up to `jira.processPageBytes` of text, so the `web` heap bounds this. */
 private const val MAX_CONCURRENT_INSPECTIONS = 2
+
+/** Room the encode buffer gets beyond the stored text: the interval rows and the envelope, so the buffer never has to grow and copy. */
+private const val ENCODE_SLACK_BYTES = 64L * 1024
 
 /**
  * Stored JSON text embedded in the response as it is, with no tree built (the `web` role's heap is small): the text is Postgres's
@@ -71,23 +78,42 @@ fun Application.configureRawIssueInspectorRoutes() {
                 dataSources.read(connectionId).orNotFound("Data source")
 
                 val issueId = resolveRawIssueId(rawStore, connectionId, route.issueKey).orNotFound("Raw issue")
-                // At most MAX_CONCURRENT_INSPECTIONS issues at once in a `web` process; the rest wait for a permit.
+                // At most MAX_CONCURRENT_INSPECTIONS issues at once in a `web` process; the rest wait for a permit. The permit is held
+                // through the write of the body, so at most that many encoded bodies are on the heap outside the share.
                 gate.withPermit {
-                    val bytes = rawStore.storedBytesForIssue(connectionId, issueId)
-                    if (bytes > rawStore.ceilings.processPageBytes) {
+                    val rawBytes = rawStore.storedBytesForIssue(connectionId, issueId)
+                    val storedBytes = rawBytes + workItems.customFieldsBytes(connectionId, issueId)
+                    // Over the stored-size cap PROCESS uses, or heavier than the share can hold: the 413 is what keeps an inspection in it.
+                    val fitsShare = storedBytes <= heapShare.capacityBytes / INSPECTION_BYTES_PER_STORED_BYTE
+                    if (rawBytes > rawStore.ceilings.processPageBytes || !fitsShare) {
                         call.respondProblem(HttpStatusCode.PayloadTooLarge, TOO_LARGE_DETAIL)
                     } else {
-                        // The issue's text, the response built from it and its bytes are held against the web role's Jira heap share
-                        // (the one response tree its heap fit counts) from the read until the body is written.
-                        heapShare.withShare(INSPECTION_BYTES_PER_STORED_BYTE * bytes) {
+                        // The issue's text, the response built from it and its encoded bytes are held against the web role's Jira heap
+                        // share (the one response tree its heap fit counts) from the first read until the bytes exist, and ONLY until
+                        // then: the body is written after the share is released, so a slow reader pins no share.
+                        val body = heapShare.withShare(INSPECTION_BYTES_PER_STORED_BYTE * storedBytes) {
                             val raw = rawStore.issueById(connectionId, issueId).orNotFound("Raw issue")
-                            call.respond(HttpStatusCode.OK, raw.toInspection(rawStore, workItems, connectionId))
+                            encodeInspection(raw.toInspection(rawStore, workItems, connectionId), storedBytes)
                         }
+                        call.respondBytes(body, ContentType.Application.Json, HttpStatusCode.OK)
                     }
                 }
             }
         }
     }
+}
+
+/**
+ * The inspection as the UTF-8 bytes ContentNegotiation's `json()` would write (the same [DefaultJson]; sent as `application/json`, how it
+ * labels them: `RawIssueInspectorTest` compares the headers), encoded
+ * straight into a buffer sized from the stored bytes: no intermediate `String` of the whole document, and the caller can write it
+ * after it has released its heap share. The stored text is embedded verbatim, so the body is about [storedBytes] plus the intervals.
+ */
+@OptIn(ExperimentalSerializationApi::class)
+private fun encodeInspection(inspection: RawIssueInspection, storedBytes: Long): ByteArray {
+    val out = ByteArrayOutputStream((storedBytes + ENCODE_SLACK_BYTES).coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+    DefaultJson.encodeToStream(RawIssueInspection.serializer(), inspection, out)
+    return out.toByteArray()
 }
 
 /** [ISSUE_ID_PATTERN] wins first — an all-digits key is ALWAYS an id lookup, never a (impossible) numeric issue key. */
@@ -130,7 +156,7 @@ private suspend fun JiraRawStore.RawIssueDetail.toInspection(
                 assigneeAccountId = it.assigneeAccountId,
                 hierarchyLevel = it.hierarchyLevel,
                 dueAt = it.dueAt,
-                customFields = it.customFields,
+                customFields = storedJson(it.customFieldsJson),
                 processedAt = it.processedAt,
                 processingVersion = it.processingVersion,
                 deletedAt = it.deletedAt,

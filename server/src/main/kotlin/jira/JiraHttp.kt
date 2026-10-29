@@ -129,7 +129,7 @@ class JiraHttp(
 ) {
     private val semaphore = Semaphore(maxConcurrentRequests)
 
-    /** Held while a body over [BIG_BODY_BYTES] is decoded and parsed: at most one big tree is under construction at a time. */
+    /** Held while a body over [BIG_BODY_BYTES] is parsed: at most one big tree is under construction at a time. */
     private val bigParses = Mutex()
 
     /** Per tenant key: the epoch-millis [clock] instant before which no call of that tenant starts a request. */

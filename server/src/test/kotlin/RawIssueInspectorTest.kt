@@ -262,7 +262,8 @@ class RawIssueInspectorTest {
         assertEquals("acc-1", workItem.assigneeAccountId)
         assertEquals(0, workItem.hierarchyLevel)
         assertEquals(1_700_000_000_000L, workItem.dueAt)
-        assertTrue(workItem.customFields.containsKey("customfield_10030"), "custom_fields must carry every non-null customfield_*")
+        val customFields = workItem.customFields.jsonObject
+        assertTrue(customFields.containsKey("customfield_10030"), "custom_fields must carry every non-null customfield_*")
         assertEquals(1, inspection.statusIntervals.size)
         assertEquals(2, inspection.fieldIntervals.size)
         assertTrue(inspection.fieldIntervals.any { it.field == TrackedField.PARENT }, "PARENT must be an allowed field interval kind")
@@ -282,8 +283,14 @@ class RawIssueInspectorTest {
         rawStore.insertChangelog(connId, 500_046L, 46L, 1_000, "acc-1", history, 1_000)
         val stored = checkNotNull(rawStore.issueById(connId, 46L)).payloadJson
 
-        val body = admin.get("/api/v1/data-sources/$connId/raw-issues/ENG-46").bodyAsText()
+        val response = admin.get("/api/v1/data-sources/$connId/raw-issues/ENG-46")
+        val body = response.bodyAsText()
 
+        // The bytes are written by the route itself, yet labelled and cached exactly as every other JSON answer is.
+        val other = admin.get("/api/v1/data-sources/$connId")
+        assertEquals(other.headers["Content-Type"], response.headers["Content-Type"])
+        assertEquals("no-store", response.headers["Cache-Control"])
+        assertEquals(other.headers["X-Content-Type-Options"], response.headers["X-Content-Type-Options"])
         assertTrue(stored in body, "the stored jsonb text is the body's payload, byte for byte")
         val payload = Json.parseToJsonElement(body).jsonObject.getValue("payload")
         assertEquals(Json.parseToJsonElement(document), payload, "what a client parses is the document, as before")
@@ -349,6 +356,80 @@ class RawIssueInspectorTest {
                 assertEquals("The stored issue is too large to inspect", problem.getValue("detail").toString().trim('"'))
                 assertTrue("xxxx" !in problem.toString(), "nothing of the document is echoed")
             }
+        }
+
+    @Test
+    fun `an issue heavier than the web heap share holds is 413 even under processPageBytes - the threshold is share over factor`() =
+        testApplication {
+            // A 2 MiB response cap makes a 28 MiB share: it admits 28 / 8 = 3.5 MiB of stored text, below the default 8 MiB page.
+            configureApp("app.role" to "web", "jira.maxResponseBytes" to (2L * 1024 * 1024).toString())
+            startApplication()
+            val share = application.attributes[JiraHeapShareKey]
+            assertEquals(28L * 1024 * 1024, share.capacityBytes)
+            val admin = seededClient("rawissueshare413", FlowUserRole.ADMIN)
+            val connId = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>().id
+            val rawStore = JiraRawStore(sharedDatabaseForTests())
+            val document = Json.parseToJsonElement(issuePayload(49L, "ENG-49"))
+            rawStore.upsertIssue(connId, RawIssueInput(49L, "ENG-49", 1L, "ENG", 1_000, document), 1_000)
+            val history = """{"id":"500049","created":"2024-01-01T00:00:00.000+0000"}"""
+            rawStore.insertChangelog(connId, 500_049L, 49L, 1_000, "acc-1", history, 1_000)
+            padChangelog(connId, 500_049L, 3_000_000)
+            assertEquals(HttpStatusCode.OK, admin.get("/api/v1/data-sources/$connId/raw-issues/ENG-49").status, "3 MB is inside 3.5 MiB")
+            padChangelog(connId, 500_049L, 3_700_000) // replaces the pad: 3.7 MB is over 3.5 MiB (3,670,016)
+            val response = admin.get("/api/v1/data-sources/$connId/raw-issues/ENG-49")
+            assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
+            assertTrue("xxxx" !in response.bodyAsText(), "nothing of the document is echoed")
+        }
+
+    private fun workItemFacts(issueKey: String, customFieldsJson: String) = WorkItemFacts(
+        issueKey = issueKey, projectKey = "ENG", issueType = "Story", isSubtask = false, parentIssueId = null, summary = "A test issue",
+        currentStatusId = "3", resolution = null, priority = null, assigneeAccountId = null, reporterAccountId = null,
+        createdAtMs = 1_000L, updatedAtMs = 2_000L, resolvedAtMs = null, storyPoints = null, originalEstimateSeconds = null,
+        timeSpentSeconds = 0, labels = emptyList(), components = emptyList(), fixVersions = emptyList(), teamValueJson = null,
+        rank = null, hierarchyLevel = 0, dueAtMs = null, customFieldsJson = customFieldsJson, tombstone = TombstoneKind.NONE,
+    )
+
+    @Test
+    fun `a dense custom_fields text counts toward the weight - it is embedded unparsed and refused when the share cannot hold it`() =
+        testApplication {
+            configureApp("app.role" to "web", "jira.maxResponseBytes" to (2L * 1024 * 1024).toString())
+            startApplication()
+            val admin = seededClient("rawissuecustomfields", FlowUserRole.ADMIN)
+            val connId = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>().id
+            val rawStore = JiraRawStore(sharedDatabaseForTests())
+            val document = Json.parseToJsonElement(issuePayload(50L, "ENG-50"))
+            rawStore.upsertIssue(connId, RawIssueInput(50L, "ENG-50", 1L, "ENG", 1_000, document), 1_000)
+            val workItems = WorkItemStore(sharedDatabaseForTests())
+            fun processed(customFieldsJson: String) = NormalizedIssue(
+                issueId = 50L,
+                facts = workItemFacts("ENG-50", customFieldsJson),
+                currentStatusName = "To Do",
+                currentStatusCategory = StatusCategory.TODO,
+                statusIntervals = emptyList(),
+                fieldIntervals = emptyList(),
+                fieldChanges = emptyList(),
+                worklogs = emptyList(),
+                currentSprintIds = emptyList(),
+                flagged = false,
+                anomalies = emptyList(),
+            )
+            val small = """{"customfield_10030":{"id":"10100","value":"Product Development"}}"""
+            workItems.replaceWorkItem(connId, processed(small), now = 5_000L)
+            val served = admin.get("/api/v1/data-sources/$connId/raw-issues/ENG-50")
+            assertEquals(HttpStatusCode.OK, served.status)
+            val storedText = PostgresTestSupport.connect().use { conn ->
+                conn.createStatement().use { st ->
+                    st.executeQuery("SELECT custom_fields::text FROM norm.work_items WHERE connection_id = $connId AND issue_id = 50").use {
+                        it.next()
+                        it.getString(1)
+                    }
+                }
+            }
+            assertTrue(storedText in served.bodyAsText(), "the stored custom_fields text is the body's, byte for byte")
+
+            // The raw issue is tiny; one 4 MB custom field alone outweighs the 3.5 MiB the share admits.
+            workItems.replaceWorkItem(connId, processed("""{"customfield_10031":"${"x".repeat(4_000_000)}"}"""), now = 6_000L)
+            assertEquals(HttpStatusCode.PayloadTooLarge, admin.get("/api/v1/data-sources/$connId/raw-issues/ENG-50").status)
         }
 
     /** Pads one stored history by [bytes] of text inside Postgres (a key the trims keep), as a hostile host could have stored. */

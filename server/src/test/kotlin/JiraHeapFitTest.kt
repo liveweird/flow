@@ -21,7 +21,6 @@ import ch.nokillswit.jira.WEB_RESERVE_BYTES
 import ch.nokillswit.jira.heapFitMessage
 import ch.nokillswit.jira.heapFitVerdict
 import ch.nokillswit.jira.jiraHeapShareCapacityBytes
-import ch.nokillswit.jira.requireInspectionFitsHeapShare
 import ch.nokillswit.jira.youngIsPinned
 import io.ktor.server.testing.testApplication
 import java.io.File
@@ -245,37 +244,24 @@ class JiraHeapFitTest {
     }
 
     @Test
-    fun `the raw issue inspector's worst case fits the web heap share, which is the one tree the web fit counts`() {
-        assertEquals(5L, INSPECTION_BYTES_PER_STORED_BYTE)
-        val stored = JiraStoredCeilings()
-        // 5 x the shipped 8 MiB page = 40 MiB, inside the 112 MiB share: the shipped defaults boot.
-        assertEquals(40 * mib, INSPECTION_BYTES_PER_STORED_BYTE * stored.processPageBytes)
-        requireInspectionFitsHeapShare(stored.processPageBytes, 8 * mib)
+    fun `the raw issue inspector draws on the web heap share, which is the one tree the web fit counts`() {
+        assertEquals(8L, INSPECTION_BYTES_PER_STORED_BYTE)
         // The share IS the response-tree term of the web verdict, so what the inspector holds adds nothing to the 184 MiB need.
         assertEquals(112 * mib, jiraHeapShareCapacityBytes(8 * mib))
-        val web = heapFitVerdict(1, 8 * mib, 4, HeapSizes(192 * mib, 64 * mib), role = HeapFitRole.WEB, stored = stored)
+        val web = heapFitVerdict(
+            1, 8 * mib, 4, HeapSizes(192 * mib, 64 * mib), role = HeapFitRole.WEB, stored = JiraStoredCeilings(),
+        )
         assertEquals(jiraHeapShareCapacityBytes(8 * mib), web.slotBytes)
         assertEquals(184 * mib, web.needBytes)
-        // The exact boundary: 5 x page == the share passes, one byte over fails.
-        val share = jiraHeapShareCapacityBytes(8 * mib)
-        requireInspectionFitsHeapShare(share / 5, 8 * mib)
-        assertFailsWith<IllegalArgumentException> { requireInspectionFitsHeapShare(share / 5 + 1, 8 * mib) }
+        // The shipped 8 MiB page weighs 64 MiB, inside the share: the inspector serves the defaults whole (it refuses past 14 MiB).
+        assertEquals(64 * mib, INSPECTION_BYTES_PER_STORED_BYTE * JiraStoredCeilings().processPageBytes)
+        assertEquals(14 * mib, jiraHeapShareCapacityBytes(8 * mib) / INSPECTION_BYTES_PER_STORED_BYTE)
     }
 
     @Test
-    fun `a process page the web share cannot hold is refused and the message names both knobs`() {
-        val failure = assertFailsWith<IllegalArgumentException> { requireInspectionFitsHeapShare(64 * mib, 8 * mib) }
-        val message = failure.message.orEmpty()
-        assertTrue("jira.processPageBytes" in message && "jira.maxResponseBytes" in message, message)
-        // Raising the response cap (a bigger tree, a bigger share) is the other way out:
-        // 5 x 64 MiB = 320 MiB needs a cap of 22.86 MiB or more.
-        requireInspectionFitsHeapShare(64 * mib, 24 * mib)
-    }
-
-    @Test
-    fun `a boot with a process page over the web share fails closed in every role`() = testApplication {
+    fun `a process page larger than the web share boots - the inspector refuses such an issue instead (no boot pin)`() = testApplication {
         configureApp("app.role" to "web", "jira.processPageBytes" to (64L * mib).toString())
-        assertStartupFails("jira.maxResponseBytes") { startApplication() }
+        startApplication()
     }
 
     @Test

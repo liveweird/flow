@@ -4,13 +4,19 @@ import ch.nokillswit.jira.JiraHeapShare
 import ch.nokillswit.jira.jiraHeapShareCapacityBytes
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -74,6 +80,36 @@ class JiraHeapShareTest {
         assertEquals(40, done)
         assertEquals(0, held)
         assertTrue(peak in 50..100, "the share was really shared: peak $peak")
+    }
+
+    @Test
+    fun `under real threads the holders never exceed the capacity and everything completes`() = runBlocking(Dispatchers.Default) {
+        val share = JiraHeapShare(1_000)
+        val inUse = AtomicLong()
+        val peak = AtomicLong()
+        val violations = AtomicLong()
+        val random = Random(11)
+        val weights = List(400) { random.nextLong(0, 1_200) } // some over the capacity: clamped, admitted alone
+        withTimeout(60_000) {
+            weights.mapIndexed { index, weight ->
+                async {
+                    val clamped = weight.coerceAtMost(1_000)
+                    share.withShare(weight) {
+                        val now = inUse.addAndGet(clamped)
+                        if (now > 1_000) violations.incrementAndGet()
+                        peak.accumulateAndGet(now, ::maxOf)
+                        // Every few holders suspend (a real thread hop) so waiters queue and are admitted from other threads.
+                        if (index % 3 == 0) delay(1) else Thread.yield()
+                        inUse.addAndGet(-clamped)
+                    }
+                }
+            }.awaitAll()
+        }
+        assertEquals(0L, violations.get(), "no holder was admitted past the capacity")
+        assertEquals(0L, inUse.get(), "every holder left")
+        assertTrue(peak.get() > 0)
+        // Nothing leaked: the whole capacity is free again, so a full-capacity request is admitted at once.
+        withTimeout(5_000) { share.withShare(1_000) { } }
     }
 
     @Test

@@ -4,11 +4,11 @@ import ch.nokillswit.norm.WorkItemStore.FieldIntervals
 import ch.nokillswit.norm.WorkItemStore.StatusIntervals
 import ch.nokillswit.norm.WorkItemStore.WorkItemView
 import ch.nokillswit.norm.WorkItemStore.WorkItems
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.toList
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
@@ -33,7 +33,7 @@ internal class NormInspectorReads(private val database: R2dbcDatabase) {
                     assigneeAccountId = row[WorkItems.assigneeAccountId],
                     hierarchyLevel = row[WorkItems.hierarchyLevel],
                     dueAt = row[WorkItems.dueAt],
-                    customFields = Json.parseToJsonElement(row[WorkItems.customFields]).jsonObject,
+                    customFieldsJson = row[WorkItems.customFields],
                     anomalies = parseAnomalies(row[WorkItems.anomalies]),
                     processedAt = row[WorkItems.processedAt],
                     processingVersion = row[WorkItems.processingVersion],
@@ -41,6 +41,19 @@ internal class NormInspectorReads(private val database: R2dbcDatabase) {
                     movedOutAt = row[WorkItems.movedOutAt],
                 )
             }
+    }
+
+    /**
+     * The text of one issue's `custom_fields` in bytes (`octet_length` of the jsonb text, computed inside Postgres; only numbers reach
+     * the SQL text), 0 for no row. The inspector weighs it BEFORE [workItemView] reads that text, which it embeds unparsed.
+     */
+    suspend fun customFieldsBytes(connectionId: UInt, issueId: Long): Long = suspendTransaction(database) {
+        val sums: Flow<Long?>? = exec(
+            "SELECT COALESCE(sum(octet_length(custom_fields::text)), 0) FROM norm.work_items " +
+                "WHERE connection_id = $connectionId AND issue_id = $issueId",
+            explicitStatementType = StatementType.SELECT,
+        ) { row -> row.get(0, Long::class.javaObjectType)!! }
+        sums?.toList()?.firstOrNull() ?: 0L
     }
 
     /** One issue's tiled status intervals, ordered by `seq` (v0.2.0 plan §9/§12 item 8b — the raw issue inspector). */
