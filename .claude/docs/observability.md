@@ -139,7 +139,7 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   conflictingDataSourceId/siteHost - the REQUESTED site's host/projectKeys - the shared keys, empty for `OTHER_SITE`; emitted when
   the scope rules 409 a create or update, `ingest/DataSourceScope.kt`, never a token) /
   `.paused` (dataSourceId/jobId/job `SYNC`|`RECONCILE`/reason - the trip code `LIMIT_EXCEEDED`|`TIME_EXCEEDED`/limitTrips - emitted by the worker once, when the Nth
-  consecutive SYNC ceiling trip without progress, or the Nth consecutive RECONCILE ceiling trip (progress or not), pauses that job's scheduling, `ingest/SyncPauseAnnouncement.kt`; one event name for both, told apart by `job`; with it ONE
+  consecutive SYNC ceiling trip without progress, or the Nth consecutive RECONCILE ceiling trip without a durable change, pauses that job's scheduling, `ingest/SyncPauseAnnouncement.kt`; one event name for both, told apart by `job`; with it ONE
   ERROR line in logger `ch.nokillswit.ingest.SyncPause`, constant text plus the data source id, the code, the count and the threshold - never
   exception or host text) /
   `.resumed` (byUserId/dataSourceId/via `SYNC_NOW`|`RECONCILE_NOW`|`UPDATE`/job `SYNC`|`RECONCILE`/reason/limitTrips - an ADMIN's "Sync now" (the SYNC pause), "Reconcile now" (the RECONCILE pause) or config PUT (each pause it lifted, one event per `job`) lifted a pause; nothing is

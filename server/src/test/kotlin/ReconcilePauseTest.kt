@@ -51,7 +51,8 @@ private const val PAUSE_AFTER = 3
 
 /**
  * The RECONCILE ceiling-trip pause (`.claude/docs/ingestion.md` "Ceiling trips and the pause", V38), the twin of `CeilingPauseTest`:
- * EVERY RECONCILE trip counts (progress or not: its pass never resumes), the pause at N in the job's own transaction with the
+ * a RECONCILE trip that stored no durable change counts, one that did (a tombstone or an index-gap upsert) resets the count and is still
+ * no "resumable" stop, the pause at N in the job's own transaction with the
  * `job = RECONCILE` audit event and ERROR line, the reset by a succeeded RECONCILE, the fences, the scheduler skipping a paused
  * connection for RECONCILE only, and which request or save lifts which pause (the SYNC pause is `CeilingPauseTest`'s).
  */
@@ -162,6 +163,12 @@ class ReconcilePauseTest {
         }
     }
 
+    private suspend fun forceReconcileCounter(connId: UInt, trips: Int) {
+        suspendTransaction(sharedDatabaseForTests()) {
+            DataSourceService.Connections.update({ DataSourceService.Connections.id eq connId }) { it[reconcileLimitTrips] = trips }
+        }
+    }
+
     private suspend fun forceSyncPause(connId: UInt, trips: Int = PAUSE_AFTER) {
         suspendTransaction(sharedDatabaseForTests()) {
             DataSourceService.Connections.update({ DataSourceService.Connections.id eq connId }) {
@@ -173,7 +180,7 @@ class ReconcilePauseTest {
     }
 
     @Test
-    fun `every RECONCILE trip counts, progress or not, and the Nth pauses with an ERROR line and one audit event`() = runBlocking<Unit> {
+    fun `a RECONCILE trip with no durable change counts, one after a tombstone resets the count, the Nth pauses`() = runBlocking<Unit> {
         val connId = connection()
         val errors = LogCapture("ch.nokillswit.ingest.SyncPause")
         try {
@@ -182,14 +189,25 @@ class ReconcilePauseTest {
                 assertEquals(SyncJobStatus.FAILED, withoutProgress.status)
                 assertEquals(LIMIT_EXCEEDED_TRIP, withoutProgress.errorCode)
                 assertEquals(1, status(connId).reconcileLimitTrips)
-                // A trip that stored changes counts all the same (the pass restarts every run), and does not reset the count.
+                run(connId, noProgress(TIME_EXCEEDED_TRIP))
+                assertEquals(2, status(connId).reconcileLimitTrips)
+                assertNotNull(nextReconcileAt(connId), "the ordinary RECONCILE failure back-off is recorded as before")
+                // A trip after a durable change (the set of candidates shrank) is not counted and breaks the in-a-row ...
+                val withProgress = run(connId, progress(TIME_EXCEEDED_TRIP))
+                assertEquals(SyncJobStatus.FAILED, withProgress.status)
+                assertEquals(TIME_EXCEEDED_TRIP, withProgress.errorCode, "still a failed job: no RECONCILE stop is resumable")
+                assertEquals(0, status(connId).reconcileLimitTrips)
+                assertNotNull(nextReconcileAt(connId), "... and still takes the failure back-off")
                 run(connId, progress(LIMIT_EXCEEDED_TRIP))
-                assertEquals(2, status(connId).reconcileLimitTrips, "progress within a RECONCILE run does not break the in-a-row")
+                assertEquals(0, status(connId).reconcileLimitTrips, "a reset on a zero count stays zero")
+                // ... so N no-progress trips are needed again.
+                run(connId, noProgress())
+                run(connId, noProgress())
+                assertEquals(2, status(connId).reconcileLimitTrips)
                 assertNull(status(connId).reconcilePausedAt)
                 assertTrue(audits.events.none { it.message == "data_source.paused" }, "nothing announced before the threshold")
-                assertNotNull(nextReconcileAt(connId), "the ordinary RECONCILE failure back-off is recorded as before")
 
-                run(connId, progress(TIME_EXCEEDED_TRIP))
+                run(connId, noProgress(TIME_EXCEEDED_TRIP))
                 val paused = status(connId)
                 assertEquals(PAUSE_AFTER, paused.reconcileLimitTrips)
                 assertNotNull(paused.reconcilePausedAt)
@@ -349,7 +367,29 @@ class ReconcilePauseTest {
 
             // A second Reconcile now on a healthy RECONCILE resumes nothing, so it audits nothing.
             request(SyncJobKind.RECONCILE)
-            assertEquals(1, audits.events.count { it.message == "data_source.resumed" && it.hasKeyValue("via", "RECONCILE_NOW") })
+            assertEquals(
+                1,
+                audits.events.count {
+                    it.message == "data_source.resumed" && it.hasKeyValue("via", "RECONCILE_NOW") &&
+                        it.hasKeyValue("dataSourceId", created.id.toLong())
+                },
+            )
+
+            // A bare counter (trips recorded, no pause yet) is cleared silently by "Reconcile now": no audit event.
+            forceReconcileCounter(created.id, trips = 2)
+            assertEquals(2, current().reconcileLimitTrips)
+            request(SyncJobKind.RECONCILE)
+            val cleared = current()
+            assertEquals(0, cleared.reconcileLimitTrips)
+            assertNull(cleared.reconcilePausedAt)
+            assertEquals(
+                1,
+                audits.events.count {
+                    it.message == "data_source.resumed" && it.hasKeyValue("via", "RECONCILE_NOW") &&
+                        it.hasKeyValue("dataSourceId", created.id.toLong())
+                },
+                "a counter without a pause resumes nothing, so it audits nothing",
+            )
 
             // A PUT lifts both pauses, one event each.
             forceReconcilePause(created.id, trips = 5)

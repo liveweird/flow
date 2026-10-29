@@ -117,7 +117,9 @@ class JiraReconcileStream internal constructor(
                 context.putCursor(name, encodeCursor(state.copy(nextPageToken = page.nextPageToken)))
                 context.incrementProgress("pages")
             }
-            context.heartbeat(changed = true)
+            // Scratch only: the seen-set is keyed by this job's id, so a stop in the sweep leaves the next run exactly where this one
+            // began - no change for the RECONCILE pause. The durable phases after the sweep (tombstones, index-gap upserts) say true.
+            context.heartbeat(changed = false)
             if (isLast) break
             state = state.copy(nextPageToken = page.nextPageToken)
         }
@@ -235,7 +237,7 @@ class JiraReconcileStream internal constructor(
             log.warnSkippedIssue("RECONCILE index-gap fetch", context.connectionId, input.issueId, input.issueKey, failure)
             context.incrementProgress("indexGapSkipped")
         }
-        context.heartbeat(changed = outcome != RawUpsertOutcome.REFUSED)
+        context.heartbeat(changed = outcome?.isChange == true)
     }
 
     /**

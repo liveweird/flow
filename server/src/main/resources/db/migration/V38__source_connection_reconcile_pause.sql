@@ -1,8 +1,8 @@
 -- The RECONCILE ceiling-trip pause (`.claude/docs/ingestion.md` "Ceiling trips and the pause"), V37's twin: a RECONCILE that stops at
--- a run ceiling (LIMIT_EXCEEDED) or the per-job wall clock (TIME_EXCEEDED) counts one in `reconcile_limit_trips` - whether or not it
--- stored a change, because its pass is a hard cap that starts over every run (it never resumes like ISSUES, so progress within a run
--- makes the next run no different); after `ingest.pauseAfterLimitTrips` such runs in a row the connection's RECONCILE is PAUSED
--- (`reconcile_paused_at`, `reconcile_pause_reason`): the scheduler stops enqueueing it (never the SYNC, which has its own pause) until
+-- a run ceiling (LIMIT_EXCEEDED) or the per-job wall clock (TIME_EXCEEDED) WITHOUT having stored a durable change (a tombstone or an
+-- index-gap upsert after the id sweep; the sweep's scratch pages are no change, its pass starts over every run) counts one in
+-- `reconcile_limit_trips`, a trip that did store one resets the count (the next run's candidate set has shrunk); after
+-- `ingest.pauseAfterLimitTrips` such runs in a row the connection's RECONCILE is PAUSED (`reconcile_paused_at`, `reconcile_pause_reason`): the scheduler stops enqueueing it (never the SYNC, which has its own pause) until
 -- an ADMIN's "Reconcile now" or config PUT clears the pause and the counter. A succeeded RECONCILE resets the counter.
 -- `reconcile_pause_reason` is a closed vocabulary of constant codes (never exception text), enforced here.
 -- Purely additive: a NOT NULL column with a constant DEFAULT is catalog-only on PostgreSQL 11+, the nullable columns need no

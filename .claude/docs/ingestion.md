@@ -455,12 +455,14 @@ not blame the stream it happened to stop in, so a late stream that stored nothin
 something most days and would mask a stuck ISSUES. So a `LIMIT_EXCEEDED` on the first page of its stream (an oversized single issue, a
 boards answer ceiling, a `SkipBudget` run that settled nothing), and a hard-cap or restarted loop that re-stores identical pages every run
 (REFERENCE's all-boards SPRINT pass, an ISSUES restart from `backfillFrom`), are no progress and pause after N runs. Only a SYNC trip
-WITHOUT progress counts toward the SYNC pause. **A RECONCILE trip counts toward its OWN pause (V38), progress or not**: its pass is a hard
-cap that starts over every run (it does not resume across runs like ISSUES), so a trip that stored something leaves the next run exactly where
-this one began and progress within a run says nothing about the next; counting it into the SYNC counter would instead pause a healthy SYNC.
-So `CeilingTripException.madeProgress` is ignored for RECONCILE (`ReconcilePause.kt` `recordReconcileTrip`), a wall-clock stop after stored
-changes is not "resumable" for it (only a SYNC's is), and its failure back-off (15 min to 6 h) keeps working beside the counter. Manual and
-scheduled RECONCILE runs count alike.
+WITHOUT progress counts toward the SYNC pause. **A RECONCILE trip counts toward its OWN pause (V38), by the same rule**: only a trip that stored NO durable
+change counts (counting it into the SYNC counter would instead pause a healthy SYNC). What is durable in a RECONCILE: the tombstones
+(`reconcileMissing`: a 404 or a moved-out issue leaves the next run's candidate set, `deletedAt`/`movedOutAt IS NULL`) and the index-gap upserts
+(`reconcileIndexGap`, an outcome that `isChange`); both heartbeat `changed = true`. The id sweep's pages heartbeat `changed = false`: its
+seen-set is scratch keyed by the job id, so a stop inside the sweep leaves the next run exactly where this one began. A big project
+deleted or moved therefore tombstones a few thousand candidates per run, each such trip resets the count, and the set shrinks to a run that
+finishes instead of pausing before it converges. A trip WITH a durable change is still not "resumable" (only a SYNC's is, `failTripped`), so
+its failure back-off (15 min to 6 h) keeps working beside the counter. Manual and scheduled RECONCILE runs count alike.
 
 **A wall-clock stop WITH progress is not a failure.** A SYNC stopped by `TIME_EXCEEDED` after any stream of the run stored a change is a normal
 "continue next run": `SyncJobLeases.failTripped` closes the job `FAILED` with `error_code = TIME_EXCEEDED` (the record; no new terminal state),
@@ -480,8 +482,8 @@ a pause only a job already in flight could still reach). After the commit the wo
 id, the trip code, the count and the threshold, never host text) and audits `data_source.paused` (`job = SYNC`).
 
 **The RECONCILE counter and pause (V38: `reconcile_limit_trips`, `reconcile_paused_at`, `reconcile_pause_reason`).** The same shape and fences
-as the SYNC half, written by `SyncJobLeases.failTripped` (`recordReconcileTrip`) in the job's closing transaction: EVERY RECONCILE trip
-raises `reconcile_limit_trips` (see "What counts"), and at `ingest.pauseAfterLimitTrips` (the one threshold for both jobs) with no pause yet
+as the SYNC half, written by `SyncJobLeases.failTripped` (`recordReconcileTrip`) in the job's closing transaction: every RECONCILE trip with no
+durable change raises `reconcile_limit_trips` and one with a change resets it (see "What counts"), and at `ingest.pauseAfterLimitTrips` (the one threshold for both jobs) with no pause yet
 `reconcile_paused_at` = now and `reconcile_pause_reason` = the trip's code. An ordinary RECONCILE failure leaves the count alone; a succeeded
 RECONCILE (`recordReconcileSucceededRow`, which also clears the back-off) resets it. A stale attempt and a job of an older `config_revision`
 write nothing. After the commit the worker logs the same kind of ERROR line (logger `ch.nokillswit.ingest.SyncPause`, text naming RECONCILE)
@@ -491,11 +493,11 @@ and audits `data_source.paused` with `job = RECONCILE`: ONE event name for both 
 **Paused means:** `dueForSync` skips the connection (`paused_at IS NULL`), so no SCHEDULED SYNC is enqueued; a job already queued or
 running finishes. **Scheduled RECONCILE is NOT paused by the SYNC pause**: it has its own back-off (and its own pause, below) and keeps the reports fresh through
 PROCESS + DERIVE while a later SYNC stream is stuck. Symmetrically a RECONCILE-paused connection (`dueForReconcileRows` skips
-`reconcile_paused_at IS NOT NULL`) keeps its scheduled SYNC; a RECONCILE already queued or running when its pause starts finishes. Nothing else changes: the data already synced stays, the chained DERIVE and the reports keep working
+`reconcile_paused_at IS NOT NULL`) keeps its scheduled SYNC; only the tick's scan-to-enqueue window can produce a RECONCILE after its pause starts (the open-per-kind unique index means none is queued or running when a pause commits). Nothing else changes: the data already synced stays, the chained DERIVE and the reports keep working
 (`enabledActiveConnections`, the DERIVE bump scan, ignores the pause), a manual "Reconcile now"/"Reprocess" runs (also while paused), and PURGE of a
-soft-deleted connection is unaffected. `status.state` reads `FAILED` (the trip code is the `lastSyncErrorCode`); the response adds
+soft-deleted connection is unaffected. For the SYNC pause `status.state` reads `FAILED` (the trip code is the `lastSyncErrorCode`; a RECONCILE pause leaves `state` and `lastSyncErrorCode` alone); the response adds
 `status.pausedAt`/`pauseReason`/`limitTrips` and, for RECONCILE, `status.reconcilePausedAt`/`reconcilePauseReason`/`reconcileLimitTrips`, the
-telemetry panel's freshness carries `pausedAt`/`pauseReason` (its `nextSyncAt` never fires while paused) and `reconcilePausedAt`/`reconcilePauseReason` and shows a Paused badge, and the data-source pages show an orange Paused badge with the reason and count and a hint
+telemetry panel's freshness carries `pausedAt`/`pauseReason` (its `nextSyncAt` never fires while paused) and `reconcilePausedAt`/`reconcilePauseReason` and shows a Paused badge for the SYNC pause and a "Reconcile paused" badge for the RECONCILE one, and the data-source pages show an orange Paused badge with the reason and count and a hint
 ("web-features.md" "Data sources").
 
 **Resuming (ADMIN only, no endpoint of its own).** "Sync now" (`POST .../sync-jobs` with `SYNC`; `SyncJobRoutes` calls
@@ -506,7 +508,7 @@ RECONCILE pause is lifted the same way, by "Reconcile now" (`POST .../sync-jobs`
 `RECONCILE_NOW`, `job` = `RECONCILE`) or any config PUT (`clearReconcilePause`; a PUT that lifts both audits two events, one per `job`).
 Each manual request lifts ONLY its own kind's pause: "Sync now" leaves a RECONCILE pause, "Reconcile now" leaves a SYNC pause, and "Reprocess"
 resumes neither. The count starts again from zero, so a still-broken connection needs N more futile runs to pause again. Tests: `CeilingPauseTest` (the SYNC rule, the pause, the reset, the resumable clock stop, the scheduler skip, the fences, the HTTP resume
-and its audit), `ReconcilePauseTest` (the RECONCILE twin: every trip counts, the pause and its audit, the reset, the fences, the scheduler skip,
+and its audit), `ReconcilePauseTest` (the RECONCILE twin: only a trip without a durable change counts, the pause and its audit, the reset, the fences, the scheduler skip,
 which request lifts which pause), `JiraCeilingTripTest` (the clock with a fake one, resume from the ISSUES cursor, the WORKLOGS flush, the typing),
 `CeilingHardStopTest` (the hard stop: a hung page cancelled at budget + grace, the transaction rolled back, the job closed, the cursor and the resume, shutdown unaffected, local streams exempt), `PauseMigrationTest` (V37 and V38 on an existing row, SQLSTATE 23514 on the CHECKs), `NumericConfigBoundsTest`.
 

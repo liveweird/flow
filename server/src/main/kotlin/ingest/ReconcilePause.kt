@@ -20,10 +20,12 @@ import org.jetbrains.exposed.v1.r2dbc.update
 /**
  * A RECONCILE job ended in [trip]: counts it and pauses the connection's RECONCILE when the count reaches [pauseAfterTrips]. Runs in
  * the transaction that closes the job (like [recordCeilingTrip]) and writes nothing for a job of an older `config_revision`
- * ([jobConfigRevision]). Unlike a SYNC trip, **every trip counts, whether or not it stored a change** ([CeilingTripException.madeProgress]
- * is ignored): a RECONCILE pass is a hard cap that starts over each run (it does not resume across runs like ISSUES), so a trip that
- * stored something leaves the next run exactly where this one began, and progress within a run says nothing about the next. The count
- * is reset only by a succeeded RECONCILE ([resetReconcilePause] through `recordReconcileSucceededRow`), "Reconcile now" and a config PUT.
+ * ([jobConfigRevision]). Same rule as a SYNC trip, read through [CeilingTripException.madeProgress]: a trip that stored NO durable change
+ * counts; one that did (a tombstone or an index-gap upsert after the sweep, `jira/JiraReconcileStream.kt`; the id sweep's scratch
+ * seen-set is keyed by job id, so its pages are no change and a stop inside it leaves the next run exactly where this one began) is not
+ * counted and RESETS the count to 0 (the trips must be in a row), because the next run's candidate set has shrunk. It is still NOT a
+ * "resumable" stop (`SyncJobLeases.failTripped` resumes SYNC only): the failure back-off applies. The count is also reset by a succeeded
+ * RECONCILE ([resetReconcilePause] through `recordReconcileSucceededRow`), "Reconcile now" and a config PUT.
  * Null = nothing recorded (the connection is gone or the job is stale).
  */
 internal suspend fun R2dbcTransaction.recordReconcileTrip(
@@ -35,7 +37,12 @@ internal suspend fun R2dbcTransaction.recordReconcileTrip(
 ): TripRecord? {
     val row = lockConnection(connectionId) ?: return null
     if (row[Connections.configRevision] != jobConfigRevision) return null
-    val after = row[Connections.reconcileLimitTrips] + 1
+    val before = row[Connections.reconcileLimitTrips]
+    if (trip.madeProgress) {
+        if (before > 0) Connections.update({ Connections.id eq connectionId }) { it[reconcileLimitTrips] = 0 }
+        return TripRecord(0, counted = false, pausedNow = null)
+    }
+    val after = before + 1
     val pauseNow = row[Connections.reconcilePausedAt] == null && after >= pauseAfterTrips
     Connections.update({ Connections.id eq connectionId }) {
         it[reconcileLimitTrips] = after

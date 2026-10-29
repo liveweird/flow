@@ -4646,9 +4646,9 @@ components:
           type: integer
           minimum: 0
           description: >-
-            Consecutive RECONCILEs that stopped at a ceiling, whether or not they stored a change (a RECONCILE pass never resumes, so
-            progress within a run does not make the next one different). Reset by a succeeded RECONCILE, "Reconcile now" and a PUT;
-            RECONCILE pauses when it reaches `ingest.pauseAfterLimitTrips`.
+            Consecutive RECONCILEs that stopped at a ceiling without storing a durable change (a tombstone or an index-gap upsert after
+            the id sweep; the sweep's scratch pages are no change). A trip that did store one resets the count. Also reset by a
+            succeeded RECONCILE, "Reconcile now" and a PUT; RECONCILE pauses when it reaches `ingest.pauseAfterLimitTrips`.
     DataSourceResponse:
       type: object
       required:

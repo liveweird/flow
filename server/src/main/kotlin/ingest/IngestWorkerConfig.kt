@@ -21,7 +21,7 @@ data class IngestConfig(
      */
     val maxJobMinutes: Long = DEFAULT_MAX_JOB_MINUTES,
     /**
-     * No-progress SYNC ceiling trips in a row, or RECONCILE ceiling trips in a row (progress or not), that pause that job on the
+     * No-progress SYNC ceiling trips in a row, or RECONCILE ceiling trips in a row with no durable change, that pause that job on the
      * connection (`ingest.pauseAfterLimitTrips`, default 5).
      */
     val pauseAfterLimitTrips: Int = DEFAULT_PAUSE_AFTER_LIMIT_TRIPS,

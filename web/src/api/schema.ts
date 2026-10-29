@@ -2919,7 +2919,7 @@ export interface components {
             reconcilePausedAt?: number | null;
             /** @description Why RECONCILE paused - the constant code of the trip that reached the threshold (`LIMIT_EXCEEDED` or `TIME_EXCEEDED`); set exactly when `reconcilePausedAt` is. Closed vocabulary, like `pauseReason`. */
             reconcilePauseReason?: string | null;
-            /** @description Consecutive RECONCILEs that stopped at a ceiling, whether or not they stored a change (a RECONCILE pass never resumes, so progress within a run does not make the next one different). Reset by a succeeded RECONCILE, "Reconcile now" and a PUT; RECONCILE pauses when it reaches `ingest.pauseAfterLimitTrips`. */
+            /** @description Consecutive RECONCILEs that stopped at a ceiling without storing a durable change (a tombstone or an index-gap upsert after the id sweep; the sweep's scratch pages are no change). A trip that did store one resets the count. Also reset by a succeeded RECONCILE, "Reconcile now" and a PUT; RECONCILE pauses when it reaches `ingest.pauseAfterLimitTrips`. */
             reconcileLimitTrips: number;
         };
         DataSourceResponse: {

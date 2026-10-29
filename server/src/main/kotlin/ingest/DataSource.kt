@@ -99,7 +99,7 @@ data class DataSourceStatus(
     val reconcilePausedAt: Long? = null,
     /** Why it paused: a trip code (`LIMIT_EXCEEDED`, `TIME_EXCEEDED`); set exactly when [reconcilePausedAt] is. */
     val reconcilePauseReason: String? = null,
-    /** Consecutive RECONCILE ceiling trips (progress or not); resets on a succeeded RECONCILE, "Reconcile now" or a PUT. */
+    /** Consecutive RECONCILE ceiling trips that stored no durable change; resets on a succeeded RECONCILE, "Reconcile now" or a PUT. */
     val reconcileLimitTrips: Int = 0,
 )
 

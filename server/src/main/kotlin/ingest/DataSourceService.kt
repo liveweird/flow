@@ -86,7 +86,7 @@ class DataSourceService(
         val limitTrips = integer("limit_trips").default(0)
         val pausedAt = long("paused_at").nullable()
         val pauseReason = varchar("pause_reason", 100).nullable()
-        // V38: the same for RECONCILE (`ReconcilePause.kt`): consecutive ceiling trips (progress or not) and the pause they cause.
+        // V38: the same for RECONCILE (`ReconcilePause.kt`): consecutive ceiling trips without a durable change and the pause they cause.
         val reconcileLimitTrips = integer("reconcile_limit_trips").default(0)
         val reconcilePausedAt = long("reconcile_paused_at").nullable()
         val reconcilePauseReason = varchar("reconcile_pause_reason", 100).nullable()
