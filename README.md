@@ -322,6 +322,7 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive (`.claude/
 | `TELEMETRY_STORAGE_INTERVAL_SECONDS` | `3600` | How often storage sizes are measured, 900..86400 (a later release). |
 | `TELEMETRY_CONNECTION_ESTIMATE_INTERVAL_SECONDS` | `21600` | How often the per-connection storage estimate runs, 3600..604800 (a later release). |
 | `REPORTS_STATEMENT_TIMEOUT_SECONDS` | `30` | Per-statement time budget of every report read (1..3600, whole seconds); a statement over it is cancelled and answers a 500 problem (`.claude/docs/reports.md` "Query budget"). |
+| `REPORTS_PEER_CELL_CACHE_MAX_ENTRIES` | `20000` | Most cached (teammate, window) cells of Person trend's peer-cell cache per data-stamp generation, per web instance (0..50000; about 0.4 KiB each, ~8 MiB at the default; `0` turns the cache off; `.claude/docs/reports.md` "Report 20", Cost). |
 
 ## Useful Gradle tasks
 

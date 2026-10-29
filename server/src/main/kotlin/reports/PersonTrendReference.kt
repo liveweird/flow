@@ -72,13 +72,14 @@ internal fun CompareData.hadActivity(account: String): Boolean =
     done.isNotEmpty() || worklogs.isNotEmpty() || wip.days.any { (wip.dayCounts[account]?.get(it) ?: 0) > 0 }
 
 /**
- * Every trend row's reference at one point, `null` with no team: the cells ([cellsOf] over the point's window, [datas] by account) of the
- * team's peers that [hadActivity] in the window -- an inactive peer contributes to NO row -- so `peers` counts only the active ones.
+ * Every trend row's reference at one point, `null` with no team: the cells ([cellsOf] over the point's window, as [PeerCellEntry], cached
+ * or fresh alike) of the team's peers that were active in the window ([PeerCellEntry.active]) -- an inactive peer contributes to NO row --
+ * so `peers` counts only the active ones. [entries] holds every one of the team's peers by account id.
  */
-internal fun referencesOf(team: TrendReferenceTeam?, datas: Map<String, CompareData>): Map<String, PersonTrendReference>? {
+internal fun referencesOf(team: TrendReferenceTeam?, entries: Map<String, PeerCellEntry>): Map<String, PersonTrendReference>? {
     team ?: return null
-    val peerCells = team.peers.filter { datas.getValue(it).hadActivity(it) }.map { datas.getValue(it).cellsOf(it) }
-    return TREND_ROWS.associate { spec -> spec.key to referenceOf(peerCells.map { it.getValue(spec.key) }) }
+    val peerCells = team.peers.map { entries.getValue(it) }.filter { it.active }
+    return TREND_ROWS.mapIndexed { row, spec -> spec.key to referenceOf(peerCells.map { it.cell(row) }) }.toMap()
 }
 
 /** The memberships of [teamIds] overlapping `[fromMs, toMs)`: those teams' dated rosters. */

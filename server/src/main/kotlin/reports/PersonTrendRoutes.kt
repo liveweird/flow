@@ -5,6 +5,7 @@ import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.metrics.WorkingCalendar
 import io.ktor.resources.Resource
 import io.ktor.server.plugins.BadRequestException
+import io.ktor.server.request.path
 import io.ktor.server.resources.get
 import io.ktor.server.routing.Route
 import kotlinx.serialization.Serializable
@@ -30,7 +31,10 @@ internal fun Route.personTrendRoutes(reportService: ReportService) {
         call.caller()
         val scope = reportService.stampScope(StampClock.DAY)
         val filter = call.request.queryParameters.parsePersonTrend(scope.calendar, scope.nowMs)
-        call.respondRevalidated(reportService.etagFor(call, scope)) { reportService.personTrend(filter, scope.nowMs) }
+        // The stamp is read ONCE, before the report transaction: it is both the ETag's and the peer-cell cache's generation.
+        val stamp = reportService.dataStamp(scope.settings, scope.calendar, scope.clock, scope.nowMs)
+        val tag = reportEtag(reportService.codeIdentity, call.request.path(), call.request.queryParameters, stamp)
+        call.respondRevalidated(tag) { reportService.personTrend(filter, scope.nowMs, stamp) }
     }
     // The drill: the items behind one point of one row. The parent's parameters (its own parser, so the same 400s first), then the
     // point's identity: `view` (one of the rows') and the required `pointEnd` (a day of the request's grid). The list IS Report 18's drill

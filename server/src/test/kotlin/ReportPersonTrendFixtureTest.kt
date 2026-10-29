@@ -148,7 +148,7 @@ class ReportPersonTrendFixtureTest {
                 client.personTrend(query) // warm
                 val startedAt = System.nanoTime()
                 val trend = client.personTrend(query)
-                println("in-test\tperson-trend-365d-team\t${(System.nanoTime() - startedAt) / 1_000_000L}")
+                println("in-test\tperson-trend-365d-team-warm\t${(System.nanoTime() - startedAt) / 1_000_000L}")
 
                 // The roster each window must have, from the dates above alone (a day is covered when the membership overlaps it).
                 val peers = trend.windows.map { window ->

@@ -52,6 +52,8 @@ class ReportService(
     private val statementTimeoutSeconds: Int = DEFAULT_REPORT_STATEMENT_TIMEOUT_SECONDS,
     /** What identifies this build in every report ETag ([REPORT_CODE_IDENTITY], once per boot). */
     internal val codeIdentity: String = REPORT_CODE_IDENTITY,
+    /** Person trend's peer-cell cache (`PersonTrendCache.kt`): one per `Application`, sized by `reports.peerCellCache.maxEntries`. */
+    internal val peerCells: PeerCellCache = PeerCellCache(),
 ) {
     /**
      * The clock every report route reads `now` from — the figures' and the ETag stamp's alike. `var` only so a test can pin it
