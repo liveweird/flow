@@ -548,7 +548,7 @@ above).
   (its token belongs to the old unbounded query) or a finished sweep a crash left behind is
   dropped and a FRESH pass starts (`passStartedAt` = now, the scratch ids drained).
 
-- **`trim`** (removed after 1.25.0; see "Upgrade path"): no stream writes or reads it any more. An install that ran the old TRIM step keeps its `sync_cursors` row (`stream = 'trim'`, `phase: DONE`); it is
+- **`trim`** (removed in 1.26.2; see "Upgrade path"): no stream writes or reads it any more. An install that ran the old TRIM step keeps its `sync_cursors` row (`stream = 'trim'`, `phase: DONE`); it is
   inert (the status endpoint lists it like any other cursor, and nothing parses it), so no migration removes it.
 
 **Per-page transaction with the cursor advance.** Every page (or, for REFERENCE's single-shot
@@ -847,9 +847,9 @@ ceiling and a run follows at most 300 pages of each feed (and a page is at most 
 ## Upgrade path
 
 Every write path trims on the way in (`jira/JiraPayloadTrim.kt`, `JiraIssueLinks.kt`; `persistence.md` "The Jira raw store (V10)"), but nothing rewrites a row stored earlier: the one-off **TRIM** stream that
-did (1.17.1 to 1.25.0, a rewrite of `raw.jira_issues`/`jira_changelogs`/`jira_worklogs`, rules version 1 and, from 1.25.0, version 2) was removed, because every install had walked it to `DONE`. An install that
+did (1.17.1 to 1.26.1, a rewrite of `raw.jira_issues`/`jira_changelogs`/`jira_worklogs`, rules version 1 and, from 1.25.0, version 2) was removed, because every install had walked it to `DONE`. An install that
 still holds rows stored before 1.17.1 (the payload trim) or before trim rules v2 (1.25.0: `fields.subtasks`/`fields.environment` dropped, `fields.issuelinks[]` slimmed) must run ONE SYNC on a build that still has the
-TRIM step (e.g. 1.25.0) and let its `trim` cursor reach `phase: DONE`, `version: 2` (the data source status endpoint) BEFORE upgrading past this change; skipping that leaves the older, fatter rows at rest and
+TRIM step (1.25.0 to 1.26.1) and let its `trim` cursor reach `phase: DONE`, `version: 2` (the data source status endpoint) BEFORE upgrading past this change; skipping that leaves the older, fatter rows at rest and
 re-fetched documents hash differently from them (one spurious `CHANGED` per row, never wrong data). Trimmed data does not come back by itself: getting a dropped key back takes a drop-list code change, then a
 PURGE and a full re-sync (a re-sync alone strips it again, and the ISSUES stream only re-reads issues updated inside its window; REPROCESS never calls Jira).
 
