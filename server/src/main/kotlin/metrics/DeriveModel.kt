@@ -92,6 +92,14 @@ internal class DeriveContext(
     var parentIntervalsByIssue: Map<Long, List<NormalizedFieldInterval>> = emptyMap()
     var issueKeyChangesByIssue: Map<Long, List<FieldChangeRow>> = emptyMap()
 
+    /**
+     * A47: every EPIC's effective-dated domain history ([taskDomainHistory], also stored in `metrics.task_domain`), keyed by the
+     * epic's issue id. Unlike the batch-scoped interval maps above this one is connection-wide, filled once by
+     * [runEpicDomainPass] before pass 2: a task's `epic_domain_key` is read through it at the task's own anchor, whichever
+     * batch the task lands in. It stays small (one short list per epic, like [worklogSecondsByIssue]'s per-issue entries).
+     */
+    var epicDomainHistoryById: Map<Long, List<TaskDomainRow>> = emptyMap()
+
     val stageMap get() = configMaps.stageMap
 
     /** The status → stage map for items of [domainKey]: its overrides over the every-domain rows, else the every-domain map itself. */

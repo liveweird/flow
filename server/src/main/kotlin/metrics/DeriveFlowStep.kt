@@ -179,9 +179,11 @@ private fun pvTeamFlowSql(connectionId: UInt, configRevision: Long): String = ""
  * no working day at all → no rows. **Horizon (A23):** only a baseline whose start AND due both lie in
  * the PV horizon ([pvHorizonMs], ±[PV_HORIZON_YEARS] years of `now`) gets a curve —
  * outside it the epic is treated like "no dates", never clamped, so Σ PV = budget holds for every
- * epic that has a curve. EPIC = the epic's issue id, DOMAIN = `dim_epic.domain_key` (the
- * epic's own current domain; none → no DOMAIN row), summed from the SAME rounded increments so it
- * equals the sum of its EPIC rows exactly.
+ * epic that has a curve. EPIC = the epic's issue id, DOMAIN = the epic's domain AS-OF THE END of the planned day (A47: the
+ * covering `task_domain` row of the epic, [coveringAt]'s `(from, to]` at `day_end_ms`, the aggregates' convention; no covering
+ * row — a day before the epic's creation — or a covering row without a key falls back to `dim_epic.domain_key`, the epic's
+ * current domain; none at all → no DOMAIN row), summed from the SAME rounded increments so it equals the sum of its EPIC rows
+ * exactly — a baseline spanning a move splits its budget between the two domains by day.
  */
 private fun pvEpicDomainFlowSql(connectionId: UInt, now: Long, configRevision: Long): String {
     val (horizonFrom, horizonToExclusive) = pvHorizonMs(now)
@@ -197,14 +199,14 @@ private fun pvEpicDomainFlowSql(connectionId: UInt, now: Long, configRevision: L
           AND p.due_at >= $horizonFrom AND p.due_at < $horizonToExclusive
     ),
     working AS (
-        SELECT c.issue_id AS issue_id, c.budget_md AS budget_md, d.day AS day,
+        SELECT c.issue_id AS issue_id, c.budget_md AS budget_md, d.day AS day, d.day_end_ms AS day_end_ms,
                ROW_NUMBER() OVER (PARTITION BY c.issue_id ORDER BY d.day) AS rn,
                COUNT(*) OVER (PARTITION BY c.issue_id) AS n
         FROM cur c
         JOIN metrics.dim_date d ON d.is_working_day AND d.day BETWEEN c.start_day AND c.due_day
     ),
     inc AS (
-        SELECT issue_id, day, ROUND(budget_md * rn / n, 2) - ROUND(budget_md * (rn - 1) / n, 2) AS pv
+        SELECT issue_id, day, day_end_ms, ROUND(budget_md * rn / n, 2) - ROUND(budget_md * (rn - 1) / n, 2) AS pv
         FROM working
     )
     ${flowInsertHead(PV_COLUMNS)}
@@ -212,10 +214,13 @@ private fun pvEpicDomainFlowSql(connectionId: UInt, now: Long, configRevision: L
     FROM inc
     WHERE pv <> 0
     UNION ALL
-    SELECT $connectionId, 'DOMAIN', e.domain_key, i.day, SUM(i.pv), $configRevision
+    SELECT $connectionId, 'DOMAIN', COALESCE(ed.domain_key, e.domain_key), i.day, SUM(i.pv), $configRevision
     FROM inc i
-    JOIN metrics.dim_epic e ON e.connection_id = $connectionId AND e.issue_id = i.issue_id AND e.domain_key IS NOT NULL
-    GROUP BY e.domain_key, i.day
+    JOIN metrics.dim_epic e ON e.connection_id = $connectionId AND e.issue_id = i.issue_id
+    LEFT JOIN metrics.task_domain ed ON ed.connection_id = $connectionId AND ed.issue_id = i.issue_id
+        AND ${coveringAt("ed", at = "i.day_end_ms")}
+    WHERE COALESCE(ed.domain_key, e.domain_key) IS NOT NULL
+    GROUP BY COALESCE(ed.domain_key, e.domain_key), i.day
     HAVING SUM(i.pv) <> 0
     ${flowMergeTail(PV_COLUMNS)}
 """.trimIndent()

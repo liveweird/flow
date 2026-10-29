@@ -6,10 +6,12 @@ import ch.nokillswit.metrics.ItemStage
 import ch.nokillswit.metrics.SprintBucket
 import ch.nokillswit.metrics.SprintScopeItem
 import ch.nokillswit.metrics.StageInterval
+import ch.nokillswit.metrics.TaskDomainRow
 import ch.nokillswit.metrics.activeWaitMs
 import ch.nokillswit.metrics.blockedIntervals
 import ch.nokillswit.metrics.bucketMd
 import ch.nokillswit.metrics.dimDateRange
+import ch.nokillswit.metrics.epicDomainKeyAt
 import ch.nokillswit.metrics.epicDriftFlags
 import ch.nokillswit.metrics.epicPlanBaselines
 import ch.nokillswit.metrics.estimateAt
@@ -1326,5 +1328,19 @@ class DeriveKernelsTest {
         assertTrue(!inPvHorizon(isoMs("2016-03-04"), isoMs("2026-06-30"), dimNow))
         assertTrue(!inPvHorizon(isoMs("2026-01-05"), isoMs("2036-03-06"), dimNow))
         assertTrue(!inPvHorizon(isoMs("2026-01-05"), isoMs("9999-12-31"), dimNow))
+    }
+
+    @Test
+    fun `epicDomainKeyAt reads the covering epic row half-open and falls back to the current domain without one`() {
+        val history = listOf(TaskDomainRow(7L, "AAA", 1_000L, 5_000L), TaskDomainRow(7L, "BBB", 5_000L, null))
+        assertEquals("AAA", epicDomainKeyAt(history, 1_000L, "ZZZ"), "the first row covers its own from instant")
+        assertEquals("AAA", epicDomainKeyAt(history, 4_999L, "ZZZ"))
+        assertEquals("BBB", epicDomainKeyAt(history, 5_000L, "ZZZ"), "half-open [from, to): the NEW row covers the boundary")
+        assertEquals("BBB", epicDomainKeyAt(history, 90_000L, "ZZZ"), "the open row covers every later instant")
+        assertEquals("ZZZ", epicDomainKeyAt(history, 999L, "ZZZ"), "an anchor before the epic's first row falls back to its current domain")
+        assertEquals("ZZZ", epicDomainKeyAt(emptyList(), 5_000L, "ZZZ"), "an epic with no history at all falls back too")
+        val unparsed = listOf(TaskDomainRow(7L, null, 1_000L, null))
+        assertEquals("ZZZ", epicDomainKeyAt(unparsed, 2_000L, "ZZZ"), "a covering row whose key failed to parse falls back, the task rule")
+        assertNull(epicDomainKeyAt(emptyList(), 5_000L, null), "no current domain either: none")
     }
 }

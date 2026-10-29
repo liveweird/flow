@@ -779,7 +779,8 @@ model") adds `sync_jobs.kind`'s `DERIVE` value (a dropped-and-recreated CHECK co
 exception to "never edit an applied migration": this is a NEW file, not a retroactive edit of V9)
 and every `metrics.*` star table: `dim_date`/`dim_domain`/`dim_task`/`dim_epic`/`dim_sprint`,
 `task_epic`/`task_domain`/`task_assignee`/`task_sprint`/`item_estimate`/`item_stage`/`item_blocked`
-(the effective-dated bridges), `fact_task_delivery`/`fact_epic_delivery` (accumulating snapshots),
+(the effective-dated bridges; `task_domain` holds the EPICS' `issuekey` history too since A47 — it has no foreign key to `dim_task`, the
+name stays, no migration: a connection gets its epic rows at its next DERIVE; a reader that joins it to an item picks the side by the item's own table), `fact_task_delivery`/`fact_epic_delivery` (accumulating snapshots),
 `fact_sprint_scope`/`fact_sprint`/`fact_sprint_snapshot`/`fact_worklog`/`fact_epic_plan` and
 `agg_daily_wip`/`agg_daily_flow` (their table objects land in this commit; commits 8/9 add the
 writers). Interval storage mirrors `metrics.team_membership`'s own precedent (V15): half-open

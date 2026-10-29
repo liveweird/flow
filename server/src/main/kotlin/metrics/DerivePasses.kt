@@ -56,8 +56,37 @@ internal suspend fun runPass1(
 }
 
 /**
+ * The epic-domain pass between pass 1 and pass 2 (A47): every epic's `issuekey` changes are read in batches of
+ * [DERIVE_BATCH_SIZE], tiled by [taskDomainHistory] (the task rule, unchanged), stored in `metrics.task_domain` beside the tasks'
+ * rows and kept in [DeriveContext.epicDomainHistoryById] so pass 2 reads a task's `epic_domain_key` as-of its anchor. Pass 2
+ * reassigns [DeriveContext.issueKeyChangesByIssue] per task batch, so this pass leaves nothing behind it relies on.
+ */
+internal suspend fun runEpicDomainPass(
+    workItemStore: WorkItemStore,
+    metricsStore: MetricsStore,
+    connectionId: UInt,
+    workItems: List<WorkItemStore.DerivationWorkItemRow>,
+    context: DeriveContext,
+) {
+    val historyById = mutableMapOf<Long, List<TaskDomainRow>>()
+    val epicItems = workItems.filter { hierarchyBucket(it.hierarchyLevel) == HierarchyBucket.EPIC }
+    for (batch in epicItems.chunked(DERIVE_BATCH_SIZE)) {
+        context.issueKeyChangesByIssue =
+            workItemStore.fieldChangesByFieldIds(connectionId, listOf(ISSUE_KEY_FIELD_ID), batch.map { it.issueId }).groupBy { it.issueId }
+        val rowsBatch = mutableListOf<TaskDomainRow>()
+        for (epic in batch) {
+            val history = taskDomainHistory(epic, context)
+            historyById[epic.issueId] = history
+            rowsBatch += history
+        }
+        metricsStore.insertTaskDomain(connectionId, rowsBatch)
+    }
+    context.epicDomainHistoryById = historyById
+}
+
+/**
  * Pass 2 (review round 2b): tasks (review round 2a: "skip epics for task_* bridges" —
- * `task_epic`/`task_domain`/`task_assignee` are TASK-only bridges), in batches of
+ * `task_epic`/`task_assignee` are TASK-only bridges; `task_domain` holds the epics' rows too, [runEpicDomainPass]), in batches of
  * [DERIVE_BATCH_SIZE] — each batch's assignee/sprint/parent field intervals and `issuekey` field
  * changes are read scoped to that batch's own issue ids. `factTasksByIssueId` (a small map of
  * ALREADY-derived fact rows, not raw inputs) accumulates across every batch so pass 3 can roll an

@@ -34,7 +34,10 @@ internal fun taskEpicHistory(item: WorkItemStore.DerivationWorkItemRow, context:
     }
 }
 
-/** `task_domain`'s effective-dated history (review round 2a fix) — see [projectKeyTimeline]. */
+/**
+ * `task_domain`'s effective-dated history (review round 2a fix) — see [projectKeyTimeline]. Built for TASKS and for EPICS alike
+ * (A47: an epic's history is what a task's `epic_domain_key` and the PV DOMAIN scope read as-of).
+ */
 internal fun taskDomainHistory(item: WorkItemStore.DerivationWorkItemRow, context: DeriveContext): List<TaskDomainRow> {
     val issueKeyChanges = context.issueKeyChangesByIssue[item.issueId].orEmpty()
     val timeline = projectKeyTimeline(item.createdAt, issueKeyChanges, item.issueKey)
@@ -132,6 +135,20 @@ internal fun asWasAttribution(
         val coveringEpic = epicRowAt(taskEpicRows, atMs)
         if (coveringEpic != null) coveringEpic.epicId else currentEpicId
     }
-    val epicDomainKey = epicId?.let { context.itemsById[it] }?.let { context.domainByProject[it.projectKey] ?: it.projectKey }
+    // A47: the epic's domain AS-WAS at the same anchor, through the epic's own `issuekey` history; no covering row, or one whose
+    // key failed to parse, falls back to the epic's CURRENT domain (the same rule as the task's own domain above).
+    val epicDomainKey = epicId?.let { id ->
+        val epic = context.itemsById[id]
+        val currentEpicDomainKey = epic?.let { context.domainByProject[it.projectKey] ?: it.projectKey }
+        epicDomainKeyAt(context.epicDomainHistoryById[id].orEmpty(), atMs, currentEpicDomainKey)
+    }
     return AsWasAttribution(domainKey, epicId, epicDomainKey)
 }
+
+/**
+ * A47: an epic's domain at [atMs] — the covering `task_domain` row of the EPIC (half-open `[from, to)`, [domainRowAt]) wins; no
+ * covering row (the anchor precedes the epic's creation) or a covering row whose key failed to parse falls back to
+ * [currentDomainKey], the epic's domain now. A key Jira gives for an unmapped project stays as the raw project key (the task rule).
+ */
+internal fun epicDomainKeyAt(history: List<TaskDomainRow>, atMs: Long, currentDomainKey: String?): String? =
+    domainRowAt(history, atMs)?.domainKey ?: currentDomainKey

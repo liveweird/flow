@@ -6,7 +6,7 @@ reports it serves, its invariants, and how known data imperfections are handled.
 contract the metrics layer and every dashboard are built against. **Status: agreed 2026-09-27
 (D1–D16), validated against the target reports; amended 2026-09-28 (A17–A21, see "Amendments"
 below); implemented in v0.3.0** (the configuration, DERIVE and the star: `.claude/docs/metrics.md`;
-the twenty reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below, and its execution layer is Approximate EV, A40; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; the BLOCKED stage is A36; an estimate entered after an item is done is a backfill, not an adjustment, A35; report 15 reads a period view, period indices and a weekly trend, A37; the estimated backlog can be narrowed to recently touched items, A38; the cost matrix's per-person capacity column and week / sprint split were removed (report 16 is Costs) and only the capacity kernel remains, A39; two people are compared head to head across teams, report 18, A41; a day belongs to at most one sprint per team in capacity, A42; Costs shows each of the team's sprints with its actual cost, split by epic, and the sprint capacity to every viewer, A44; Costs sets the team's work-category targets beside its actual time and draws the weekly cumulative category share, A45; one person's Compare-people figures are drawn over rolling 90-day windows, report 20, A46). The per-measure operational contract — each
+the twenty reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below, and its execution layer is Approximate EV, A40; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; the BLOCKED stage is A36; an estimate entered after an item is done is a backfill, not an adjustment, A35; report 15 reads a period view, period indices and a weekly trend, A37; the estimated backlog can be narrowed to recently touched items, A38; the cost matrix's per-person capacity column and week / sprint split were removed (report 16 is Costs) and only the capacity kernel remains, A39; two people are compared head to head across teams, report 18, A41; a day belongs to at most one sprint per team in capacity, A42; Costs shows each of the team's sprints with its actual cost, split by epic, and the sprint capacity to every viewer, A44; Costs sets the team's work-category targets beside its actual time and draws the weekly cumulative category share, A45; one person's Compare-people figures are drawn over rolling 90-day windows, report 20, A46; an epic's domain is read as of the anchor of the row that carries it, A47). The per-measure operational contract — each
 report number's grain, time anchor, attribution, estimate snapshot, missing-data rule,
 frozen/live source and the test that pins it — is `.claude/docs/measures.md`.
 
@@ -195,7 +195,7 @@ counts and sums only.
 |---|---|---|
 | `team_membership(user, team, valid)` | Flow admin (D1) | `EXCLUDE USING gist (user WITH =, valid WITH &&)` — ≤1 team at a time |
 | `task_epic(task, epic, valid)` | parent changelog items (a gap) | ≤1 epic at a time |
-| `task_domain(task, domain, valid)` | `project` changes in `norm.work_item_field_changes` | exactly 1 at a time |
+| `task_domain(item, domain, valid)` | `issuekey` changes in `norm.work_item_field_changes`, tasks AND epics (A47); the physical name stays | exactly 1 at a time |
 | `task_assignee(task, user, valid)` | `norm` ASSIGNEE intervals | ≤1 at a time |
 | `task_sprint(task, sprint, valid)` | `norm` SPRINT intervals | several over time (carry-over) |
 | `item_estimate(item, md, valid)` | estimate-field changes, tasks and epics (a gap) | in MD |
@@ -903,6 +903,22 @@ carries the per-measure detail).
     peer with a hidden or valueless cell left out and at least 3 contributing peers required (else the count without a value). A member with no activity in the window (no delivered task and no worklog under the request's slices, no work in progress) is no peer for any row (owner's call, 2026-10-28), so a manager or someone on leave does not pull a count or WIP median to 0. The reference never changes the cue and the work mix has none; a mover's team change shows in
     each window's `team`. It discloses nothing beyond the Compare-people figures any signed-in user can already read (D12).
   - Operational detail: `.claude/docs/reports.md` "Report 20", `.claude/docs/measures.md` "Report 20".
+- **A47 — An epic's domain is read as of the anchor of the row that carries it** (agreed with the user 2026-10-29): `epic_domain_key` on `fact_task_delivery` (and through it the DOMAIN scope
+  of `agg_daily_flow`'s EV) used to be the epic's CURRENT domain, so an epic that moved projects took every task it ever had with it. It is now the domain the epic
+  had at the same instant the row already uses for the task's own domain and epic (A21).
+  - **The history.** The epic's `issuekey` changes are tiled by the task rule (`taskDomainHistory`, the project key of the issue key over time, `domain_map` applied) and stored in
+    `metrics.task_domain` beside the tasks' rows (the epic's issue id; no foreign key to `dim_task`; above-epic items, A31, still get none). No migration: a connection gets its epics' rows at its
+    next DERIVE. A DERIVE pass between the item pass and the task pass reads them (a connection-wide map, one short list per epic) before any task is evaluated.
+  - **The anchor.** `fact_task_delivery`: `done_at`, else the DERIVE clock; the task's own domain and epic use it already. `agg_daily_flow` EV DOMAIN inherits it from the fact. PV DOMAIN reads the
+    epic's history at the END of each planned day (the aggregates' covering rule, `(from, to]`), so a baseline spanning a move splits its budget between the two domains by day and the sum
+    stays the budget. Half-open `[from, to)` everywhere else: a task done exactly at the move belongs to the NEW domain.
+  - **Fallbacks, the task rule.** A covering row wins; a covering row whose key is `null`, or no covering row (the anchor precedes the epic's creation), falls back to the epic's CURRENT domain
+    (`domain_map`, else its project key). A project Jira names that `domain_map` does not list stays a domain by its raw project key, never `null` (`null` means "no epic", A21): it has no
+    `dim_domain` row, so it is not a selectable filter, exactly as an unmapped TASK domain already is.
+  - **Sub-tasks (D2)** are orthogonal: a sub-task resolves its epic through its parent's CURRENT epic; whichever epic that is, it is read at the anchor through that epic's own history.
+  - **What stays current** (decided 2026-10-29, a `[new]` backlog item): the epic's OWN domain columns (`dim_epic.domain_key`, `fact_epic_delivery.domain_key`/`owner_team_id`), the WIP epic band, A34's
+    done band and report 15's per-domain epic list. They describe the epic as it is now; making them as-of is a separate piece of work.
+  - Operational detail: `.claude/docs/metrics.md` "Domain" and the DERIVE passes, `.claude/docs/measures.md` "Domain codes (D3)".
 
 
 ## Gaps in `norm` (closed in v0.3.0)

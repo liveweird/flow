@@ -414,8 +414,8 @@ class MetricsDerivationTest {
             }
         }
 
-        // task_epic/task_domain/task_assignee are TASK-only bridges (review round 2a: "skip epics
-        // for task_* bridges") — an epic issue id must never appear as the issueId of a task_assignee row.
+        // task_epic/task_assignee are TASK-only bridges (review round 2a: "skip epics for task_* bridges"; task_domain also
+        // holds the epics' rows since A47) — an epic issue id must never appear as the issueId of a task_assignee row.
         val epicIds = suspendTransaction(sharedDatabaseForTests()) {
             MetricsTables.DimEpic.selectAll().where { MetricsTables.DimEpic.connectionId eq connId }
                 .toList().map { it[MetricsTables.DimEpic.issueId] }.toSet()

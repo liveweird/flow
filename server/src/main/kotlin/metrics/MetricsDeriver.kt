@@ -195,6 +195,7 @@ class MetricsDeriver(
         val blockedByIssue = mutableMapOf<Long, Pair<Long, Double>>()
         val estimateCount = runPass1(workItemStore, metricsStore, connectionId, modelItems, context, config, derivedById, blockedByIssue)
 
+        runEpicDomainPass(workItemStore, metricsStore, connectionId, modelItems, context)
         val factTasksByIssueId = mutableMapOf<Long, FactTaskDeliveryRow>()
         val factEpicsByIssueId = mutableMapOf<Long, FactEpicDeliveryRow>()
         val taskCount = runPass2(
