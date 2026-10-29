@@ -14,16 +14,19 @@ import org.slf4j.LoggerFactory
  *
  * GENERATION = the report data stamp (`dataStamp`, the ETag's own lines), read ONCE in the route BEFORE the report transaction. An entry is
  * therefore never OLDER than its generation promises; a write finishing in between only makes it newer than its key, and the next request
- * (a new stamp) misses. A request whose stamp differs swaps a fresh generation in (compare-and-set from the one it observed); the old one
- * is garbage at once -- no request asks for an old stamp.
+ * (a new stamp) misses. Each stamp read takes a TICKET (a monotonic counter) just BEFORE the read. A request whose stamp differs swaps a
+ * fresh generation in (compare-and-set from the one it observed) only if the observed generation's ticket is older than its own; a
+ * straggler that read its stamp earlier than the generation in place (a DERIVE committed in between) works on a private generation
+ * instead, so it can never replace a newer one with older data. The replaced generation is garbage at once.
  *
- * KEY = (account, window end, [PeerCellSlice]). Each input a cell depends on is covered:
+ * KEY = (account, window end, `peerCellSlice`). Each input a cell depends on is covered:
  *   account, window end      the key itself (the window's bounds are the end day + the zone, a `settings:` line);
  *   connection scope         the key (the RESOLVED sorted ids; which exist/derived: `connection:`/`run:` lines);
  *   domain, domainView, activityType, workCategory   the key (null-safe);
- *   facts (`fact_task_delivery`, `fact_worklog`)      `run:` lines (DERIVE commits the star and the run row in one transaction);
- *   live `norm` bridges the WIP statements read       `ingest:` lines (a SYNC moves them page by page);
- *   minSampleSize, zone, weekend, hours, holidays, backfill start, membership   `settings:` (every write bumps the revision);
+ *   facts (`fact_task_delivery`, `fact_worklog`) and the DERIVE-written `metrics.task_assignee`/`item_stage`/`dim_task`/`dim_date` the
+ *                            WIP statements read   `run:` lines (DERIVE commits the star and the run row in one transaction);
+ *   minSampleSize, zone, weekend, hours, holidays, membership   `settings:` (every write bumps the revision);
+ *   the backfill start       the `connection:` line (`backfill_from`; its PUT bumps only the connection's own revision);
  *   the DERIVE clock / coverage day                   `run:`; "today"                         `clock:` (the DAY token);
  *   team membership          no cell: the peers are re-read live per request; `tailPercent` never reaches a cell;
  *   the caller               nothing (D12; no capacity in Person trend).
@@ -31,16 +34,17 @@ import org.slf4j.LoggerFactory
  *
  * BOUND: [maxEntries] entries per generation, every entry fixed-size, so the entry cap IS the byte cap (`0` = off). A full generation
  * REFUSES writes (the auth stores' rule, never evict live state): the request already did the work and answers correctly. A peer is
- * served only when EVERY window it is needed in is present, else its rows are fetched; a half-written account (a cancelled request) is
+ * served only when EVERY window it is needed in is present, else its rows are fetched (and its cells computed and stored for exactly the
+ * windows it is a peer in -- never more than the cache-off request computes); a half-written account (a cancelled request) is
  * therefore harmless. No single-flight: concurrent identical misses each pay today's cost and write idempotent values.
  */
 
 private val log = LoggerFactory.getLogger("ch.nokillswit.reports.PersonTrendCache")
 
-/** Most entries one generation holds; the knob's default (`reports.peerCellCache.maxEntries`), ~9 MiB at worst. */
+/** Most entries one generation holds; the knob's default (`reports.peerCellCache.maxEntries`), about 8 MiB (~0.4 KiB per entry). */
 const val DEFAULT_PEER_CELL_CACHE_MAX_ENTRIES: Int = 20_000
 
-/** The knob's upper bound (boot-validated): about 22 MiB of the web role's heap at the worst estimate. */
+/** The knob's upper bound (boot-validated): about 18 MiB of the web role's heap at the measured entry size. */
 const val MAX_PEER_CELL_CACHE_MAX_ENTRIES: Int = 50_000
 
 /** The slices of a request that change a cell: the resolved connections and the three slice filters (`domainView` applies to `domain`). */
@@ -50,7 +54,7 @@ internal fun peerCellSlice(connectionIds: List<UInt>, filter: ReportFilter): Str
         "a=${text(filter.activityType)};w=${text(filter.workCategory)}"
 }
 
-/** One cache key; [slice] is the [peerCellSlice] string, one shared instance per request. */
+/** One cache key; [slice] is the [peerCellSlice] string, built once per request and shared by that request's keys (not across requests). */
 internal data class PeerCellKey(val account: String, val end: LocalDate, val slice: String)
 
 /**
@@ -109,6 +113,8 @@ internal class PeerCellStats {
 /** One generation's entries (see the header). [stats] is `null` for the shared disabled generation, which stores and counts nothing. */
 internal class PeerCellGeneration(
     val stamp: List<String>,
+    /** The ticket taken just before this generation's stamp was read: a later ticket may replace it, an earlier one may not. */
+    val ticket: Long,
     private val limit: Int,
     private val stats: PeerCellStats?,
     val swapped: Boolean,
@@ -179,18 +185,25 @@ class PeerCellCache(private val maxEntries: Int = DEFAULT_PEER_CELL_CACHE_MAX_EN
     internal val entryCount: Int get() = current.get()?.entryCount ?: 0
 
     private val current = AtomicReference<PeerCellGeneration?>(null)
-    private val disabled = PeerCellGeneration(emptyList(), 0, null, swapped = false)
+    private val disabled = PeerCellGeneration(emptyList(), 0L, 0, null, swapped = false)
+
+    private val tickets = AtomicLong()
+
+    /** The next ticket; a route takes it just BEFORE it reads the data stamp, so a larger ticket never read its stamp earlier. */
+    internal fun nextTicket(): Long = tickets.incrementAndGet()
 
     /**
-     * The generation of [stamp]: the current one when it is that stamp, else a fresh one swapped in from the one OBSERVED here (a compare
-     * and set, so a request never replaces a generation it did not see). A lost race adopts the winner's when it is the same stamp, else
-     * works on a private generation that nobody shares: misses only, never a wrong answer.
+     * The generation of [stamp] (read with [ticket]): the current one when it is that stamp, else a fresh one swapped in from the one
+     * OBSERVED here (a compare and set, so a request never replaces a generation it did not see) -- but only over a generation whose
+     * ticket is older than [ticket]. A straggler (an older ticket, so possibly an older stamp), a lost race against a different stamp
+     * and a request that finds a newer generation work on a private generation that nobody shares: misses only, never a wrong answer.
      */
-    internal fun open(stamp: List<String>): PeerCellGeneration {
+    internal fun open(stamp: List<String>, ticket: Long): PeerCellGeneration {
         if (maxEntries == 0) return disabled
         val observed = current.get()
         if (observed != null && observed.stamp == stamp) return observed
-        val fresh = PeerCellGeneration(stamp, maxEntries, stats, swapped = true)
+        if (observed != null && observed.ticket > ticket) return PeerCellGeneration(stamp, ticket, maxEntries, stats, swapped = false)
+        val fresh = PeerCellGeneration(stamp, ticket, maxEntries, stats, swapped = true)
         if (current.compareAndSet(observed, fresh)) {
             stats.swaps.incrementAndGet()
             return fresh

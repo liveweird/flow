@@ -24,6 +24,7 @@ internal suspend fun ReportService.personTrend(
     filter: ReportFilter,
     nowMs: Long,
     stamp: List<String>,
+    ticket: Long,
 ): PersonTrendReport = reportTransaction {
     val scope = resolveReportScope(filter, nowMs)
     val period = filter.period as ReportPeriod.DateRange
@@ -38,24 +39,30 @@ internal suspend fun ReportService.personTrend(
     val peersByWindow = references.map { it?.peers.orEmpty() }
     val ends = windows.map { it.end }
     // THE PEER-CELL CACHE (`PersonTrendCache.kt`): a peer whose cells are cached for every window it is needed in is not read; the person
-    // always is. `stamp` was read by the route BEFORE this transaction (never recomputed here), so an entry is never older than its key.
-    val generation = peerCells.open(stamp)
+    // always is. `stamp` (and its `ticket`, taken before it) was read by the route BEFORE this transaction (never recomputed here), so an
+    // entry is never older than its key.
+    val generation = peerCells.open(stamp, ticket)
     val slice = peerCellSlice(scope.connectionIds, filter)
     val plan = generation.plan(person, slice, ends, peersByWindow)
     generation.report(plan)
     val wip = readTrendWip(scope.copy(window = range), filter, windows, derived, plan.fetch)
     val populations = fetchTrendPopulations(filter.copy(accountIds = plan.fetch), scope.connectionIds, range)
 
+    val fetched = plan.fetch.toSet()
     val results = windows.mapIndexed { i, window ->
-        // Enabled: every fetched account gets this window's entry written (a cell is independent of the membership), so a window the
-        // account was not a peer in is still a hit later. Disabled: only the person and this window's peers, exactly the pre-cache cost.
-        val accounts = if (generation.enabled) plan.fetch else listOf(person) + peersByWindow[i]
+        // Exactly the cells the report needs, cache or not: the person, and this window's peers that were fetched (a served peer's cell
+        // is the cached one). An entry is written only for a cell computed anyway, never for a window the account was not a peer in.
+        val accounts = listOf(person) + peersByWindow[i].filter { it in fetched }
         val datas = populations.dataOf(window, scope, wip.forWindow(window), accounts)
         val personCells = datas.getValue(person).cellsOf(person)
         val entries = datas.mapValues { (account, data) ->
             PeerCellEntry.of(if (account == person) personCells else data.cellsOf(account), data.hadActivity(account))
         }
-        entries.forEach { (account, entry) -> generation.store(PeerCellKey(account, window.end, slice), entry) }
+        // The person's own entry only where the point has a team: that is the only place it can ever be a peer of someone else, and a
+        // teamless (or made-up) account must not be able to fill the cap with entries nobody can be served.
+        entries.forEach { (account, entry) ->
+            if (account != person || references[i] != null) generation.store(PeerCellKey(account, window.end, slice), entry)
+        }
         val peers = peersByWindow[i].associateWith { peer -> plan.served[peer]?.get(window.end) ?: entries.getValue(peer) }
         TrendWindowResult(personCells, datas.getValue(person).done, referencesOf(references[i], peers))
     }

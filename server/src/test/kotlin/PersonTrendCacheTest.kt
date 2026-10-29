@@ -24,6 +24,9 @@ import kotlin.test.assertNotSame
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
+/** Opens [stamp] with a fresh ticket, as a route that has just read it would. */
+private fun PeerCellCache.open(stamp: List<String>) = open(stamp, nextTicket())
+
 /**
  * The peer-cell cache's own mechanics (`reports/PersonTrendCache.kt`), no database: the key's canonical slice string, the compact entry's
  * round trip, the generation swap, the plan ("every window or fetch"), the exact entry cap under concurrency, and the retained size of one
@@ -126,6 +129,30 @@ class PersonTrendCacheTest {
     }
 
     @Test
+    fun `a straggler that read its stamp before the generation in place never replaces it`() {
+        val cache = PeerCellCache(100)
+        val early = cache.nextTicket() // request A takes its ticket, then reads stamp s1
+        val late = cache.nextTicket() // request B starts later and reads s2 (a DERIVE committed in between)
+        val newer = cache.open(listOf("s2"), late)
+        val end = LocalDate.parse("2026-01-01")
+        newer.store(PeerCellKey("x", end, "s"), entry())
+
+        val straggler = cache.open(listOf("s1"), early)
+        assertNotSame(newer, straggler)
+        assertFalse(straggler.swapped, "a private generation, not a swap")
+        assertEquals(1L, cache.stats.swaps.get(), "only B's swap")
+        straggler.store(PeerCellKey("y", end, "s"), entry())
+        assertSame(newer, cache.open(listOf("s2"), cache.nextTicket()), "the newer generation is still in place, with its entry")
+        assertEquals(1, newer.entryCount)
+        assertEquals(setOf("x"), newer.plan("p", "s", listOf(end), listOf(listOf("x", "y"))).served.keys)
+        assertSame(newer, cache.open(listOf("s2"), early), "the same stamp is shared whatever the ticket")
+
+        val after = cache.open(listOf("s3"), cache.nextTicket())
+        assertTrue(after.swapped, "a later ticket replaces it")
+        assertNotSame(newer, after)
+    }
+
+    @Test
     fun `racing requests with different stamps never get another stamp's generation`() {
         val cache = PeerCellCache(100)
         val pool = Executors.newFixedThreadPool(8)
@@ -219,12 +246,13 @@ class PersonTrendCacheTest {
     }
 
     /**
-     * An in-test target (`build-times.md`), not a gate: the retained heap per entry (key + map node + the compact entry) by the WHY 48
+     * An in-test target (`build-times.md`), print-only (a heap delta in a shared JVM is no stable assertion): the retained heap per
+     * entry (key + map node + the compact entry) by the WHY 48
      * method -- `System.gc()` and `Runtime` deltas over 10,000 inserts of realistic ~45-character account ids (retained: the key, its
      * account string, the map node and the entry; the window ends and the slice string are shared, as in a request).
      */
     @Test
-    fun `the retained size of one cached entry stays near the sizing estimate`() {
+    fun `the retained size of one cached entry is measured and printed`() {
         val runtime = Runtime.getRuntime()
         fun used(): Long {
             repeat(3) { System.gc() }
@@ -244,6 +272,5 @@ class PersonTrendCacheTest {
         val perEntry = (after - before) / count
         println("in-test\tpeer-cell-bytes\t$perEntry")
         assertEquals(count, generation.entryCount, "every key was distinct and under the cap")
-        assertTrue(perEntry in 100..2000, "about 0.45 KiB per entry was the estimate, measured $perEntry")
     }
 }

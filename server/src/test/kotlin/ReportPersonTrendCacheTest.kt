@@ -281,6 +281,55 @@ class ReportPersonTrendCacheTest {
     }
 
     @Test
+    fun `a data-source PUT moving backfillFrom inside the span swaps the generation and the body follows`() = withApps {
+        // The WIP series start at the connection's backfill day (`planSnapshotDays`), so moving it inside FROM..TO clips avgWip and the
+        // held-task ages of the windows before it; a PUT bumps only the connection's own revision, which `connection:` carries.
+        val person = query(world.person)
+        val before = warm(person)
+        try {
+            SyncedStubFixture.putBackfillFrom(world.connId, "2025-12-01")
+            val moved = assertMoved("backfillFrom moved to 2025-12-01")
+            assertNotEquals(decode(before).rows, decode(moved).rows, "fewer WIP days are listed, so the cached cells would be wrong")
+            warm(person)
+        } finally {
+            SyncedStubFixture.putBackfillFrom(world.connId, SyncedStubFixture.BACKFILL_FROM)
+        }
+        assertEquals(decode(before).rows, decode(assertMoved("backfillFrom restored")).rows)
+    }
+
+    @Test
+    fun `a cold request writes exactly the cells it computes - the team's windows only, never the others`() = withApps {
+        // The outsider joins the six-person team on 2025-09-20: the point has a team only from then on, so only some windows need peers.
+        val joining = TeamMembershipCreateRequest(world.outsider, noonUtc("2025-09-20"), null)
+        world.created += world.memberships.create(world.teamId, joining).id
+        try {
+            val query = query(world.outsider)
+            val body = sameBody(query)
+            val windows = decode(body).windows
+            val withTeam = windows.count { it.team != null }
+            assertTrue(withTeam in 1 until windows.size, "the team exists in some windows only ($withTeam of ${windows.size})")
+            val peers = world.peers.size + 1
+            // The person and the six peers in the windows with a team: all the cache-off side computes.
+            val computed = withTeam * (peers + 1)
+            assertEquals(computed, cache.entryCount, "one entry per computed cell")
+            assertEquals(computed.toLong(), cache.counts().writes)
+            assertEquals(peers.toLong(), cache.counts().fetched)
+        } finally {
+            world.memberships.delete(world.teamId, world.created.removeAt(world.created.lastIndex))
+        }
+    }
+
+    @Test
+    fun `a person with no team writes nothing, so made-up accounts cannot fill the cap`() = withApps {
+        val teamless = query(world.outsider)
+        sameBody(teamless)
+        assertTrue(decode(on.personTrendBody(teamless)).windows.all { it.team == null }, "the outsider has no team in any window")
+        assertEquals(0, cache.entryCount)
+        assertEquals(0L, cache.counts().writes)
+        assertEquals(0L, cache.counts().refused)
+    }
+
+    @Test
     fun `ingest activity and a day roll swap the generation`() = withApps {
         val admin = TestUsers.seed(uniqueEmail("trend-cache-admin"), "pw", role = FlowUserRole.ADMIN)
         val jobs = SyncJobsService(sharedDatabaseForTests(), 3)
