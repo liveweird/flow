@@ -154,7 +154,7 @@ class ReportCostsSprintsTest {
         usePostgresTestcontainer()
         withCostsSprintsWorld { w ->
             val client = seededClient("cs-levels")
-            val unit = client.costs(w.range)
+            val unit = client.costs("${w.range}&domain=AAA")
             assertTrue(unit.sprints.isEmpty())
             assertNull(unit.outsideSprintsMd)
             val unassigned = client.costs("${w.range}&teamId=0")

@@ -90,18 +90,16 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     - `JiraConnectorKey` in `DataSourceRoutes.kt`;
     - `DataSourceRequest.jira`.
   - Generalising them is speculative until a second connector exists. Revisit with GitLab.
-- [new] **UNIT-wide wide-period reads are slow and allocate heavily (API only).** WHY 41: with no `teamId` and 24 months, `throughput` 1.7 s
-  p95 and ~661 MiB allocated per request, `wip` 1.4 s, `data-quality` 727 ms / ~177 MiB; Backlog with `touchedWithinDays` at UNIT level 793 ms (WHY 42). No page sends them (every report page is team-
-  or domain-scoped), but the API answers them. Decide: a server-side guard (team or domain required) or a pushdown.
+- [new] **Epic progress: the web's UNIT rows (`EpicProgressRows` domains/teams tables, `levelNote.UNIT`) render an answer the API no longer gives.** The reports scope guard
+  refuses an Epic progress request naming no epic, domain or team, and `EpicProgressTargets.kt` lost its whole-unit target, so `EpicProgressLevel.UNIT` is never sent. Remove the
+  UNIT rows, the `levelNote.UNIT` / `levelTitle.UNIT` copy and the wire enum value together (spec, `schema.ts`, EN/PL strings, tests).
 - [new] **Person trend with a big team: the peer-cell cache (parked in WHY 47).** 1.22.2 cut the WIP read to one statement and decoded the trend's fact rows by
   position (`build-times.md` WHY 47, measurements there). The remaining lever is a per-window cache of the peers' `cellsOf` results (key: account, window end,
   slices, derive clock, configuration revision): new server state with invalidation and a memory bound. Go / no-go: build it only if the measured 15-person
   year stays above 3x Compare people.
 - [new] **Remove the TRIM step once every install is trimmed.** `jira/JiraTrimStream.kt` + `JiraRawTrim.kt` + the `trim` cursor row rewrite the raw rows
-  stored before the payload trim (1.17.1) existed, once. When the dev stack and every other install show `phase: DONE` on the `trim` cursor (the data source status
+  stored before the payload trim (1.17.1) existed, once. When the dev stack and every other install show `phase: DONE` and `version: 2` on the `trim` cursor (the data source status
   endpoint), delete the stream, the collaborator, its wiring in `JiraConnector` (SYNC and REPROCESS), its tests and the docs; a `DELETE FROM sync_cursors WHERE stream = 'trim'` migration is optional.
-- [new] **Measure, then decide on the raw `issuelinks`, `subtasks` and `environment` keys.** The 1.17.1 trim keeps them (unread today, kept for follow-up measures such as
-  blockers and sub-task roll-ups). After the first real sync, `jsonb_object_keys` over `raw.jira_issues.payload->'fields'` with `pg_column_size` per key shows what they cost; drop the ones nobody reads.
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 

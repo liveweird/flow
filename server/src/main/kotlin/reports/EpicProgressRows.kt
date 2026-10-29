@@ -1,13 +1,10 @@
 package ch.nokillswit.reports
 
-import ch.nokillswit.infra.db.active
 import ch.nokillswit.metrics.MetricsTables
-import ch.nokillswit.teams.TeamService
 import java.math.BigDecimal
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.VarCharColumnType
-import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.castTo
 import org.jetbrains.exposed.v1.core.eq
@@ -87,65 +84,3 @@ internal suspend fun domainRows(ctx: ProgressContext, domain: String): List<Epic
 
 /** `agg_daily_flow.scope_id`'s width (`VARCHAR(60)`) — what an epic's issue id is cast to for the join. */
 private const val SCOPE_ID_LENGTH = 60
-
-/**
- * The unit's drill: one row per domain (every domain the connections know, plus any DOMAIN scope with figures) on the EPIC
- * basis, then one per team (every active team, plus any TEAM scope with figures — UNASSIGNED, a soft-deleted team, marked
- * `active = false`) on the sprint/author basis. The DOMAIN rows sum to the unit's `asOf` AND, over the period, to its `period`
- * (the headline reads the DOMAIN scopes); the team rows are a different basis (sprint scope, author-team cost) and do not sum
- * to it.
- */
-internal suspend fun unitRows(ctx: ProgressContext): List<EpicProgressRow> {
-    val sums = scopeSums(ctx, null)
-    val periodSums = ctx.firstDay?.let { scopeSums(ctx, it.toString()) }.orEmpty()
-    return domainUnitRows(ctx.scope.connectionIds, sums, periodSums) + teamUnitRows(sums, periodSums)
-}
-
-private typealias ScopeSums = Map<Pair<String, String>, Evm>
-
-/** The (scope kind, scope id) → summed TEAM and DOMAIN increments up to asOf, from [fromDay] on when given (the period). */
-private suspend fun scopeSums(ctx: ProgressContext, fromDay: String?): ScopeSums {
-    val f = MetricsTables.AggDailyFlow
-    val pv = f.pvMd.sum()
-    val ev = f.evMd.sum()
-    val ac = f.acMd.sum()
-    return f.select(f.scopeKind, f.scopeId, pv, ev, ac)
-        .where {
-            val upToAsOf = (f.connectionId inList ctx.scope.connectionIds) and
-                (f.scopeKind inList listOf(SCOPE_KIND_TEAM, SCOPE_KIND_DOMAIN)) and (f.day lessEq ctx.asOfDay.toString())
-            if (fromDay == null) upToAsOf else upToAsOf and (f.day greaterEq fromDay)
-        }
-        .groupBy(f.scopeKind, f.scopeId)
-        .toList()
-        .associate {
-            (it[f.scopeKind] to it[f.scopeId]) to Evm(it[pv] ?: BigDecimal.ZERO, it[ev] ?: BigDecimal.ZERO, it[ac] ?: BigDecimal.ZERO)
-        }
-}
-
-private suspend fun domainUnitRows(connectionIds: List<UInt>, sums: ScopeSums, periodSums: ScopeSums): List<EpicProgressRow> {
-    val d = MetricsTables.DimDomain
-    val names = d.select(d.domainKey, d.name)
-        .where { d.connectionId inList connectionIds }
-        .orderBy(d.connectionId to SortOrder.DESC) // the lowest connection id's name wins, as everywhere
-        .toList().associate { it[d.domainKey] to it[d.name] }
-    val withFigures = sums.filter { (key, evm) -> key.first == SCOPE_KIND_DOMAIN && !evm.isZero }.keys.map { it.second }
-    return (names.keys + withFigures).distinct().sorted().map { key ->
-        val scope = SCOPE_KIND_DOMAIN to key
-        (sums[scope] ?: NO_EVM).toRow(EpicProgressKind.DOMAIN, null, key, names[key] ?: key, periodSums[scope] ?: NO_EVM)
-    }
-}
-
-private suspend fun teamUnitRows(sums: ScopeSums, periodSums: ScopeSums): List<EpicProgressRow> {
-    val t = TeamService.Teams
-    val active = t.select(t.id, t.name).where { t.active() }.toList().associate { it[t.id].value to it[t.name] }
-    fun teamIdOf(scopeId: String): UInt? = if (scopeId == SCOPE_UNASSIGNED) UNASSIGNED_TEAM_ID else scopeId.toUIntOrNull()
-    val withFigures = sums.filter { (key, evm) -> key.first == SCOPE_KIND_TEAM && !evm.isZero }.keys.mapNotNull { teamIdOf(it.second) }
-    val others = withFigures.filter { it != UNASSIGNED_TEAM_ID && it !in active }
-    val names = active + teamNames(others) + (UNASSIGNED_TEAM_ID to TEAM_UNASSIGNED_NAME)
-    val ids = (active.keys + withFigures).distinct()
-    return ids.sortedWith(compareBy<UInt>({ it == UNASSIGNED_TEAM_ID }, { names[it] ?: it.toString() }, { it })).map { id ->
-        val scope = SCOPE_KIND_TEAM to (if (id == UNASSIGNED_TEAM_ID) SCOPE_UNASSIGNED else id.toString())
-        val isActive = id == UNASSIGNED_TEAM_ID || id in active
-        (sums[scope] ?: NO_EVM).toRow(EpicProgressKind.TEAM, id, null, names[id] ?: id.toString(), periodSums[scope] ?: NO_EVM, isActive)
-    }
-}

@@ -60,7 +60,8 @@ class ReportDataQualityEstimateTest {
         try {
             val client = seededClient("dq-estimate")
             val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
-            val body = client.dq(query)
+            // UNIT level is a `domain` read with no `teamId`: the hand-built world's one domain.
+            val body = client.dq("$query&domain=AAA")
 
             val late = body.missing.estimatedLate
             assertEquals(listOf(1, 1, 2), counts(late))
@@ -97,7 +98,7 @@ class ReportDataQualityEstimateTest {
             assertEquals(0, m3.tasks.estimatedAfterDone)
 
             // A period with no DONE task still lists the open late one and no backfill.
-            val empty = client.dq("connectionId=$connId&from=2026-03-01&to=2026-03-31")
+            val empty = client.dq("connectionId=$connId&from=2026-03-01&to=2026-03-31&domain=AAA")
             assertEquals(listOf(0, 1, 1), counts(empty.missing.estimatedLate))
             assertEquals(listOf(0, 0, 0), counts(empty.missing.estimatedAfterDone))
         } finally {

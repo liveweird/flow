@@ -18,15 +18,15 @@ private val log = LoggerFactory.getLogger(JiraIssuesStream::class.java)
 internal const val MAX_CURSOR_RESTARTS = 5
 
 /**
- * The ISSUES stream's `search/jql` `fields`: every field except the four the raw store never keeps (`JiraPayloadTrim.kt`'s
- * `DROPPED_ISSUE_FIELDS`: `comment`, `worklog`, `description`, `attachment`) - Atlassian's own syntax, "any issue field, prefixed
- * with a minus to exclude", e.g. `*all,-comment`. Asking for them only to throw them away costs the biggest part of a page on
- * the wire and in `readBounded`'s heap, and halves the page more often (`LIMIT_EXCEEDED`). The index-gap fetch of RECONCILE asks the
- * same (`GET /issue/{id}` takes the same value), so both store one document. Jira ignoring an exclusion would change nothing
- * stored: every write trims again. `search/jql` returns only `id` when `fields` is omitted, unlike the retired `/search`; the first
- * real tenant's SYNC failed on exactly that.
+ * The ISSUES stream's `search/jql` `fields`: every field except the ones the raw store never keeps (`JiraPayloadTrim.kt`'s
+ * `DROPPED_ISSUE_FIELDS`: `comment`, `worklog`, `description`, `attachment`, `subtasks`, `environment`) - Atlassian's own
+ * syntax, "any issue field, prefixed with a minus to exclude", e.g. `*all,-comment`. Asking for them only to throw them away
+ * costs the biggest part of a page on the wire and in `readBounded`'s heap, and halves the page more often (`LIMIT_EXCEEDED`).
+ * The index-gap fetch of RECONCILE asks the same (`GET /issue/{id}` takes the same value), so both store one document. Jira
+ * ignoring an exclusion would change nothing stored: every write trims again. `search/jql` returns only `id` when `fields` is
+ * omitted, unlike the retired `/search`; the first real tenant's SYNC failed on exactly that.
  */
-internal const val ISSUE_SEARCH_FIELDS = "*all,-comment,-worklog,-description,-attachment"
+internal const val ISSUE_SEARCH_FIELDS = "*all,-comment,-worklog,-description,-attachment,-subtasks,-environment"
 
 /**
  * The page size and restart budget of ONE stream invocation (run-local, never persisted): [size] starts at the

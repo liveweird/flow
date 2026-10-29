@@ -18,6 +18,9 @@ private const val FROM = "2024-01-01"
 private const val TO = "2026-12-31"
 private val TAILS = listOf(0, 5, 25)
 
+/** The UNIT level of a scoped read is "a domain with no team" (a report is never read for the whole unit): the stub's FLO domain. */
+private const val UNIT_DOMAIN = DerivedStubFixture.DOMAIN
+
 /**
  * The reconciliation gate of the histogram drills of Cycle time and Reported time
  * (`GET /api/v1/reports/{cycle-time,reported-time-ratio}/items`, `.claude/docs/reports.md` "Drill to items"): on the derived stub
@@ -81,7 +84,7 @@ class ReportDrillDistributionTest {
             val base = "connectionId=$connId&from=$FROM&to=$TO"
             val team = tasks.filter { it.team == teamId }
             val scopes = listOf(
-                Triple("UNIT", base, tasks),
+                Triple("UNIT", "$base&domain=$UNIT_DOMAIN", tasks.filter { it.domainKey == UNIT_DOMAIN }),
                 Triple("TEAM", "$base&teamId=$teamId", team),
                 Triple("USER", "$base&teamId=$teamId&accountId=$b&accountId=$a", team.filter { it.account in setOf(a, b) }),
             )
@@ -117,7 +120,7 @@ class ReportDrillDistributionTest {
 
         var buckets = 0
         for ((level, query, scoped) in listOf(
-            Triple("UNIT", base, epics),
+            Triple("UNIT", "$base&domain=$UNIT_DOMAIN", epics.filter { it.domainKey == UNIT_DOMAIN }),
             Triple("TEAM", "$base&teamId=$teamId", epics.filter { it.owner == teamId }),
         )) {
             // A minimum sample size of 1 so even a small owner team shows its histogram: report and drill read the SAME setting.
@@ -158,7 +161,7 @@ class ReportDrillDistributionTest {
             val base = "connectionId=$connId&from=$FROM&to=$TO"
             val team = tasks.filter { it.team == teamId }
             val scopes = listOf(
-                Triple("UNIT", base, tasks),
+                Triple("UNIT", "$base&domain=$UNIT_DOMAIN", tasks.filter { it.domainKey == UNIT_DOMAIN }),
                 Triple("TEAM", "$base&teamId=$teamId", team),
                 Triple("USER", "$base&teamId=$teamId&accountId=$b&accountId=$a", team.filter { it.account in setOf(a, b) }),
             )

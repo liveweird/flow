@@ -31,6 +31,7 @@ internal data class DoneFact(
     val account: String?,
     val blocked: Double,
     val cycle: Double?,
+    val domain: String? = null,
 ) {
     val share: Double? get() = cycle?.takeIf { it > 0.0 }?.let { blocked / it }
 }
@@ -44,13 +45,13 @@ internal suspend fun readDoneFacts(connId: UInt): List<DoneFact> = suspendTransa
     val tasks = t.selectAll().where { (t.connectionId eq connId) and (t.isSubtask eq false) }.toList().filter { it[t.doneAt] != null }.map {
         DoneFact(
             "TASK", it[t.issueId], it[t.doneAt]!!, it[t.creditTeamId]?.value, it[t.assigneeAccountIdAtDone],
-            it[t.blockedWorkingDays].toDouble(), it[t.cycleWorkingDays]?.toDouble(),
+            it[t.blockedWorkingDays].toDouble(), it[t.cycleWorkingDays]?.toDouble(), it[t.domainKey],
         )
     }
     val epics = e.selectAll().where { e.connectionId eq connId }.toList().filter { it[e.doneAt] != null }.map {
         DoneFact(
             "EPIC", it[e.issueId], it[e.doneAt]!!, it[e.ownerTeamId]?.value, null,
-            it[e.blockedWorkingDays].toDouble(), it[e.cycleWorkingDays]?.toDouble(),
+            it[e.blockedWorkingDays].toDouble(), it[e.cycleWorkingDays]?.toDouble(), it[e.domainKey],
         )
     }
     tasks + epics
@@ -99,10 +100,14 @@ class ReportBlockedTimeTest {
         val client = seededClient("reports-blocked-fixture")
         val zone = reportZone()
         val bounds = windowBounds(zone, from, to)
-        val all = readDoneFacts(connId).filter { it.doneAt >= bounds.first && it.doneAt < bounds.second }
+        val inWindow = readDoneFacts(connId).filter { it.doneAt >= bounds.first && it.doneAt < bounds.second }
+        // UNIT level is the FLO domain read (a `domain` with no `teamId`); the team reads below are graded against the whole window.
+        val all = inWindow.filter { it.domain == DerivedStubFixture.DOMAIN }
         val tasks = all.filter { it.kind == "TASK" }
         val epics = all.filter { it.kind == "EPIC" }
-        val range = "connectionId=$connId&from=$from&to=$to"
+        val teamTasks = inWindow.filter { it.kind == "TASK" }
+        val range = "connectionId=$connId&from=$from&to=$to&domain=${DerivedStubFixture.DOMAIN}"
+        val teamRange = "connectionId=$connId&from=$from&to=$to"
         assertTrue(tasks.isNotEmpty() && tasks.any { it.blocked > 0.0 }, "the fixture must carry blocked tasks")
         assertTrue(tasks.any { it.blocked == 0.0 }, "the fixture must carry never-blocked tasks, the ones the histograms leave out")
 
@@ -135,15 +140,15 @@ class ReportBlockedTimeTest {
             assertEquals(group.excluded.population.toLong(), group.blockedWorkingDays.n + group.excluded.neverBlocked)
         }
         val teamId = byTask.groups.first { it.teamId != null }.teamId!!
-        val team = client.blocked("$range&teamId=$teamId")
-        team.assertMatches("team $teamId", tasks.filter { it.team == teamId })
+        val team = client.blocked("$teamRange&teamId=$teamId")
+        team.assertMatches("team $teamId", teamTasks.filter { it.team == teamId })
         assertTrue(team.groups.isNotEmpty() && team.groups.all { it.teamId == null })
         assertEquals(team.blockedWorkingDays.n, team.groups.sumOf { it.blockedWorkingDays.n })
         val account = team.groups.mapNotNull { it.accountId }.first()
-        val user = client.blocked("$range&teamId=$teamId&accountId=$account")
+        val user = client.blocked("$teamRange&teamId=$teamId&accountId=$account")
         assertTrue(user.groups.isEmpty())
-        user.assertMatches("user $account", tasks.filter { it.team == teamId && it.account == account })
-        client.blocked("$range&teamId=0").assertMatches("UNASSIGNED", tasks.filter { it.team == null })
+        user.assertMatches("user $account", teamTasks.filter { it.team == teamId && it.account == account })
+        client.blocked("$teamRange&teamId=0").assertMatches("UNASSIGNED", teamTasks.filter { it.team == null })
     }
 
     /**
@@ -198,12 +203,13 @@ class ReportBlockedTimeTest {
         try {
             val client = seededClient("reports-blocked-hand-built")
             val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
+            val unit = "$query&domain=AAA"
             val metricsSettings = DerivedStubFixture.metricsSettings()
             suspend fun get(q: String) = withMetricsSettings(metricsSettings, { it.copy(minSampleSize = 2) }) { client.blocked(q) }
 
             // Tasks: 8 in the window; t2, t4, t5 were never blocked (out of BOTH histograms); of the five blocked ones t11 has
             // no cycle and t12 a zero cycle (out of the share only).
-            val body = get(query)
+            val body = get(unit)
             assertEquals("TASK", body.itemKind.name)
             assertEquals(8, body.excluded.population)
             assertEquals(3, body.excluded.neverBlocked)
@@ -242,7 +248,7 @@ class ReportBlockedTimeTest {
             assertEquals(body.excluded.neverBlocked, body.groups.sumOf { it.excluded.neverBlocked })
 
             // Epics: e1 blocked 5 (share 0.5), e3 blocked 2 (share 0.25), e2 never blocked; owner X.
-            val epicBody = get("$query&itemKind=EPIC")
+            val epicBody = get("$unit&itemKind=EPIC")
             assertEquals(3, epicBody.excluded.population)
             assertEquals(1, epicBody.excluded.neverBlocked)
             assertEquals(2, epicBody.blockedItems)
@@ -251,7 +257,7 @@ class ReportBlockedTimeTest {
             assertEquals(listOf("EPIC", "EPIC"), epicBody.topItems.map { it.itemKind })
             assertEquals(listOf(teamX), epicBody.groups.map { it.teamId })
             // Both: eleven items, four never blocked; e1 tops the list; UNIT groups add the epics to X, TEAM groups cover the tasks only.
-            val both = get("$query&itemKind=BOTH")
+            val both = get("$unit&itemKind=BOTH")
             assertEquals(11, both.excluded.population)
             assertEquals(4, both.excluded.neverBlocked)
             assertDistribution("both blocked", listOf(1.0, 3.0, 2.0, 1.0, 1.5, 5.0, 2.0), both.blockedWorkingDays, 2)
@@ -284,7 +290,11 @@ class ReportBlockedTimeTest {
     fun `bad filters are 400`() = testApplication {
         usePostgresTestcontainer()
         val client = seededClient("reports-blocked-400")
-        for (query in listOf("itemKind=NONE", "from=2026-01-01&to=2025-01-01", "accountId=abc", "connectionId=999999", "teamId=999999")) {
+        val bad = listOf(
+            "itemKind=NONE&domain=FLO", "from=2026-01-01&to=2025-01-01&domain=FLO", "accountId=abc&domain=FLO",
+            "connectionId=999999&domain=FLO", "teamId=999999",
+        )
+        for (query in bad) {
             assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/blocked-time?$query").status, query)
         }
     }

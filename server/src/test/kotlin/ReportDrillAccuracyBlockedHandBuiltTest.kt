@@ -10,6 +10,9 @@ import kotlin.test.assertEquals
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.junit.BeforeClass
 
+/** The derived stub fixture's FLO domain: the scope of every UNIT-level read (a report is never read for the whole unit). */
+private const val FLO_DOMAIN = DerivedStubFixture.DOMAIN
+
 /**
  * Hand-built rows and the 400 matrix of the histogram drills of Task accuracy, Task estimates, Epic accuracy and Blocked time. The fixture
  * reconciliation is `ReportDrillAccuracyBlockedTest`; here the rows are placed by hand in a fresh DISABLED connection, so the
@@ -53,7 +56,7 @@ class ReportDrillAccuracyBlockedHandBuiltTest {
         suspendTransaction(sharedDatabaseForTests()) { store.replaceFactTaskDelivery(connId, rows, configRevision = 1L) }
         try {
             val client = seededClient("reports-drill-task-accuracy-hand-built")
-            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31&tailPercent=0"
+            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31&tailPercent=0&teamId=$team"
             val path = "task-estimation-accuracy"
             withMinSampleSize(4) {
                 // At start 0.5 1 1.5 2.5 over ten buckets of width 0.2: 0.5 -> 0, 1 -> 2, 1.5 -> 5, 2.5 (the max) -> 9.
@@ -78,7 +81,7 @@ class ReportDrillAccuracyBlockedHandBuiltTest {
                 assertEquals("acc-2", top.items.single().accountId)
 
                 // A segment narrows to one picked person's share; the union's layout stays.
-                val picks = "$query&teamId=$team&accountId=acc-1&accountId=acc-2"
+                val picks = "$query&accountId=acc-1&accountId=acc-2"
                 val own = client.drillItems(path, "$picks&view=AT_DONE&bucketIndex=0&segmentAccountId=acc-2")
                 assertEquals(listOf("2", "8"), own.items.map { it.issueKey }.sorted())
                 assertEquals(2, own.bar.count)
@@ -125,7 +128,7 @@ class ReportDrillAccuracyBlockedHandBuiltTest {
         suspendTransaction(sharedDatabaseForTests()) { store.replaceFactTaskDelivery(connId, rows, configRevision = 1L) }
         try {
             val client = seededClient("reports-drill-task-estimates-hand-built")
-            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31&tailPercent=0"
+            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31&tailPercent=0&teamId=$team"
             val path = "task-estimates"
             withMinSampleSize(4) {
                 // At done 0.5 1 1.5 2 3 4 in eight 0.5-MD bars (0, .5] .. (3.5, 4]: the exact multiples sit on their own bar.
@@ -149,7 +152,7 @@ class ReportDrillAccuracyBlockedHandBuiltTest {
                 assertEquals(0.5, first.bar.to)
 
                 // A segment narrows to one picked person's share; the union's bars stay.
-                val picks = "$query&teamId=$team&accountId=acc-1&accountId=acc-2"
+                val picks = "$query&accountId=acc-1&accountId=acc-2"
                 val own = client.drillItems(path, "$picks&view=AT_START&bucketIndex=1&segmentAccountId=acc-2")
                 assertEquals(listOf("4"), own.items.map { it.issueKey })
                 assertEquals(1, own.bar.count)
@@ -265,7 +268,7 @@ class ReportDrillAccuracyBlockedHandBuiltTest {
             }
             try {
                 val client = seededClient("reports-drill-blocked-hand-built")
-                val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31&tailPercent=0"
+                val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31&tailPercent=0&domain=AAA"
                 val path = "blocked-time"
                 withMinSampleSize(3) {
                     // Tasks: the blocked ones are 1 2 11 (width 1 over [1, 11], ten buckets): 1 -> 0, 2 -> 1, 11 (the max) -> 9.
@@ -321,7 +324,7 @@ class ReportDrillAccuracyBlockedHandBuiltTest {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-drill-accuracy-blocked-400")
-        val range = "connectionId=$connId&from=2024-01-01&to=2026-12-31"
+        val range = "connectionId=$connId&from=2024-01-01&to=2026-12-31&domain=$FLO_DOMAIN"
         val busiest = readTaskFacts(connId)
             .filter { it.team != null && it.account != null && it.doneAt != null && it.hasWorklogs && it.estDone != null }
             .groupingBy { it.team!! to it.account!! }.eachCount().maxBy { it.value }.key
@@ -348,7 +351,7 @@ class ReportDrillAccuracyBlockedHandBuiltTest {
                 assertStatus(HttpStatusCode.BadRequest, "$range&view=$view&bucketIndex=0&bucketIndex=1", "a repeated bucketIndex")
                 assertStatus(HttpStatusCode.BadRequest, "$range&view=$view&bucketIndex=0&accountId=$person", "accountId needs teamId")
                 assertStatus(HttpStatusCode.BadRequest, "$range&view=$view&bucketIndex=0&tailPercent=26", "tailPercent beyond 25")
-                val backwards = "connectionId=$connId&from=2026-01-01&to=2025-01-01&view=$view&bucketIndex=0"
+                val backwards = "connectionId=$connId&from=2026-01-01&to=2025-01-01&domain=$FLO_DOMAIN&view=$view&bucketIndex=0"
                 assertStatus(HttpStatusCode.BadRequest, backwards, "to before from")
             }
             // The segment rule is the task report's only (the others carry no people): UNIT level, a stranger and a real pick.

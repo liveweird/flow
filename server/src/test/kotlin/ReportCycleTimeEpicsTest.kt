@@ -20,6 +20,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import org.junit.BeforeClass
 
+/** The derived stub fixture's FLO domain: the scope of every UNIT-level read (a report is never read for the whole unit). */
+private const val FLO_DOMAIN = DerivedStubFixture.DOMAIN
+
 private const val EPIC_DAY_MS = 86_400_000L
 
 private data class ExpectedEpicCycle(val elapsed: List<Double>, val working: List<Double>, val population: Int, val neverStarted: Int)
@@ -72,9 +75,9 @@ class ReportCycleTimeEpicsTest {
         val client = seededClient("reports-cycle-time-epics-unit")
 
         for ((from, to) in listOf("2024-01-01" to "2026-12-31", "2025-11-01" to "2026-12-31")) {
-            val epics = doneInWindow(connId, from, to)
+            val epics = doneInWindow(connId, from, to).filter { it.domainKey == FLO_DOMAIN }
             val expected = expectedEpicCycle(epics)
-            val body = client.cycleTime("connectionId=$connId&from=$from&to=$to")
+            val body = client.cycleTime("connectionId=$connId&domain=$FLO_DOMAIN&from=$from&to=$to")
             body.epics.assertMatches("$from..$to", body.meta.minSampleSize, expected)
             // The epic cycle is the same done_at − started_at rule as a task's, stored as cycle_ms.
             assertTrue(
@@ -85,7 +88,8 @@ class ReportCycleTimeEpicsTest {
         }
 
         // The sprint-relative period reads the resolved sprints' envelope, as the task view does.
-        val sprint = client.cycleTime("connectionId=$connId&lastSprints=52")
+        val teamId = DerivedStubFixture.teamId()
+        val sprint = client.cycleTime("connectionId=$connId&teamId=$teamId&lastSprints=52")
         val sprintIds = sprint.meta.resolvedSprints.flatMap { it.sprintIds }
         assertTrue(sprintIds.isNotEmpty())
         val bounds = suspendTransaction(sharedDatabaseForTests()) {
@@ -93,7 +97,7 @@ class ReportCycleTimeEpicsTest {
             val rows = d.selectAll().where { (d.connectionId eq connId) and (d.sprintId inList sprintIds) }.toList()
             rows.minOf { it[d.startAt] ?: it[d.completeAt]!! } to rows.maxOf { it[d.completeAt]!! } + 1
         }
-        val inEnvelope = epicsDoneIn(connId, bounds)
+        val inEnvelope = epicsDoneIn(connId, bounds).filter { it.owner == teamId }
         assertTrue(inEnvelope.isNotEmpty(), "the lastSprints=52 envelope must hold DONE epics, or this pins nothing")
         sprint.epics.assertMatches("lastSprints=52 envelope", sprint.meta.minSampleSize, expectedEpicCycle(inEnvelope))
     }
@@ -105,8 +109,9 @@ class ReportCycleTimeEpicsTest {
         val client = seededClient("reports-cycle-time-epics-groups")
         val range = "connectionId=$connId&from=2024-01-01&to=2026-12-31"
         val epics = doneInWindow(connId, "2024-01-01", "2026-12-31")
+        val domainEpics = epics.filter { it.domainKey == FLO_DOMAIN }
 
-        val unitReport = client.cycleTime(range)
+        val unitReport = client.cycleTime("$range&domain=$FLO_DOMAIN")
         val unit = unitReport.epics
         val min = unitReport.meta.minSampleSize
         assertTrue(unit.groups.isNotEmpty())
@@ -114,7 +119,7 @@ class ReportCycleTimeEpicsTest {
         assertEquals(unit.excluded.population, unit.groups.sumOf { it.excluded.population })
         assertEquals(unit.excluded.neverStarted, unit.groups.sumOf { it.excluded.neverStarted })
         for (group in unit.groups) {
-            val expected = expectedEpicCycle(epics.filter { it.owner == group.teamId })
+            val expected = expectedEpicCycle(domainEpics.filter { it.owner == group.teamId })
             assertDistribution("owner ${group.teamId} working", expected.working, group.workingDays, min)
             assertDistribution("owner ${group.teamId} elapsed", expected.elapsed, group.elapsedDays, min)
             assertEquals(expected.population, group.excluded.population)
@@ -150,7 +155,7 @@ class ReportCycleTimeEpicsTest {
         val client = seededClient("reports-cycle-time-epics-slices")
         val range = "connectionId=$connId&from=2024-01-01&to=2026-12-31"
         val epics = doneInWindow(connId, "2024-01-01", "2026-12-31")
-        val min = client.cycleTime(range).meta.minSampleSize
+        val min = client.cycleTime("$range&domain=$FLO_DOMAIN").meta.minSampleSize
 
         val domain = epics.mapNotNull { it.domainKey }.groupingBy { it }.eachCount().maxBy { it.value }.key
         val domainEpics = epics.filter { it.domainKey == domain }
@@ -159,9 +164,10 @@ class ReportCycleTimeEpicsTest {
         client.cycleTime("$range&domain=$domain&domainView=EPIC").epics
             .assertMatches("domain $domain, EPIC view", min, expectedEpicCycle(domainEpics))
         // activityType is not an epic attribute: ignored, never a filter.
-        client.cycleTime("$range&activityType=Nothing").epics.assertMatches("activityType ignored", min, expectedEpicCycle(epics))
-        client.cycleTime("$range&workCategory=UNCATEGORIZED").epics
-            .assertMatches("UNCATEGORIZED", min, expectedEpicCycle(epics.filter { it.workCategory == null }))
+        client.cycleTime("$range&domain=$domain&activityType=Nothing").epics
+            .assertMatches("activityType ignored", min, expectedEpicCycle(domainEpics))
+        client.cycleTime("$range&domain=$domain&workCategory=UNCATEGORIZED").epics
+            .assertMatches("UNCATEGORIZED", min, expectedEpicCycle(domainEpics.filter { it.workCategory == null }))
     }
 
     /**
@@ -195,19 +201,23 @@ class ReportCycleTimeEpicsTest {
         try {
             val client = seededClient("reports-cycle-time-epics-hand-built")
             val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
-            val body = withMinSampleSize(2) { client.cycleTime(query) }.epics
+            // The world spans two domains, and a report is read per team or domain: UNIT is read once per domain (AAA: E1 E2 E3 E6;
+            // BBB: E4 E5), the team reads below name their owner.
+            val aaa = "$query&domain=AAA"
+            val bbb = "$query&domain=BBB"
+            val body = withMinSampleSize(2) { client.cycleTime(aaa) }.epics
 
-            assertEquals(6, body.excluded.population)
-            assertEquals(1, body.excluded.neverStarted)
-            assertDistribution("working", listOf(8.0, 14.0, 4.0, 2.0, 0.0), body.workingDays, 2)
-            assertDistribution("elapsed", listOf(10.0, 20.0, 6.0, 2.0, 1.0), body.elapsedDays, 2)
-            assertEquals(5.6, body.workingDays.mean!!, 1e-9) // 0 2 4 8 14
-            assertEquals(4.0, body.workingDays.p50!!, 1e-9)
-            assertEquals(11.6, body.workingDays.p90!!, 1e-9) // rank 3.6: 8 + 0.6 * (14 - 8)
-            assertEquals(7.8, body.elapsedDays.mean!!, 1e-9) // 1 2 6 10 20
+            assertEquals(4, body.excluded.population)
+            assertEquals(0, body.excluded.neverStarted)
+            assertDistribution("working", listOf(8.0, 14.0, 4.0, 0.0), body.workingDays, 2)
+            assertDistribution("elapsed", listOf(10.0, 20.0, 6.0, 1.0), body.elapsedDays, 2)
+            assertEquals(6.5, body.workingDays.mean!!, 1e-9) // 0 4 8 14
+            assertEquals(6.0, body.workingDays.p50!!, 1e-9) // rank 1.5: 4 + 0.5 * (8 - 4)
+            assertEquals(12.2, body.workingDays.p90!!, 1e-9) // rank 2.7: 8 + 0.7 * (14 - 8)
+            assertEquals(9.25, body.elapsedDays.mean!!, 1e-9) // 1 6 10 20
 
-            // Owner groups: A = E1 E2 E6; B = E3; UNOWNED = E4 E5 (one never started).
-            assertEquals(3, body.groups.size)
+            // Owner groups in AAA: A = E1 E2 E6; B = E3.
+            assertEquals(2, body.groups.size)
             val a = body.groups.single { it.teamId == teamA }
             assertEquals(3, a.workingDays.n)
             assertEquals(3, a.excluded.population)
@@ -218,7 +228,14 @@ class ReportCycleTimeEpicsTest {
             assertEquals(1, b.workingDays.n)
             assertTrue(b.workingDays.hidden, "one epic is below a minimum sample size of 2")
             assertEquals(null, b.workingDays.p50)
-            val unowned = body.groups.single { it.teamId == null }
+
+            // BBB: UNOWNED = E4 E5 (one never started), the only owner group.
+            val domain = withMinSampleSize(2) { client.cycleTime(bbb) }.epics
+            assertEquals(2, domain.excluded.population)
+            assertEquals(1, domain.excluded.neverStarted)
+            assertDistribution("BBB working", listOf(2.0), domain.workingDays, 2)
+            val unowned = domain.groups.single()
+            assertEquals(null, unowned.teamId)
             assertEquals(null, unowned.label)
             assertEquals(2, unowned.excluded.population)
             assertEquals(1, unowned.excluded.neverStarted)
@@ -240,14 +257,15 @@ class ReportCycleTimeEpicsTest {
             assertEquals(0, user.workingDays.n)
             assertTrue(user.groups.isEmpty())
 
-            // Slices: the epic's own domain and work category; the neverStarted epic stays in its domain.
-            val domain = withMinSampleSize(2) { client.cycleTime("$query&domain=BBB") }.epics
-            assertEquals(2, domain.excluded.population)
-            assertEquals(1, domain.excluded.neverStarted)
-            val category = withMinSampleSize(2) { client.cycleTime("$query&workCategory=Ops") }.epics
+            // Slices: the epic's own work category; the neverStarted epic stays in its domain (population above).
+            val category = withMinSampleSize(2) { client.cycleTime("$bbb&workCategory=Ops") }.epics
             assertEquals(1, category.excluded.population)
             assertEquals(1, category.workingDays.n)
-            assertEquals(5, withMinSampleSize(2) { client.cycleTime("$query&workCategory=UNCATEGORIZED") }.epics.excluded.population)
+            // UNCATEGORIZED: E1 E2 E3 E6 in AAA plus E5 in BBB.
+            val uncategorizedAaa = withMinSampleSize(2) { client.cycleTime("$aaa&workCategory=UNCATEGORIZED") }.epics.excluded.population
+            val uncategorizedBbb = withMinSampleSize(2) { client.cycleTime("$bbb&workCategory=UNCATEGORIZED") }.epics.excluded.population
+            assertEquals(4, uncategorizedAaa)
+            assertEquals(1, uncategorizedBbb)
         } finally {
             suspendTransaction(sharedDatabaseForTests()) { store.deleteFactEpicDelivery(connId) }
             cleanUpTeams(listOf(teamA, teamB))

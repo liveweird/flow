@@ -46,14 +46,10 @@ internal fun Evm.toAsOf(day: LocalDate?) = EpicProgressAsOf(day?.toString(), pv.
 internal fun Evm.toRow(kind: EpicProgressKind, id: UInt?, key: String?, name: String, period: Evm, active: Boolean? = null) =
     EpicProgressRow(kind, id, key, name, pv.md(), ev.md(), ac.md(), sv.md(), spi, cv.md(), cpi, period.toRowPeriod(), active)
 
-/**
- * The `agg_daily_flow` rows of a target: the unit sums every DOMAIN scope (the epic basis, consistent with the EPIC domain view —
- * a sprint sum would count an item in overlapping sprints twice), a team its own TEAM scope (`0` = UNASSIGNED), a domain/epic theirs.
- */
+/** The `agg_daily_flow` rows of a target: a team its own TEAM scope (`0` = UNASSIGNED), a domain/epic their own scope. */
 internal fun aggPredicate(resolved: ResolvedTarget, connectionIds: List<UInt>): Op<Boolean> {
     val f = MetricsTables.AggDailyFlow
     return when (val target = resolved.target) {
-        ProgressTarget.WholeUnit -> (f.connectionId inList connectionIds) and (f.scopeKind eq SCOPE_KIND_DOMAIN)
         is ProgressTarget.Team -> {
             val scopeId = if (target.teamId == UNASSIGNED_TEAM_ID) SCOPE_UNASSIGNED else target.teamId.toString()
             (f.connectionId inList connectionIds) and (f.scopeKind eq SCOPE_KIND_TEAM) and (f.scopeId eq scopeId)

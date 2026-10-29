@@ -264,7 +264,7 @@ class ReportAgingWipPositionsTest {
         // The invariant the chart leans on: no issue of the connection has two open stage intervals.
         assertTrue(data.openRows.values.all { it.size == 1 }, "at most one open item_stage row per issue")
 
-        val unit = client.aging("connectionId=$connId")
+        val unit = client.aging("connectionId=$connId&domain=${DerivedStubFixture.DOMAIN}")
         assertTrue(unit.items.isNotEmpty())
         for (item in unit.items) {
             val rows = data.openRows[data.idOfKey.getValue(item.issueKey)].orEmpty()

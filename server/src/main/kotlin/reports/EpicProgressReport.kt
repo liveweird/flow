@@ -4,7 +4,11 @@ import ch.nokillswit.metrics.WorkingCalendar
 import java.time.LocalDate
 import kotlinx.serialization.Serializable
 
-/** What an epic-progress read is about: the whole unit, one domain, one epic or one team (`level` of the response). */
+/**
+ * What an epic-progress read is about: one domain, one epic or one team (`level` of the response). [UNIT], the whole unit, is no
+ * longer answered (the scope guard refuses a request naming no epic, domain or team); the value stays on the wire until the web drops
+ * its UNIT rows (BACKLOG).
+ */
 @Serializable
 enum class EpicProgressLevel { UNIT, DOMAIN, EPIC, TEAM }
 
@@ -13,7 +17,7 @@ enum class EpicProgressLevel { UNIT, DOMAIN, EPIC, TEAM }
 enum class EpicProgressKind { EPIC, DOMAIN, TEAM }
 
 /**
- * The one thing the curve is about (`null` in the response at UNIT level). [key] is the epic's issue key or the domain key,
+ * The one thing the curve is about. [key] is the epic's issue key or the domain key,
  * [id] the team id (`0` = UNASSIGNED); [name] is the epic's summary (its key when it has none), the domain or the team name.
  */
 @Serializable
@@ -108,7 +112,7 @@ data class EpicProgressReport(
     val scope: EpicProgressScope?,
     /** The EFFECTIVE basis of `series`: what `basis` asked for, else the level's default (PERIOD, but CUMULATIVE for EPIC). */
     val basis: EpicProgressBasis,
-    /** One point per calendar day of the period up to `asOf.day`, on [basis]; empty at UNIT level. */
+    /** One point per calendar day of the period up to `asOf.day`, on [basis]. */
     val series: List<EpicProgressPoint>,
     /** The CUMULATIVE figures, whatever the basis (A37). */
     val asOf: EpicProgressAsOf,
@@ -122,7 +126,7 @@ data class EpicProgressReport(
     val foreignWorkShare: Double?,
     /** TEAM level only: the same share over `fact_worklog` rows started inside the period (CPI's window under `basis=PERIOD`). */
     val foreignWorkSharePeriod: Double?,
-    /** The drill table: a domain's epics (DOMAIN level), or the domains and teams (UNIT level); empty at EPIC and TEAM level. */
+    /** The drill table: a domain's epics (DOMAIN level); empty at EPIC and TEAM level. */
     val rows: List<EpicProgressRow>,
     /** Why the answer is empty or partial (not derived yet, no sprint resolved, a period past `asOf`, ...); `null` otherwise. */
     val note: String?,
@@ -144,7 +148,7 @@ internal class ProgressContext(
 
 /**
  * `GET /api/v1/reports/epic-progress` (v0.3.0 M5 commit 15c, Report 15, `.claude/docs/measures.md` "Report 15 — EVM"):
- * planned value, earned value and actual cost as cumulative curves for one epic, one domain, one team or the whole unit,
+ * planned value, earned value and actual cost as cumulative curves for one epic, one domain or one team,
  * with SV/SPI/CV/CPI as of `asOf`. Reads `agg_daily_flow`'s per-day INCREMENTS (A23) and sums them at query time from the
  * beginning of time; see `.claude/docs/reports.md` "Report 15".
  */
@@ -205,23 +209,21 @@ private suspend fun progressOf(
     val increments = fetchIncrements(aggPredicate(resolved, ctx.scope.connectionIds), ctx.asOfDay.toString())
     val asOf = totalsThrough(increments, listOf(ctx.asOfDay)).single()
     val firstDay = ctx.firstDay
-    if (firstDay == null && target !is ProgressTarget.WholeUnit) {
+    if (firstDay == null) {
         notes += "The period lies after ${ctx.asOfDay} (the last derived or current day): there is no series to list, asOf is that day"
     }
     val (before, delta) = periodDelta(increments, firstDay, ctx.asOfDay)
-    val days = if (target is ProgressTarget.WholeUnit) emptyList() else ctx.days
     val rebased = basis == EpicProgressBasis.PERIOD && firstDay != null
     val detail = resolved.epic?.let { epicDetail(it, ctx) }
     val series = progressSeries(
-        days,
-        totalsThrough(increments, days),
+        ctx.days,
+        totalsThrough(increments, ctx.days),
         base = if (rebased) before else NO_EVM,
         rebaseAfter = firstDay?.minusDays(1)?.takeIf { rebased },
         detail = detail,
     )
     val rows = when (target) {
         is ProgressTarget.Domain -> domainRows(ctx, target.key)
-        ProgressTarget.WholeUnit -> unitRows(ctx)
         is ProgressTarget.Epic, is ProgressTarget.Team -> emptyList()
     }
     val team = target as? ProgressTarget.Team

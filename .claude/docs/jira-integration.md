@@ -261,17 +261,17 @@ maps to `UNKNOWN` and never throws. The stub serves the real string form for `st
 ## ISSUES stream: fields and JQL
 
 `jira/JiraIssuesStream.kt` (v0.2.0 plan §7, plan commit 6) pages `GET /rest/api/3/search/jql` with
-`fields=*all,-comment,-worklog,-description,-attachment` (`ISSUE_SEARCH_FIELDS`). Unlike the retired `/search`, `search/jql` returns ONLY `id` per issue when
+`fields=*all,-comment,-worklog,-description,-attachment,-subtasks,-environment` (`ISSUE_SEARCH_FIELDS`). Unlike the retired `/search`, `search/jql` returns ONLY `id` per issue when
 `fields` is omitted; the code first omitted it, on the old endpoint's default, and the first real tenant's SYNC failed
 on issues with no `fields` at all (the stub had mirrored the wrong default). Normalization (`JiraNormalizer.kt`)
 needs both every system field and every discovered custom field (`schema.custom`-tagged, e.g. Sprint/Story
 Points/Flagged/Team), and Jira offers no cheaper "all system + all discovered custom" shape than asking for
 everything; `GET /issue/{id}` takes the same `fields` syntax, and the index-gap path asks for the same string, so both paths store the same document.
-**The four exclusions** are Atlassian's own syntax - the `fields` parameter of `search/jql` and `GET /issue/{id}` takes "any issue field,
-prefixed with a minus to exclude", e.g. `*all,-comment`: `comment`, `worklog`, `description` and `attachment` are the keys
+**The six exclusions** are Atlassian's own syntax - the `fields` parameter of `search/jql` and `GET /issue/{id}` takes "any issue field,
+prefixed with a minus to exclude", e.g. `*all,-comment`: `comment`, `worklog`, `description`, `attachment`, `subtasks` and `environment` are the keys
 `JiraPayloadTrim.kt` never stores (`persistence.md` "The Jira raw store (V10)"), so asking for them would cost the bulk of a page
 on the wire and in `readBounded`'s heap (and halve the page more often, "Oversized issue page" below) only to throw it away. They
-are kept in step in three places - the constant, the stub generator (`sample-data/jira/generate.mjs`) and this section. **Honest
+are kept in step in five places - the constant, the stub generator (`sample-data/jira/generate.mjs`), the hostile-host stub (`sample-data/jira/hostile.mjs`), the pin in `JiraScopeCatchUpTest` and this section. **Honest
 hash note:** Jira ignoring an exclusion (a tenant that still sends a description) changes nothing stored, because every write trims
 again before it hashes; and the first SYNC after the change finds every stored issue already trimmed by TRIM (`ingestion.md` "TRIM"), so the
 page it fetches hashes the same and is `UNCHANGED`. A page token issued under the OLD `fields` and resumed under the new one may answer
@@ -305,7 +305,7 @@ Two more `jira.*` config keys are consumed for the first time by this stream (bo
 in `application.yaml` since an earlier commit, unread until now): `jira.pageSize` (default 100,
 1..500 — the `search/jql` `maxResults` per page; the stub ignores it and returns its own fixed-size
 pages regardless; confirmed against the real tenant on 2026-10-24: project A's two full backfills each took
-64 issue pages for 6,368 / 6,372 issues with `fields=*all` (before the four exclusions), i.e. Jira returned the full 100 per page, no page halved) and
+64 issue pages for 6,368 / 6,372 issues with `fields=*all` (before the exclusions), i.e. Jira returned the full 100 per page, no page halved) and
 `jira.incrementalOverlapMinutes` (default 10, 0..1440 — the re-widening
 window past the last watermark described above).
 
@@ -988,7 +988,7 @@ Landed with the RECONCILE stream (plan §7/§12 item 7, plan commit 7, V12 — s
   the anti-join's missing-issue probe: a stored issue this pass never saw is checked individually
   with only the two fields the deleted/moved-out decision needs (`RECONCILE_ISSUE_FIELDS` in
   `jira/JiraReconcileStream.kt`), never the full issue document.
-- **`GET /rest/api/3/issue/{id}` with `fields=*all,-comment,-worklog,-description,-attachment`** (`JiraClient.issue(idOrKey, fields)`,
+- **`GET /rest/api/3/issue/{id}` with `fields=*all,-comment,-worklog,-description,-attachment,-subtasks,-environment`** (`JiraClient.issue(idOrKey, fields)`,
   the ISSUES stream's `ISSUE_SEARCH_FIELDS`) - the anti-join's index-gap fetch: an id the sweep saw that `raw.jira_issues` never
   stored is fetched in full (the same document the ISSUES stream itself upserts, so the trimmed shape is the same whichever path
   stored it) and written through `JiraRawStore.upsertIssue`.
@@ -1042,12 +1042,13 @@ backs off or waits out its tenant's pause, so the deadline bounds the call's own
   (`+0000`, `+02:00`, `-0500`, `Z`, with and without fractional seconds) and the malformed-value
   `DateTimeParseException`.
 - `JiraJqlTest` — `JiraJql`'s scope/incremental/reconcile builders (incl. the multi-clause incremental and the windowed reconcile text).
-- `JiraPayloadTrimTest` — the payload trim (`jira/JiraPayloadTrim.kt`): the exact dropped key sets, everything else kept (nested custom-field ADF, `timetracking`, `issuelinks`, a custom field named like a dropped item), totality on odd shapes, idempotence, the stable hash,
+- `JiraPayloadTrimTest` — the payload trim (`jira/JiraPayloadTrim.kt`): the exact dropped key sets, everything else kept (nested custom-field ADF, `timetracking`, a custom field named like a dropped item), the v2 issue-link slimming (both directions, one end only, unknown keys dropped, odd shapes untouched, idempotent) and the dropped `subtasks`/`environment`, totality on odd shapes, idempotence, the stable hash,
   and the equivalence property: `JiraNormalizer.normalizeIssue` over the trimmed documents equals the untrimmed ones, for a rich synthetic issue and for every raw row of the synced stub fixture with the dropped keys injected.
 - `JiraTrimStreamTest` — the TRIM stream (`ingestion.md` "TRIM stream") over clones of the synced fixture with rows put back into Jira's shape by a raw `UPDATE`: every table returns to the trimmed original
   (payload and sha256), nothing but those two columns moves (also a tombstoned row), a history of only dropped items keeps `items: []`, a follow-up write of the untrimmed Jira text answers `UNCHANGED`, the `DONE` cursor, a second run
   writes nothing, each dropped shape ALONE makes a row a candidate of the SQL filter while odd shapes (a string payload, `fields: null`, ...) are neither candidates nor failures, a lease lost mid-walk over sparse
   candidates leaves the cursor on the last candidate read and the next run resumes to the same rows, and PROCESS over a trimmed clone reproduces the source's status-interval digest.
+- `JiraTrimV2Test` — trim rules v2 (`ingestion.md` "TRIM stream", the cursor version): a `DONE` cursor with no `version` (v1) walks again over a clone whose issues hold Jira's fat links, subtasks and environment, rewrites exactly those rows (payload and sha256 only, no `changed_at`/PROCESS flag), ends `DONE` at v2, a re-fetch of the fat text is `UNCHANGED` and a second run writes nothing; a v1 cursor left half-walked restarts at the first issue; a fresh walk stores its version; and the SQL candidate filter selects exactly the issues the Kotlin trim changes over a table of 27 payloads.
 - `JiraScopeCatchUpTest` — the ISSUES stream's scope catch-up (first run, added/re-added project, earlier/later `backfillFrom`, legacy cursor, resume vs. a changed scope) and RECONCILE's index-gap guard, over a capturing fake `JiraClient`.
 - `JiraReconcileWindowTest` — the windowed RECONCILE sweep over a scripted fake `JiraClient` (the sent JQL, which
   rows are probed, resume with a stored/legacy cursor) and `JiraRawStore.markOutOfScopeProjects` (locally

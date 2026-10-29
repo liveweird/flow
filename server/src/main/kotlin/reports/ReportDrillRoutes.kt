@@ -4,6 +4,7 @@ import ch.nokillswit.infra.paging.optionalEnum
 import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.metrics.SprintBucket
 import io.ktor.resources.Resource
+import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.routing.Route
 import kotlinx.serialization.Serializable
 
@@ -68,6 +69,11 @@ internal fun Route.drillRoutes(reportService: ReportService) {
         val segmentAccountId = params.optionalString("segmentAccountId")
         val epicSegment = params.optionalEpicSegment()
         val measure = params.optionalEnum<ThroughputDrillMeasure>("measure") ?: ThroughputDrillMeasure.DELIVERED
+        // The sprint mode (a sprintId period, no bucketStart) reads one sprint, and a sprint id is shared by one site's teams:
+        // the team picks it.
+        if (bucketFirstDay == null && filter.period is ReportPeriod.BySprintId && filter.teamId == null) {
+            throw BadRequestException("the sprint mode needs teamId: a sprint's items are read for the sprint's own team")
+        }
         answer {
             reportService.throughputItems(
                 filter = filter, bucket = bucket, bucketFirstDay = bucketFirstDay, segmentAccountId = segmentAccountId,
@@ -77,7 +83,10 @@ internal fun Route.drillRoutes(reportService: ReportService) {
     }
     // The ONE sprint-scope drill (Commitments, Throughput's sprint chart, Sprint consistency, Home): the parent report takes a single
     // `accountId`, but its stacked segments (Commitments' and Throughput's USER level) need up to eight, so this route opts in.
-    reportGet<ReportSprintConsistencyItemsRoute>(reportService, DomainView.TASK, multipleAccounts = true) { filter, params, nowMs ->
+    // It carries no domain slice, so the team is its only scope (`TEAM_ONLY`).
+    reportGet<ReportSprintConsistencyItemsRoute>(
+        reportService, DomainView.TASK, multipleAccounts = true, scope = ReportScopeRule.TEAM_ONLY,
+    ) { filter, params, nowMs ->
         val bucket = params.requireEnum<SprintBucket>("bucket")
         val segmentAccountId = params.optionalString("segmentAccountId")
         val epicSegment = params.optionalEpicSegment()

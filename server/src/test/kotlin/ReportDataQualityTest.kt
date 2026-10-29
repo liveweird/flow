@@ -78,6 +78,22 @@ private suspend fun readFixtureRows(connId: UInt): FixtureRows = suspendTransact
     )
 }
 
+/** The rows a `domain` read slices (TASK view: the task's own domain; a worklog's `task_domain_key`; an epic's own domain). */
+private fun FixtureRows.inDomain(domain: String): FixtureRows {
+    val t = MetricsTables.FactTaskDelivery
+    val w = MetricsTables.FactWorklog
+    val e = MetricsTables.FactEpicDelivery
+    return FixtureRows(
+        tasks = tasks.filter { it[t.domainKey] == domain },
+        worklogs = worklogs.filter { it[w.taskDomainKey] == domain },
+        epics = epics.filter { it[e.domainKey] == domain },
+        epicDims = epicDims,
+    )
+}
+
+/** The scope of a UNIT-level read: the stub fixture's FLO domain (a `domain` with no `teamId`). */
+private const val UNIT_DOMAIN = "domain=${DerivedStubFixture.DOMAIN}"
+
 /**
  * `GET /api/v1/reports/data-quality` (v0.3.0 M5 commit 17, Report 14, `.claude/docs/measures.md` "Report 14"). The stub
  * fixture grades every section against independent counts over the raw fact rows; a private DERIVED clone pins the
@@ -93,21 +109,37 @@ class ReportDataQualityTest {
         return response.body()
     }
 
-    private fun fixtureQuery(connId: UInt, extra: String = "") = "connectionId=$connId&from=$FROM&to=$TO$extra"
+    /** The fixture read over [FROM]..[TO]; [extra] carries its own scope, else the read is UNIT level (the FLO domain). */
+    private fun fixtureQuery(connId: UInt, extra: String = ""): String {
+        val scoped = if ("teamId=" in extra || "domain=" in extra) extra else "&$UNIT_DOMAIN$extra"
+        return "connectionId=$connId&from=$FROM&to=$TO$scoped"
+    }
 
     /** The shared derived fixture read over [FROM]..[TO], with the raw rows the findings are graded against. */
     private class FixtureRead(
         val connId: UInt,
         val client: HttpClient,
+        /** Every row of the connection (what a `teamId` read slices); [unit] is the FLO domain's (what [body] was graded against). */
         val rows: FixtureRows,
         val bounds: Pair<Long, Long>,
         val body: DataQualityReport,
     ) {
         private val t = MetricsTables.FactTaskDelivery
-        val done: List<ResultRow> = rows.tasks.filter { (it[t.doneAt] ?: -1L) in bounds.first until bounds.second }
-        val open: List<ResultRow> = rows.tasks.filter { it[t.doneAt] == null && it[t.startedAt] != null }
         private val e = MetricsTables.FactEpicDelivery
-        val epics: List<ResultRow> = rows.epics.filter { it[e.doneAt] == null || it[e.doneAt]!! in bounds.first until bounds.second }
+        val unit: FixtureRows = rows.inDomain(DerivedStubFixture.DOMAIN)
+        private fun doneIn(from: FixtureRows) = from.tasks.filter { (it[t.doneAt] ?: -1L) in bounds.first until bounds.second }
+        private fun openIn(from: FixtureRows) = from.tasks.filter { it[t.doneAt] == null && it[t.startedAt] != null }
+        private fun epicsIn(from: FixtureRows) =
+            from.epics.filter { it[e.doneAt] == null || it[e.doneAt]!! in bounds.first until bounds.second }
+        val done: List<ResultRow> = doneIn(unit)
+        val open: List<ResultRow> = openIn(unit)
+        val epics: List<ResultRow> = epicsIn(unit)
+        val allDone: List<ResultRow> = doneIn(rows)
+        val allOpen: List<ResultRow> = openIn(rows)
+        val allEpics: List<ResultRow> = epicsIn(rows)
+
+        /** The DONE tasks of the period in [domain] — what a `domain=[domain]` read counts. */
+        fun doneOf(domain: String): List<ResultRow> = doneIn(rows.inDomain(domain))
     }
 
     private suspend fun ApplicationTestBuilder.readFixture(prefix: String): FixtureRead {
@@ -147,7 +179,7 @@ class ReportDataQualityTest {
 
         assertEquals(done.size, body.populations.doneTasks)
         assertEquals(fixture.open.size, body.populations.openStartedTasks)
-        assertEquals(fixture.rows.worklogs.size, body.populations.worklogs)
+        assertEquals(fixture.unit.worklogs.size, body.populations.worklogs)
         assertEquals(fixture.epics.size, body.populations.epics)
         assertTrue(done.isNotEmpty() && fixture.open.isNotEmpty(), "the fixture must have DONE and open started tasks")
         assertEquals("UNIT", body.meta.level.name)
@@ -172,7 +204,11 @@ class ReportDataQualityTest {
         assertTaskFinding("unassigned", body.missing.unassigned, fixture) { it[t.doneAt] != null && it[t.assigneeAccountIdAtDone] == null }
         assertEquals(0, body.missing.unassigned.open)
         assertTaskFinding("outsideSprint", body.outsideSprint, fixture) { it[t.doneAt] != null && it[t.sprintIdAtDone] == null }
-        assertTrue(body.outsideSprint.done > 0, "the OPS Kanban project's DONE tasks are outside any sprint")
+        // The FLO board is a scrum board; the OPS Kanban project's DONE tasks are outside any sprint (its own domain read).
+        assertTrue(
+            fixture.client.dq(fixtureQuery(fixture.connId, "&domain=OPS")).outsideSprint.done > 0,
+            "the OPS Kanban project's DONE tasks are outside any sprint",
+        )
         assertEquals(0, body.outsideSprint.open)
         assertTaskFinding("crossDomain", body.crossDomain, fixture) { it[t.doneAt] != null && it[t.crossDomain] }
 
@@ -183,9 +219,13 @@ class ReportDataQualityTest {
             it[t.doneAt] != null && it[t.estimatedAfterDone]
         }
         assertEquals(0, body.missing.estimatedAfterDone.open)
+        // expected.json counts the whole stub: the four project domains (FLO is `body`) partition it.
+        val backfilled = listOf("PLT", "GTM", "OPS").sumOf {
+            fixture.client.dq(fixtureQuery(fixture.connId, "&domain=$it")).missing.estimatedAfterDone.done
+        } + body.missing.estimatedAfterDone.done
         assertEquals(
             generatorEstimates.taskEstimatedAfterDoneCount,
-            body.missing.estimatedAfterDone.done,
+            backfilled,
             "backfilled tasks vs sample-data/jira/expected.json taskEstimatedAfterDoneCount",
         )
         assertTrue(body.missing.estimatedAfterDone.md > 0.0, "the list carries the backfilled estimates, not the empty at-done ones")
@@ -196,7 +236,7 @@ class ReportDataQualityTest {
     fun `the fixture's worklog, epic and mapping findings equal independent counts over the fact rows`() = testApplication {
         val fixture = readFixture("dq-fixture-rest")
         val body = fixture.body
-        val rows = fixture.rows
+        val rows = fixture.unit
         val w = MetricsTables.FactWorklog
         val e = MetricsTables.FactEpicDelivery
         val d = MetricsTables.DimEpic
@@ -262,8 +302,11 @@ class ReportDataQualityTest {
         val unowned = domains.filter { it[MetricsTables.DimDomain.ownerTeamId] == null }
             .map { it[MetricsTables.DimDomain.domainKey] }.toSet()
         assertTrue(unowned.isNotEmpty() && unowned.size < domains.size)
-        assertEquals(unowned, body.domainsWithoutOwner.items.map { it.domainKey }.toSet())
-        for (item in body.domainsWithoutOwner.items) {
+        assertEquals(emptyList(), body.domainsWithoutOwner.items, "the FLO domain read lists no ownerless domain")
+        // Each ownerless domain is listed by its own domain read (the `domain` filter narrows the finding), with its epic count.
+        for (key in unowned) {
+            val item = fixture.client.dq(fixtureQuery(fixture.connId, "&domain=$key")).domainsWithoutOwner.items.single()
+            assertEquals(key, item.domainKey)
             assertEquals(rows.epicDims.values.count { it[d.domainKey] == item.domainKey }, item.epics, "epics of ${item.domainKey}")
         }
 
@@ -301,22 +344,29 @@ class ReportDataQualityTest {
         val unmapped = boards.filter { it[WorkItemStore.Boards.boardId] !in mapped }
         assertTrue(unmapped.size >= 3, "PLT, GTM and OPS boards are unmapped in the fixture")
         assertEquals(unmapped.size, body.unmappedBoards.total)
-        val doneInUnmappedSprint = fixture.done.filter { it[t.sprintIdAtDone] != null && it[t.sprintTeamIdAtDone] == null }
-        for (item in body.unmappedBoards.items) {
-            val sprintIds = sprintsByBoard[item.boardId].orEmpty().map { it[WorkItemStore.Sprints.sprintId] }.toSet()
-            assertEquals(sprintIds.size, item.sprints, "sprints of board ${item.boardId}")
-            val doneThere = doneInUnmappedSprint.count { it[t.sprintIdAtDone] in sprintIds }
-            assertEquals(doneThere, item.doneTasks, "done tasks of board ${item.boardId}")
+        // The boards are connection-level; each domain read counts only its own DONE tasks inside a board's teamless sprints.
+        var doneInUnmappedBoards = 0
+        for (domain in listOf(DerivedStubFixture.DOMAIN, "PLT", "GTM")) {
+            val read = if (domain == DerivedStubFixture.DOMAIN) body else fixture.client.dq(fixtureQuery(fixture.connId, "&domain=$domain"))
+            assertEquals(unmapped.size, read.unmappedBoards.total, "unmapped boards ($domain)")
+            val doneInUnmappedSprint = fixture.doneOf(domain).filter { it[t.sprintIdAtDone] != null && it[t.sprintTeamIdAtDone] == null }
+            for (item in read.unmappedBoards.items) {
+                val sprintIds = sprintsByBoard[item.boardId].orEmpty().map { it[WorkItemStore.Sprints.sprintId] }.toSet()
+                assertEquals(sprintIds.size, item.sprints, "sprints of board ${item.boardId}")
+                val doneThere = doneInUnmappedSprint.count { it[t.sprintIdAtDone] in sprintIds }
+                assertEquals(doneThere, item.doneTasks, "done tasks of board ${item.boardId} ($domain)")
+            }
+            assertEquals(doneInUnmappedSprint.size, read.unmappedBoards.items.sumOf { it.doneTasks }, "done in unmapped sprints ($domain)")
+            doneInUnmappedBoards += read.unmappedBoards.items.sumOf { it.doneTasks }
         }
-        assertTrue(body.unmappedBoards.items.sumOf { it.doneTasks } > 0, "PLT and GTM sprints carry DONE tasks whose board has no team")
-        assertEquals(doneInUnmappedSprint.size, body.unmappedBoards.items.sumOf { it.doneTasks })
+        assertTrue(doneInUnmappedBoards > 0, "PLT and GTM sprints carry DONE tasks whose board has no team")
     }
 
     @Test
     fun `the UNIT org drill equals an independent grouping of the fact rows by team`() = testApplication {
         val fixture = readFixture("dq-groups-unit")
         val unit = fixture.body
-        val rows = fixture.rows
+        val rows = fixture.unit
         val t = MetricsTables.FactTaskDelivery
         val w = MetricsTables.FactWorklog
         val e = MetricsTables.FactEpicDelivery
@@ -367,12 +417,13 @@ class ReportDataQualityTest {
             val fixture = readFixture("dq-groups-team")
             val client = fixture.client
             val connId = fixture.connId
+            // The team, teamId=0 and per-domain reads slice the whole connection, not the FLO domain the UNIT body was read for.
             val rows = fixture.rows
             val t = MetricsTables.FactTaskDelivery
             val w = MetricsTables.FactWorklog
             val e = MetricsTables.FactEpicDelivery
-            val done = fixture.done
-            val open = fixture.open
+            val done = fixture.allDone
+            val open = fixture.allOpen
 
             // TEAM level: that team's tasks by assignee (done: at done, open: now), no epic counts in the groups.
             val floTeam = done.mapNotNull { it[t.creditTeamId]?.value }.toSet().single()
@@ -394,7 +445,7 @@ class ReportDataQualityTest {
             // A real team owns no teamless author and no ownerless domain; its authors are none in this roster-less fixture.
             assertEquals(0, team.authorsWithoutTeam.total)
             assertEquals(0, team.domainsWithoutOwner.total)
-            assertEquals(fixture.epics.count { it[e.ownerTeamId]?.value == floTeam }, team.populations.epics)
+            assertEquals(fixture.allEpics.count { it[e.ownerTeamId]?.value == floTeam }, team.populations.epics)
 
             // USER level: the one assignee, no groups, no epics, no sprint findings.
             val account = teamDone.mapNotNull { it[t.assigneeAccountIdAtDone] }.first()
@@ -410,8 +461,13 @@ class ReportDataQualityTest {
             assertEquals(done.count { it[t.creditTeamId] == null }, unassigned.populations.doneTasks)
             assertEquals(open.count { it[t.currentTeamId] == null }, unassigned.populations.openStartedTasks)
             assertEquals(fixture.body.authorsWithoutTeam.total, unassigned.authorsWithoutTeam.total)
-            assertEquals(fixture.body.domainsWithoutOwner.total, unassigned.domainsWithoutOwner.total)
-            assertEquals(fixture.epics.count { it[e.ownerTeamId] == null }, unassigned.populations.epics)
+            val ownerless = suspendTransaction(sharedDatabaseForTests()) {
+                val d = MetricsTables.DimDomain
+                d.selectAll().where { (d.connectionId eq connId) and d.ownerTeamId.isNull() }.toList().size
+            }
+            assertEquals(ownerless, unassigned.domainsWithoutOwner.total)
+            assertEquals(0, fixture.body.domainsWithoutOwner.total, "FLO's board is mapped: the FLO domain read lists no ownerless domain")
+            assertEquals(fixture.allEpics.count { it[e.ownerTeamId] == null }, unassigned.populations.epics)
 
             // The domain slice narrows tasks, worklogs, epics and the ownerless domains; a sprint-relative period reads the envelope.
             val domainKey = done.mapNotNull { it[t.domainKey] }.first()
@@ -419,7 +475,7 @@ class ReportDataQualityTest {
             assertEquals(done.count { it[t.domainKey] == domainKey }, sliced.populations.doneTasks)
             assertEquals(rows.worklogs.count { it[w.taskDomainKey] == domainKey }, sliced.populations.worklogs)
             assertTrue(sliced.domainsWithoutOwner.items.all { it.domainKey == domainKey })
-            val sprintPeriod = client.dq("connectionId=$connId&lastSprints=2")
+            val sprintPeriod = client.dq("connectionId=$connId&lastSprints=2&$UNIT_DOMAIN")
             assertTrue(sprintPeriod.meta.resolvedSprints.isNotEmpty())
             assertTrue(sprintPeriod.populations.doneTasks < fixture.body.populations.doneTasks)
         }
@@ -590,7 +646,7 @@ class ReportDataQualityTest {
             assertEquals(moved.snapshotDrift.total, moved.snapshotDrift.items.size)
             assertEquals(afterDerive.snapshotDrift.total + 2, moved.snapshotDrift.total)
             // The sprint filter narrows to the sprint; the team drill of another team and the USER level see nothing.
-            val bySprint = client.dq("connectionId=$connId&sprintId=$sprintId")
+            val bySprint = client.dq("connectionId=$connId&sprintId=$sprintId&$UNIT_DOMAIN")
             assertEquals(moved.snapshotDrift.items.count { it.sprintId == sprintId }, bySprint.snapshotDrift.total)
             val otherTeam = TestTeams.seed(SyncedStubFixture.unique("dq-other"))
             try {
@@ -621,7 +677,7 @@ class ReportDataQualityTest {
         usePostgresTestcontainer()
         val connId = SyncedStubFixture.createConnection(namePrefix = "dq-warn", enabled = false)
         val client = seededClient("dq-warnings")
-        val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
+        val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31&$UNIT_DOMAIN"
         try {
             assertTrue(client.dq(query).deriveWarnings.isEmpty(), "no run at all: nothing to warn about")
             val unresolved = """{"tasks":3,"epics":0,"sprints":0,"sprintFieldUnresolved":true}"""
@@ -688,7 +744,8 @@ class ReportDataQualityTest {
             val client = seededClient("dq-epics-hand")
             val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
             fun keys(list: ch.nokillswit.reports.QualityList<ch.nokillswit.reports.EpicRef>) = list.items.map { it.issueKey }.sorted()
-            val body = client.dq(query)
+            // UNIT level is a `domain` read with no `teamId`: the hand-built world's one populated domain.
+            val body = client.dq("$query&domain=AAA")
             assertEquals(6, body.populations.epics, "open epics and the one done in January; e6 was done before the period")
             assertEquals(listOf("EP-2", "EP-4"), keys(body.missing.epicsWithoutEstimate))
             assertEquals(listOf("EP-4", "EP-5"), keys(body.missing.epicsWithoutDates))
@@ -857,11 +914,12 @@ class ReportDataQualityTest {
         }
             val client = seededClient("dq-hand-built")
             val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
+            val unitQuery = "$query&domain=AAA" // UNIT level: the hand-built world's one populated domain
             // Every read pins hoursPerDay and the minimum sample size: the hours and the lateness distribution depend on them.
             suspend fun read(q: String) = withMetricsSettings(settingsConfig, { it.copy(hoursPerDay = 8.0, minSampleSize = 2) }) {
                 client.dq(q)
             }
-            val body = read(query)
+            val body = read(unitQuery)
 
             assertEquals(6, body.populations.doneTasks)
             assertEquals(2, body.populations.openStartedTasks)
@@ -982,7 +1040,7 @@ class ReportDataQualityTest {
             assertEquals(1, unassigned.authorsWithoutTeam.total)
             assertEquals(0.0, unassigned.loggedHours.memberDays, EPS)
             // A period with no DONE task and no worklog still lists the open started tasks.
-            val empty = client.dq("connectionId=$connId&from=2026-03-01&to=2026-03-31")
+            val empty = client.dq("connectionId=$connId&from=2026-03-01&to=2026-03-31&domain=AAA")
             assertEquals(0, empty.populations.doneTasks)
             assertEquals(2, empty.populations.openStartedTasks)
             assertEquals(0, empty.populations.worklogs)
@@ -999,7 +1057,7 @@ class ReportDataQualityTest {
             assertEquals(2, epicAaa.populations.openStartedTasks)
             assertEquals(6, epicAaa.populations.worklogs)
             // UNCATEGORIZED selects items with no work category: DONE HB-2 and HB-3, open HB-11, and every (categoryless) worklog.
-            val uncategorized = read("$query&workCategory=UNCATEGORIZED")
+            val uncategorized = read("$unitQuery&workCategory=UNCATEGORIZED")
             val none = uncategorized.populations
             assertEquals(listOf(2, 1, 6), listOf(none.doneTasks, none.openStartedTasks, none.worklogs))
         } finally {
@@ -1040,7 +1098,7 @@ class ReportDataQualityTest {
                 val settings = metricsSettings.read()
                 val client = seededClient("dq-roster")
                 val body = withMetricsSettings(metricsSettings, { it.copy(hoursPerDay = 8.0) }) {
-                    client.dq("from=2026-01-01&to=2026-01-31")
+                    client.dq("from=2026-01-01&to=2026-01-31&$UNIT_DOMAIN")
                 }
                 val silent = body.groups.single { it.teamId == team }
                 val holidays = TestHolidays.dates()
@@ -1051,7 +1109,7 @@ class ReportDataQualityTest {
                 assertEquals(0, silent.tasks.done)
                 assertEquals(0, silent.epics!!.epics)
                 // Scoped to a connection where the team has no finding row, the global roster is pruned (the documented caveat).
-                val scoped = client.dq("connectionId=$other&from=2026-01-01&to=2026-01-31")
+                val scoped = client.dq("connectionId=$other&from=2026-01-01&to=2026-01-31&$UNIT_DOMAIN")
                 assertTrue(scoped.groups.none { it.teamId == team })
                 assertEquals(0.0, scoped.loggedHours.memberDays, EPS)
             } finally {
@@ -1129,8 +1187,9 @@ class ReportDataQualityTest {
                 }
                 val client = seededClient("dq-mapping")
                 val query = "from=2026-01-01&to=2026-01-31"
+                val unit = "$query&domain=AAA" // the hand-built worlds' one populated domain
 
-                val boards = client.dq("connectionId=$boardConn&$query").unmappedBoards
+                val boards = client.dq("connectionId=$boardConn&$unit").unmappedBoards
                 assertEquals(1, boards.total)
                 val board = boards.items.single()
                 assertEquals(9L, board.boardId)
@@ -1139,7 +1198,7 @@ class ReportDataQualityTest {
                 assertEquals(2, boards.unattributedDoneTasks, "tasks 3 (no board) and 4 (mapped board, teamless sprint)")
 
                 // No stored configuration: the computed defaults map every status whose Jira category has a default stage.
-                val defaults = client.dq("connectionId=$statusConn&$query").unmappedStatuses
+                val defaults = client.dq("connectionId=$statusConn&$unit").unmappedStatuses
                 assertEquals(listOf("2"), defaults.items.map { it.statusId })
                 val weird = defaults.items.single()
                 assertEquals(listOf("Weird", "UNKNOWN"), listOf(weird.name, weird.category))
@@ -1152,7 +1211,7 @@ class ReportDataQualityTest {
                         it[stage] = "NOT_STARTED"
                     }
                 }
-                val stored = client.dq("connectionId=$statusConn&$query").unmappedStatuses
+                val stored = client.dq("connectionId=$statusConn&$unit").unmappedStatuses
                 assertEquals(listOf("2", "3"), stored.items.map { it.statusId })
                 assertEquals(listOf("Weird", "Working"), stored.items.map { it.name })
                 // A connection holding ONLY a per-domain override row is still a stored configuration (not the defaults), and the
@@ -1166,7 +1225,7 @@ class ReportDataQualityTest {
                         it[stage] = "DONE"
                     }
                 }
-                val overrideOnly = client.dq("connectionId=$statusConn&$query").unmappedStatuses
+                val overrideOnly = client.dq("connectionId=$statusConn&$unit").unmappedStatuses
                 assertEquals(listOf("1", "2", "3"), overrideOnly.items.map { it.statusId })
             } finally {
                 suspendTransaction(sharedDatabaseForTests()) {
@@ -1243,8 +1302,9 @@ class ReportDataQualityTest {
                 }
                 val client = seededClient("dq-above")
                 val query = "from=2026-01-01&to=2026-01-31"
+                val unit = "$query&domain=AAA" // the hand-built worlds' one populated domain
 
-                val a = client.dq("connectionId=$connA&$query").itemsAboveEpic
+                val a = client.dq("connectionId=$connA&$unit").itemsAboveEpic
                 assertEquals(2, a.total)
                 assertEquals(listOf("DQA-11", "DQA-10"), a.items.map { it.issueKey }, "highest level first")
                 val portfolio = a.items[0]
@@ -1262,13 +1322,13 @@ class ReportDataQualityTest {
                 )
                 assertEquals(2.0, program.worklogMd, EPS, "only the Program's own two worklogs, not the epic's and not connection B's")
 
-                val b = client.dq("connectionId=$connB&$query").itemsAboveEpic
+                val b = client.dq("connectionId=$connB&$unit").itemsAboveEpic
                 assertEquals(listOf("DQB-10"), b.items.map { it.issueKey })
                 assertEquals(7.0, b.items.single().worklogMd, EPS)
 
                 // Every connection: the total spans them. Only the total is asserted: the list is capped at 50 and ordered by level
                 // then key, so other classes' level-2+ rows in the shared container may push these three off the page.
-                val unitTotal = client.dq(query).itemsAboveEpic.total
+                val unitTotal = client.dq(unit).itemsAboveEpic.total
                 assertTrue(unitTotal >= a.total + b.total, "the default read spans the connections (others may add more, never fewer)")
 
                 // A connection-level finding: neither a real team nor the UNASSIGNED team narrows it.
@@ -1277,7 +1337,7 @@ class ReportDataQualityTest {
 
                 // A connection with none lists none.
                 val none = SyncedStubFixture.createConnection(namePrefix = "dq-above-none", enabled = false)
-                assertEquals(0, client.dq("connectionId=$none&$query").itemsAboveEpic.total)
+                assertEquals(0, client.dq("connectionId=$none&$unit").itemsAboveEpic.total)
             } finally {
                 suspendTransaction(sharedDatabaseForTests()) {
                     for (connId in connections) {
@@ -1297,7 +1357,7 @@ class ReportDataQualityTest {
         val connId = SyncedStubFixture.createConnection(namePrefix = "dq-above-cap", enabled = false)
         try {
             workItems.replaceWorkItems(connId, (1L..55L).map { levelItem(it, "DQC", 2) }, now = 5_000L)
-            val list = seededClient("dq-above-cap").dq("connectionId=$connId&from=2026-01-01&to=2026-01-31").itemsAboveEpic
+            val list = seededClient("dq-above-cap").dq("connectionId=$connId&from=2026-01-01&to=2026-01-31&domain=AAA").itemsAboveEpic
             assertEquals(55, list.total)
             assertEquals(50, list.items.size)
             assertEquals((1L..55L).map { "DQC-$it" }.sorted().take(50), list.items.map { it.issueKey }, "same level: by key")
@@ -1321,7 +1381,7 @@ class ReportDataQualityTest {
                     .copy(epicId = null, sprintIdAtDone = 1, estimateSource = "OWN")
             }
             suspendTransaction(sharedDatabaseForTests()) { store.replaceFactTaskDelivery(connId, tasks, configRevision = 1L) }
-            val body = seededClient("dq-cap").dq("connectionId=$connId&from=2026-01-01&to=2026-01-31")
+            val body = seededClient("dq-cap").dq("connectionId=$connId&from=2026-01-01&to=2026-01-31&domain=AAA")
             assertEquals(55, body.missing.noEpic.total)
             assertEquals(55, body.missing.noEpic.done)
             assertEquals(50, body.missing.noEpic.items.size)
@@ -1353,10 +1413,11 @@ class ReportDataQualityTest {
             }
             val client = seededClient("dq-wc")
             val query = "from=2026-01-01&to=2026-01-31"
-            val yes = client.dq("connectionId=$configured&$query")
+            val unit = "$query&domain=AAA" // the hand-built worlds' one populated domain
+            val yes = client.dq("connectionId=$configured&$unit")
             assertTrue(yes.missing.workCategoryConfigured)
             assertEquals(1, yes.missing.noWorkCategory.done)
-            val no = client.dq("connectionId=$plain&$query")
+            val no = client.dq("connectionId=$plain&$unit")
             assertFalse(no.missing.workCategoryConfigured)
             assertEquals(0, no.missing.noWorkCategory.total, "the same task on a connection without the field is not a finding")
             // Both connections in scope (every connection): only the configured ones' categoryless tasks count.
@@ -1368,11 +1429,11 @@ class ReportDataQualityTest {
                     .map { it[MetricsConfigService.FieldConfig.connectionId].value }.toSet()
                 t.selectAll().where { t.isSubtask eq false }.toList().count {
                     val doneAt = it[t.doneAt]
-                    it[t.connectionId].value in configuredIds && doneAt != null && doneAt >= bounds.first && doneAt < bounds.second &&
-                        it[t.workCategory] == null
+                    it[t.connectionId].value in configuredIds && it[t.domainKey] == "AAA" && doneAt != null &&
+                        doneAt >= bounds.first && doneAt < bounds.second && it[t.workCategory] == null
                 }
             }
-            val all = client.dq(query)
+            val all = client.dq(unit)
             assertTrue(all.missing.workCategoryConfigured)
             assertEquals(expected, all.missing.noWorkCategory.done)
             assertTrue(expected >= 1)
@@ -1389,10 +1450,11 @@ class ReportDataQualityTest {
     fun `a user role reads the report and every bad filter is 400`() = testApplication {
         usePostgresTestcontainer()
         val client = seededClient("dq-400")
-        assertEquals(HttpStatusCode.OK, client.get("/api/v1/reports/data-quality").status, "D12: any signed-in user, default period")
+        val default = client.get("/api/v1/reports/data-quality?$UNIT_DOMAIN")
+        assertEquals(HttpStatusCode.OK, default.status, "D12: any signed-in user, default period")
         val badQueries = listOf(
-            "from=2026-01-01&to=2025-01-01", "accountId=abc", "connectionId=999999", "teamId=999999", "sprintId=999999999",
-            "lastSprints=0", "domainView=NOPE",
+            "from=2026-01-01&to=2025-01-01&$UNIT_DOMAIN", "accountId=abc&$UNIT_DOMAIN", "connectionId=999999&$UNIT_DOMAIN", "teamId=999999",
+            "sprintId=999999999&$UNIT_DOMAIN", "lastSprints=0&$UNIT_DOMAIN", "domainView=NOPE&$UNIT_DOMAIN",
         )
         for (query in badQueries) {
             assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/data-quality?$query").status, query)

@@ -56,11 +56,16 @@ object DerivedStubFixture {
     /** The `hoursPerDay` every fixture derive runs under — a read-only test converting worklog seconds reads it from here. */
     const val HOURS_PER_DAY = 8.0
     private const val FLO_BOARD_ID = 1L
+    /** The FLO stub project's domain (the default map is one domain per project key): `domain=FLO` is a UNIT-level scope. */
+    const val DOMAIN = "FLO"
 
     private val initLock = Mutex()
 
     @Volatile
     private var derivedConnectionId: UInt? = null
+
+    @Volatile
+    private var derivedTeamId: UInt? = null
 
     // The digest is ~180 ms, so connectionId() re-verifies only when the calling TEST CLASS changes (FixtureTripwire).
     private val tripwire = FixtureTripwire<String>("derived fixture", perCallerClass = true)
@@ -171,6 +176,12 @@ object DerivedStubFixture {
         return connId
     }
 
+    /** The team the fixture maps the FLO board to: the scope a read-only report test passes as `teamId`. */
+    suspend fun teamId(): UInt {
+        connectionId()
+        return checkNotNull(derivedTeamId) { "the derived fixture records its team before publishing the connection" }
+    }
+
     private suspend fun ensureDerived(): UInt {
         derivedConnectionId?.let { return it }
         return initLock.withLock {
@@ -182,7 +193,7 @@ object DerivedStubFixture {
             val connId = SyncedStubFixture.createConnection(namePrefix = "jira-derived-fixture", enabled = false)
             SyncedStubFixture.cloneProcessedData(sourceConnId, connId)
 
-            mapFloBoardToNewTeam(connId, metricsConfig(), "flo-derived-team")
+            derivedTeamId = mapFloBoardToNewTeam(connId, metricsConfig(), "flo-derived-team")
             withPinnedSettings(metricsSettings()) { derivePinned(connId) }
             // Fixture-cost marker (read by `scripts/timings/local-times.mjs`, which subtracts it from the suite that
             // paid it): `fixture-cost<TAB><name><TAB><millis>`; Gradle captures it in that suite's <system-out>.
