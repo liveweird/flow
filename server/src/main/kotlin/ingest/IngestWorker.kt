@@ -1,9 +1,7 @@
 package ch.nokillswit.ingest
 
 import ch.nokillswit.audit.audit
-import ch.nokillswit.infra.json.replaceNul
 import ch.nokillswit.infra.time.MILLIS_PER_DAY
-import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
 import ch.nokillswit.plugins.runsWorker
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStarted
@@ -135,6 +133,8 @@ class IngestWorker internal constructor(
     private val timeSource: TimeSource,
     /** Runs when the last running job ends ([BusyTracker]); a no-op unless given — production passes [giveHeapBackWhenIdle]. */
     onIdle: () -> Unit = {},
+    /** A run's hard-stop duration from its budget (budget + grace); `CeilingHardStopTest` shortens it to milliseconds. */
+    private val hardStopAfterMillis: (maxRunMillis: Long) -> Long = { config.hardStopMillisFor(it) },
 ) {
     constructor(
         syncJobs: SyncJobsService,
@@ -155,11 +155,13 @@ class IngestWorker internal constructor(
         clock: () -> Long,
         onIdle: () -> Unit,
         timeSource: TimeSource = TimeSource.Monotonic,
+        hardStopAfterMillis: (maxRunMillis: Long) -> Long = { config.hardStopMillisFor(it) },
     ) : this(
         syncJobs, dataSources, handlers, connectors, config, clock,
         { claim, now, bound -> syncJobs.renewLease(claim.id, config.workerId, claim.attempt, config.leaseSeconds, now, bound) },
         timeSource,
         onIdle,
+        hardStopAfterMillis,
     )
 
     internal val slots = Semaphore(config.workerSlots)
@@ -246,7 +248,10 @@ class IngestWorker internal constructor(
             )
             coroutineScope {
                 val ticker = launch { heartbeat.heartbeatLoop(claim, leaseStart) }
-                val context = SyncJobRunContext(claim, clock = clock, maxRunMillis = maxRunMillisFor(claim)) { progress, currentStream ->
+                val maxRunMillis = config.maxRunMillisFor(claim.kind)
+                val context = SyncJobRunContext(
+                    claim, clock = clock, maxRunMillis = maxRunMillis, hardStopMillis = maxRunMillis?.let(hardStopAfterMillis),
+                ) { progress, currentStream ->
                     syncJobs.heartbeat(claim.id, config.workerId, claim.attempt, config.leaseSeconds, clock(), progress, currentStream)
                 }
                 // DERIVE (v0.3.0 M3 commit 7, `.claude/docs/ingestion.md` "The DERIVE job kind") is
@@ -353,19 +358,12 @@ class IngestWorker internal constructor(
         audit("sync_job.succeeded", "jobId" to claim.id.toLong(), "dataSourceId" to claim.connectionId.toLong(), "kind" to claim.kind.name)
     }
 
-    /** The wall-clock ceiling of a SYNC/RECONCILE run (`ingest.maxJobMinutes`); the other kinds are bounded by their work. */
-    private fun maxRunMillisFor(claim: SyncJobClaim): Long? =
-        if (claim.kind == SyncJobKind.SYNC || claim.kind == SyncJobKind.RECONCILE) config.maxJobMinutes * MILLIS_PER_MINUTE else null
-
     private suspend fun onFailed(claim: SyncJobClaim, cause: Exception) {
         // A ceiling trip (`SyncPause.kt`) carries a closed code of its own and reports the failure it wraps; anything else is RUN_FAILED.
         val trip = cause as? CeilingTripException
         val reported = trip?.underlying ?: cause
         val errorCode = trip?.code ?: "RUN_FAILED"
-        // A NUL in the message (a database exception inlines the offending value) cannot be stored in `text`: the failure write would fail
-        // with 22021 and the job hang RUNNING until its lease expired. Control characters go too (no forged log/status line).
-        val detail = "${reported.javaClass.simpleName}: ${reported.message}".replaceNul().map { if (it.isISOControl()) '?' else it }
-            .joinToString("").take(MAX_ERROR_DETAIL_LENGTH)
+        val detail = failureDetail(reported)
         // `fail` also records the SYNC/RECONCILE back-off in the same transaction, so a closed job never leaves the connection due;
         // `failTripped` adds the trip counter and the pause to it.
         val written = if (trip != null) {
@@ -385,12 +383,12 @@ class IngestWorker internal constructor(
             "kind" to claim.kind.name,
             "errorCode" to errorCode,
             *(if (written.resumable) arrayOf("resumable" to true) else emptyArray()),
+            *(if (trip?.hardStop == true) arrayOf("hardStop" to true) else emptyArray()),
         )
         written.trip?.pausedNow?.let { announcePause(claim, it, config.pauseAfterLimitTrips) }
     }
 
     private companion object {
         val log = LoggerFactory.getLogger(IngestWorker::class.java)
-        const val MAX_ERROR_DETAIL_LENGTH = 1000
     }
 }

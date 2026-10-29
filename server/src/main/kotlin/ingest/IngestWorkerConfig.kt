@@ -2,6 +2,7 @@ package ch.nokillswit.ingest
 
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
+import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
 import io.ktor.server.config.ApplicationConfig
 import java.net.InetAddress
 import java.util.UUID
@@ -15,11 +16,14 @@ data class IngestConfig(
     val workerId: String,
     /**
      * The wall-clock ceiling of one SYNC/RECONCILE run, in minutes (`ingest.maxJobMinutes`, [DEFAULT_MAX_JOB_MINUTES]): the run stops
-     * between pages with `TIME_EXCEEDED` and the next one resumes from the cursors (`SyncPause.kt`).
+     * between pages with `TIME_EXCEEDED` and the next one resumes from the cursors (`SyncPause.kt`); a run that does not reach a page
+     * boundary within [hardStopGraceSeconds] of it is cancelled in flight and ends the same way.
      */
     val maxJobMinutes: Long = DEFAULT_MAX_JOB_MINUTES,
     /** No-progress SYNC ceiling trips in a row that pause the connection (`ingest.pauseAfterLimitTrips`, default 5). */
     val pauseAfterLimitTrips: Int = DEFAULT_PAUSE_AFTER_LIMIT_TRIPS,
+    /** How long past [maxJobMinutes] a run may still be in flight before it is cancelled (`ingest.hardStopGraceSeconds`, default 60). */
+    val hardStopGraceSeconds: Long = DEFAULT_HARD_STOP_GRACE_SECONDS,
 )
 
 /**
@@ -28,6 +32,22 @@ data class IngestConfig(
  * (its cursors keep every page, and the next run continues from them). The stub's SYNC takes seconds.
  */
 internal const val DEFAULT_MAX_JOB_MINUTES = 60L
+
+/**
+ * 60 seconds: the graceful stop (the heartbeat between pages) normally lands within seconds of the budget, since a healthy page takes
+ * well under a minute; a call or page still running a minute later is stuck or throttled, and the next run redoes at most that one
+ * page. Longer would let a hung call hold its worker slot well past the budget; shorter would cancel healthy pages.
+ */
+internal const val DEFAULT_HARD_STOP_GRACE_SECONDS = 60L
+
+private const val MILLIS_PER_SECOND = 1_000L
+
+/** The wall-clock ceiling of a [kind] run (`ingest.maxJobMinutes`; SYNC and RECONCILE), null for the kinds bounded by their own work. */
+internal fun IngestConfig.maxRunMillisFor(kind: SyncJobKind): Long? =
+    if (kind == SyncJobKind.SYNC || kind == SyncJobKind.RECONCILE) maxJobMinutes * MILLIS_PER_MINUTE else null
+
+/** The duration from a run's start to its hard stop: the budget [maxRunMillis] plus the grace ([IngestConfig.hardStopGraceSeconds]). */
+internal fun IngestConfig.hardStopMillisFor(maxRunMillis: Long): Long = maxRunMillis + hardStopGraceSeconds * MILLIS_PER_SECOND
 
 /** 5 no-progress trips in a row: each is the same futile run repeating (the back-off spaces them), so five is evidence, not noise. */
 internal const val DEFAULT_PAUSE_AFTER_LIMIT_TRIPS = 5
@@ -40,9 +60,11 @@ internal fun readIngestConfig(config: ApplicationConfig): IngestConfig {
     val grace = requireConfigLong(config, "ingest.purgeGraceDays", min = 0, max = 90)
     val maxJobMinutes = requireConfigLong(config, "ingest.maxJobMinutes", min = 5, max = 1440)
     val pauseAfterTrips = requireConfigInt(config, "ingest.pauseAfterLimitTrips", min = 1, max = 100)
+    val hardStopGrace = requireConfigLong(config, "ingest.hardStopGraceSeconds", min = 10, max = 900)
     val configuredWorkerId = config.propertyOrNull("ingest.workerId")?.getString()?.trim().orEmpty()
     return IngestConfig(
         tick, slots, lease, retention, grace, configuredWorkerId.ifBlank { defaultWorkerId() }, maxJobMinutes, pauseAfterTrips,
+        hardStopGrace,
     )
 }
 

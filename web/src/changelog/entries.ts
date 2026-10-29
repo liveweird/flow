@@ -29,6 +29,16 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
 - Liczby są dokładnie takie same; nowe dane (synchronizacja, przeliczenie, zmiana ustawień) zaczynają od nowa.`,
   },
   {
+    version: "1.26.1",
+    date: "2026-10-29",
+    en: `**Jira sync: a run that outlives its time budget is now stopped mid-page.**
+
+- A sync or reconcile run was checked against its time budget (\`INGEST_MAX_JOB_MINUTES\`) only between pages, so a slow Jira call or a rate-limit wait could keep it running up to about five minutes past the budget. It is now cancelled once the budget plus a short grace (\`INGEST_HARD_STOP_GRACE_SECONDS\`, 60 seconds by default) has passed: the page in flight is rolled back, the run ends as a time-budget stop like before, and the next run resumes where it stopped.`,
+    pl: `**Synchronizacja z Jirą: przebieg, który przekroczy limit czasu, jest teraz zatrzymywany w trakcie strony.**
+
+- Przebieg synchronizacji lub uzgadniania był porównywany z limitem czasu (\`INGEST_MAX_JOB_MINUTES\`) tylko między stronami, więc wolne wywołanie Jiry albo oczekiwanie przy limicie zapytań mogło przedłużyć go nawet o około pięć minut ponad limit. Teraz jest przerywany, gdy minie limit plus krótki zapas (\`INGEST_HARD_STOP_GRACE_SECONDS\`, domyślnie 60 sekund): przetwarzana strona jest wycofywana, przebieg kończy się jak dotąd zatrzymaniem z powodu limitu czasu, a następny przebieg wznawia pracę od miejsca zatrzymania.`,
+  },
+  {
     version: "1.26.0",
     date: "2026-10-29",
     en: `**Reports: the API refuses a whole-unit read.**
