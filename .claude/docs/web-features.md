@@ -20,7 +20,7 @@ endpoint (`requireAdmin` server-side).
   trips without progress (`status.pausedAt`, `ingestion.md` "Ceiling trips and the pause") shows an ORANGE `Paused` badge beside its state badge
   (the attention colour, not the blocking red; its `title` is the reason) on the list and the details page, and the details page adds an orange
   `Alert` above the connection table: since when (`formatEpochMillis`), the reason (`dataSources.paused.reason.<code>`, `OTHER` for a code
-  this build does not know), the count of runs without progress, and the hint that "Sync now" or saving the connection resumes it. Scheduled RECONCILE keeps running while paused (the alert says syncs only). Nothing renders
+  this build does not know), the count of runs without progress, and the hint that "Sync now" or saving the connection resumes it. Scheduled RECONCILE keeps running while paused (the alert says syncs only). The server also exposes the RECONCILE pause (`status.reconcilePausedAt`/`reconcilePauseReason`/`reconcileLimitTrips`, V38); no page shows it yet. Nothing renders
   when `pausedAt` is null (a count below the threshold is not shown). The `state` badge itself is unchanged (`FAILED`); there is no resume
   button, the existing Sync now (list row menu, details page) is the resume. Tests: `DataSourcePause.test.tsx`, `DataSourceDetailsPause.test.tsx`, one case in
   `DataSources.test.tsx`; the telemetry Sync table (`TelemetrySyncSection`) adds the same badge from `freshness.pausedAt`.

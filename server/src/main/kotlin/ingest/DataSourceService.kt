@@ -36,9 +36,9 @@ val DATA_SOURCE_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
 
 /**
  * The outcome of a PUT, so the route can audit a token rotation as its own event. [resumed] is the pause this save lifted
- * (null when the connection was not paused), for the `data_source.resumed` event.
+ * (empty when the connection was not paused; at most one SYNC and one RECONCILE snapshot), for the `data_source.resumed` events.
  */
-data class DataSourceUpdateResult(val tokenRotated: Boolean, val siteHost: String, val resumed: PauseSnapshot? = null)
+data class DataSourceUpdateResult(val tokenRotated: Boolean, val siteHost: String, val resumed: List<PauseSnapshot> = emptyList())
 
 /**
  * Data sources (v0.2.0 plan §4 V8): a generic connector registry — `kind`, typed common columns
@@ -86,6 +86,10 @@ class DataSourceService(
         val limitTrips = integer("limit_trips").default(0)
         val pausedAt = long("paused_at").nullable()
         val pauseReason = varchar("pause_reason", 100).nullable()
+        // V38: the same for RECONCILE (`ReconcilePause.kt`): consecutive ceiling trips (progress or not) and the pause they cause.
+        val reconcileLimitTrips = integer("reconcile_limit_trips").default(0)
+        val reconcilePausedAt = long("reconcile_paused_at").nullable()
+        val reconcilePauseReason = varchar("reconcile_pause_reason", 100).nullable()
     }
 
     override val encryptedRowLabel = "Jira API token"
@@ -174,9 +178,13 @@ class DataSourceService(
             it.clearBackoff(current)
             // ... and the ceiling-trip pause with its counter (`SyncPause.kt`).
             it.clearPause(current)
+            it.clearReconcilePause(current)
         }
         if (request.enabled) restampDelayedDerive(id, current[Connections.configRevision] + 1)
-        DataSourceUpdateResult(tokenRotated, siteHost(request.jira.siteUrl), resumed = current.pauseSnapshot())
+        DataSourceUpdateResult(
+            tokenRotated, siteHost(request.jira.siteUrl),
+            resumed = listOfNotNull(current.pauseSnapshot(), current.reconcilePauseSnapshot()),
+        )
     }
 
     /**
@@ -272,6 +280,9 @@ class DataSourceService(
      * lifted, or null when the connection was not paused (a counter below the threshold is still cleared).
      */
     suspend fun resumeFromPause(id: UInt): PauseSnapshot? = resumeFromPauseRow(database, id)
+
+    /** "Reconcile now": the same for the RECONCILE pause and its counter (`ReconcilePause.kt`); "Sync now" leaves it alone. */
+    suspend fun resumeFromReconcilePause(id: UInt): PauseSnapshot? = resumeFromReconcilePauseRow(database, id)
 
     /** A PURGE job succeeded (plan §0 A2) — stops the due-PURGE scan from re-enqueueing this connection. */
     suspend fun recordPurgeSucceeded(id: UInt, now: Long = nowMillis()) = recordPurgeSucceededRow(database, id, now)

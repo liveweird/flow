@@ -95,6 +95,12 @@ data class DataSourceStatus(
     val pauseReason: String? = null,
     /** Consecutive SYNC ceiling trips that made no progress; resets on a succeeded SYNC, "Sync now" or a PUT. */
     val limitTrips: Int = 0,
+    /** Epoch millis the RECONCILE ceiling-trip pause began (`ReconcilePause.kt`), null when scheduled RECONCILE is not paused. */
+    val reconcilePausedAt: Long? = null,
+    /** Why it paused: a trip code (`LIMIT_EXCEEDED`, `TIME_EXCEEDED`); set exactly when [reconcilePausedAt] is. */
+    val reconcilePauseReason: String? = null,
+    /** Consecutive RECONCILE ceiling trips (progress or not); resets on a succeeded RECONCILE, "Reconcile now" or a PUT. */
+    val reconcileLimitTrips: Int = 0,
 )
 
 @Serializable

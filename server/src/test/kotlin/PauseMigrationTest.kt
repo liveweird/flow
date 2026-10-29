@@ -9,8 +9,9 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 /**
- * V37 (`source_connection_pause`) on a database that already holds a connection: the three new columns read as "no trips, not
- * paused" on a row that predates them, and the CHECKs keep `paused_at`/`pause_reason` together, the reason in its closed
+ * V37 (`source_connection_pause`) and V38 (`source_connection_reconcile_pause`, its RECONCILE twin) on a database that already holds a
+ * connection: the three new columns of each read as "no trips, not paused" on a row that predates them, and the CHECKs keep
+ * `paused_at`/`pause_reason` together, the reason in its closed
  * vocabulary and the counter non-negative.
  * Migrates a scratch database to V36, inserts the legacy row, then to the latest version - the shared one is already past it.
  */
@@ -57,6 +58,39 @@ class PauseMigrationTest {
                         "a reason outside the closed vocabulary",
                     )
                     st.execute("UPDATE source_connections SET paused_at = 5, pause_reason = 'LIMIT_EXCEEDED', limit_trips = 5")
+                }
+                // V38 (the RECONCILE twin) over the same row, which already carries a SYNC pause: it reads as "no RECONCILE trips,
+                // not paused", the SYNC pause survives, and the three CHECKs hold the same way.
+                flyway("38").migrate()
+                db.createStatement().use { st ->
+                    st.executeQuery(
+                        "SELECT limit_trips, paused_at, reconcile_limit_trips, reconcile_paused_at, reconcile_pause_reason " +
+                            "FROM source_connections",
+                    ).use { rs ->
+                        rs.next()
+                        assertEquals(5, rs.getInt("limit_trips"), "the SYNC counter is untouched")
+                        assertEquals(5, rs.getLong("paused_at"))
+                        assertEquals(0, rs.getInt("reconcile_limit_trips"))
+                        rs.getLong("reconcile_paused_at")
+                        assertEquals(true, rs.wasNull())
+                        assertNull(rs.getString("reconcile_pause_reason"))
+                    }
+                    fun assertCheckViolation(sql: String, what: String) {
+                        assertEquals("23514", assertFailsWith<SQLException>(what) { st.execute(sql) }.sqlState, what)
+                    }
+                    assertCheckViolation("UPDATE source_connections SET reconcile_paused_at = 5", "reconcile_paused_at without a reason")
+                    assertCheckViolation(
+                        "UPDATE source_connections SET reconcile_pause_reason = 'TIME_EXCEEDED'", "a reconcile reason without a pause time",
+                    )
+                    assertCheckViolation("UPDATE source_connections SET reconcile_limit_trips = -1", "a negative reconcile count")
+                    assertCheckViolation(
+                        "UPDATE source_connections SET reconcile_paused_at = 5, reconcile_pause_reason = 'because'",
+                        "a reconcile reason outside the closed vocabulary",
+                    )
+                    st.execute(
+                        "UPDATE source_connections SET reconcile_paused_at = 5, reconcile_pause_reason = 'TIME_EXCEEDED', " +
+                            "reconcile_limit_trips = 5",
+                    )
                 }
             }
         } finally {

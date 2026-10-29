@@ -11,6 +11,7 @@ const HEALTHY: Status = {
   lastSyncErrorCode: null,
   consecutiveFailures: 0,
   limitTrips: 0,
+  reconcileLimitTrips: 0,
 };
 
 const PAUSED: Status = {

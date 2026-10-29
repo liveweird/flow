@@ -112,6 +112,10 @@ data class TelemetryFreshness(
     val pausedAt: Long? = null,
     /** The trip code that paused it; set exactly when [pausedAt] is. */
     val pauseReason: String? = null,
+    /** Epoch millis the RECONCILE ceiling-trip pause began (scheduled RECONCILE is off); null when not paused. */
+    val reconcilePausedAt: Long? = null,
+    /** The trip code that paused RECONCILE; set exactly when [reconcilePausedAt] is. */
+    val reconcilePauseReason: String? = null,
 )
 
 @Serializable

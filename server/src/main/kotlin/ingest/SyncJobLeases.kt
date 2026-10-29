@@ -299,9 +299,10 @@ internal class SyncJobLeases(
         failWrite(jobId, attempt, errorCode, errorDetail, now, trip = null, pauseAfterTrips = 0) != null
 
     /**
-     * [fail] for a SYNC that stopped at a ceiling ([CeilingTripException]): the same fenced write and back-off, plus the connection's
-     * trip counter and pause (`recordCeilingTrip`, `SyncPause.kt`) in that SAME transaction. Null = fenced out (a stale run), nothing
-     * recorded; otherwise the [TripRecord] (null inside it when the job was not a SYNC, or of an older revision).
+     * [fail] for a SYNC or RECONCILE that stopped at a ceiling ([CeilingTripException]): the same fenced write and back-off, plus the
+     * connection's trip counter and pause for that kind (`recordCeilingTrip`, `SyncPause.kt`; `recordReconcileTrip`, `ReconcilePause.kt`)
+     * in that SAME transaction. Null = fenced out (a stale run), nothing recorded; otherwise the [TripRecord] (null inside it when the
+     * job was neither, or of an older revision).
      */
     suspend fun failTripped(
         jobId: UInt,
@@ -341,7 +342,12 @@ internal class SyncJobLeases(
         }
         recordFailureBackoff(connectionId, kind, errorCode, now, revision)
         FailedWrite(
-            if (trip != null && kind == SyncJobKind.SYNC) recordCeilingTrip(connectionId, trip, pauseAfterTrips, now, revision) else null,
+            when {
+                trip == null -> null
+                kind == SyncJobKind.SYNC -> recordCeilingTrip(connectionId, trip, pauseAfterTrips, now, revision)
+                kind == SyncJobKind.RECONCILE -> recordReconcileTrip(connectionId, trip, pauseAfterTrips, now, revision)
+                else -> null
+            },
         )
     }
 

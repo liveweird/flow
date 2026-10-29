@@ -847,8 +847,9 @@ export interface paths {
          *     So is a `jira.projectKeys` entry already in ANOTHER active data source (`type`
          *     `urn:flow:problem:data-source-project-overlap`; `detail` names that data source and the
          *     shared keys, `instance` is its path `/api/v1/data-sources/{id}`); the site never changes
-         *     on update, so the one-Jira-site rule cannot fire here. A save also lifts a ceiling-trip
-         *     pause with its trip count (`status.pausedAt`, audited as `data_source.resumed`).
+         *     on update, so the one-Jira-site rule cannot fire here. A save also lifts the ceiling-trip
+         *     pauses (SYNC's `status.pausedAt` and RECONCILE's `status.reconcilePausedAt`) with their trip counts,
+         *     each audited as `data_source.resumed`.
          */
         put: operations["updateDataSource"];
         post?: never;
@@ -887,8 +888,10 @@ export interface paths {
          *     when `kind` is `PURGE` — PURGE is scheduled internally (a soft-deleted connection past
          *     its grace period) and is never requester-initiated. A second request while one is already
          *     `PENDING`/`RUNNING` for the same `(connection, kind)` is coalesced (`202`,
-         *     `coalesced: true`, the EXISTING job). A `SYNC` request ("Sync now") also lifts a
-         *     ceiling-trip pause with its trip count (`status.pausedAt`, audited as `data_source.resumed`).
+         *     `coalesced: true`, the EXISTING job). A `SYNC` request ("Sync now") also lifts the SYNC
+         *     ceiling-trip pause with its trip count (`status.pausedAt`), a `RECONCILE` request ("Reconcile now")
+         *     the RECONCILE one (`status.reconcilePausedAt`); each lifts only its own kind's pause, audited as
+         *     `data_source.resumed`.
          */
         post: operations["requestSyncJob"];
         delete?: never;
@@ -2902,13 +2905,22 @@ export interface components {
             runningJobId?: number | null;
             /**
              * Format: int64
-             * @description Epoch millis the ceiling-trip pause began; null while scheduled syncing is not paused. A paused connection gets no scheduled SYNC (its RECONCILE continues) until an ADMIN's "Sync now" (`POST .../sync-jobs` with `SYNC`) or a PUT lifts it.
+             * @description Epoch millis the ceiling-trip pause began; null while scheduled syncing is not paused. A paused connection gets no scheduled SYNC (its RECONCILE continues, unless it has a pause of its own) until an ADMIN's "Sync now" (`POST .../sync-jobs` with `SYNC`) or a PUT lifts it.
              */
             pausedAt?: number | null;
             /** @description Why it paused - the constant code of the trip that reached the threshold (`LIMIT_EXCEEDED` or `TIME_EXCEEDED`); set exactly when `pausedAt` is. A closed vocabulary (the database enforces it; no OpenAPI `enum`, whose nullable form the conformance validator rejects against an explicit `null`). */
             pauseReason?: string | null;
             /** @description Consecutive SYNCs that stopped at a ceiling without storing a change (in the tripping stream for a limit, anywhere in the run for the wall clock). Reset by a succeeded SYNC, "Sync now" and a PUT; the connection pauses when it reaches `ingest.pauseAfterLimitTrips`. */
             limitTrips: number;
+            /**
+             * Format: int64
+             * @description Epoch millis the RECONCILE ceiling-trip pause began; null while scheduled RECONCILE is not paused. A connection with a RECONCILE pause gets no scheduled RECONCILE (its SYNC continues) until an ADMIN's "Reconcile now" (`POST .../sync-jobs` with `RECONCILE`) or a PUT lifts it. Independent of `pausedAt`.
+             */
+            reconcilePausedAt?: number | null;
+            /** @description Why RECONCILE paused - the constant code of the trip that reached the threshold (`LIMIT_EXCEEDED` or `TIME_EXCEEDED`); set exactly when `reconcilePausedAt` is. Closed vocabulary, like `pauseReason`. */
+            reconcilePauseReason?: string | null;
+            /** @description Consecutive RECONCILEs that stopped at a ceiling, whether or not they stored a change (a RECONCILE pass never resumes, so progress within a run does not make the next one different). Reset by a succeeded RECONCILE, "Reconcile now" and a PUT; RECONCILE pauses when it reaches `ingest.pauseAfterLimitTrips`. */
+            reconcileLimitTrips: number;
         };
         DataSourceResponse: {
             /** Format: int32 */
@@ -6549,6 +6561,13 @@ export interface components {
             pausedAt?: number | null;
             /** @description The trip code that paused it (`LIMIT_EXCEEDED` or `TIME_EXCEEDED`). */
             pauseReason?: string | null;
+            /**
+             * Format: int64
+             * @description Epoch millis the RECONCILE ceiling-trip pause began; while set, scheduled RECONCILE is off (SYNC is unaffected).
+             */
+            reconcilePausedAt?: number | null;
+            /** @description The trip code that paused RECONCILE (`LIMIT_EXCEEDED` or `TIME_EXCEEDED`). */
+            reconcilePauseReason?: string | null;
         };
         TelemetryQueue: {
             /**
