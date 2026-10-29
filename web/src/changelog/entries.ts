@@ -17,8 +17,8 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
-    version: "1.24.1",
-    date: "2026-10-28",
+    version: "1.24.2",
+    date: "2026-10-29",
     en: `**Jira sync: stored Jira documents now have size limits, and processing is cut into pages that fit in memory.**
 
 - An issue or reference record over 2 MiB (\`JIRA_MAX_STORED_PAYLOAD_BYTES\`), a change history over 512 KiB or a worklog over 16 KiB is no longer stored. The sync logs a warning, counts it as skipped (\`issuesSkipped\`, \`entitiesSkipped\`, \`historiesSkipped\`, \`worklogsSkipped\`) and carries on; a version that was already stored is kept as it is. Real data is far below these limits.
@@ -29,6 +29,16 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
 - Zgłoszenie lub rekord referencyjny powyżej 2 MiB (\`JIRA_MAX_STORED_PAYLOAD_BYTES\`), historia zmian powyżej 512 KiB albo wpis czasu pracy powyżej 16 KiB nie jest już zapisywany. Synchronizacja zapisuje ostrzeżenie w logu, liczy go jako pominięty (\`issuesSkipped\`, \`entitiesSkipped\`, \`historiesSkipped\`, \`worklogsSkipped\`) i działa dalej; wersja zapisana wcześniej zostaje bez zmian. Prawdziwe dane są znacznie poniżej tych limitów.
 - Przetwarzanie pobiera teraz zgłoszenia stronami wyciętymi według ich zapisanego rozmiaru (\`JIRA_PROCESS_PAGE_BYTES\`, domyślnie 8 MiB). Pojedyncze zgłoszenie większe niż ten limit zostaje nieprzetworzone z ostrzeżeniem (\`issuesOversized\`), a inspektor surowych zgłoszeń informuje, że jest zbyt duże do wyświetlenia, zamiast je ładować.
 - Kontrola pamięci przy starcie uwzględnia teraz także tę pracę. Domyślne ustawienia nadal mieszczą się w \`-Xmx512m\`; jeśli podniesiono któreś z dwóch nowych ustawień, trzeba odpowiednio zwiększyć stertę workera w \`JAVA_OPTS\`.`,
+  },
+  {
+    version: "1.24.1",
+    date: "2026-10-28",
+    en: `**Person trend: the team line loads faster for large teams.**
+
+- For a person in a large team, the trend with the team reference now needs fewer database reads and less work per row, so it opens sooner. The numbers are unchanged.`,
+    pl: `**Trend osoby: linia zespołu ładuje się szybciej w dużych zespołach.**
+
+- Dla osoby z dużego zespołu trend z linią odniesienia zespołu wymaga teraz mniej odczytów z bazy i mniej pracy na wiersz, więc otwiera się szybciej. Liczby się nie zmieniają.`,
   },
   {
     version: "1.24.0",

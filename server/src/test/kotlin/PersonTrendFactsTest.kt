@@ -9,9 +9,11 @@ import ch.nokillswit.reports.ReportPeriod
 import ch.nokillswit.reports.ReportService
 import ch.nokillswit.reports.fetchAccuracyTasks
 import ch.nokillswit.reports.fetchBlockedItems
+import ch.nokillswit.reports.fetchCompareWorklogs
 import ch.nokillswit.reports.fetchCompareDoneTasks
 import ch.nokillswit.reports.fetchDeliveredFacts
 import ch.nokillswit.reports.fetchDoneCycleTasks
+import ch.nokillswit.reports.fetchTrendWorklogs
 import io.ktor.server.testing.testApplication
 import java.time.LocalDate
 import kotlin.test.Test
@@ -21,9 +23,11 @@ import org.junit.BeforeClass
 
 /**
  * Person trend reads the four populations of `fact_task_delivery` from ONE scan (`fetchDeliveredFacts`, `build-times.md` WHY 46)
- * instead of the four statements Compare people runs. The scan must be exactly those four: same rows, same objects, for the
- * derived fixture's busiest people over the year, with and without a slice -- the guard against one of the four predicates or row
- * mappers changing without the shared scan following.
+ * instead of the four statements Compare people runs, and the worklogs from `fetchTrendWorklogs`, the positional twin of
+ * `fetchCompareWorklogs` (WHY 47: both decode by position, not through Exposed's `ResultRow`). The scan must be exactly those four and
+ * the twin exactly its Exposed fetch: same rows, same objects (decimals with their scale), for the derived fixture's busiest people over
+ * the year, with and without a slice -- the guard against one of the predicates or row mappers changing without the shared reads
+ * following.
  */
 class PersonTrendFactsTest {
 
@@ -67,6 +71,12 @@ class PersonTrendFactsTest {
                 val blocked = fetchBlockedItems(f, BlockedItemKind.TASK, listOf(connId), window)
                 assertEquals(blocked.toSet(), scan.blocked.toSet(), "$label: blocked")
                 assertEquals(blocked.size, scan.blocked.size, "$label: no duplicated row in the scan")
+                val worklogs = fetchCompareWorklogs(f, listOf(connId), window)
+                assertTrue(worklogs.isNotEmpty(), "$label: the worklog read has rows")
+                val trendWorklogs = fetchTrendWorklogs(f, listOf(connId), window)
+                assertEquals(worklogs.toSet(), trendWorklogs.toSet(), "$label: worklogs")
+                assertEquals(worklogs.size, trendWorklogs.size, "$label: no duplicated worklog")
+                assertEquals(emptyList(), fetchTrendWorklogs(f, emptyList(), window), "$label: no connection, no worklog")
                 val sizes = listOf(scan.done.size, scan.cycle.size, scan.accuracy.size, scan.blocked.size)
                 assertEquals(1, sizes.toSet().size, "$label: one row per task in every population ($sizes)")
             }

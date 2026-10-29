@@ -17,7 +17,6 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.intLiteral
-import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
@@ -69,16 +68,15 @@ internal data class CompareWorklog(
 /**
  * The people's WIP over the period: [days] the listed calendar days (derived coverage and backfill start applied), [workingDays] those
  * of them that are working days, [connectionIds] the derived connections read, [dayCounts] each person's count of tasks held in a
- * working stage at each day end (aggregated in Postgres, a day with none absent), [atEnd] the (task, person) rows held on the LAST listed
- * day, [startedAt] the `started_at` of those tasks and [note] why the series is empty or partial.
+ * working stage at each day end (aggregated in Postgres, a day with none absent), [held] each person's tasks held on the LAST listed day
+ * (with their `started_at`; a person with none absent) and [note] why the series is empty or partial.
  */
 internal class CompareWip(
     val days: List<LocalDate>,
     val workingDays: List<LocalDate>,
     val connectionIds: List<UInt>,
     val dayCounts: Map<String, Map<LocalDate, Int>>,
-    val atEnd: List<WipTaskDay>,
-    val startedAt: Map<Pair<UInt, Long>, Long?>,
+    val held: Map<String, List<HeldTask>>,
     val note: String?,
 )
 
@@ -184,39 +182,27 @@ internal suspend fun fetchCompareWorklogPage(
 
 /**
  * The WIP of the picked people across every team, read at query time (`agg_daily_wip` has no per-person scope): the plan's days
- * ([planSnapshotDays] -- the DERIVE cut-off and the backfill start apply, the note rides along), the per-day counts
- * ([readWipUserDayCounts], one grouped `item_stage` x `task_assignee` statement) and the tasks held on the last day ([readWipUserTaskDays]
- * over that one day). Only connections with a successful DERIVE are read, like the WIP report's USER level.
+ * ([planSnapshotDays] -- the DERIVE cut-off and the backfill start apply, the note rides along), the per-day counts and the tasks held on
+ * the last day with their `started_at`, from TWO grouped `item_stage` x `task_assignee` statements ([readWipUserHeld]; WHY 47: three
+ * before). Only connections with a successful DERIVE are read, like the WIP report's USER level.
  */
 internal suspend fun R2dbcTransaction.fetchCompareWip(scope: ReportScope, filter: ReportFilter): CompareWip {
     val plan = planSnapshotDays(scope, filter, scope.calendar, userNote = null, startAtBackfill = true)
     if (plan.days.isEmpty()) {
-        return CompareWip(emptyList(), emptyList(), emptyList(), emptyMap(), emptyList(), emptyMap(), plan.note)
+        return CompareWip(emptyList(), emptyList(), emptyList(), emptyMap(), emptyMap(), plan.note)
     }
     val derived = deriveClocks(scope.connectionIds).keys
     val connectionIds = scope.connectionIds.filter { it in derived }
-    val lastDay = plan.days.last().toString()
-    val firstDay = plan.days.first().toString()
-    val request = WipTaskDaysRequest(connectionIds, accountIds = filter.accountIds, firstDay = firstDay, lastDay = lastDay)
-    val atEnd = readWipUserTaskDays(request.copy(firstDay = lastDay))
+    val request = WipTaskDaysRequest(
+        connectionIds, accountIds = filter.accountIds, firstDay = plan.days.first().toString(), lastDay = plan.days.last().toString(),
+    )
+    val read = readWipUserHeld(request, listOf(plan.days.last()))
     return CompareWip(
         days = plan.days,
         workingDays = plan.days.filter { scope.calendar.isWorkingDay(it) },
         connectionIds = connectionIds,
-        dayCounts = readWipUserDayCounts(request),
-        atEnd = atEnd,
-        startedAt = startedAtOf(atEnd.map { it.connectionId to it.issueId }.distinct()),
+        dayCounts = read.dayCounts,
+        held = read.held[plan.days.last().toString()].orEmpty(),
         note = plan.note,
     )
-}
-
-/** `fact_task_delivery.started_at` of [tasks] (`null` = never started); a task missing from the facts is absent. */
-internal suspend fun startedAtOf(tasks: List<Pair<UInt, Long>>): Map<Pair<UInt, Long>, Long?> {
-    if (tasks.isEmpty()) return emptyMap()
-    val t = MetricsTables.FactTaskDelivery
-    val wanted = tasks.toSet()
-    return t.select(t.connectionId, t.issueId, t.startedAt)
-        .where { (t.connectionId inList wanted.map { it.first }.distinct()) and (t.issueId inList wanted.map { it.second }.distinct()) }
-        .toList().map { (it[t.connectionId].value to it[t.issueId]) to it[t.startedAt] }
-        .filter { it.first in wanted }.toMap()
 }

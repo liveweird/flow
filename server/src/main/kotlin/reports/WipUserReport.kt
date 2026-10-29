@@ -82,6 +82,9 @@ internal fun wipUserOpenBandSql(request: WipUserRequest): WipUserSql {
  * Compare-people's statement: one row per (day, task, person) held in a [WIP_WORKING_STAGES] stage at a day end, over the very `held`/
  * `held_days` CTEs of [wipUserOpenBandSql] but with NO team resolution (no sprint or membership join). A task has one stage and one
  * assignee at an instant, so no row repeats. `WipPlanShapeTest` pins the plan.
+ *
+ * Since WHY 47 no report reads it ([wipUserHeldSql] lists the tasks of the listed days, with their `started_at`): it is kept as
+ * the EXPANSION ORACLE of `CompareWipPushdownTest`, which grades the set-based reads against it.
  */
 internal fun wipUserTaskDaysSql(request: WipTaskDaysRequest): WipUserSql {
     val ctes = request.workingStageCtes()
@@ -108,6 +111,30 @@ internal fun wipUserDayCountsSql(request: WipTaskDaysRequest): WipUserSql {
 }
 
 /**
+ * Compare-people's and Person trend's tasks held on the LISTED days, with their `started_at` (WHY 47): rows are
+ * `(day, account_id, connection_ids, issue_ids, started_ats)` -- the three arrays aligned (each `array_agg` is ordered by
+ * `(connection_id, issue_id)` explicitly, so index `i` is one task in all three), `started_at` `NULL` for a task never started or
+ * missing from the facts. The `day_range` is narrowed to [listedDays] (as [WipTaskDaysRequest.days] does), so the statement touches
+ * only the held rows of those days
+ * (the last day of each window: a few thousand rows, a small sort) and never the whole period. It replaces two statements of the old
+ * read: the tasks held on the last days ([wipUserTaskDaysSql]) and their `started_at` (`startedAtOf`).
+ *
+ * The CTEs are `MATERIALIZED` like [wipUserTaskDaysSql]'s (the fixed join order, a few thousand rows). `started_at` comes from a
+ * `LEFT JOIN` onto `fact_task_delivery`'s primary key INSIDE the `held` CTE (at most one row per assignee/stage pair, never a
+ * multiplied or dropped row); only this statement carries it. [listedDays] is a list of dates, so only ISO literals reach the text. The
+ * per-day COUNT stays in [wipUserDayCountsSql]: folding the arrays into that statement made the planner give up its hash aggregate for
+ * a sort of 566,000 rows (`build-times.md` WHY 47).
+ */
+internal fun wipUserHeldSql(request: WipTaskDaysRequest, listedDays: List<LocalDate>): WipUserSql {
+    val ctes = request.copy(days = listedDays.map { it.toString() }).workingStageCtes(withStartedAt = true)
+    fun aligned(column: String) = "array_agg($column ORDER BY d.connection_id, d.issue_id)"
+    val sql = ctes + "\nSELECT d.day AS day, d.account_id AS account_id, " +
+        "${aligned("d.connection_id")} AS held_connections, ${aligned("d.issue_id")} AS held_issues, " +
+        "${aligned("d.started_at")} AS held_started FROM held_days d GROUP BY d.day, d.account_id"
+    return WipUserSql(sql, request.accountIds)
+}
+
+/**
  * The compare-people drill's per-task figure: rows are `(connection_id, issue_id, count)` -- on how many of the listed [days] each task
  * was held in a [WIP_WORKING_STAGES] stage -- over the same `held_days` rows. [days] are validated dates, interpolated as ISO literals.
  */
@@ -121,8 +148,8 @@ internal fun wipUserTaskCountsSql(request: WipTaskDaysRequest, days: List<LocalD
 }
 
 /** The shared CTEs of the compare-people statements: [WIP_WORKING_STAGES] only, narrowed to [WipTaskDaysRequest.days] when given. */
-private fun WipTaskDaysRequest.workingStageCtes(materialized: Boolean = true): String =
-    wipUserHeldCtes(connectionIds, accountIds, firstDay, lastDay, WIP_WORKING_STAGES, days, materialized)
+private fun WipTaskDaysRequest.workingStageCtes(materialized: Boolean = true, withStartedAt: Boolean = false): String =
+    wipUserHeldCtes(connectionIds, accountIds, firstDay, lastDay, WIP_WORKING_STAGES, days, materialized, withStartedAt)
 
 /**
  * The two shared CTEs of every USER-level WIP statement: `held` (the picks' assignee intervals paired with their tasks' non-DONE stage
@@ -130,7 +157,8 @@ private fun WipTaskDaysRequest.workingStageCtes(materialized: Boolean = true): S
  * ids are `?` markers; only numbers, validated ISO dates and the [WIP_STAGES] constants are interpolated. [days], when given, narrows
  * `day_range` to those dates of [firstDay]..[lastDay] (none at all: no day). Both are `MATERIALIZED` (the join order is fixed, and the
  * statements that list its rows need the single evaluation) unless [materialized] is `false`, for the
- * statement that only counts them ([wipUserDayCountsSql]).
+ * statement that only counts them ([wipUserDayCountsSql]). [withStartedAt] adds the task's `fact_task_delivery.started_at` to `held` and
+ * `held_days` (a `LEFT JOIN` on the facts' primary key; [wipUserHeldSql] only).
  */
 private fun wipUserHeldCtes(
     connectionIds: List<UInt>,
@@ -140,6 +168,7 @@ private fun wipUserHeldCtes(
     stages: List<String>?,
     days: List<String>?,
     materialized: Boolean = true,
+    withStartedAt: Boolean = false,
 ): String {
     require(connectionIds.isNotEmpty() && accountIds.isNotEmpty()) { "a WIP user statement needs a connection, an account" }
     require(stages == null || stages.all { it in WIP_STAGES }) { "unknown WIP stage in $stages" }
@@ -151,20 +180,27 @@ private fun wipUserHeldCtes(
         if (listed.isEmpty()) " AND FALSE" else " AND day IN (${listed.joinToString(", ") { "'${LocalDate.parse(it)}'" }})"
     }.orEmpty()
     val mode = if (materialized) "MATERIALIZED" else "NOT MATERIALIZED"
-    val onlyStages = stages?.let { " AND s.stage IN (${it.joinToString(", ") { stage -> "'$stage'" }})" }.orEmpty()
+    val startedColumn = if (withStartedAt) ", f.started_at" else ""
+    val startedJoin = if (withStartedAt) {
+        "\n            LEFT JOIN metrics.fact_task_delivery f ON f.connection_id = ta.connection_id AND f.issue_id = ta.issue_id"
+    } else {
+        ""
+    }
+    val startedPassed = if (withStartedAt) ", h.started_at" else ""
+    val stageTail = stages?.let { " AND s.stage IN (${it.joinToString(", ") { stage -> "'$stage'" }})" }.orEmpty() + startedJoin
     return """
         WITH day_range AS (SELECT day, day_end_ms FROM metrics.dim_date WHERE day >= '$first' AND day <= '$last'$onlyDays),
         held AS $mode (
             SELECT ta.connection_id, ta.issue_id, ta.account_id, ta.valid_from AS a_from, ta.valid_to AS a_to,
-                   s.status_id, s.stage, s.valid_from AS s_from, s.valid_to AS s_to
+                   s.status_id, s.stage, s.valid_from AS s_from, s.valid_to AS s_to$startedColumn
             FROM metrics.task_assignee ta
             JOIN metrics.dim_task t ON t.connection_id = ta.connection_id AND t.issue_id = ta.issue_id AND t.is_subtask = false
-            JOIN metrics.item_stage s ON s.connection_id = ta.connection_id AND s.issue_id = ta.issue_id AND s.stage <> 'DONE'$onlyStages
+            JOIN metrics.item_stage s ON s.connection_id = ta.connection_id AND s.issue_id = ta.issue_id AND s.stage <> 'DONE'$stageTail
             WHERE ta.connection_id IN ($connections) AND ta.account_id IN ($accounts)
               AND ta.valid_from <= COALESCE(s.valid_to, $OPEN_END) AND s.valid_from <= COALESCE(ta.valid_to, $OPEN_END)
         ),
         held_days AS $mode (
-            SELECT d.day, d.day_end_ms, h.connection_id, h.issue_id, h.account_id, h.status_id, h.stage
+            SELECT d.day, d.day_end_ms, h.connection_id, h.issue_id, h.account_id, h.status_id, h.stage$startedPassed
             FROM day_range d
             JOIN held h ON ${coveringAt("h", "a_from", "a_to")} AND ${coveringAt("h", "s_from", "s_to")}
         )""".trimIndent()
@@ -198,16 +234,16 @@ internal suspend fun R2dbcTransaction.readWipUserCells(request: WipUserRequest):
 }
 
 /**
- * One task a person held in a working stage at the END of [day] (ISO). Compare-people reads these for ONE day only (the last listed
- * one: the tasks it lists and ages); the per-day figure and the drill's per-task figure are aggregated in Postgres instead
- * ([readWipUserDayCounts], [readWipUserTaskCounts]), so no object is built per task per day.
+ * One task a person held in a working stage at the END of [day] (ISO), as [readWipUserTaskDays] expands it: the oracle's row shape (WHY 47;
+ * the reports read [HeldTask]s of the listed days from [readWipUserHeld] instead). The per-day figure and the drill's per-task figure are
+ * aggregated in Postgres ([readWipUserHeld], [readWipUserTaskCounts]), so no object is built per task per day.
  */
 internal data class WipTaskDay(val day: String, val connectionId: UInt, val issueId: Long, val accountId: String, val stage: String)
 
 /** The stages that count as work in progress for compare-people's WIP figures (the DONE and not-started bands are not WIP). */
 internal val WIP_WORKING_STAGES = listOf("IN_PROGRESS", "WAITING", "BLOCKED")
 
-/** The [wipUserTaskDaysSql] rows for the period, inside the caller's report transaction (one day: the tasks held at its end). */
+/** The [wipUserTaskDaysSql] rows for the period, inside the caller's report transaction: the expansion oracle (WHY 47), tests only. */
 internal suspend fun R2dbcTransaction.readWipUserTaskDays(request: WipTaskDaysRequest): List<WipTaskDay> {
     if (request.connectionIds.isEmpty() || request.accountIds.isEmpty()) return emptyList()
     val built = wipUserTaskDaysSql(request)
@@ -218,6 +254,48 @@ internal suspend fun R2dbcTransaction.readWipUserTaskDays(request: WipTaskDaysRe
             row.get(3, String::class.java)!!, row.get(4, String::class.java)!!,
         )
     }?.toList().orEmpty().filterNotNull()
+}
+
+/** One task held in a working stage on a listed day; `startedAt` is `null` when it never started or has no `fact_task_delivery` row. */
+internal data class HeldTask(val connectionId: UInt, val issueId: Long, val startedAt: Long?)
+
+/**
+ * What [readWipUserHeld] reads: [dayCounts] each person's count of held tasks per day (a day with none absent) and [held] the tasks behind
+ * the count of each LISTED day, by ISO day and then account (a person with no task that day absent).
+ */
+internal class WipUserHeld(val dayCounts: Map<String, Map<LocalDate, Int>>, val held: Map<String, Map<String, List<HeldTask>>>) {
+    companion object {
+        val EMPTY = WipUserHeld(emptyMap(), emptyMap())
+    }
+}
+
+/** One decoded row of [wipUserHeldSql]; the three arrays stay raw until [readWipUserHeld] builds the [HeldTask]s. */
+private class HeldRow(val day: String, val account: String, val connections: Any?, val issues: Any?, val started: Any?)
+
+/**
+ * The per-day counts ([readWipUserDayCounts]) and the tasks held on [listedDays] with their `started_at` ([wipUserHeldSql]): TWO
+ * statements however many days are listed (three before WHY 47). No listed day, no second statement.
+ */
+internal suspend fun R2dbcTransaction.readWipUserHeld(request: WipTaskDaysRequest, listedDays: List<LocalDate>): WipUserHeld {
+    if (request.connectionIds.isEmpty() || request.accountIds.isEmpty()) return WipUserHeld.EMPTY
+    val counts = readWipUserDayCounts(request)
+    if (listedDays.isEmpty()) return WipUserHeld(counts, emptyMap())
+    val built = wipUserHeldSql(request, listedDays)
+    val arguments: List<Pair<IColumnType<*>, Any?>> = built.arguments.map { TextColumnType() to it }
+    val rows = exec(built.sql, arguments, StatementType.SELECT) { row ->
+        // By position: the day, the account and the three aligned arrays.
+        HeldRow(row.get(0, String::class.java)!!, row.get(1, String::class.java)!!, row.get(2), row.get(3), row.get(4))
+    }?.toList().orEmpty().filterNotNull()
+    val held = HashMap<String, MutableMap<String, List<HeldTask>>>()
+    for (row in rows) {
+        val connections = row.connections as Array<*>
+        val issues = row.issues as Array<*>
+        val started = row.started as Array<*>
+        held.getOrPut(row.day) { HashMap() }[row.account] = List(connections.size) {
+            HeldTask((connections[it] as Number).toInt().toUInt(), (issues[it] as Number).toLong(), (started[it] as Number?)?.toLong())
+        }
+    }
+    return WipUserHeld(counts, held)
 }
 
 /** The [wipUserDayCountsSql] rows for the period: each person's held-task count per day (days with none are absent). */

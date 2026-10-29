@@ -271,8 +271,8 @@ place:
   `FactEpicDelivery`, `DimEpic`, `FactSprint`/`DimSprint`/`FactSprintSnapshot` and `DeriveRuns`, mostly through the other reports' own fetches.
 - `reports/ComparePeople*.kt` (A41, `GET /api/v1/reports/compare-people` and its `/items` drill) reads, all read-only inside the report's own
   transaction: `metrics/MetricsTables.FactTaskDelivery` (the done, accuracy, adjustment and blocked populations through the other reports' own
-  fetches, plus the work-mix keys and `started_at` of the tasks held at the end) and `FactWorklog`; `item_stage` ⋈ `task_assignee` ⋈ `dim_task`
-  through `reports/WipUserReport.kt`'s `readWipUserDayCounts` / `readWipUserTaskCounts` (the people's WIP across every team, no team join, counted in Postgres) and `readWipUserTaskDays` (only the tasks held on the last day); `norm/WorkItemStore.People` through
+  fetches, plus the work-mix keys) and `FactWorklog`; `item_stage` ⋈ `task_assignee` ⋈ `dim_task` (⋈ `FactTaskDelivery` for the held tasks' `started_at`)
+  through `reports/WipUserReport.kt`'s `readWipUserDayCounts` / `readWipUserHeld` / `readWipUserTaskCounts` (the people's WIP across every team, no team join, counted in Postgres; `readWipUserHeld` adds the tasks held on the last days with their `started_at` as a second statement); `norm/WorkItemStore.People` through
   `accountDisplayNames`; and, only for a caller the route grants per-person capacity (an ADMIN or the manager of every team involved, re-checked
   against the memberships read in the same transaction): `metrics/TeamMembershipService.TeamMembership` (the two people's dated memberships, any team)
   and, per team, `reports/CostCapacity.kt`'s `loadCostCapacity` reads (`DimSprint`, the team's roster and `SprintCalendars` ⋈
@@ -280,7 +280,7 @@ place:
   `teams/TeamService.isActiveManager` reads `Teams` ⋈ `flowusers/FlowUserService.FlowUsers`.
 - `reports/PersonTrend*.kt` (A46, `GET /api/v1/reports/person-trend`) reads, read-only inside the report's own transaction, exactly the tables Compare people's cells do and
   no others, through the same functions: the done, cycle, accuracy, blocked and worklog populations (`FactTaskDelivery`, `FactWorklog`, over the whole range once), the WIP statements of
-  `reports/WipUserReport.kt` (`readWipUserDayCounts`, and `readWipUserTaskDays` narrowed to the windows' last days) with `startedAtOf`, `DeriveRuns` and `source_connections.backfill_from`
+  `reports/WipUserReport.kt` (`readWipUserHeld`: the day counts and, as a second statement, the tasks held on the windows' last days with their `started_at`), `DeriveRuns` and `source_connections.backfill_from`
   (`derivedCoverage`, `backfillStart`, for the coverage labels), and `People` through `accountDisplayNames`. No capacity. For the team reference (`PersonTrendReference.kt`) it also reads `metrics/TeamMembershipService.TeamMembership` (the person's dated memberships, then the picked teams' rosters, by `readPeopleMemberships` / `readTeamMemberships`) and `teams/TeamService.Teams` for the names (`teamNames`, soft-deleted teams included: a closed roster keeps its history).
 
 - `metrics/TeamWorkCategoryTargetService` (V32, `GET`/`PUT /api/v1/teams/{id}/work-category-targets`) reads `teams/TeamService.Teams` (the

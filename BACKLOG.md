@@ -93,10 +93,10 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [new] **UNIT-wide wide-period reads are slow and allocate heavily (API only).** WHY 41: with no `teamId` and 24 months, `throughput` 1.7 s
   p95 and ~661 MiB allocated per request, `wip` 1.4 s, `data-quality` 727 ms / ~177 MiB; Backlog with `touchedWithinDays` at UNIT level 793 ms (WHY 42). No page sends them (every report page is team-
   or domain-scoped), but the API answers them. Decide: a server-side guard (team or domain required) or a pushdown.
-- [new] **Person trend with a big team: the next levers (WHY 46).** After 1.22.1 a 15-person team's year takes 522 ms, ~5.4x Compare people
-  (target 2x; a 5-person team is at ~2x). `build-times.md` WHY 46 "What is left" has the numbers: the last-day WIP read as arrays (~-110 ms;
-  changes `CompareWip`'s shape), decoding only the trend's columns (~-85 ms), and a per-window peer-cell cache (the only lever to 2x; new
-  server state with invalidation and a memory bound — a design decision).
+- [new] **Person trend with a big team: the peer-cell cache (parked in WHY 47).** 1.22.2 cut the WIP read to one statement and decoded the trend's fact rows by
+  position (`build-times.md` WHY 47, measurements there). The remaining lever is a per-window cache of the peers' `cellsOf` results (key: account, window end,
+  slices, derive clock, configuration revision): new server state with invalidation and a memory bound. Go / no-go: build it only if the measured 15-person
+  year stays above 3x Compare people.
 - [new] **Remove the TRIM step once every install is trimmed.** `jira/JiraTrimStream.kt` + `JiraRawTrim.kt` + the `trim` cursor row rewrite the raw rows
   stored before the payload trim (1.17.1) existed, once. When the dev stack and every other install show `phase: DONE` on the `trim` cursor (the data source status
   endpoint), delete the stream, the collaborator, its wiring in `JiraConnector` (SYNC and REPROCESS), its tests and the docs; a `DELETE FROM sync_cursors WHERE stream = 'trim'` migration is optional.
@@ -122,22 +122,21 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 - [new] **Jira paging loops: what the ceilings do not cover.** The REFERENCE, PROJECT_FIELDS, ISSUES, RECONCILE and WORKLOGS/CHANGELOGS
   loops carry page, row and (ISSUES, RECONCILE) byte ceilings, the response cap is 8 MiB and a body over a structural node ceiling is
-  refused before the parse (`jira-integration.md` "Paging ceilings", "Response size cap", "Node and depth ceiling"). Left:
-  - `GET /field` stays one shot (~4 MB at ~10k fields vs the 8 MiB cap): `GET /field/search` would page it, but Atlassian's docs
-    contradict themselves on whether a non-admin token may call it. Since 1.23.0 the optional Test-connection probe `field_search`
-    answers it with one click (the row, plus the INFO line `field/search total=N, values=V, isLast=B, field count=M`; 403 is the answer, 401 a missing scope); run it against the real non-admin
-    token, and only a 200 with the SAME count lets a paged FIELD step replace `GET /field` (no fallback: two paths would mean two field
-    sets; `jira-integration.md` "`GET /field` stays one shot").
-  - Heap, what the boot-time fit check (`jira/JiraHeapFit.kt`) still does not bound. Since 1.24.1 it budgets each slot as the largest of
-    the response tree, a PROCESS slot and a CHANGELOGS / WORKLOGS answer-text slot (those two streams convert every page under the big-parse
-    lock, so one slot at a time adds a tree on top of its text), and the raw writers refuse an item over a stored-size ceiling (`jira-integration.md` "Stored-size
-    ceilings"), so the stored-text paths (PROCESS pages, the history/worklog parse, the entity sets read in chunks, the inspector) are closed.
-    Left: (1) the CHANGELOGS / WORKLOGS terms and the 4x PROCESS page factor are derived, not yet re-measured (build-times WHY 48, "Fix taken");
-    (2) the `STORED_RESPONSE_TREES = 1` figure and the new 3/8-nodes-a-byte dense-text figure are
-    provisional until WHY 48 is re-measured on the flow-perf stack (`sample-data/jira/hostile.mjs --pad history|worklog`,
-    `--stored-bytes`); (3) the `all` role is budgeted for its worker only (no Test connection tree); (4) a per-slot admission by estimated
-    tree size before the parse, or a streaming parse, would close the response path for good, and `ExitOnOutOfMemoryError` still makes an
-    OOM a worker exit.
+  refused before the parse (`jira-integration.md` "Paging ceilings", "Response size cap", "Node and depth ceiling"). `GET /field` stays one
+  shot: the 1.23.0 Test-connection probe answered 200 on the real token, but `field/search` reports FEWER fields than `GET /field`, so a
+  paged FIELD step would drop fields (the one-shot response fits the 8 MiB cap, "Response size cap"). Left, heap only: since 1.24.2 the boot-time fit
+  check (`jira/JiraHeapFit.kt`) prices mixed slots, the raw writers refuse an item over a stored-size ceiling, CHANGELOGS / WORKLOGS convert
+  every page under the big-parse lock, and WHY 48's after-fix re-measure held every term on the shipped `-Xmx512m` worker (the response
+  path ~7 % over its own term, covered by the total). Still open: (1) the `all` role is budgeted for its worker only (no Test connection
+  tree); (2) a per-slot admission by estimated tree size before the parse, or a streaming parse, would close the response path for good,
+  and `ExitOnOutOfMemoryError` still makes an OOM a worker exit; (3) TRIM batches and the web-role inspector are outside the fit
+  (`jira-integration.md` "What the boot check does NOT bound yet").
+- [new] **Postgres memory under dense raw inserts (WHY 48 after-fix).** One raw-worklog insert statement carries a whole issue's worklogs
+  (the 32,000-bind cap does not split ~8 MB of jsonb); on the perf stack two hostile dense-worklog connections at once got a Postgres
+  backend OOM-killed (1536m container), the postmaster reset every connection, and both SYNC jobs then sat RUNNING until their lease
+  expired (~5 min) instead of failing. Real data is far below it (the largest real per-issue worklog total is ~0.5 MB). Fix: bound the
+  payload bytes per statement in the raw writers (`MultiRowInsert.kt` callers), and fail a job promptly when its database connection is
+  lost; re-measure WHY 48 case (g) x2.
 - [new] **Ceiling-trip pause: remaining gaps.** Shipped in 1.22.0, progress made to mean stored changes in 1.22.2 (`ingestion.md` "Ceiling trips and the pause"); what it still misses, by design:
   - The wall clock is checked between pages only. An in-flight Jira call is bounded by `jira.requestDeadlineSeconds` (180 s) and a 429 tenant-pause wait by 120 s, plus one page's transaction, so a run overruns its budget by at most ~5 minutes (60-minute default).
   - A scheduled RECONCILE is never paused and its trips are never counted: its pass is a hard cap while ISSUES resumes, so counting would pause healthy syncing. Its own 15 min to 6 h back-off bounds it, and one already queued when a pause starts still runs once.

@@ -834,6 +834,9 @@ The line carries no data-source context, so test ONE data source at a time. If a
 FIELD step over `field/search` and **drops the `GET /field` call** (no fallback: two code paths would mean two field sets). A failed optional row
 never fails the test, and the `data_source.tested` audit event's `ok` ignores it (`observability.md`).
 
+**Settled (2026-10-29):** on the real non-admin token the probe answered **200 with a `total` below `field count`** — `field/search` omits
+fields `GET /field` returns. **`GET /field` stays one shot for good**; the probe stays as a diagnostic.
+
 ## CHANGELOGS and WORKLOGS streams: endpoints
 
 Landed with the CHANGELOGS/WORKLOGS streams (plan §7, plan commit 7, V11 — see

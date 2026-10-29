@@ -163,8 +163,8 @@ private suspend fun DrillContext.wipItems(taskDays: Boolean): ReportDrillItems {
         return listed(counts.map { (key, days) -> task(key.first, key.second, null, null, days.toDouble()) })
     }
     val dayEnd = wip.days.lastOrNull()?.let { scope.calendar.dayBoundsMs(it).second }
-    val rows = wip.atEnd.filter { it.accountId == segment }.map { held ->
-        val startedAt = wip.startedAt[held.connectionId to held.issueId]
+    val rows = wip.held[segment].orEmpty().map { held ->
+        val startedAt = held.startedAt
         val age = if (startedAt != null && dayEnd != null) ageOf(scope.calendar, startedAt, dayEnd) else null
         task(held.connectionId, held.issueId, null, startedAt, age)
     }
