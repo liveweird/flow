@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.26.3",
+    date: "2026-10-29",
+    en: `**Person trend: a teammate's trend opens faster.**
+
+- Once anyone on a team has opened their Person trend, a teammate's trend for the same period and filters reuses the team comparison already worked out, so it opens several times faster (a 15-person team's year: about 0.5 s down to about 0.06 s in our measurements).
+- The numbers are exactly the same; new data (a sync, a recalculation, a settings change) starts afresh.`,
+    pl: `**Trend osoby: trend członka/członkini zespołu otwiera się szybciej.**
+
+- Gdy ktoś z zespołu otworzył już swój Trend osoby, trend kolejnej osoby z zespołu za ten sam okres i z tymi samymi filtrami korzysta z wyliczonego już porównania z zespołem, więc otwiera się kilkukrotnie szybciej (rok 15-osobowego zespołu: w naszych pomiarach z ok. 0,5 s do ok. 0,06 s).
+- Liczby są dokładnie takie same; nowe dane (synchronizacja, przeliczenie, zmiana ustawień) zaczynają od nowa.`,
+  },
+  {
     version: "1.26.0",
     date: "2026-10-29",
     en: `**Reports: the API refuses a whole-unit read.**
