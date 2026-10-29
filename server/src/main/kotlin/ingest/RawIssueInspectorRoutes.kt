@@ -3,6 +3,8 @@ package ch.nokillswit.ingest
 import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.orNotFound
 import ch.nokillswit.authz.requireAdmin
+import ch.nokillswit.jira.INSPECTION_BYTES_PER_STORED_BYTE
+import ch.nokillswit.jira.JiraHeapShareKey
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraRawStoreKey
 import ch.nokillswit.norm.WorkItemStore
@@ -57,6 +59,7 @@ fun Application.configureRawIssueInspectorRoutes() {
     val dataSources = attributes[DataSourceServiceKey]
     val rawStore = attributes[JiraRawStoreKey]
     val workItems = attributes[WorkItemStoreKey]
+    val heapShare = attributes[JiraHeapShareKey]
     val gate = Semaphore(MAX_CONCURRENT_INSPECTIONS)
 
     routing {
@@ -68,14 +71,18 @@ fun Application.configureRawIssueInspectorRoutes() {
                 dataSources.read(connectionId).orNotFound("Data source")
 
                 val issueId = resolveRawIssueId(rawStore, connectionId, route.issueKey).orNotFound("Raw issue")
-                // At most MAX_CONCURRENT_INSPECTIONS issues (each up to jira.processPageBytes of text, read, built and serialized)
-                // at once in a `web` process; the rest wait for a permit.
+                // At most MAX_CONCURRENT_INSPECTIONS issues at once in a `web` process; the rest wait for a permit.
                 gate.withPermit {
-                    if (rawStore.storedBytesForIssue(connectionId, issueId) > rawStore.ceilings.processPageBytes) {
+                    val bytes = rawStore.storedBytesForIssue(connectionId, issueId)
+                    if (bytes > rawStore.ceilings.processPageBytes) {
                         call.respondProblem(HttpStatusCode.PayloadTooLarge, TOO_LARGE_DETAIL)
                     } else {
-                        val raw = rawStore.issueById(connectionId, issueId).orNotFound("Raw issue")
-                        call.respond(HttpStatusCode.OK, raw.toInspection(rawStore, workItems, connectionId))
+                        // The issue's text, the response built from it and its bytes are held against the web role's Jira heap share
+                        // (the one response tree its heap fit counts) from the read until the body is written.
+                        heapShare.withShare(INSPECTION_BYTES_PER_STORED_BYTE * bytes) {
+                            val raw = rawStore.issueById(connectionId, issueId).orNotFound("Raw issue")
+                            call.respond(HttpStatusCode.OK, raw.toInspection(rawStore, workItems, connectionId))
+                        }
                     }
                 }
             }

@@ -760,10 +760,19 @@ that worker until the data source is disabled or the host stops.
 **What the boot check does NOT bound yet (named; BACKLOG).** Since 1.24.1 the check budgets the stored-text paths too (a PROCESS slot, and the
 CHANGELOGS and WORKLOGS answer text with one converting tree, "Stored-size ceilings" above), so the PROCESS page, the history/worklog per-item
 parse and the entity sets (REFERENCE's PROJECT_FIELDS and the data PROFILE, read in chunks) are bounded. Left, named: the rows beside the WORKLOGS
-text (each worklog is also ~700 B of row objects on its way into Postgres, not counted); the raw-issue inspector on the `web` role (two permits x up to `jira.processPageBytes` of text, UTF-16
-~16 MiB each plus the encoded response, ~80 MiB at the defaults) is capped by a size and a permit, but is NOT part of the web heap fit (a `web` role
-only warns); the `all` role is budgeted for its worker only (a Test connection's own tree is not added); the 112 B a node, the
+text (each worklog is also ~700 B of row objects on its way into Postgres, not counted); the `all` role is budgeted for its worker only (a Test connection's own tree is not added); the 112 B a node, the
 one-tree-a-slot and the dense-text figures are measured or derived but not yet re-measured end to end.
+
+The raw-issue inspector on the `web` role IS inside the web fit now (`JiraHeapShare.kt`): the web-side Jira consumers draw from ONE shared,
+FIFO, weighted budget (`JiraHeapShare`, published as `JiraHeapShareKey` by `configureJira`) whose capacity is exactly the single response tree
+the web fit already counts (`TREE_BYTES_PER_NODE x defaultMaxResponseNodes(jira.maxResponseBytes)` = 112 MiB at the defaults), so it adds
+nothing to the 184 MiB need and needs no new knob. An inspection holds `INSPECTION_BYTES_PER_STORED_BYTE` (5: the stored text as UTF-16 2x +
+the encoded response JSON 2x + its bytes 1x) x the issue's stored bytes (<= `jira.processPageBytes`, so <= 40 MiB at the defaults) from the
+read until the body is written, after the 413 size check and inside the 2-permit semaphore. A request heavier than the capacity is clamped
+to it and admitted alone; a cancelled waiter leaves the queue and a cancelled holder releases (`JiraHeapShareTest`). Boot pin
+`requireInspectionFitsHeapShare`: `5 x jira.processPageBytes <= TREE_BYTES_PER_NODE x nodes(jira.maxResponseBytes)` (40 <= 112 MiB; 64 MiB
+pages need a response cap of at least 22.86 MiB), failing startup in EVERY role and naming both knobs. A Test connection's own tree is not on
+the share yet (the `all` role residual above).
 
 **One tree a slot, because the raw writers do not re-parse (build-times WHY 48).** A stored response used to pin THREE trees: the page's own
 tree, the writer's re-parse of the payload text (`trimmedIssueCanonicalJson` / `canonicalJson(String)`), and the sorted copy `canonicalize`
@@ -796,7 +805,9 @@ re-measured in WHY 48), `RESERVE_BYTES` = 96 MiB for a worker (idle live set + t
 (2 - 1) x 137 MiB (PROCESS, the largest own term) + 160 MiB (the WORKLOGS slot under the lock: 48 MiB of text + the 112 MiB tree) + 4 x 8 MiB + 96 MiB = 425 MiB against 448 MiB, so the shipped worker (and the compose `all` role, and `:server:run`, which
 raises its heap to 512m for this: the baked `-Xmx256m -Xmn64m` is a 192 MiB old generation) passes with 23 MiB to spare; the baked
 `-Xmx256m` does not, which is why a worker role must carry `JAVA_OPTS=-Xmx512m`. The `web` role as shipped (`-Xmx256m`): 112 + 4 x 8 + 40
-= 184 MiB against 192 MiB, so it boots without a WARN. `JiraHeapFitTest` pins the arithmetic, the shipped values and both role outcomes.
+= 184 MiB against 192 MiB, so it boots without a WARN. `JiraHeapFitTest` pins the arithmetic, the shipped values and both role outcomes. A second boot pin, in every role, rides beside it:
+`requireInspectionFitsHeapShare` (`5 x jira.processPageBytes <= the web share`, see the raw-issue inspector paragraph above), pinned by the
+same test (defaults pass, a 64 MiB page with the 8 MiB response cap fails naming `jira.processPageBytes` and `jira.maxResponseBytes`).
 What would close the response path for good (BACKLOG): a per-slot heap budget (admission by estimated tree size before the parse) or a
 streaming parse that never builds the tree.
 

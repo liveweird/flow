@@ -1396,7 +1396,12 @@ writes, assembled here rather than duplicated:
   the cap. Under the cap the stored text is embedded in the response AS TEXT (`JsonUnquotedLiteral`, Postgres's jsonb output - valid JSON by
   construction), never parsed, so the `web` role builds no tree of a document; the wire shape is the objects they always were
   (`RawIssueInspectorTest` pins the verbatim embedding and the 413). At most TWO issues are read, built and serialized at once per process
-  (a `Semaphore`, `MAX_CONCURRENT_INSPECTIONS`); further requests wait for a permit, so the `web` heap bounds the inspector at 2 x `jira.processPageBytes`.
+  (a `Semaphore`, `MAX_CONCURRENT_INSPECTIONS`); further requests wait for a permit. Under the permit, an inspection is also admitted against the
+  web role's Jira heap share (`jira/JiraHeapShare.kt`, `JiraHeapShareKey`: one FIFO weighted budget of the single response tree the web heap fit
+  counts, 112 MiB at the defaults): it holds `INSPECTION_BYTES_PER_STORED_BYTE` (5) x the issue's stored bytes from the read until the body is
+  written, waiting (FIFO) when the share is taken, so the inspector is inside the web heap fit (`jira-integration.md` "The boot-time heap fit
+  check"; `RawIssueInspectorTest` holds the share in full and sees the request wait, then answer byte-identically). `ingest/` reads the key from
+  `jira/` like it already reads `JiraRawStoreKey`.
 - **A tombstoned issue is still returned, never `404`.** `deletedAt`/`movedOutAt` being set is
   itself part of the answer a debugging view exists to show; only a genuinely unknown id/key 404s.
 

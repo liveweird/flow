@@ -28,8 +28,8 @@ private const val MIB = 1024L * 1024
  * Heap bytes ONE parsed JSON tree retains per node (a structural token, [RESPONSE_BYTES_PER_NODE]) in the worst shape found, the
  * `[{"a":0},...]` document. Measured on the flow-perf stack against `sample-data/jira/hostile.mjs` (build-times WHY 48): a hostile
  * `GET /field` of 1,048,510 tokens parsed by the shipped web JVM raised the live set (after a full GC) by 114 MiB, ~108 MiB of it the
- * tree and ~6 MiB the body bytes and their decoded string; a `--pad page` ISSUES page the same in the worker. 112 B is the measured
- * 108 B a node plus ~4 %.
+ * tree and ~6 MiB the body bytes (the parse reads them directly, it no longer decodes a string; measured before that change); a
+ * `--pad page` ISSUES page the same in the worker. 112 B is the measured 108 B a node plus ~4 %.
  */
 internal const val TREE_BYTES_PER_NODE = 112L
 
@@ -64,6 +64,24 @@ internal const val RESERVE_BYTES = 96L * MIB
  * Person trend peer-cell cache (`reports.peerCellCache.maxEntries`, ~8 MiB at its default cap).
  */
 internal const val WEB_RESERVE_BYTES = 40L * MIB
+
+/**
+ * Fails startup when the raw issue inspector's worst case does not fit the web heap share ([JiraHeapShare], one response tree): an
+ * issue of up to [processPageBytes] stored bytes costs [INSPECTION_BYTES_PER_STORED_BYTE] x that, and the share is
+ * [TREE_BYTES_PER_NODE] x the node ceiling of [maxResponseBytes] (40 <= 112 MiB at the defaults). Without it an inspected issue could
+ * be bigger than the share and would be admitted alone, beside the tree the heap fit already counts.
+ */
+internal fun requireInspectionFitsHeapShare(processPageBytes: Long, maxResponseBytes: Long) {
+    val need = INSPECTION_BYTES_PER_STORED_BYTE * processPageBytes
+    val share = jiraHeapShareCapacityBytes(maxResponseBytes)
+    require(need <= share) {
+        "Config \"jira.processPageBytes\" ($processPageBytes) must fit the web heap share of \"jira.maxResponseBytes\" " +
+            "($maxResponseBytes): " +
+            "the raw issue inspector holds up to $INSPECTION_BYTES_PER_STORED_BYTE x $processPageBytes = $need bytes of heap for one " +
+            "issue, but the share is $TREE_BYTES_PER_NODE x ${defaultMaxResponseNodes(maxResponseBytes)} nodes = $share bytes: " +
+            "lower jira.processPageBytes or raise jira.maxResponseBytes"
+    }
+}
 
 /** What a role can pin per slot and keep beside it: a worker stores responses ([STORED_RESPONSE_TREES]), a `web` role only parses one. */
 internal enum class HeapFitRole(val treesPerSlot: Int, val reserveBytes: Long) {

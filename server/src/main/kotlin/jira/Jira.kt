@@ -59,8 +59,12 @@ fun Application.configureJira() {
         processPageBytes = requireConfigLong(config, "jira.processPageBytes", MIN_PROCESS_PAGE_BYTES, MAX_PROCESS_PAGE_BYTES),
     )
     requireProcessPageHoldsAnIssue(stored)
+    requireInspectionFitsHeapShare(stored.processPageBytes, maxResponseBytes)
     // Fail closed (worker roles) before anything is built: the ceilings x the slots must fit the heap (JiraHeapFit.kt).
     requireHeapFitsJiraCeilings(config, maxResponseBytes, maxConcurrentRequests, stored)
+    // The web-side Jira consumers (the raw issue inspector) draw from ONE share equal to the single response tree the fit above counts
+    // for the web role, so what they hold is inside that figure (JiraHeapShare.kt).
+    attributes.put(JiraHeapShareKey, JiraHeapShare(jiraHeapShareCapacityBytes(maxResponseBytes)))
     val stubHost = stubBaseUrl?.let { URI(it).host }
     val stubScheme = stubBaseUrl?.let { URI(it).scheme }
 

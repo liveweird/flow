@@ -5,6 +5,7 @@ import ch.nokillswit.ingest.DataSourceResponse
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JiraConnectionRequest
 import ch.nokillswit.ingest.RawIssueInspection
+import ch.nokillswit.jira.JiraHeapShareKey
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.RawIssueInput
 import ch.nokillswit.norm.IntervalSource
@@ -22,6 +23,13 @@ import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -280,6 +288,39 @@ class RawIssueInspectorTest {
         val payload = Json.parseToJsonElement(body).jsonObject.getValue("payload")
         assertEquals(Json.parseToJsonElement(document), payload, "what a client parses is the document, as before")
     }
+
+    @Test
+    fun `an inspection is admitted against the web heap share - it waits while the share is held in full, then answers byte-identically`() =
+        testApplication {
+            configureApp("app.role" to "web")
+            startApplication()
+            val admin = seededClient("rawissueshare", FlowUserRole.ADMIN)
+            val connId = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>().id
+            val rawStore = JiraRawStore(sharedDatabaseForTests())
+            val document = Json.parseToJsonElement(issuePayload(48L, "ENG-48"))
+            rawStore.upsertIssue(connId, RawIssueInput(48L, "ENG-48", 1L, "ENG", 1_000, document), 1_000)
+            val share = application.attributes[JiraHeapShareKey]
+            assertEquals(112L * 1024 * 1024, share.capacityBytes, "one response tree at the default 8 MiB response cap")
+            val free = admin.get("/api/v1/data-sources/$connId/raw-issues/ENG-48")
+            assertEquals(HttpStatusCode.OK, free.status)
+            val expected = free.bodyAsText()
+
+            coroutineScope {
+                val release = CompletableDeferred<Unit>()
+                val holding = CompletableDeferred<Unit>()
+                val holder = launch { share.withShare(share.capacityBytes) { holding.complete(Unit); release.await() } }
+                holding.await()
+                val blocked = async { admin.get("/api/v1/data-sources/$connId/raw-issues/ENG-48") }
+                // The request has had ample time to be served were it not queued behind the held share.
+                withContext(Dispatchers.Default) { delay(500) } // real time, not the test scheduler's
+                assertTrue(blocked.isActive, "the inspection waits for the share")
+                release.complete(Unit)
+                holder.join()
+                val response = blocked.await()
+                assertEquals(HttpStatusCode.OK, response.status)
+                assertEquals(expected, response.bodyAsText(), "waiting changes nothing about the answer")
+            }
+        }
 
     @Test
     fun `an issue whose stored text is over jira processPageBytes is 413 with a constant detail and nothing of it is read`() =
