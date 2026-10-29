@@ -22,6 +22,8 @@ import ch.nokillswit.jira.backfillFromEpochMillis
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
@@ -218,6 +220,56 @@ class CeilingHardStopTest {
         run.cancel()
         val thrown = withTimeout(STOPPED_WITHIN_MS) { outcome.await() }
         assertIs<CancellationException>(thrown, "shutdown stays a cancellation, never a TIME_EXCEEDED trip")
+    }
+
+    @Test
+    fun `a cancelled run that ends in an ordinary failure is still the hard stop, the failure kept as suppressed`() = runBlocking<Unit> {
+        val context = streamContext(connection(), HARD_STOP_MS)
+        val trip = assertFailsWith<CeilingTripException> {
+            withTimeout(STOPPED_WITHIN_MS) {
+                context.withHardStop {
+                    try {
+                        awaitCancellation()
+                    } catch (cancelled: CancellationException) {
+                        // A transport reporting its cancelled call as an I/O failure, thrown without suspending again.
+                        throw IllegalStateException("call cancelled", cancelled)
+                    }
+                }
+            }
+        }
+        assertTrue(trip.hardStop)
+        assertTrue(trip.suppressed.any { it is IllegalStateException }, "the failure the cancelled work ended in is kept")
+    }
+
+    @Test
+    fun `a failure or cancellation the hard stop did not cause is reported as it is`() = runBlocking<Unit> {
+        val context = streamContext(connection(), 60_000L)
+        val failure = assertFailsWith<IllegalStateException> { context.withHardStop { throw IllegalStateException("plain") } }
+        assertEquals("plain", failure.message)
+        // The caller is live and the stop never fired: an inner cancellation must not be dressed up as TIME_EXCEEDED.
+        val inner = assertFailsWith<CancellationException> { context.withHardStop { throw CancellationException("inner") } }
+        assertTrue("inner" in inner.message.orEmpty(), "the inner cancellation itself: ${inner.message}")
+    }
+
+    @Test
+    fun `a shutdown that races a fired hard stop wins and propagates as a plain cancellation`() = runBlocking<Unit> {
+        val context = streamContext(connection(), HARD_STOP_MS)
+        val gate = CompletableDeferred<Unit>()
+        val outcome = CompletableDeferred<Throwable>()
+        val run = CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+            try {
+                // Held past the stop by a non-cancellable section, so the stop has fired when the shutdown arrives.
+                context.withHardStop { withContext(NonCancellable) { gate.await() } }
+            } catch (thrown: Throwable) {
+                outcome.complete(thrown)
+                throw thrown
+            }
+        }
+        delay(HARD_STOP_MS * 2)
+        run.cancel()
+        gate.complete(Unit)
+        val thrown = withTimeout(STOPPED_WITHIN_MS) { outcome.await() }
+        assertIs<CancellationException>(thrown, "the worker's own cancellation is not turned into a trip: $thrown")
     }
 
     // --- The worker: the job it closes -------------------------------------------------------------------------------

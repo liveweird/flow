@@ -108,6 +108,7 @@ class JiraConnector(
             // [resolveCloudId] must run before any other gateway call (jira/JiraClient.kt's contract).
             deps.dataSources.persistCloudId(claim.connectionId, client.resolveCloudId())
             val backfillFromMillis = backfillFromEpochMillis(stored.backfillFrom)
+            // No Jira-calling stream may follow `process`/`profile`: the hard stop is disarmed for good there (`withHardStop`).
             val streams: List<Stream> = listOf(
                 // "Sync now" refreshes the users whatever their age: a new hire's account is then pickable for team membership at once.
                 JiraReferenceStream(client, deps.rawStore, stored.projectKeys, if (claim.requestedOnDemand) 0 else deps.usersRefreshMillis),
@@ -189,6 +190,7 @@ class JiraConnector(
         val client = newClient(stored.siteUrl, stored.email, stored.apiToken, stored.authScheme)
         withTally(deps, context) { streamContext ->
             deps.dataSources.persistCloudId(claim.connectionId, client.resolveCloudId())
+            // No Jira-calling stream may follow `process`/`profile`: the hard stop is disarmed for good there (`withHardStop`).
             val streams: List<Stream> = listOf(
                 JiraReconcileStream(client, deps.rawStore, stored.projectKeys, backfillFromEpochMillis(stored.backfillFrom)),
                 JiraProcessStream(deps.rawStore, deps.workItems),

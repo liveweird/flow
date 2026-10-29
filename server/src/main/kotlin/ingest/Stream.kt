@@ -2,6 +2,7 @@ package ch.nokillswit.ingest
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
@@ -166,17 +167,18 @@ class StreamContext(
      */
     suspend fun <T> withHardStop(block: suspend () -> T): T {
         val limit = hardStopMillis ?: return block()
+        var work: Deferred<T>? = null
         try {
             return coroutineScope {
-                val work = async { block() }
+                val started = async { block() }.also { work = it }
                 val watchdog = launch {
-                    if (withTimeoutOrNull(limit) { localPhase.await() } == null) {
+                    if (withTimeoutOrNull(limit) { localPhase.await() } == null && started.isActive) {
                         hardStopFired = true
-                        work.cancel(CancellationException("job hard stop after $limit ms"))
+                        started.cancel(CancellationException("job hard stop after $limit ms"))
                     }
                 }
                 try {
-                    work.await()
+                    started.await()
                 } finally {
                     watchdog.cancel()
                 }
@@ -184,9 +186,18 @@ class StreamContext(
         } catch (cancelled: CancellationException) {
             // Our own stop only while the caller itself is still live; a shutdown that races it wins and propagates as it is.
             if (!hardStopFired || !currentCoroutineContext().isActive) throw cancelled
-            throw CeilingTripException(TIME_EXCEEDED_TRIP, changedInRun > 0, null, hardStop = true)
+            throw hardStopTrip()
+        } catch (failure: Exception) {
+            // The cancelled work may end in an ordinary failure instead of a CancellationException (a transport that reports its cancelled
+            // call as an IOException, retried into a terminal fetch failure): still the hard stop's doing, the failure kept as suppressed.
+            if (hardStopFired && work?.isCancelled == true && currentCoroutineContext().isActive) {
+                throw hardStopTrip().also { it.addSuppressed(failure) }
+            }
+            throw failure
         }
     }
+
+    private fun hardStopTrip() = CeilingTripException(TIME_EXCEEDED_TRIP, changedInRun > 0, null, hardStop = true)
 
     /**
      * A stream changed stored data in a transaction of its own BETWEEN heartbeats (the WORKLOGS early or on-failure flush, ISSUES'

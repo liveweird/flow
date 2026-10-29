@@ -420,10 +420,10 @@ resumable-stop rules) and the job is never left `RUNNING` until its lease expire
 `error_detail` (it names the grace and "mid-page"), by the INFO/WARN line (the resumable INFO says "hard stop: cancelled in flight" or
 "stopped between pages") and by `hardStop = true` on the `sync_job.failed` audit event; the closed code vocabulary is unchanged. **It is not a
 worker shutdown:** the watchdog cancels only the run's inner child, and `withHardStop` converts the cancellation into a trip only when it
-fired the stop itself and the worker's own coroutine is still active; a cancellation from outside (shutdown) propagates untouched, so
+fired the stop itself and the worker's own coroutine is still active (also when the cancelled work ends in an ordinary failure, e.g. a transport reporting its cancelled call as an I/O error: the trip is thrown with that failure suppressed); a cancellation from outside (shutdown), or one the stop did not cause, propagates untouched, so
 `runJob`'s `CancellationException` handler still releases the job to `PENDING`. The watchdog runs on real time (coroutine delay), not on the
 injected clock the graceful check reads (a frozen or fake clock cannot model a call that never returns), and is disarmed for good the
-moment the run enters a `LOCAL_STREAMS` stream, like the graceful check. Only SYNC and RECONCILE are bounded (the other kinds get no
+moment the run enters a `LOCAL_STREAMS` stream, like the graceful check (so no Jira-calling stream may follow `process`/`profile`). Only SYNC and RECONCILE are bounded (the other kinds get no
 `maxRunMillis`); a non-Jira connector ignores `hardStopMillis`. The whole PROCESS and PROFILE streams never call Jira and are exempt (`LOCAL_STREAMS`), so a run that finished every
 Jira-calling stream is never recorded `TIME_EXCEEDED` for the local work after it. **Why 60:** the slowest full backfill measured on the real tenant took
 ~22 min before the fetch-ahead work and ~5 min for the largest project after it; the stub's SYNC takes seconds. 60 is ~3x the worst figure,
