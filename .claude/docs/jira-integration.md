@@ -355,7 +355,7 @@ per-row `change*Row` updates (a CHANGED/RESURRECTED row keeps its single-row `UP
 `upsertRows` cannot express it - an omitted NOT NULL `first_seen_at` fails the INSERT half before the conflict is looked at).
 
 Shape per call: ONE `SELECT key, sha256, tombstones … WHERE key IN (…) ORDER BY key FOR UPDATE` (chunks of 1,000 keys, sorted before chunking so rows are locked in
-key order across chunks), then the INSERTED rows as multi-row `insertRows`, the UNCHANGED rows as ONE `UPDATE … WHERE key IN (…)` of the single
+key order across chunks), then the INSERTED rows as multi-row `insertRows` (each statement at most 32,000 bind parameters AND 1 MiB of payload text, `MAX_PAYLOAD_CHARS`: a dense issue's worklogs go in several statements, a lone larger row alone), the UNCHANGED rows as ONE `UPDATE … WHERE key IN (…)` of the single
 column the single-row path touches (`fetched_at`, an entity's `last_seen_at`), and the changed ones row by row. A key repeated inside
 one call is written by the single-row path after the batch, so its outcome is judged against the first write, as in a sequential run.
 `insertChangelogs` is `Table.insertRowsIgnoringConflicts` (`infra/db/MultiRowInsert.kt`: `INSERT … ON CONFLICT DO NOTHING`, the batch

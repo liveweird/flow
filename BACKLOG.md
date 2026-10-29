@@ -123,12 +123,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   tree); (2) a per-slot admission by estimated tree size before the parse, or a streaming parse, would close the response path for good,
   and `ExitOnOutOfMemoryError` still makes an OOM a worker exit; (3) the web-role inspector is outside the fit
   (`jira-integration.md` "What the boot check does NOT bound yet").
-- [new] **Postgres memory under dense raw inserts (WHY 48 after-fix).** One raw-worklog insert statement carries a whole issue's worklogs
-  (the 32,000-bind cap does not split ~8 MB of jsonb); on the perf stack two hostile dense-worklog connections at once got a Postgres
-  backend OOM-killed (1536m container), the postmaster reset every connection, and both SYNC jobs then sat RUNNING until their lease
-  expired (~5 min) instead of failing. Real data is far below it (the largest real per-issue worklog total is ~0.5 MB). Fix: bound the
-  payload bytes per statement in the raw writers (`MultiRowInsert.kt` callers), and fail a job promptly when its database connection is
-  lost; re-measure WHY 48 case (g) x2.
 - [parked] **Instance-local auth state.** The login lockout, reset throttle and MFA challenges live in memory.
   - That's safe because the web Deployment runs one replica with Recreate.
   - Moving to several web replicas first needs Lettuce's database-backed version (its V81 auth-state tables).
