@@ -97,10 +97,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [new] **Epic progress: the web's UNIT rows (`EpicProgressRows` domains/teams tables, `levelNote.UNIT`) render an answer the API no longer gives.** The reports scope guard
   refuses an Epic progress request naming no epic, domain or team, and `EpicProgressTargets.kt` lost its whole-unit target, so `EpicProgressLevel.UNIT` is never sent. Remove the
   UNIT rows, the `levelNote.UNIT` / `levelTitle.UNIT` copy and the wire enum value together (spec, `schema.ts`, EN/PL strings, tests).
-- [new] **Person trend with a big team: the peer-cell cache (parked in WHY 47).** 1.22.2 cut the WIP read to one statement and decoded the trend's fact rows by
-  position (`build-times.md` WHY 47, measurements there). The remaining lever is a per-window cache of the peers' `cellsOf` results (key: account, window end,
-  slices, derive clock, configuration revision): new server state with invalidation and a memory bound. Go / no-go: build it only if the measured 15-person
-  year stays above 3x Compare people.
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 

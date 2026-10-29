@@ -194,6 +194,8 @@ which rotating hosts sidestep. The 429 is **thrown** (`TooManyRequestsException`
 injected clock) + `LoginLockoutTest` (route). The SPA shows a neutral temporary sign-in limit for
 either 429 cause.
 
+**Person trend's peer-cell cache** (`reports/PersonTrendCache.kt`, `.claude/docs/reports.md` "Report 20", Cost) is in-memory state of the same kind: per instance and per `Application` (a second web replica would only lower the hit rate; each re-validates its generation against the database on every request), capacity-bounded by `reports.peerCellCache.maxEntries` (default 20,000 fixed-size entries; a full generation refuses writes, it never evicts) and holding only report figures every signed-in user may read (D12, nothing caller-shaped; Compare people, whose capacity rows are, never uses it).
+
 **Self-service password reset by confirm link** (`auth/PasswordResetRoutes.kt`, `auth/PasswordResetService.kt`, V35; SPA:
 "Forgot password?" on `/login` → `/reset-password`, the emailed link opens `/reset-password/confirm`; Toadie's design, 2D3).
 The public `POST /api/v1/password-reset` takes `{email}` and answers a uniform `202` for any well-formed request - the

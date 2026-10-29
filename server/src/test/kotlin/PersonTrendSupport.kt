@@ -25,6 +25,13 @@ internal suspend fun HttpClient.personTrend(query: String): PersonTrendReport {
     return response.body()
 }
 
+/** The raw body of a Person trend GET (the byte-identity checks of the peer-cell cache compare strings, never deserialized objects). */
+internal suspend fun HttpClient.personTrendBody(query: String): String {
+    val response = get("/api/v1/reports/person-trend?$query")
+    assertEquals(HttpStatusCode.OK, response.status, "GET person-trend?$query: ${response.bodyAsText()}")
+    return response.bodyAsText()
+}
+
 internal suspend fun HttpClient.comparePeopleReport(query: String): ComparePeopleReport {
     val response = get("/api/v1/reports/compare-people?$query")
     assertEquals(HttpStatusCode.OK, response.status, "GET compare-people?$query: ${response.bodyAsText()}")

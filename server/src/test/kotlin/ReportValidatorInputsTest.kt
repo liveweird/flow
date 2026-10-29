@@ -137,6 +137,26 @@ class ReportValidatorInputsTest {
         }
 
     @Test
+    fun `a data-source PUT that moves backfillFrom moves the etag, although it bumps no settings revision`() = testApplication {
+        usePostgresTestcontainer()
+        pinReportClock()
+        val client = seededClient("etag-backfill")
+        val connectionId = SyncedStubFixture.createConnection(namePrefix = "etag-backfill", enabled = false)
+        val settings = DerivedStubFixture.metricsSettings()
+        val url = "$costs?connectionId=$connectionId&domain=${DerivedStubFixture.DOMAIN}"
+        val before = client.etagOf(url)
+        val revision = settings.currentRevision()
+        SyncedStubFixture.putBackfillFrom(connectionId, "2025-10-01")
+        assertEquals(revision, settings.currentRevision(), "a data-source PUT bumps the connection's revision, not the settings one")
+        val moved = client.etagOf(url)
+        assertNotEquals(before, moved, "the WIP series start at backfill_from, so the stamp carries it")
+        SyncedStubFixture.putBackfillFrom(connectionId, "2025-10-01")
+        assertEquals(moved, client.etagOf(url), "an identical PUT leaves the validator")
+        SyncedStubFixture.putBackfillFrom(connectionId, SyncedStubFixture.BACKFILL_FROM)
+        assertEquals(before, client.etagOf(url), "restoring the day restores the stamp")
+    }
+
+    @Test
     fun `ingest activity, a last successful sync and a connection's deletion and purge move the etag, with no derive involved`() =
         testApplication {
             usePostgresTestcontainer()

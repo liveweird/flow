@@ -96,6 +96,31 @@ object SyncedStubFixture {
         ),
     )
 
+    /**
+     * The data-source PUT that moves only [backfillFrom] (everything else as stored; no token, so the secret is kept): what an ADMIN's
+     * edit does -- it bumps the connection's own `config_revision` and never the settings revision.
+     */
+    suspend fun putBackfillFrom(connectionId: UInt, backfillFrom: String, dataSources: DataSourceService = dataSources()) {
+        val current = checkNotNull(dataSources.read(connectionId)) { "connection $connectionId" }
+        dataSources.update(
+            connectionId,
+            DataSourceRequest(
+                name = current.name,
+                enabled = current.enabled,
+                syncIntervalMinutes = current.syncIntervalMinutes,
+                backfillFrom = backfillFrom,
+                reconcileHourUtc = current.reconcileHourUtc,
+                jira = JiraConnectionRequest(
+                    siteUrl = current.jira.siteUrl,
+                    email = current.jira.email,
+                    apiToken = null,
+                    projectKeys = current.jira.projectKeys,
+                    authScheme = current.jira.authScheme,
+                ),
+            ),
+        )
+    }
+
     fun buildJiraHttp(maxRetries: Int = 4, maxResponseBytes: Long = 33_554_432L): JiraHttp {
         val httpClient = HttpClient(OkHttp) {
             engine { preconfigured = okhttp3.OkHttpClient() }

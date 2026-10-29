@@ -17,9 +17,15 @@ package ch.nokillswit.reports
  * THE TEAM REFERENCE ([readReferenceTeams], `PersonTrendReference.kt`): each point also carries the median of the person's team peers'
  * cells. The peers' populations ride the SAME two reads and the two WIP statements (their account ids join the person's in the
  * filter's `IN`), so the statement count grows only by the membership reads (person, rosters, team names); a peer's cell is [cellsOf]
- * over the same window slice as the person's.
+ * over the same window slice as the person's. A peer's cells over a window are cached per report data stamp (`PersonTrendCache.kt`), so the
+ * second person of a team reads only their own rows; the figures are the same cached or fresh.
  */
-internal suspend fun ReportService.personTrend(filter: ReportFilter, nowMs: Long): PersonTrendReport = reportTransaction {
+internal suspend fun ReportService.personTrend(
+    filter: ReportFilter,
+    nowMs: Long,
+    stamp: List<String>,
+    ticket: Long,
+): PersonTrendReport = reportTransaction {
     val scope = resolveReportScope(filter, nowMs)
     val period = filter.period as ReportPeriod.DateRange
     val person = filter.accountIds.single()
@@ -30,15 +36,36 @@ internal suspend fun ReportService.personTrend(filter: ReportFilter, nowMs: Long
     val derived = scope.connectionIds.filter { it !in coverage.notDerived }
     val backfill = backfillStart(derived)?.date
     val references = readReferenceTeams(person, windows, calendar)
-    val everyone = (listOf(person) + references.flatMap { it?.peers.orEmpty() }).distinct()
-    val wip = readTrendWip(scope.copy(window = range), filter, windows, derived, everyone)
-    val populations = fetchTrendPopulations(filter.copy(accountIds = everyone), scope.connectionIds, range)
+    val peersByWindow = references.map { it?.peers.orEmpty() }
+    val ends = windows.map { it.end }
+    // THE PEER-CELL CACHE (`PersonTrendCache.kt`): a peer whose cells are cached for every window it is needed in is not read; the person
+    // always is. `stamp` (and its `ticket`, taken before it) was read by the route BEFORE this transaction (never recomputed here), so an
+    // entry is never older than its key.
+    val generation = peerCells.open(stamp, ticket)
+    val slice = peerCellSlice(scope.connectionIds, filter)
+    val plan = generation.plan(person, slice, ends, peersByWindow)
+    generation.report(plan)
+    val wip = readTrendWip(scope.copy(window = range), filter, windows, derived, plan.fetch)
+    val populations = fetchTrendPopulations(filter.copy(accountIds = plan.fetch), scope.connectionIds, range)
 
-    val datas = windows.mapIndexed { i, window ->
-        populations.dataOf(window, scope, wip.forWindow(window), listOf(person) + references[i]?.peers.orEmpty())
+    val fetched = plan.fetch.toSet()
+    val results = windows.mapIndexed { i, window ->
+        // Exactly the cells the report needs, cache or not: the person, and this window's peers that were fetched (a served peer's cell
+        // is the cached one). An entry is written only for a cell computed anyway, never for a window the account was not a peer in.
+        val accounts = listOf(person) + peersByWindow[i].filter { it in fetched }
+        val datas = populations.dataOf(window, scope, wip.forWindow(window), accounts)
+        val personCells = datas.getValue(person).cellsOf(person)
+        val entries = datas.mapValues { (account, data) ->
+            PeerCellEntry.of(if (account == person) personCells else data.cellsOf(account), data.hadActivity(account))
+        }
+        // The person's own entry only where the point has a team: that is the only place it can ever be a peer of someone else, and a
+        // teamless (or made-up) account must not be able to fill the cap with entries nobody can be served.
+        entries.forEach { (account, entry) ->
+            if (account != person || references[i] != null) generation.store(PeerCellKey(account, window.end, slice), entry)
+        }
+        val peers = peersByWindow[i].associateWith { peer -> plan.served[peer]?.get(window.end) ?: entries.getValue(peer) }
+        TrendWindowResult(personCells, datas.getValue(person).done, referencesOf(references[i], peers))
     }
-    val cells = datas.map { it.getValue(person).cellsOf(person) }
-    val referenceCells = references.indices.map { referencesOf(references[it], datas[it]) }
     val labels = windows.map { coverageOf(it, coverage.day, backfill) }
     PersonTrendReport(
         meta = scope.meta,
@@ -46,14 +73,23 @@ internal suspend fun ReportService.personTrend(filter: ReportFilter, nowMs: Long
         windowDays = TREND_WINDOW_DAYS,
         stepDays = TREND_STEP_DAYS,
         windows = windows.mapIndexed { i, w -> PersonTrendWindow(w.end.toString(), w.from.toString(), labels[i], references[i]?.team) },
-        rows = TREND_ROWS.map { spec -> trendRowOf(spec, windows, labels, cells, referenceCells, scope.settings.minSampleSize) },
+        rows = TREND_ROWS.map { spec ->
+            trendRowOf(spec, windows, labels, results.map { it.cells }, results.map { it.reference }, scope.settings.minSampleSize)
+        },
         workMix = PersonTrendWorkMix(
-            activityType = mixSeriesOf(windows, datas.map { it.getValue(person).done }, person) { it.activityType },
-            workCategory = mixSeriesOf(windows, datas.map { it.getValue(person).done }, person) { it.workCategory ?: UNCATEGORIZED },
+            activityType = mixSeriesOf(windows, results.map { it.done }, person) { it.activityType },
+            workCategory = mixSeriesOf(windows, results.map { it.done }, person) { it.workCategory ?: UNCATEGORIZED },
         ),
         note = wip.note,
     )
 }
+
+/** What one window contributes to the report: the person's cells and done tasks, and the team reference of the point. */
+private class TrendWindowResult(
+    val cells: Map<String, CompareCell>,
+    val done: List<CompareDoneTask>,
+    val reference: Map<String, PersonTrendReference>?,
+)
 
 private fun trendRowOf(
     spec: CompareRowSpec,

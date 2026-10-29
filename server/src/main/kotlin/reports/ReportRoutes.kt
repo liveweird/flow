@@ -140,7 +140,12 @@ fun Application.configureReportRoutes() {
     val statementTimeoutSeconds = requireConfigInt(
         environment.config, "reports.statementTimeoutSeconds", min = 1, max = MAX_REPORT_STATEMENT_TIMEOUT_SECONDS,
     )
-    val reportService = ReportService(database, metricsSettings, teamMembership, statementTimeoutSeconds)
+    val peerCellMaxEntries = requireConfigInt(
+        environment.config, "reports.peerCellCache.maxEntries", min = 0, max = MAX_PEER_CELL_CACHE_MAX_ENTRIES,
+    )
+    val reportService = ReportService(
+        database, metricsSettings, teamMembership, statementTimeoutSeconds, peerCells = PeerCellCache(peerCellMaxEntries),
+    )
     attributes.put(ReportServiceKey, reportService)
 
     routing {

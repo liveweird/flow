@@ -115,9 +115,10 @@ internal suspend fun newestSucceededRuns(connectionIds: List<UInt>): List<Newest
  *   dive's titles, every person name), those tables are written page by page DURING a SYNC, and a SYNC that fails after committing
  *   pages chains no DERIVE, so the derive run alone would leave a `304` stale; the heartbeat moves after each committed page, which
  *   also covers a run in progress;
- * - the active connections' ids, names and `siteUrl` (what the reports print and `/filters` reads out of `settings`) and last
- *   successful sync (Home's freshness), plus a line per soft-deleted connection with its `purged_at` (names and `/filters` still read a
- *   deleted connection's people until its PURGE removes them);
+ * - the active connections' ids, names and `siteUrl` (what the reports print and `/filters` reads out of `settings`), last
+ *   successful sync (Home's freshness) and `backfill_from` (the WIP series start at it, `planSnapshotDays`, and its PUT bumps only the
+ *   connection's own revision, never the settings one), plus a line per soft-deleted connection with its `purged_at` (names and `/filters`
+ *   still read a deleted connection's people until its PURGE removes them);
  * - the active teams' ids, names and `updated_at` (existence - `400 Unknown or inactive teamId` - the name, the manager `/filters`
  *   prints; no DERIVE rewrites any of them);
  * - every team's work-category targets (name, percent, `updated_at`): the Costs report reads them at query time and their PUT bumps
@@ -134,7 +135,7 @@ internal suspend fun ReportService.dataStamp(
     nowMs: Long,
 ): List<String> = reportTransaction {
     val c = DataSourceService.Connections
-    val connections = c.select(c.id, c.name, c.settings, c.lastSyncSucceededAt).where { c.active() }.orderBy(c.id).toList()
+    val connections = c.select(c.id, c.name, c.settings, c.lastSyncSucceededAt, c.backfillFrom).where { c.active() }.orderBy(c.id).toList()
     val retired = c.select(c.id, c.purgedAt).where { c.markedAsDeleted eq true }.orderBy(c.id).toList()
     val j = SyncJobsService.Jobs
     val ingestKinds = listOf(SyncJobKind.SYNC, SyncJobKind.RECONCILE, SyncJobKind.REPROCESS, SyncJobKind.PURGE).map { it.name }
@@ -152,7 +153,8 @@ internal suspend fun ReportService.dataStamp(
         add("settings:${settings.configRevision}")
         add("clock:${clockToken(clock, calendar, nowMs)}")
         connections.forEach {
-            add("connection:${it[c.id].value}:${it[c.name]}:${siteUrlOf(it[c.settings])}:${it[c.lastSyncSucceededAt]}")
+            val printed = "${it[c.id].value}:${it[c.name]}:${siteUrlOf(it[c.settings])}:${it[c.lastSyncSucceededAt]}"
+            add("connection:$printed:${it[c.backfillFrom]}")
         }
         retired.forEach { add("retired:${it[c.id].value}:${it[c.purgedAt]}") }
         ingest.forEach { add("ingest:${it[j.connectionId].value}:${it[newestId]}:${it[lastHeartbeat]}:${it[lastFinish]}") }

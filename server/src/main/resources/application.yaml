@@ -243,6 +243,11 @@ reports:
   # problem, so one pathological selection cannot pin a pooled connection. WHOLE SECONDS (the unit Exposed's
   # per-statement timeout takes), 1..3600.
   statementTimeoutSeconds: "$REPORTS_STATEMENT_TIMEOUT_SECONDS:30"
+  peerCellCache:
+    # Person trend's peer-cell cache (reports/PersonTrendCache.kt, WHY 49): at most this many cached (account, window) cells per data-stamp
+    # generation, per web instance. Entries are fixed-size (~0.4 KiB measured), so the default holds ~8 MiB; a full generation refuses
+    # writes (the request still answers correctly). 0 turns the cache off (every request reads every teammate's rows); 0..50000.
+    maxEntries: "$REPORTS_PEER_CELL_CACHE_MAX_ENTRIES:20000"
 
 web:
   # When set, the server serves the built React SPA from this directory (static
