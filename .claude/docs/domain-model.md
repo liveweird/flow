@@ -434,8 +434,8 @@ carries the per-measure detail).
     author's team with the epic's OWNER team (A19), not the epic's assignee's team — epics carry no
     sprint at all, so the sprint-team branch never applies to them either.
 
-- **A29 — Deep dive layers** (report 17, agreed with the user 2026-10-05; A23–A27 are taken and A28 is
-  reserved for the parked backlog item 13). One matrix compares plan, execution (since A40: Approximate EV) and cost for a chosen
+- **A29 — Deep dive layers** (report 17, agreed with the user 2026-10-05; A23–A27 are taken; A28 was
+  reserved for a composite sub-task estimate, closed 2026-10-29 unused: no open item is estimated through sub-tasks only). One matrix compares plan, execution (since A40: Approximate EV) and cost for a chosen
   set of work, as a sparse DAILY series per task and layer in man-days; every higher level (week,
   month, epic row) is a sum of lower ones, computed by the client. It adds no DERIVE step and no
   migration — it reads facts that already exist. The three layers:

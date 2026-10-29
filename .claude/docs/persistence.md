@@ -725,7 +725,8 @@ ONE GiST index — `btree_gist` is what makes `=` available inside a GiST index 
   `metrics/MetricsSettingsService.kt` (the table object `MetricsSettingsService.Settings` lives there; the eight
   per-connection config tables stay nested in `MetricsConfigService`). `time_zone` defaults to `'Europe/Warsaw'`, not UTC (main-session
   amendment A4 — the unit is Polish; an admin can change it). `hours_per_day` is a manual setting in
-  v0.3.0 (A5) — reading Jira's own time-tracking configuration is deferred to `BACKLOG.md`.
+  v0.3.0 (A5); reading Jira's own time-tracking configuration was closed 2026-10-29 (the real data's whole-day worklogs
+  match the setting, and the read would need a further Jira endpoint for no change).
   `config_revision` is the ONE revision the whole metrics layer is built against: bumped inside
   EVERY config mutation's own transaction — this row's own PUT, `metrics/TeamMembershipService.kt`'s
   create/update/delete (nested into the SAME transaction via `MetricsSettingsService.bumpRevision`,
