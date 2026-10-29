@@ -97,9 +97,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [new] **Epic progress: the web's UNIT rows (`EpicProgressRows` domains/teams tables, `levelNote.UNIT`) render an answer the API no longer gives.** The reports scope guard
   refuses an Epic progress request naming no epic, domain or team, and `EpicProgressTargets.kt` lost its whole-unit target, so `EpicProgressLevel.UNIT` is never sent. Remove the
   UNIT rows, the `levelNote.UNIT` / `levelTitle.UNIT` copy and the wire enum value together (spec, `schema.ts`, EN/PL strings, tests).
-- [new] **Remove the TRIM step once every install is trimmed.** `jira/JiraTrimStream.kt` + `JiraRawTrim.kt` + the `trim` cursor row rewrite the raw rows
-  stored before the payload trim (1.17.1) existed, once. When the dev stack and every other install show `phase: DONE` and `version: 2` on the `trim` cursor (the data source status
-  endpoint), delete the stream, the collaborator, its wiring in `JiraConnector` (SYNC and REPROCESS), its tests and the docs; a `DELETE FROM sync_cursors WHERE stream = 'trim'` migration is optional.
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 
@@ -127,7 +124,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   every page under the big-parse lock, and WHY 48's after-fix re-measure held every term on the shipped `-Xmx512m` worker (the response
   path ~7 % over its own term, covered by the total). Still open: (1) the `all` role is budgeted for its worker only (no Test connection
   tree); (2) a per-slot admission by estimated tree size before the parse, or a streaming parse, would close the response path for good,
-  and `ExitOnOutOfMemoryError` still makes an OOM a worker exit; (3) TRIM batches and the web-role inspector are outside the fit
+  and `ExitOnOutOfMemoryError` still makes an OOM a worker exit; (3) the web-role inspector is outside the fit
   (`jira-integration.md` "What the boot check does NOT bound yet").
 - [new] **Postgres memory under dense raw inserts (WHY 48 after-fix).** One raw-worklog insert statement carries a whole issue's worklogs
   (the 32,000-bind cap does not split ~8 MB of jsonb); on the perf stack two hostile dense-worklog connections at once got a Postgres

@@ -70,7 +70,7 @@ connection instead of syncing its own. The rule going forward:
   cannot be silently dropped; surrogate `id` columns, `BIGINT` since V33, are not copied) — cheap, no HTTP — and the test
   drives only the ONE stream under test (`JiraProcessStream`, `JiraReconcileStream`,
   `JiraWorklogStream`, …) directly against that clone, the same production code a real job would run,
-  just without the surrounding streams that already ran once to produce the shared fixture. A clone copies no `sync_cursors` row, so a stream that keeps a never-cleared cursor (TRIM) runs once on it; `JiraTrimStreamTest` is built on that.
+  just without the surrounding streams that already ran once to produce the shared fixture. A clone copies no `sync_cursors` row.
 - **A test whose SUBJECT is the sync streams themselves** (cursor resume, `CURSOR_EXPIRED`, lease
   loss, the bulkfetch fallback, the day2 incremental/worklog feed) keeps a REAL HTTP sync — but
   drives the smallest path that exercises it: a single stream directly where the fixture already
