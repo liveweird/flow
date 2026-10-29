@@ -363,9 +363,10 @@ inputs and the capacity verdict.
     `board_columns`), the deep dive's titles (`norm.work_items`) and every person name (`norm.people`). A SYNC commits those page by page and
     heartbeats after each page, and one that fails after committing pages chains NO DERIVE, so the derive run alone would leave a `304` stale
     until the next day or derive; the job row moves with every page, with the run's end and with a new job, in progress or not.
-  - `connection:<id>:<name>:<siteUrl>:<last_sync_succeeded_at>` of every ACTIVE connection -- existence checks (`400 Unknown or inactive
-    connectionId`) and exactly what a report prints: the name, the `siteUrl` `/filters` reads out of `settings`, and Home's freshness
-    (`lastSyncAt`). `source_connections.updated_at` is deliberately NOT stamped: it moves on every ADMIN edit (a token rotation too) and a USER
+  - `connection:<id>:<name>:<siteUrl>:<last_sync_succeeded_at>:<backfill_from>` of every ACTIVE connection -- existence checks (`400 Unknown or inactive
+    connectionId`) and exactly what a report prints or clips by: the name, the `siteUrl` `/filters` reads out of `settings`, Home's freshness
+    (`lastSyncAt`) and the backfill start (the WIP series and Person trend's windows start at it, `planSnapshotDays`; a data-source PUT bumps only the connection's own
+    revision, never `settings:`). `source_connections.updated_at` is deliberately NOT stamped: it moves on every ADMIN edit (a token rotation too) and a USER
     could read that off a tag. `enabled` is not stamped either: no report prints it, and the sync it gates shows up as `ingest:`.
   - `retired:<id>:<purged_at>` per soft-deleted connection -- `ReportNames.accountDisplayNames` and `/filters` still read a deleted connection's
     `norm.people` until its PURGE removes them, so the deletion (the `connection:` line disappears) and the PURGE (`purged_at`) both move the tag
@@ -394,13 +395,13 @@ inputs and the capacity verdict.
 | commitments, sprint-consistency (+ `/items`), task-estimation-accuracy (+ `/items`), task-estimates (+ `/items`), epic-estimation-accuracy (+ `/items`), estimate-adjustments (+ `/items`), cycle-time (+ `/items`), reported-time-ratio (+ `/items`), blocked-time (+ `/items`), epic-progress | day | `teamId`/`connectionId` existence and group labels: `team:`/`connection:`; calendar, thresholds, holidays: `settings:`; person names: `run:` of every connection, `ingest:` (a failed SYNC) and `retired:` (a deleted connection's people) |
 | throughput (+ `/items`) | 5 min | the same; an open sprint's window ends at `now` |
 | backlog | day | the same; its `touchedWithinDays` window reads `raw.jira_changelogs` and `norm.work_item_worklogs` live: `ingest:` (written page by page during a SYNC) |
-| wip | day | the same, plus the live board/status/stage-map reads: `settings:` (maps, board-team), `run:` and `ingest:` (`norm.statuses`, `board_columns`, and the USER level's `norm.work_item_field_intervals`) |
+| wip | day | the same, plus the backfill start (`connection:`) and the live board/status/stage-map reads: `settings:` (maps, board-team), `run:` and `ingest:` (`norm.statuses`, `board_columns`, and the USER level's `norm.work_item_field_intervals`) |
 | aging-wip | 5 min | the same; fractional ages |
 | data-quality | 5 min | the same, plus its live config reads (`settings:`) and the memberships (`settings:`) |
 | costs (+ `/items`) | 5 min | the same, plus the stored sprint calendars, the team memberships, the team default capacity (all `settings:`) and the **work-category targets** (`target:`); the available categories are the work-category maps (`settings:`) |
 | home, home/items | 5 min | the same; the default team list is the first three active teams by name (`team:`), whoever asks; the freshness block prints each connection's `last_sync_succeeded_at` (`connection:`) |
 | compare-people | day | the same, plus the memberships (`settings:`), the team managers (`team:`) and **the caller's verdict** (in the tag) |
-| compare-people/items, person-trend (+ `/items`) | day | memberships and the calendar (`settings:`); no capacity, so no verdict; person-trend also uses the whole stamp as its peer-cell cache's generation |
+| compare-people/items, person-trend (+ `/items`) | day | memberships and the calendar (`settings:`); person-trend's windows also start at the backfill (`connection:`); no capacity, so no verdict; person-trend also uses the whole stamp as its peer-cell cache's generation |
 | deep-dive and its two option lists | day | `team:`/`connection:` existence; the `norm.work_items` titles (read live) follow `run:` and `ingest:` |
 
 A change in the `norm` labels (a person's display name, an issue summary) moves the tag with the first page the SYNC commits (`ingest:`) and
@@ -2557,11 +2558,10 @@ PersonTrendReport {
 - **The peer-cell cache** (`reports/PersonTrendCache.kt`, WHY 49). Reading a teammate's rows is what the request pays for, so a PEER's `cellsOf` over a window -- the 14 trend cells and whether the peer was active -- is kept per
   report data stamp and the next request for anyone on the team reads only its own person's rows. **Grain:** one entry per (account, window end, slice signature); the slice signature is the RESOLVED connection ids (sorted),
   `domain`, `domainView`, `activityType` and `workCategory` (null-safe; `tailPercent` never reaches a cell). **Generation:** the stamp of 'The data stamp', read once by the route BEFORE the report transaction and passed in
-  (never recomputed after the reads), so an entry is never older than its generation promises; a request whose stamp differs swaps a fresh generation in by compare-and-set from the one it observed (a lost race adopts the
-  winner's if it is the same stamp, else works on a private one), and the old entries are garbage at once. Each input a cell depends on is a stamp line (facts: `run:`; the live `norm` bridges of the WIP statements:
-  `ingest:`, which moves per page during a SYNC, so the cache is cold during one by design; `minSampleSize`, zone, weekend, hours, holidays, backfill start and memberships: `settings:`; the DERIVE clock: `run:`; today:
-  `clock:`); team membership decides WHICH peers (re-read live every request), never a peer's cell. **Hit rule:** a peer is served only if EVERY window it is needed in is cached, else its rows are read; the person is
-  always read; every read account's cells are written for every window (a cell does not depend on the roster). Cached and fresh cells both pass through the same compact `PeerCellEntry` (primitive arrays and masks), so the
+  (never recomputed after the reads), so an entry is never older than its generation promises; the route takes a monotonic TICKET just before it reads the stamp, and a request whose stamp differs swaps a fresh generation in by compare-and-set from the one it observed, but only over a generation with an older ticket (a lost race adopts the
+  winner's if it is the same stamp; a straggler that read its stamp before a newer generation was installed, or a lost race against another stamp, works on a private generation), and the old entries are garbage at once. Each input a cell depends on is a stamp line (facts and the DERIVE-written `metrics.task_assignee` / `item_stage` / `dim_task` / `dim_date` the WIP statements read: `run:`, the DERIVE clock too; `minSampleSize`, zone, weekend, hours, holidays and memberships: `settings:`; the backfill start: the `connection:` line;
+  today: `clock:`; the cache is also cold while a SYNC moves `ingest:` per page, by design); team membership decides WHICH peers (re-read live every request), never a peer's cell. **Hit rule:** a peer is served only if EVERY window it is needed in is cached, else its rows are read; the person is
+  always read; a read account's cells are computed, and written, only for the windows the report needs them in -- the person's (the entry only where the point has a team, so a teamless or made-up account cannot fill the cap) and the windows the account is a peer in -- exactly what the cache-off request computes, never more. Cached and fresh cells both pass through the same compact `PeerCellEntry` (primitive arrays and masks), so the
   reference median sees the very same doubles and a cached body is byte-identical to an uncached one (`ReportPersonTrendCacheTest` compares raw strings against a cache-off oracle app). **Bound:**
   `reports.peerCellCache.maxEntries` (env `REPORTS_PEER_CELL_CACHE_MAX_ENTRIES`, default 20,000, boot-validated 0..50,000, `0` = off): entries are fixed-size (about 0.4 KiB measured, `in-test peer-cell-bytes`), so the entry cap is
   the byte cap (~8 MiB at the default, beside the web heap's own report-concurrency budget, `JiraHeapFit.WEB_RESERVE_BYTES`); a full generation REFUSES writes and never evicts (the auth stores' rule), the request still

@@ -57,7 +57,7 @@ internal const val RESERVE_BYTES = 96L * MIB
  * `-Xmx256m -Xmn64m` (192 MiB old), against this formula's 112 + 4 x 8 + 40 = 184 MiB (~160 MiB for the same peak with four 8 MiB
  * bodies). It does NOT cover heavy report
  * concurrency (WHY 46: eight 15-person trends filled the old generation before that fix), which is the web heap's own budget -- as is the
- * Person trend peer-cell cache (`reports.peerCellCache.maxEntries`, ~9 MiB at its default cap).
+ * Person trend peer-cell cache (`reports.peerCellCache.maxEntries`, ~8 MiB at its default cap).
  */
 internal const val WEB_RESERVE_BYTES = 40L * MIB
 

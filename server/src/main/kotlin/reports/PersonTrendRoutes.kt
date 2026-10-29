@@ -32,9 +32,10 @@ internal fun Route.personTrendRoutes(reportService: ReportService) {
         val scope = reportService.stampScope(StampClock.DAY)
         val filter = call.request.queryParameters.parsePersonTrend(scope.calendar, scope.nowMs)
         // The stamp is read ONCE, before the report transaction: it is both the ETag's and the peer-cell cache's generation.
+        val ticket = reportService.peerCells.nextTicket()
         val stamp = reportService.dataStamp(scope.settings, scope.calendar, scope.clock, scope.nowMs)
         val tag = reportEtag(reportService.codeIdentity, call.request.path(), call.request.queryParameters, stamp)
-        call.respondRevalidated(tag) { reportService.personTrend(filter, scope.nowMs, stamp) }
+        call.respondRevalidated(tag) { reportService.personTrend(filter, scope.nowMs, stamp, ticket) }
     }
     // The drill: the items behind one point of one row. The parent's parameters (its own parser, so the same 400s first), then the
     // point's identity: `view` (one of the rows') and the required `pointEnd` (a day of the request's grid). The list IS Report 18's drill

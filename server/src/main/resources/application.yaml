@@ -245,7 +245,7 @@ reports:
   statementTimeoutSeconds: "$REPORTS_STATEMENT_TIMEOUT_SECONDS:30"
   peerCellCache:
     # Person trend's peer-cell cache (reports/PersonTrendCache.kt, WHY 49): at most this many cached (account, window) cells per data-stamp
-    # generation, per web instance. Entries are fixed-size (~0.45 KiB), so the default holds ~9 MiB at worst; a full generation refuses
+    # generation, per web instance. Entries are fixed-size (~0.4 KiB measured), so the default holds ~8 MiB; a full generation refuses
     # writes (the request still answers correctly). 0 turns the cache off (every request reads every teammate's rows); 0..50000.
     maxEntries: "$REPORTS_PEER_CELL_CACHE_MAX_ENTRIES:20000"
 
