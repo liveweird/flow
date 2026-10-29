@@ -16,8 +16,9 @@ import org.slf4j.LoggerFactory
  * therefore never OLDER than its generation promises; a write finishing in between only makes it newer than its key, and the next request
  * (a new stamp) misses. Each stamp read takes a TICKET (a monotonic counter) just BEFORE the read. A request whose stamp differs swaps a
  * fresh generation in (compare-and-set from the one it observed) only if the observed generation's ticket is older than its own; a
- * straggler that read its stamp earlier than the generation in place (a DERIVE committed in between) works on a private generation
- * instead, so it can never replace a newer one with older data. The replaced generation is garbage at once.
+ * straggler that took its ticket earlier than the generation in place works on a private generation instead. Best effort: two stamp
+ * reads can overlap (a later ticket may still read the OLDER stamp around a DERIVE commit), so an older stamp can occasionally swap back
+ * in; its entries are still never older than that stamp, so that costs misses, never a wrong answer. The replaced generation is garbage.
  *
  * KEY = (account, window end, `peerCellSlice`). Each input a cell depends on is covered:
  *   account, window end      the key itself (the window's bounds are the end day + the zone, a `settings:` line);
@@ -189,7 +190,7 @@ class PeerCellCache(private val maxEntries: Int = DEFAULT_PEER_CELL_CACHE_MAX_EN
 
     private val tickets = AtomicLong()
 
-    /** The next ticket; a route takes it just BEFORE it reads the data stamp, so a larger ticket never read its stamp earlier. */
+    /** The next ticket; a route takes it just BEFORE it reads the data stamp (orders the starts, not overlapping reads: best effort). */
     internal fun nextTicket(): Long = tickets.incrementAndGet()
 
     /**

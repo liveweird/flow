@@ -143,7 +143,7 @@ class ReportValidatorInputsTest {
         val client = seededClient("etag-backfill")
         val connectionId = SyncedStubFixture.createConnection(namePrefix = "etag-backfill", enabled = false)
         val settings = DerivedStubFixture.metricsSettings()
-        val url = "$costs?connectionId=$connectionId"
+        val url = "$costs?connectionId=$connectionId&domain=${DerivedStubFixture.DOMAIN}"
         val before = client.etagOf(url)
         val revision = settings.currentRevision()
         SyncedStubFixture.putBackfillFrom(connectionId, "2025-10-01")
