@@ -442,7 +442,7 @@ tables in the `raw` schema — the REFERENCE and ISSUES streams' target
   rows the untrimmed one gives, over a rich synthetic issue and over every raw row of the stub fixture with the dropped keys
   injected - a key joins the drop list only after every reader was grepped (`ingestion.md` "Normalized layer"). A change confined
   to a dropped key (a new comment, an e-mail address) is no content change: the hash is the same, `UNCHANGED`, `changed_at` stays
-  put. Rows stored before the trim existed are rewritten once by the TRIM stream ("The Jira changelog/worklog raw store (V11)" below).
+  put. Rows stored before the trim existed: `ingestion.md` "Upgrade path" (the one-off TRIM rewrite is gone).
 - **A stored-row size bound (1.24.1, no migration).** Every write path also refuses an item over its stored-size ceiling BEFORE the diff
   (`RawUpsertOutcome.REFUSED`, `jira/JiraStoredCeilings.kt`): an issue or entity over `jira.maxStoredPayloadBytes` as canonical text, a history
   over 512 KiB and a worklog over 16 KiB as the text arrived. Nothing is written; an existing row keeps its payload, hash and `changed_at` and
@@ -502,16 +502,12 @@ streams' target (`jira/JiraChangelogStream.kt`, `jira/JiraWorklogStream.kt`).
   **before** `sha256Hex`: a re-sync of an unchanged worklog hashes identically (`UNCHANGED`, no `changed_at` move), and a change
   confined to a dropped key (an avatar URL, a time zone, a comment) is not a content change. It also drops `emailAddress` (personal
   data) from those rows - data minimization (`security.md`).
-- **TRIM - the ONE sanctioned rewrite of the otherwise append-only raw tables (`jira/JiraTrimStream.kt`, `ingestion.md` "TRIM stream").** Rows stored before the trim existed
-  (a changelog row is otherwise immutable, an issue/worklog row changes only through the sha256 diff rule) are rewritten once, by the first SYNC or REPROCESS: `payload` and `sha256`
-  move, nothing else (`changed_at`, `fetched_at`, the stamps, the flags, the tombstones stay), so the stale-claim scans and the PROCESS backlog do not notice. This reverses the earlier
-  "no backfill" decision for the slim author. **Operator note:** an UPDATE leaves the old row versions behind, so the tables keep their size until `VACUUM (FULL, ANALYZE)` is run
-  on `raw.jira_issues`, `raw.jira_changelogs` and `raw.jira_worklogs` once, with no job running (it locks the table; it needs free disk of about the table's size); plain autovacuum only reuses the
-  space. **Measured 2026-10-24** on a restored copy of the dev database (3 projects, 13k issues, 503k histories, 77k worklogs; REPROCESS per connection): TRIM
-  10-20 s per connection, every candidate rewritten with 0 hash drift; after `VACUUM (FULL)` `raw.jira_issues` 108 -> 56 MB, `raw.jira_worklogs` 73 -> 56 MB,
-  `raw.jira_changelogs` 345 -> 310 MB (the history authors were already slim; most history bytes are items Flow uses): raw 526 -> 422 MB (-20 %). The normalized
-  tables after REPROCESS were identical to a REPROCESS by the untrimmed code (row fingerprints of all five `norm.work_item*` tables per connection). **Risk (irreversible):** getting dropped data back takes a drop-list code change, then a PURGE and a full re-sync - the ISSUES stream only re-reads issues updated inside its window,
-  changelogs are fetched only while `changelog_synced_at` is stale, and a PURGE plus re-sync with the current code strips again. **At production scale** (WHY 41, 2026-10-25: 64k issues, 11 data sources, trimmed and compacted) the database is 3.0 GB, 47 MB per 1,000 issues: raw 1,878 MB (`raw.jira_changelogs` 1.33 GB, 2.41M rows), norm 611, metrics 495 MB.
+- **No rewrite of stored rows (the TRIM stream is gone).** Until 1.25.0 a one-off TRIM stream rewrote rows stored before the trim existed (`payload` and `sha256` only; trim rules v1, then v2), the only
+  sanctioned rewrite of these append-only tables; it was removed once every install had walked it to `DONE` (`ingestion.md` "Upgrade path": an install still holding older rows runs one SYNC on a build that
+  has it first). An UPDATE leaves old row versions behind, so a table that was rewritten keeps its size until `VACUUM (FULL, ANALYZE)` (locks the table, needs free disk of about its size); plain autovacuum only
+  reuses the space. **Measured 2026-10-24** on a restored copy of the dev database (3 projects, 13k issues, 503k histories, 77k worklogs): after `VACUUM (FULL)` raw 526 -> 422 MB (-20 %), the normalized tables
+  identical to a REPROCESS by the untrimmed code. **Risk (irreversible):** getting dropped data back takes a drop-list code change, then a PURGE and a full re-sync - the ISSUES stream only re-reads issues updated
+  inside its window, changelogs are fetched only while `changelog_synced_at` is stale, and a PURGE plus re-sync with the current code strips again. **At production scale** (WHY 41, 2026-10-25: 64k issues, 11 data sources, trimmed and compacted) the database is 3.0 GB, 47 MB per 1,000 issues: raw 1,878 MB (`raw.jira_changelogs` 1.33 GB, 2.41M rows), norm 611, metrics 495 MB.
 - **`raw.jira_worklogs`** — PK `(connection_id, worklog_id)`, one row per Jira worklog —
   **in-scope issues only** (plan §0 A1): this table only ever gets a row the WORKLOGS stream has
   already checked against a known, non-tombstoned `raw.jira_issues` row for THIS connection

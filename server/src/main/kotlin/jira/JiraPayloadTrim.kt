@@ -18,8 +18,8 @@ import kotlinx.serialization.json.contentOrNull
  *
  * The functions are pure and total: a value of an unexpected shape (`fields` that is not an object, `items` that is not an array,
  * an item that is not an object) is left exactly as it is, never an exception - the posture of [slimUserReference]. Each is
- * idempotent. They are also the body of the TRIM stream ([JiraTrimStream]), which rewrites the rows stored before this existed, so
- * a write and a rewrite agree byte for byte.
+ * idempotent. Every writer applies them on the way in; there is no rewrite of rows stored earlier (the TRIM stream that did it was
+ * removed once every install was trimmed, `ingestion.md` "Upgrade path").
  *
  * **What is dropped, and why it is safe** (each key was grepped across the readers; `JiraPayloadTrimTest` pins the equivalence
  * property - normalizing a trimmed document gives the same rows as the untrimmed one):

@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.26.2",
+    date: "2026-10-29",
+    en: `**Data sources: the one-off TRIM step is gone.**
+
+- Every install has rewritten its older stored Jira rows to the current trim rules, so the sync no longer runs the TRIM step and Reprocess no longer mentions it. Stored data and every report are unchanged.
+- Upgrading from a version older than 1.25.0: first run one sync on 1.25.0–1.26.1 and wait until the data source status shows the \`trim\` cursor at \`DONE\`, version 2.`,
+    pl: `**Źródła danych: jednorazowy krok TRIM został usunięty.**
+
+- Każda instalacja przepisała już starsze zapisane wiersze Jiry według bieżących reguł przycinania, więc synchronizacja nie uruchamia już kroku TRIM, a Przetwórz ponownie o nim nie wspomina. Zapisane dane i wszystkie raporty pozostają bez zmian.
+- Aktualizacja z wersji starszej niż 1.25.0: najpierw uruchom jedną synchronizację na wersji 1.25.0–1.26.1 i poczekaj, aż status źródła danych pokaże kursor \`trim\` w stanie \`DONE\`, wersja 2.`,
+  },
+  {
     version: "1.26.1",
     date: "2026-10-29",
     en: `**Jira sync: a run that outlives its time budget is now stopped mid-page.**
