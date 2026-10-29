@@ -31,9 +31,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     Its 100 `IssueParentAssociation` changes are re-parentings inside the project (30 tasks, 4 epics under the
     Program), which never change an epic's domain. Nothing to fix on real data; a candidate for [parked].
   - Parked by the user 2026-10-23: nothing to fix on real data.
-- [parked] **Read `hoursPerDay` from Jira's time-tracking configuration (A5).** Real data is in now; check the
-  endpoint and its scope on the tenant.
-  - Parked by the user 2026-10-23: Flow's own `hoursPerDay` setting is enough unless the tenant uses a non-8-hour day.
 - [blocked] **Sprint capacities from Jira Plans.** Probed 2026-10-08: the Plans REST API (`/rest/api/3/plans/plan`, then
   `…/team/atlassian/{id}` for `capacity`, `planningStyle`, `sprintLength` and `issueSourceId`) returns 403 to the sync
   service account: "You do not have the Administer Jira global permission". Every Plans endpoint needs it, reads included.
@@ -44,13 +41,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - If Atlassian drops the admin requirement: an optional REFERENCE step (like `PROJECT_FIELDS`), plan team →
     `issueSourceId` board → `board_team_map`, and a `PLAN` capacity source ranked CONFIGURED > PLAN > DEFAULT.
   - Blocked (2026-10-23) on the Administer Jira requirement.
-- [parked] **A28 — a composite estimate for estimated backlog.** Parked 2026-10-01: the teams do not estimate via
-  sub-tasks.
-  - Estimated backlog uses the OWN estimate only, so a parent estimated through its sub-tasks
-    (`estimate_source = SUBTASKS`) is missing from it.
-  - The fix is a composite-estimate bridge. Velocity (`sprintScope`) needs the same composite, or backlog-in-sprints
-    is overstated.
-  - Number the amendment A28 (A23 is taken).
 
 ## Engineering follow-ups
 
