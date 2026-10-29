@@ -17,6 +17,32 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.27.1",
+    date: "2026-10-29",
+    en: `**Data sources: syncs are gentler on the database and recover faster from a database restart.**
+
+- Very large batches of stored Jira data (for example an issue with thousands of long worklogs) are now written in several smaller steps, so one sync can no longer make the database run out of memory.
+- If the database restarts while a sync is running, the sync is now marked as failed within seconds once the database is back, instead of showing "running" for about five minutes; a sync that had already stored everything is not marked as failed.`,
+    pl: `**Źródła danych: synchronizacje mniej obciążają bazę danych i szybciej wracają po jej restarcie.**
+
+- Bardzo duże porcje zapisywanych danych z Jiry (na przykład zgłoszenie z tysiącami długich wpisów czasu pracy) są teraz zapisywane w kilku mniejszych krokach, więc jedna synchronizacja nie może już wyczerpać pamięci bazy danych.
+- Jeśli baza danych zrestartuje się w trakcie synchronizacji, synchronizacja zostaje teraz oznaczona jako nieudana w ciągu kilku sekund od powrotu bazy, zamiast przez około pięć minut pokazywać „w toku”; synchronizacja, która zdążyła już wszystko zapisać, nie jest oznaczana jako nieudana.`,
+  },
+  {
+    version: "1.27.0",
+    date: "2026-10-29",
+    en: `**Data sources: a reconcile that hits its limits every run now pauses on its own.**
+
+- A scheduled daily reconcile that stops at a safety limit or the time limit several runs in a row now pauses by itself, instead of retrying forever; the number of runs is the same one that pauses scheduled syncs. Scheduled syncs keep running while it is paused.
+- A data source with a paused reconcile shows a "Reconcile paused" badge in the list, on its page and in the Sync table of the telemetry panel; its page also explains since when, why and after how many runs. If syncs are paused too, both are shown side by side.
+- "Reconcile now" or saving the connection resumes the reconcile. "Sync now" resumes only the syncs, and saving the connection resumes both.`,
+    pl: `**Źródła danych: uzgodnienie, które w każdym przebiegu osiąga limity, wstrzymuje się samo.**
+
+- Zaplanowane codzienne uzgodnienie, które kilka przebiegów z rzędu zatrzymuje się na limicie bezpieczeństwa lub limicie czasu, wstrzymuje się teraz samo, zamiast ponawiać próby bez końca; liczba przebiegów jest taka sama jak przy wstrzymywaniu zaplanowanych synchronizacji. Zaplanowane synchronizacje działają dalej, gdy uzgodnienie jest wstrzymane.
+- Źródło danych z wstrzymanym uzgodnieniem ma plakietkę „Uzgodnienie wstrzymane” na liście, na swojej stronie i w tabeli Synchronizacja panelu telemetrii; jego strona wyjaśnia też, od kiedy, dlaczego i po ilu przebiegach. Jeśli wstrzymane są także synchronizacje, obie informacje są pokazane obok siebie.
+- „Uzgodnij teraz” albo zapisanie połączenia wznawia uzgodnienie. „Synchronizuj teraz” wznawia tylko synchronizacje, a zapisanie połączenia wznawia oba.`,
+  },
+  {
     version: "1.26.3",
     date: "2026-10-29",
     en: `**Person trend: a teammate's trend opens faster.**

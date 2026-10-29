@@ -56,7 +56,7 @@ internal const val BACKFILL_FLUSH_CHARS = 4 * 1024 * 1024
 
 /**
  * The most worklog rows one `INSERT` group carries (`JiraRawBatchWrites.upsertWorklogs`): a power of two, so a full group is ONE
- * statement of a size the statement cache already holds (`chunkSizes`), well under the bind-parameter cap (3,555 rows of 9 columns).
+ * statement of a size the statement cache already holds (`payloadChunkSizes`), well under the bind-parameter cap (3,555 rows of 9 columns).
  */
 internal const val WORKLOG_INSERT_GROUP_ROWS = 1_024
 

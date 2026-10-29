@@ -17,9 +17,8 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 /*
  * The scheduler's scans over `source_connections` (IngestWorker's tick, `.claude/docs/ingestion.md` "Scheduling"): which
  * connections are due for which job kind. `DataSourceService` delegates here, keeping the public names stable. A connection PAUSED by
- * the ceiling-trip counter (`SyncPause.kt`) is not due for SYNC;
- * RECONCILE (its own back-off; PROCESS + DERIVE keep reports fresh), PURGE
- * and the DERIVE bump scan ignore the pause.
+ * the SYNC ceiling-trip counter (`SyncPause.kt`) is not due for SYNC, one paused by the RECONCILE counter (`ReconcilePause.kt`) is not
+ * due for RECONCILE; neither pause stops the other job, PURGE or the DERIVE bump scan (PROCESS + DERIVE keep reports fresh).
  */
 
 private fun ResultRow.toDueConnection() = DataSourceService.DueConnection(this[Connections.id].value, this[Connections.configRevision])
@@ -39,7 +38,9 @@ internal suspend fun dueForSyncRows(database: R2dbcDatabase, now: Long): List<Da
 
 internal suspend fun dueForReconcileRows(database: R2dbcDatabase, now: Long): List<DataSourceService.DueConnection> =
     suspendTransaction(database) {
-        Connections.selectAll().where { Connections.active() and (Connections.enabled eq true) }.toList()
+        Connections.selectAll().where {
+            Connections.active() and (Connections.enabled eq true) and Connections.reconcilePausedAt.isNull()
+        }.toList()
             .filter {
                 reconcileDue(it[Connections.lastReconcileAt], it[Connections.reconcileHourUtc], now, it[Connections.nextReconcileAt])
             }

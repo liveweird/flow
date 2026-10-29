@@ -808,13 +808,11 @@
       "sinceStart": "Since start: {{value}}"
     },
     "levelTitle": {
-      "UNIT": "Whole unit",
       "DOMAIN": "Domain: {{name}}",
       "EPIC": "Epic: {{name}}",
       "TEAM": "Team: {{name}}"
     },
     "levelNote": {
-      "UNIT": "Epic-attributed work only: a task with no epic has no plan to compare against. The domains below add up to these figures; the teams do not.",
       "DOMAIN": "Epic-attributed work only: a task with no epic has no plan to compare against.",
       "EPIC": "The plan is the epic's current baseline spread evenly over the working days between its start and due dates.",
       "TEAM": "Sprint view: planned is the committed scope of the team's sprints on the day each starts, earned is what those sprints delivered, and cost is the time the team's members logged. It does not add up to the unit's figures."
@@ -889,18 +887,11 @@
       "spi": "SPI",
       "cv": "CV",
       "cpi": "CPI",
-      "domain": "Domain",
-      "team": "Team",
       "epic": "Epic"
     },
-    "domainsTitle": "Domains",
-    "domainsCaption": "Epic basis: these rows add up to the unit's figures above.",
-    "teamsTitle": "Teams (sprint view)",
-    "teamsCaption": "Sprint basis: planned is each team's committed sprint scope, earned what those sprints delivered, cost the time its members logged. A different view from the domains: these rows do not add up to the unit's figures.",
     "epicsTitle": "Epics",
     "epicsCaption": "Epics of this domain that have a plan or any earned value or cost; the domain's totals above stay authoritative.",
     "noRows": "Nothing to list as of this day.",
-    "deletedTeam": "Deleted team",
     "epic": {
       "title": "Plan",
       "budget": "Budget",

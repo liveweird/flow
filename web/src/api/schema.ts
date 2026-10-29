@@ -847,8 +847,9 @@ export interface paths {
          *     So is a `jira.projectKeys` entry already in ANOTHER active data source (`type`
          *     `urn:flow:problem:data-source-project-overlap`; `detail` names that data source and the
          *     shared keys, `instance` is its path `/api/v1/data-sources/{id}`); the site never changes
-         *     on update, so the one-Jira-site rule cannot fire here. A save also lifts a ceiling-trip
-         *     pause with its trip count (`status.pausedAt`, audited as `data_source.resumed`).
+         *     on update, so the one-Jira-site rule cannot fire here. A save also lifts the ceiling-trip
+         *     pauses (SYNC's `status.pausedAt` and RECONCILE's `status.reconcilePausedAt`) with their trip counts,
+         *     each audited as `data_source.resumed`.
          */
         put: operations["updateDataSource"];
         post?: never;
@@ -887,8 +888,10 @@ export interface paths {
          *     when `kind` is `PURGE` — PURGE is scheduled internally (a soft-deleted connection past
          *     its grace period) and is never requester-initiated. A second request while one is already
          *     `PENDING`/`RUNNING` for the same `(connection, kind)` is coalesced (`202`,
-         *     `coalesced: true`, the EXISTING job). A `SYNC` request ("Sync now") also lifts a
-         *     ceiling-trip pause with its trip count (`status.pausedAt`, audited as `data_source.resumed`).
+         *     `coalesced: true`, the EXISTING job). A `SYNC` request ("Sync now") also lifts the SYNC
+         *     ceiling-trip pause with its trip count (`status.pausedAt`), a `RECONCILE` request ("Reconcile now")
+         *     the RECONCILE one (`status.reconcilePausedAt`); each lifts only its own kind's pause, audited as
+         *     `data_source.resumed`.
          */
         post: operations["requestSyncJob"];
         delete?: never;
@@ -2902,13 +2905,22 @@ export interface components {
             runningJobId?: number | null;
             /**
              * Format: int64
-             * @description Epoch millis the ceiling-trip pause began; null while scheduled syncing is not paused. A paused connection gets no scheduled SYNC (its RECONCILE continues) until an ADMIN's "Sync now" (`POST .../sync-jobs` with `SYNC`) or a PUT lifts it.
+             * @description Epoch millis the ceiling-trip pause began; null while scheduled syncing is not paused. A paused connection gets no scheduled SYNC (its RECONCILE continues, unless it has a pause of its own) until an ADMIN's "Sync now" (`POST .../sync-jobs` with `SYNC`) or a PUT lifts it.
              */
             pausedAt?: number | null;
             /** @description Why it paused - the constant code of the trip that reached the threshold (`LIMIT_EXCEEDED` or `TIME_EXCEEDED`); set exactly when `pausedAt` is. A closed vocabulary (the database enforces it; no OpenAPI `enum`, whose nullable form the conformance validator rejects against an explicit `null`). */
             pauseReason?: string | null;
             /** @description Consecutive SYNCs that stopped at a ceiling without storing a change (in the tripping stream for a limit, anywhere in the run for the wall clock). Reset by a succeeded SYNC, "Sync now" and a PUT; the connection pauses when it reaches `ingest.pauseAfterLimitTrips`. */
             limitTrips: number;
+            /**
+             * Format: int64
+             * @description Epoch millis the RECONCILE ceiling-trip pause began; null while scheduled RECONCILE is not paused. A connection with a RECONCILE pause gets no scheduled RECONCILE (its SYNC continues) until an ADMIN's "Reconcile now" (`POST .../sync-jobs` with `RECONCILE`) or a PUT lifts it. Independent of `pausedAt`.
+             */
+            reconcilePausedAt?: number | null;
+            /** @description Why RECONCILE paused - the constant code of the trip that reached the threshold (`LIMIT_EXCEEDED` or `TIME_EXCEEDED`); set exactly when `reconcilePausedAt` is. Closed vocabulary, like `pauseReason`. */
+            reconcilePauseReason?: string | null;
+            /** @description Consecutive RECONCILEs that stopped at a ceiling without storing a durable change (a tombstone or an index-gap upsert after the id sweep; the sweep's scratch pages are no change). A trip that did store one resets the count. Also reset by a succeeded RECONCILE, "Reconcile now" and a PUT; RECONCILE pauses when it reaches `ingest.pauseAfterLimitTrips`. */
+            reconcileLimitTrips: number;
         };
         DataSourceResponse: {
             /** Format: int32 */
@@ -5448,18 +5460,18 @@ export interface components {
         EpicProgressReport: {
             meta: components["schemas"]["ReportMeta"];
             /**
-             * @description What the report is about (`meta.level` keeps the shared UNIT/TEAM/USER meaning of `teamId`). UNIT, the whole unit, is no longer answered: a request names an epic, a domain or a team.
+             * @description What the report is about (`meta.level` keeps the shared UNIT/TEAM/USER meaning of `teamId`). A request always names an epic, a domain or a team: the whole unit is never answered.
              * @enum {string}
              */
-            level: "UNIT" | "DOMAIN" | "EPIC" | "TEAM";
-            /** @description The epic, domain or team; null at UNIT level. */
+            level: "DOMAIN" | "EPIC" | "TEAM";
+            /** @description The epic, domain or team the report is about. */
             scope: components["schemas"]["EpicProgressScope"] | null;
             /**
-             * @description The EFFECTIVE basis of `series`: the request's, else the level's default (PERIOD at DOMAIN, TEAM and UNIT, CUMULATIVE at EPIC).
+             * @description The EFFECTIVE basis of `series`: the request's, else the level's default (PERIOD at DOMAIN and TEAM, CUMULATIVE at EPIC).
              * @enum {string}
              */
             basis: "PERIOD" | "CUMULATIVE";
-            /** @description One point per calendar day of the period up to `asOf.day`, on `basis`; empty at UNIT level. */
+            /** @description One point per calendar day of the period up to `asOf.day`, on `basis`. */
             series: components["schemas"]["EpicProgressPoint"][];
             asOf: components["schemas"]["EpicProgressAsOf"];
             period: components["schemas"]["EpicProgressPeriod"];
@@ -5477,7 +5489,7 @@ export interface components {
              * @description TEAM level only: the same share over the worklogs started inside the period (0..1) — the window of the period CPI; null when they logged none or the period lies after asOf.day.
              */
             foreignWorkSharePeriod: number | null;
-            /** @description The drill table as of `asOf.day`: a domain's epics (DOMAIN), the domains then the teams (UNIT); empty at EPIC and TEAM level. */
+            /** @description The drill table as of `asOf.day`: a domain's epics (DOMAIN); empty at EPIC and TEAM level. */
             rows: components["schemas"]["EpicProgressRow"][];
             /** @description Why the answer is empty or partial — nothing derived yet, no sprint resolved (incl. `teamId=0` with a sprint-relative period), connections that never derived and were left out of the cut-off, a period that lies after `asOf.day`; null otherwise. */
             note: string | null;
@@ -6549,6 +6561,13 @@ export interface components {
             pausedAt?: number | null;
             /** @description The trip code that paused it (`LIMIT_EXCEEDED` or `TIME_EXCEEDED`). */
             pauseReason?: string | null;
+            /**
+             * Format: int64
+             * @description Epoch millis the RECONCILE ceiling-trip pause began; while set, scheduled RECONCILE is off (SYNC is unaffected).
+             */
+            reconcilePausedAt?: number | null;
+            /** @description The trip code that paused RECONCILE (`LIMIT_EXCEEDED` or `TIME_EXCEEDED`). */
+            reconcilePauseReason?: string | null;
         };
         TelemetryQueue: {
             /**

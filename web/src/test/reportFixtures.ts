@@ -1580,31 +1580,6 @@ const EVM_TREND = [
   { day: "2026-09-29", spi: 1.1, cpi: 0.95 },
 ];
 
-/** The whole unit: the domains (epic basis), then the teams (sprint basis — one soft-deleted, one UNASSIGNED). */
-export const EPIC_PROGRESS_UNIT: EpicProgressReport = {
-  meta: { ...META, domainView: "EPIC" },
-  level: "UNIT",
-  scope: null,
-  basis: "CUMULATIVE",
-  series: [],
-  asOf: EVM_AS_OF,
-  period: EVM_PERIOD,
-  trend: [],
-  epic: null,
-  foreignWorkShare: null,
-  foreignWorkSharePeriod: null,
-  rows: [
-    { kind: "DOMAIN", id: null, key: "FLO", name: "Flow", pv: 12, ev: 9, ac: 10, sv: -3, spi: 0.75, cv: -1, cpi: 0.9, period: periodOf(6, 7, 6) },
-    { kind: "TEAM", id: 1, key: null, name: "Alpha", active: true, pv: 20, ev: 15, ac: 18, sv: -5, spi: 0.75, cv: -3, cpi: 15 / 18, period: periodOf(10, 9, 9) },
-    { kind: "TEAM", id: 4, key: null, name: "Old team", active: false, pv: 5, ev: 5, ac: 4, sv: 0, spi: 1, cv: 1, cpi: 1.25, period: periodOf(0, 0, 1) },
-    { kind: "TEAM", id: 0, key: null, name: "Unassigned", active: true, pv: 0, ev: 0, ac: 3, sv: 0, spi: null, cv: -3, cpi: 0, period: periodOf(0, 0, 1) },
-  ],
-  note: null,
-};
-
-/** The whole unit on PERIOD: no series, but the weekly trend; the domain rows' period figures sum to the headline period. */
-export const EPIC_PROGRESS_UNIT_PERIOD: EpicProgressReport = { ...EPIC_PROGRESS_UNIT, basis: "PERIOD", trend: EVM_TREND };
-
 export const EPIC_PROGRESS_DOMAIN: EpicProgressReport = {
   meta: { ...META, domainView: "EPIC" },
   level: "DOMAIN",
@@ -1739,9 +1714,9 @@ export const EPIC_PROGRESS_TEAM_NO_COST: EpicProgressReport = {
 };
 
 export const EPIC_PROGRESS_NOT_DERIVED: EpicProgressReport = {
-  meta: { ...META, domainView: "EPIC", derivedAt: null },
-  level: "UNIT",
-  scope: null,
+  meta: { ...META, level: "TEAM", domainView: "EPIC", derivedAt: null },
+  level: "TEAM",
+  scope: { kind: "TEAM", id: 1, key: null, name: "Alpha" },
   basis: "PERIOD",
   series: [],
   asOf: { day: null, pv: 0, ev: 0, ac: 0, sv: 0, spi: null, cv: 0, cpi: null },

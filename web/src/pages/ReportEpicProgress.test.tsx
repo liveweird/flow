@@ -14,8 +14,6 @@ import {
   EPIC_PROGRESS_TEAM,
   EPIC_PROGRESS_TEAM_NO_COST,
   EPIC_PROGRESS_TEAM_PERIOD,
-  EPIC_PROGRESS_UNIT,
-  EPIC_PROGRESS_UNIT_PERIOD,
   FILTERS,
 } from "../test/reportFixtures";
 import { openReportFilters } from "../test/reportFilters";
@@ -45,7 +43,7 @@ vi.mock("@mantine/charts", () => ({
 type FetchMock = ReturnType<typeof vi.fn>;
 const URL_PREFIX = "/api/v1/reports/epic-progress?";
 
-function serve(mockFetch: FetchMock, response: unknown = EPIC_PROGRESS_UNIT, status = 200, filters: unknown = FILTERS) {
+function serve(mockFetch: FetchMock, response: unknown = EPIC_PROGRESS_TEAM, status = 200, filters: unknown = FILTERS) {
   mockFetch.mockImplementation((url: string) => {
     if (url === "/api/v1/reports/filters") return Promise.resolve(jsonResponse(200, filters));
     if (url.startsWith(URL_PREFIX)) return Promise.resolve(jsonResponse(status, response));
@@ -59,13 +57,8 @@ function serveByScope(mockFetch: FetchMock) {
     if (url === "/api/v1/reports/filters") return Promise.resolve(jsonResponse(200, FILTERS));
     if (url.startsWith(URL_PREFIX)) {
       const params = new URLSearchParams(url.slice(URL_PREFIX.length));
-      const response = params.has("epicId")
-        ? EPIC_PROGRESS_EPIC
-        : params.has("domain")
-          ? EPIC_PROGRESS_DOMAIN
-          : params.has("teamId")
-            ? EPIC_PROGRESS_TEAM
-            : EPIC_PROGRESS_UNIT;
+      // A team (named, or the default a bare link gets) is the fallback: the page is never read for the whole unit.
+      const response = params.has("epicId") ? EPIC_PROGRESS_EPIC : params.has("domain") ? EPIC_PROGRESS_DOMAIN : EPIC_PROGRESS_TEAM;
       return Promise.resolve(jsonResponse(200, response));
     }
     return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
@@ -109,11 +102,11 @@ describe("ReportEpicProgress page", () => {
     localStorage.clear();
   });
 
-  test("a bare link asks for the default team; headline tiles as of the day, signed variances, two-decimal indices — and no chart", async () => {
+  test("a bare link asks for the default team; headline tiles as of the day, signed variances, two-decimal indices", async () => {
     serve(mockFetch);
     renderPage();
     expect(await screen.findByRole("heading", { level: 2, name: "Epic progress" })).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { level: 3, name: "Whole unit" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 3, name: "Team: Alpha" })).toBeInTheDocument();
     expect(screen.getByText("As of 2026-09-29")).toBeInTheDocument();
     expect(within(tile("PV (MD)")).getByText("12")).toBeInTheDocument();
     expect(within(tile("EV (MD)")).getByText("9")).toBeInTheDocument();
@@ -124,41 +117,9 @@ describe("ReportEpicProgress page", () => {
     expect(within(tile("SPI")).getByText("Behind plan")).toBeInTheDocument();
     expect(within(tile("CPI")).getByText("0.90")).toBeInTheDocument();
     expect(within(tile("CPI")).getByText("Over budget")).toBeInTheDocument();
-    expect(screen.getByText(/The domains below add up to these figures; the teams do not/)).toBeInTheDocument();
-    expect(screen.queryByTestId("line-chart")).not.toBeInTheDocument();
-    expect(screen.queryByRole("group", { name: "Foreign work share" })).not.toBeInTheDocument();
+    expect(screen.getByText(/Sprint view: planned is the committed scope of the team's sprints/)).toBeInTheDocument();
     // No default period is invented; a bare link is read for the default team (a team or a domain is required).
     expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1`]);
-  });
-
-  test("a unit-level answer (kept for the API, the page never asks for it): domains (the headline's basis), then the teams as the sprint view that does not add up", async () => {
-    serve(mockFetch);
-    renderPage("/reports/epic-progress?lastSprints=3");
-    const domains = await screen.findByRole("table", { name: "Domains" });
-    expect(bodyRows(domains)).toEqual([["Flow", "12", "9", "10", "−3", "0.75", "−1", "0.90"]]);
-    expect(screen.getByText(/these rows add up to the unit's figures above/)).toBeInTheDocument();
-    const teams = screen.getByRole("table", { name: "Teams (sprint view)" });
-    expect(screen.getByText(/these rows do not add up to the unit's figures/)).toBeInTheDocument();
-    expect(bodyRows(teams).map((r) => [r[0], r[5], r[7]])).toEqual([
-      ["Alpha", "0.75", "0.83"],
-      ["Old team Deleted team", "1.00", "1.25"],
-      ["Unassigned", "—", "0.00"],
-    ]);
-    // Names are the way in, carrying the period; the domain and the team narrow ONE scope each.
-    const href = (name: string) => screen.getByRole("link", { name }).getAttribute("href");
-    expect(href("Show Flow")).toBe("/reports/epic-progress?lastSprints=3&domain=FLO");
-    expect(href("Show Alpha")).toBe("/reports/epic-progress?lastSprints=3&teamId=1");
-    // UNASSIGNED (team 0) is a legal scope and is linked.
-    expect(href("Show Unassigned")).toBe("/reports/epic-progress?lastSprints=3&teamId=0");
-  });
-
-  test("a soft-deleted team keeps its figures, is marked, and has no link (its drill would be a 400)", async () => {
-    serve(mockFetch);
-    renderPage();
-    const teams = await screen.findByRole("table", { name: "Teams (sprint view)" });
-    expect(within(teams).getByText("Old team")).toBeInTheDocument();
-    expect(within(teams).getByText("Deleted team")).toBeInTheDocument();
-    expect(within(teams).queryByRole("link", { name: /Old team/ })).not.toBeInTheDocument();
   });
 
   test("the domain level sends only that scope and lists its epics, each a way in; with nothing above it there is no breadcrumb", async () => {
@@ -396,17 +357,6 @@ describe("ReportEpicProgress page", () => {
     expect(within(crumbs).getByRole("link", { name: "Flow" }).getAttribute("href")).toMatch(/^\/reports\/epic-progress\?from=.*&domain=FLO$/);
   });
 
-  test("a team drill drops a one-sprint period the team does not list, and keeps one it does", async () => {
-    serve(mockFetch);
-    renderPage("/reports/epic-progress?sprintId=11");
-    await screen.findByRole("table", { name: "Teams (sprint view)" });
-    const href = (name: string) => screen.getByRole("link", { name }).getAttribute("href");
-    // Sprint 11 is Alpha's; UNASSIGNED lists none. Domains do not take a team, so they keep the period.
-    expect(href("Show Alpha")).toBe("/reports/epic-progress?sprintId=11&teamId=1");
-    expect(href("Show Unassigned")).toBe("/reports/epic-progress?teamId=0");
-    expect(href("Show Flow")).toBe("/reports/epic-progress?sprintId=11&domain=FLO");
-  });
-
   test("picking a team replaces the epic; the bar offers only a team and a domain, no activity type or work category", async () => {
     serveByScope(mockFetch);
     const user = userEvent.setup();
@@ -441,7 +391,7 @@ describe("ReportEpicProgress page", () => {
     expect(await screen.findByText("No data in this period")).toBeInTheDocument();
     expect(screen.queryByText(/Not derived yet/)).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "PV (MD)" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("table", { name: "Domains" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "Epics" })).not.toBeInTheDocument();
   });
 
   test("any other server note is shown as written, and a period after the as-of day still shows the running figures", async () => {
@@ -637,9 +587,9 @@ describe("ReportEpicProgress page: the basis, this period or since the start (A3
     ]);
   });
 
-  test("the unit on the period has the trend but no MD chart; a basis without a trend shows no trend card", async () => {
-    serve(mockFetch, EPIC_PROGRESS_UNIT_PERIOD);
-    renderPage("/reports/epic-progress");
+  test("a period with no series has the trend but no MD chart", async () => {
+    serve(mockFetch, { ...EPIC_PROGRESS_DOMAIN_PERIOD, series: [] });
+    renderPage("/reports/epic-progress?domain=FLO");
     expect(await screen.findByRole("heading", { level: 3, name: "SPI and CPI trend" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { level: 3, name: "PV, EV and AC in the period" })).not.toBeInTheDocument();
   });
@@ -649,19 +599,6 @@ describe("ReportEpicProgress page: the basis, this period or since the start (A3
     renderPage("/reports/epic-progress?domain=FLO&basis=CUMULATIVE");
     await screen.findByRole("group", { name: "PV (MD)" });
     expect(screen.queryByRole("heading", { level: 3, name: "SPI and CPI trend" })).not.toBeInTheDocument();
-  });
-
-  test("the drill table follows the basis: the period's columns, a hidden index as a dash; cumulative otherwise", async () => {
-    serve(mockFetch, { ...EPIC_PROGRESS_UNIT_PERIOD, rows: EPIC_PROGRESS_UNIT.rows });
-    renderPage("/reports/epic-progress");
-    const domains = await screen.findByRole("table", { name: "Domains" });
-    expect(bodyRows(domains)).toEqual([["Flow", "6", "7", "6", "+1", "1.17", "+1", "1.17"]]);
-    const teams = screen.getByRole("table", { name: "Teams (sprint view)" });
-    expect(bodyRows(teams).map((r) => [r[0], r[1], r[5], r[7]])).toEqual([
-      ["Alpha", "10", "0.90", "1.00"],
-      ["Old team Deleted team", "0", "—", "0.00"],
-      ["Unassigned", "0", "—", "0.00"],
-    ]);
   });
 
   test("the drill table of a domain shows its epics' period figures on the period basis", async () => {

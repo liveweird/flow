@@ -20,7 +20,10 @@ data class IngestConfig(
      * boundary within [hardStopGraceSeconds] of it is cancelled in flight and ends the same way.
      */
     val maxJobMinutes: Long = DEFAULT_MAX_JOB_MINUTES,
-    /** No-progress SYNC ceiling trips in a row that pause the connection (`ingest.pauseAfterLimitTrips`, default 5). */
+    /**
+     * No-progress SYNC ceiling trips in a row, or RECONCILE ceiling trips in a row with no durable change, that pause that job on the
+     * connection (`ingest.pauseAfterLimitTrips`, default 5).
+     */
     val pauseAfterLimitTrips: Int = DEFAULT_PAUSE_AFTER_LIMIT_TRIPS,
     /** How long past [maxJobMinutes] a run may still be in flight before it is cancelled (`ingest.hardStopGraceSeconds`, default 60). */
     val hardStopGraceSeconds: Long = DEFAULT_HARD_STOP_GRACE_SECONDS,

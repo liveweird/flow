@@ -16,6 +16,24 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
  */
 private const val MAX_BIND_PARAMETERS = 32_000
 
+/**
+ * The most characters of `String` parameter values (the raw tables' `jsonb` payloads, any text) one statement carries: 1 MiB.
+ * The bind cap alone bounds the PARAMETER COUNT, not the bytes: dense issues' worklogs (540 of ~15 KB per issue) were flushed
+ * in statements capped only at the bind cap's ~3,555 rows, ~55 MB of jsonb each, and two such statements at once got a Postgres backend
+ * OOM-killed (`build-times.md` WHY 48, case g).
+ * A statement costs the backend several times its payload (the Bind message, the parsed value, the jsonb conversion, the tuple),
+ * so the budget keeps that to a few MiB; it is far above every real per-issue batch (the largest real per-issue worklog total is
+ * ~0.5 MB) and far below the point where one more round trip per ~1 MiB shows in a sync. The call is per FLUSH, not per issue (up to
+ * 100 issues, or `BACKFILL_FLUSH_WORKLOGS` = 5,000 worklogs, `JiraWorklogStream.kt`), so a real multi-MB flush splits too: behaviourally
+ * fine, the rows keep their order and their one transaction. Counted in `String.length` (UTF-16 units), which UNDER-counts the UTF-8
+ * bytes of non-ASCII text by up to 3x, so such a statement can carry up to ~3 MiB; harmless at this budget (a memory guard, not a
+ * quota). Only `String` values count. Every writer is bounded the same way, but the metrics rows
+ * (short keys) and one issue's `norm` rows are far below it, so their statements are the ones the bind cap alone made.
+ * A single row over the budget is written alone, never refused here (the stored-size ceilings refuse an oversized item
+ * upstream, `jira-integration.md` "Stored-size ceilings"). The rows are built lazily against this same budget (see [insertRows]).
+ */
+internal const val MAX_PAYLOAD_CHARS = 1 shl 20
+
 /** The most rows one statement of a table whose statement lists [columnCount] columns carries (its bind-parameter cap). */
 internal fun maxRowsPerStatement(columnCount: Int): Int = (MAX_BIND_PARAMETERS / columnCount).coerceAtLeast(1)
 
@@ -70,17 +88,27 @@ class InsertRow {
  * Exposed's client-side value validation (a `varchar` length check) is NOT run: an overflow fails
  * server-side (SQLSTATE 22001) instead of in the client.
  *
- * **Statement texts are quantized** ([chunkSizes]): the SQL text depends on the row count, and every
+ * **Statements are bounded in rows and in payload** ([payloadChunkSizes]): at most the bind cap's rows ([MAX_BIND_PARAMETERS]) and
+ * at most [MAX_PAYLOAD_CHARS] characters of `String` values (a lone heavier row goes alone). Upsert's last-per-key collapse sees the whole
+ * batch BEFORE this split, and the rows keep their order and their one transaction.
+ *
+ * **Statement texts are quantized** ([payloadChunkSizes]): the SQL text depends on the row count, and every
  * distinct text becomes one named server-side prepared statement that the driver caches per connection,
  * so a chunk is either the table's maximum rows per statement or a power of two — a handful of texts per
  * table, however many rows a batch has.
  *
- * **Rows are built per statement.** [insertRows] and [insertRowsIgnoringConflicts] run `body` for a row only while the statement that
- * carries it is assembled, so the rows in flight are one statement's (at most [maxRowsPerStatement]), not the call's: the
- * `InsertRow` maps, the boxed numbers and the payload texts `body` renders for the rest of a large call do not exist yet (WORKLOGS
- * batches of up to ~30,000 rows, `build-times.md` WHY 51). `body` therefore runs lazily, once per row, and must be pure. A row that
- * sets other columns than the first fails the call when its statement is assembled, after the earlier statements ran: the caller's
- * transaction rolls them back. [upsertRows] still builds every row first, because its collapse of repeated keys needs them all.
+ * **Rows are built per statement, and the plan is the same.** [insertRows] and [insertRowsIgnoringConflicts] run `body` for a row only
+ * while the statement that carries it is assembled ([lazyStatements]): rows are built until the next statement is decided (the row cap
+ * reached, or the payload budget overflowed by one row, the payload of a row being known once it is built) and the rest wait for the
+ * next one, so the rows in flight are one statement's cap ([maxRowsPerStatement]), not the call's: the `InsertRow` maps, the boxed
+ * numbers and the payload texts `body` renders for the rest of a large call do not exist yet (WORKLOGS batches of up to ~30,000 rows,
+ * `build-times.md` WHY 51). The statements are EXACTLY [payloadChunkSizes]' over the full list, power-of-two rounding included. `body`
+ * therefore runs lazily, once per row, and must be pure. A row that sets other columns than the first fails the call when its statement
+ * is assembled, after the earlier statements ran: the caller's transaction rolls them back. [upsertRows] still builds every row first,
+ * because its collapse of repeated keys needs them all, then plans with [payloadChunkSizes]. A writer may bound its own groups tighter
+ * (the worklog writer hands in groups of at most 1,024 rows / 512 Ki characters, `JiraWorklogCeilings.kt`, to cap what it holds beside
+ * the batch); a group is under [MAX_PAYLOAD_CHARS], so it normally becomes one statement (a group of a non-power-of-two row count
+ * becomes its binary decomposition, as any batch does) and the two bounds never contradict.
  *
  * **Memory (`build-times.md` WHY 14, `MultiRowInsertRetentionTest`):** every chunk's executed statement is released
  * as soon as it ran (`clearExecutedStatements`), so a transaction's heap does not grow with the rows it writes.
@@ -149,7 +177,6 @@ private suspend fun <T : Table, E> T.writeRows(
         "$caller: ${this.tableName} has a sequence-backed autoIncrement column; use batchInsert"
     }
     val collected = if (eager != null && conflictKeys != null) lastPerKey(caller, eager, conflictKeys) else null
-    val total = collected?.size ?: source.size
     val columns = this.columns.filter { it in setColumns || it.defaultValueFun != null }
     val tx = TransactionManager.current()
     val header = "INSERT INTO ${tx.identity(this)} (${columns.joinToString(", ") { tx.identity(it) }}) VALUES "
@@ -158,13 +185,22 @@ private suspend fun <T : Table, E> T.writeRows(
         conflictKeys == null -> ""
         else -> conflictSuffix(caller, tx, columns, conflictKeys)
     }
-    var offset = 0
-    for (size in chunkSizes(total, maxRowsPerStatement(columns.size))) {
+    val maxRows = maxRowsPerStatement(columns.size)
+    var next = 0
+    val statements = if (collected != null) {
+        // The whole batch is built, so its plan is the pure planner's over the materialised payloads.
+        var offset = 0
+        payloadChunkSizes(collected.map(::payloadChars), maxRows, MAX_PAYLOAD_CHARS.toLong()).asSequence()
+            .map { size -> collected.subList(offset, offset + size).also { offset += size } }
+    } else {
+        lazyStatements(source.size, maxRows, MAX_PAYLOAD_CHARS.toLong(), ::payloadChars) { checked(build(source[next++])) }
+    }
+    for (chunk in statements) {
+        val size = chunk.size
         val arguments = ArrayList<Pair<IColumnType<*>, Any?>>(size * columns.size)
         val sql = StringBuilder(header)
-        for (index in offset until offset + size) {
-            val row = collected?.get(index) ?: checked(build(source[index]))
-            if (index > offset) sql.append(", ")
+        chunk.forEachIndexed { index, row ->
+            if (index > 0) sql.append(", ")
             sql.append('(')
             columns.forEachIndexed { columnIndex, column ->
                 val value = if (column in row) row[column] else column.defaultValueFun?.invoke()
@@ -175,7 +211,6 @@ private suspend fun <T : Table, E> T.writeRows(
             }
             sql.append(')')
         }
-        offset += size
         sql.append(suffix)
         rowsInStatementProbe?.invoke(size)
         tx.exec(sql.toString(), arguments)
@@ -203,26 +238,72 @@ private fun conflictSuffix(caller: String, tx: R2dbcTransaction, columns: List<C
 }
 
 /**
- * The row counts of the statements that write [total] rows: as many full chunks of [maxRows] as fit, then the
- * remainder as its binary decomposition (13 -> 8, 4, 1) — at most `log2(maxRows) + 1` distinct sizes, so a
- * table ever produces only a handful of SQL texts (see [insertRows]).
+ * The row counts of the statements that write rows weighing [payloads] (each row's `String` characters, in order), each statement
+ * at most [maxRows] rows and, unless it is a single row, at most [maxPayload] characters. A statement is [maxRows] rows or a
+ * power of two, so the SQL texts stay a handful per table; when no row is heavy the result is the full chunks of [maxRows] and then
+ * the remainder's binary decomposition (13 -> 8, 4, 1; pinned against an oracle in `MultiRowInsertPayloadTest`). A statement is the
+ * longest fitting run, rounded DOWN to a power of two unless it hit [maxRows]; a run that stopped on the payload budget leaves its
+ * remainder for the next statement. A row heavier than
+ * [maxPayload] alone is a statement of one row. The budget is inclusive (a run summing to exactly [maxPayload] fits).
  */
-internal fun chunkSizes(total: Int, maxRows: Int): List<Int> {
+internal fun payloadChunkSizes(payloads: List<Int>, maxRows: Int, maxPayload: Long): List<Int> {
     val sizes = ArrayList<Int>()
-    var left = total
-    while (left >= maxRows) {
-        sizes += maxRows
-        left -= maxRows
-    }
-    var bit = Integer.highestOneBit(left)
-    while (left > 0) {
-        if (left >= bit) {
-            sizes += bit
-            left -= bit
+    var start = 0
+    while (start < payloads.size) {
+        var fit = 0
+        var sum = 0L
+        while (start + fit < payloads.size && fit < maxRows) {
+            sum += payloads[start + fit]
+            if (fit > 0 && sum > maxPayload) break
+            fit++
         }
-        bit = bit shr 1
+        val size = if (fit == maxRows) maxRows else Integer.highestOneBit(fit)
+        sizes += size
+        start += size
     }
     return sizes
+}
+
+/** The characters of `String` values a row binds (the payload the budget counts; defaults a row leaves unset are not counted). */
+private fun payloadChars(row: Map<Column<*>, Any?>): Int = row.values.sumOf { (it as? String)?.length ?: 0 }
+
+/**
+ * The statements [payloadChunkSizes] would plan over [total] rows, but built lazily: [next] builds the next row ([payloadOf] is its
+ * payload) only when the statement being decided needs it, so a row exists from its building until its statement is handed out and the
+ * rows in flight are at most [maxRows] (one statement's cap), never the call's. The plan is exactly [payloadChunkSizes]' over the full
+ * list, power-of-two rounding included: a statement is [maxRows] rows when that many fit; otherwise a power of two, and then the
+ * rows still unemitted decide how far to look. With `left` rows unemitted at most `min(maxRows, left)` can join, so a statement is
+ * decided as soon as that many are built and fit (a [maxRows] run when `left >= maxRows`, else the highest power of two not above
+ * `left`), or as soon as the budget overflows at row `k` (then the highest power of two not above `k`). Rows built past the statement
+ * (the overflowing row, a power-of-two remainder) stay for the next one. Pinned against [payloadChunkSizes] in `MultiRowInsertPayloadTest`.
+ */
+internal fun <R> lazyStatements(
+    total: Int,
+    maxRows: Int,
+    maxPayload: Long,
+    payloadOf: (R) -> Int,
+    next: () -> R,
+): Sequence<List<R>> = sequence {
+    val pending = ArrayDeque<Pair<R, Int>>()
+    var left = total
+    while (left > 0) {
+        val reach = minOf(maxRows, left)
+        val target = if (reach == maxRows) maxRows else Integer.highestOneBit(reach)
+        var fit = 0
+        var sum = 0L
+        var size = 0
+        while (size == 0) {
+            if (fit == target) {
+                size = target
+            } else {
+                if (fit == pending.size) next().let { pending.addLast(it to payloadOf(it)) }
+                sum += pending[fit].second
+                if (fit > 0 && sum > maxPayload) size = Integer.highestOneBit(fit) else fit++
+            }
+        }
+        yield(List(size) { pending.removeFirst().first })
+        left -= size
+    }
 }
 
 /**

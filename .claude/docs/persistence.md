@@ -62,7 +62,10 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   prepared-statement cache is bounded (`PREPARED_STATEMENT_CACHE_QUERIES` = 256 in `Database.kt`, applied in
   `connectPooledDatabase`, so the test pool has it too; r2dbc-postgresql's default is unbounded and every cached text stays a
   named server-side statement for the connection's life) — it matters because `MultiRowInsert.kt`'s SQL text varies with the row count
-  (quantized to a handful of sizes per table). `insertRows` / `insertRowsIgnoringConflicts` build each row (run the caller's body) only while the statement that carries it is assembled, so the rows in flight are one statement's, not the call's (`upsertRows` builds them all first: its collapse of repeated keys needs every key; `build-times.md` WHY 51). **Statement timeouts: use the transaction's `queryTimeout`, nothing else.** Exposed's R2DBC executor *requests* the
+  (quantized to a handful of sizes per table). **A multi-row statement is bounded in payload as well as in bind parameters**: `MultiRowInsert.kt` also splits a batch so one statement binds at most
+  `MAX_PAYLOAD_CHARS` (1 MiB) of `String` values (a lone heavier row goes alone, never refused there; the split keeps the power-of-two sizes, so no new statement texts of note) —
+  before, dense issues' worklogs (540 of ~15 KB per issue) went in statements capped only at the bind cap's ~3,555 rows (~55 MB of `jsonb` each), and two at once OOM-killed a Postgres backend (`build-times.md` WHY 48, case g).
+  `insertRows` / `insertRowsIgnoringConflicts` build each row (run the caller's body) lazily, only while the statement that carries it is assembled, and plan the statements exactly as the payload split would over the whole list, so the rows in flight are one statement's cap, not the call's (`upsertRows` builds them all first: its collapse of repeated keys needs every key; `build-times.md` WHY 51); the worklog writer additionally hands in groups of at most 1,024 rows / 512 Ki characters, each normally one statement. **Statement timeouts: use the transaction's `queryTimeout`, nothing else.** Exposed's R2DBC executor *requests* the
   transaction's `queryTimeout` (whole seconds, default 0, never null) from the driver before EVERY statement. The reports use it
   through `ReportService.reportTransaction` (`reports.md` "Query budget"), the post-commit ANALYZE through
   `MetricsStore.analyzeDerivedTables` (`SET LOCAL lock_timeout` is effective, the statement budget is the `queryTimeout`).
@@ -861,7 +864,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V37`:
+Current migrations are `V1`–`V38`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -1029,6 +1032,14 @@ Current migrations are `V1`–`V37`:
   (`PauseMigrationTest` migrates a scratch database through V36 -> V37 over a legacy row). Written ONLY inside the transaction that closes
   a job (`SyncJobLeases.failTripped`, `recordSyncSuccess`) or by an ADMIN's resume (`resumeFromPauseRow`, the PUT's `clearPause`), all under the
   connection row's `FOR NO KEY UPDATE`; the scheduler's SYNC scan (not RECONCILE's) filters on `paused_at IS NULL` (`ingestion.md` "Ceiling trips and the pause").
+- `V38__source_connection_reconcile_pause` - V37's RECONCILE twin: `source_connections` gains `reconcile_limit_trips INTEGER NOT NULL DEFAULT 0`
+  (consecutive RECONCILE ceiling trips, counted whether or not they stored a change), `reconcile_paused_at BIGINT` and
+  `reconcile_pause_reason VARCHAR(100)` (nullable, the pause that counter causes, `LIMIT_EXCEEDED`|`TIME_EXCEEDED`), with the same three CHECKs
+  (`source_connections_reconcile_*_ck`). Additive and catalog-only; existing rows read as "no trips, not paused" (`PauseMigrationTest` runs
+  V36 -> V37 -> V38 over a legacy row). Written ONLY in the transaction that closes a RECONCILE job (`SyncJobLeases.failTripped` ->
+  `recordReconcileTrip`), by `recordReconcileSucceededRow` (reset) or by an ADMIN's resume (`resumeFromReconcilePauseRow`, the PUT's
+  `clearReconcilePause`), under the connection row's `FOR NO KEY UPDATE`; the scheduler's RECONCILE scan (not SYNC's) filters on
+  `reconcile_paused_at IS NULL`. `MigrationChecksumTest` pins it.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a

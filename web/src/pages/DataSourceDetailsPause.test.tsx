@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import DataSourceDetails from "./DataSourceDetails";
 import { jsonResponse } from "../test/http";
@@ -41,6 +42,13 @@ const PAUSED_STATUS = {
   pausedAt: 1_700_000_120_000,
   pauseReason: "TIME_EXCEEDED",
   limitTrips: 5,
+};
+
+const RECONCILE_PAUSED_STATUS = {
+  ...CONNECTION.status,
+  reconcilePausedAt: 1_700_000_180_000,
+  reconcilePauseReason: "LIMIT_EXCEEDED",
+  reconcileLimitTrips: 5,
 };
 
 function serve(mockFetch: ReturnType<typeof vi.fn>, connection: unknown) {
@@ -102,5 +110,48 @@ describe("DataSourceDetails page: a paused connection", () => {
     expect(await screen.findByRole("heading", { level: 2, name: "Acme Jira" })).toBeInTheDocument();
     expect(screen.queryByText("Scheduled syncing is paused")).not.toBeInTheDocument();
     expect(screen.queryByText("Paused")).not.toBeInTheDocument();
+  });
+
+  test("a RECONCILE pause alone shows its own alert and badge, not the SYNC ones", async () => {
+    serve(mockFetch, { ...CONNECTION, status: RECONCILE_PAUSED_STATUS });
+    renderPage();
+
+    expect(await screen.findByText("Scheduled reconcile is paused")).toBeInTheDocument();
+    expect(screen.getByText(/a safety limit was hit/)).toHaveTextContent('Run "Reconcile now" or save the connection to resume it.');
+    expect(screen.getByText("Reconcile paused")).toBeInTheDocument();
+    expect(screen.queryByText("Scheduled syncing is paused")).not.toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
+  });
+
+  test("both pauses render both alerts and both badges", async () => {
+    serve(mockFetch, { ...CONNECTION, status: { ...PAUSED_STATUS, ...RECONCILE_PAUSED_STATUS } });
+    renderPage();
+
+    expect(await screen.findByText("Scheduled syncing is paused")).toBeInTheDocument();
+    expect(screen.getByText("Scheduled reconcile is paused")).toBeInTheDocument();
+    expect(screen.getByText("Paused")).toBeInTheDocument();
+    expect(screen.getByText("Reconcile paused")).toBeInTheDocument();
+  });
+
+  test("Reconcile now refreshes the status, so the RECONCILE pause alert disappears", async () => {
+    const stillPaused = vi.fn();
+    const resumed = vi.fn();
+    serve(stillPaused, { ...CONNECTION, status: RECONCILE_PAUSED_STATUS });
+    serve(resumed, CONNECTION);
+    let requested = false;
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/data-sources/1/sync-jobs" && init?.method === "POST") {
+        requested = true;
+        return Promise.resolve(jsonResponse(202, { job: { id: 9, kind: "RECONCILE", status: "PENDING" }, coalesced: false }));
+      }
+      return (requested ? resumed : stillPaused)(url) as Promise<Response>;
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText("Scheduled reconcile is paused")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Reconcile now" }));
+    await waitFor(() => expect(screen.queryByText("Scheduled reconcile is paused")).not.toBeInTheDocument());
+    expect(screen.queryByText("Reconcile paused")).not.toBeInTheDocument();
   });
 });

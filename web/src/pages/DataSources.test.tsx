@@ -65,6 +65,19 @@ const ROW_PAUSED = {
   },
 };
 
+const ROW_RECONCILE_PAUSED = {
+  ...ROW_CURRENT,
+  id: 4,
+  name: "Recon Jira",
+  jira: { ...ROW_CURRENT.jira, siteUrl: "https://recpaused.atlassian.net", projectKeys: ["REC"] },
+  status: {
+    ...ROW_CURRENT.status,
+    reconcilePausedAt: 1_700_000_180_000,
+    reconcilePauseReason: "TIME_EXCEEDED",
+    reconcileLimitTrips: 3,
+  },
+};
+
 const PAGE = { items: [ROW_CURRENT, ROW_FAILED], page: 1, pageSize: 20, total: 2 };
 
 function serve(mockFetch: FetchMock, mutations: Record<string, { status: number; body?: unknown }> = {}) {
@@ -132,6 +145,20 @@ describe("DataSources page", () => {
     expect(screen.getAllByText("Paused")).toHaveLength(1);
     expect(paused.closest("tr")).toHaveTextContent("Paused Jira");
     expect(paused.closest("tr")).toHaveTextContent("Failed");
+  });
+
+  test("a data source with only RECONCILE paused carries a Reconcile paused badge and no Paused badge", async () => {
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(jsonResponse(200, { ...PAGE, items: [ROW_CURRENT, ROW_RECONCILE_PAUSED, ROW_PAUSED], total: 3 })),
+    );
+    renderWithProviders(<DataSources />, { route: "/data-sources" });
+
+    const badge = await screen.findByText("Reconcile paused");
+    expect(screen.getAllByText("Reconcile paused")).toHaveLength(1);
+    expect(badge.closest("tr")).toHaveTextContent("Recon Jira");
+    expect(badge.closest("tr")).not.toHaveTextContent(/\bPaused\b/);
+    // The SYNC-paused row keeps its plain Paused badge only.
+    expect(screen.getAllByText("Paused")).toHaveLength(1);
   });
 
   test("the empty state spans every column", async () => {

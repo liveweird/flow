@@ -147,6 +147,7 @@ internal class TelemetryCurrentReport(
                     estimatedAt = estimate?.takeIf { key in it.values }?.ts,
                     freshness = TelemetryFreshness(
                         c.lastSyncSucceededAt, c.consecutiveFailures, c.lastSyncErrorCode, c.nextSyncAt, c.pausedAt, c.pauseReason,
+                        c.reconcilePausedAt, c.reconcilePauseReason,
                     ),
                     queue = queue[c.id]?.let { TelemetryQueue(it.pending, it.running) } ?: TelemetryQueue(0, 0),
                     lastSync = lastSync[c.id]?.let { TelemetrySyncRun(it.startedAt, it.finishedAt, it.status) },

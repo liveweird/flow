@@ -138,12 +138,12 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   `.scope_rejected` (byUserId/dataSourceId - null on a create/reason `OTHER_SITE`|`PROJECT_OVERLAP`/
   conflictingDataSourceId/siteHost - the REQUESTED site's host/projectKeys - the shared keys, empty for `OTHER_SITE`; emitted when
   the scope rules 409 a create or update, `ingest/DataSourceScope.kt`, never a token) /
-  `.paused` (dataSourceId/jobId/reason - the trip code `LIMIT_EXCEEDED`|`TIME_EXCEEDED`/limitTrips - emitted by the worker once, when the Nth
-  consecutive SYNC ceiling trip without progress pauses a connection's scheduled syncing, `ingest/SyncPauseAnnouncement.kt`; with it ONE
+  `.paused` (dataSourceId/jobId/job `SYNC`|`RECONCILE`/reason - the trip code `LIMIT_EXCEEDED`|`TIME_EXCEEDED`/limitTrips - emitted by the worker once, when the Nth
+  consecutive SYNC ceiling trip without progress, or the Nth consecutive RECONCILE ceiling trip without a durable change, pauses that job's scheduling, `ingest/SyncPauseAnnouncement.kt`; one event name for both, told apart by `job`; with it ONE
   ERROR line in logger `ch.nokillswit.ingest.SyncPause`, constant text plus the data source id, the code, the count and the threshold - never
   exception or host text) /
-  `.resumed` (byUserId/dataSourceId/via `SYNC_NOW`|`UPDATE`/reason/limitTrips - an ADMIN's "Sync now" or config PUT lifted a pause; nothing is
-  emitted when the connection was not paused) /
+  `.resumed` (byUserId/dataSourceId/via `SYNC_NOW`|`RECONCILE_NOW`|`UPDATE`/job `SYNC`|`RECONCILE`/reason/limitTrips - an ADMIN's "Sync now" (the SYNC pause), "Reconcile now" (the RECONCILE pause) or config PUT (each pause it lifted, one event per `job`) lifted a pause; nothing is
+  emitted when that job was not paused) /
   `.tested` (byUserId/siteHost/ok/failedEndpoints — emitted by both `POST /api/v1/data-sources/test`
   and `.../{id}/test`; `ok` is true when every REQUIRED probe row passed, as the UI shows it, an optional row failing never clears it;
   `failedEndpoints` names every probe row that failed, optional ones included, never a token or the
@@ -163,7 +163,12 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   further audit event — the row's own `status`/`error_code` already carries that outcome. So does a job the claim closes
   `RETRIES_EXHAUSTED` (`SyncJobLeases.claim`): a WARN `Sync job {id} ({kind}) for data source {id} exhausted its {n} attempts`,
   no `sync_job.failed`. The scheduler back-off it and every failed job record, and the config PUT that lifts it, are state
-  of the already-audited mutation (`sync_job.failed`, `data_source.updated`) and add no event of their own.
+  of the already-audited mutation (`sync_job.failed`, `data_source.updated`) and add no event of their own. A terminal write that loses its database
+  connection (`ingestion.md` "A job whose database connection is lost is closed promptly") adds no audit event either, only worker log lines on
+  `ch.nokillswit.ingest.IngestWorker`: an INFO per retry, `Sync job {id} {finish|fail|cancel|release} write lost its database connection on attempt {n}
+  ({exception classes}); retrying in {ms} ms`, and, when the budget is spent, ONE WARN `Sync job {id} ({kind}) for data source {id}: the {write} write
+  failed ({exception classes}); the row stays RUNNING until its lease expires` - ids and exception CLASS names only, never a message (a database
+  exception's message inlines its statement's bound values). The `sync_job.failed`/`.released` audit follows the write that finally lands.
 - `outbound.blocked` (scheme/host ONLY — never the full URL) — a rejection by `infra/outbound/OutboundGuard.kt`'s host
   allow-list or address-range check ONLY, emitted by `GuardedDns` on the Jira HTTP client's every outbound call
   (`.claude/docs/jira-integration.md`). A DNS failure (the resolver throwing, or an empty answer, for an allow-listed host) is

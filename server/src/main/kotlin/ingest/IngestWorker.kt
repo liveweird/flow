@@ -283,28 +283,36 @@ class IngestWorker internal constructor(
             }
             onSucceeded(claim, deriveRevisionUsed)
         } catch (cancelled: CancellationException) {
+            // A release that fails (after its retries) must not replace the cancellation: the lease expiry reclaims the row.
             withContext(NonCancellable) {
-                if (syncJobs.release(claim.id, config.workerId, claim.attempt)) {
-                    audit(
-                        "sync_job.released",
-                        "jobId" to claim.id.toLong(),
-                        "dataSourceId" to claim.connectionId.toLong(),
-                        "workerId" to config.workerId,
-                    )
-                } else {
-                    logStale(claim, "release")
+                claim.closeBestEffort("release") {
+                    if (syncJobs.release(claim.id, config.workerId, claim.attempt)) {
+                        audit(
+                            "sync_job.released",
+                            "jobId" to claim.id.toLong(),
+                            "dataSourceId" to claim.connectionId.toLong(),
+                            "workerId" to config.workerId,
+                        )
+                    } else {
+                        claim.warnStale("release")
+                    }
                 }
             }
             throw cancelled
         } catch (lost: LeaseLostException) {
             log.warn("Sync job {} lost its lease mid-run: {}", claim.id, lost.message)
         } catch (cancelledJob: JobCancelRequestedException) {
-            if (!syncJobs.markCancelled(claim.id, claim.attempt, clock())) logStale(claim, "cancel")
-            log.info("Sync job {} cancelled on request: {}", claim.id, cancelledJob.message)
+            claim.closeBestEffort("cancel") { // the info line only if the row really closed; a give-up is closeBestEffort's WARN
+                if (syncJobs.markCancelled(claim.id, claim.attempt, clock())) {
+                    log.info("Sync job {} cancelled on request: {}", claim.id, cancelledJob.message)
+                } else {
+                    claim.warnStale("cancel")
+                }
+            }
         } catch (e: Exception) {
-            onFailed(claim, e)
+            claim.closeBestEffort("fail") { onFailed(claim, e) }
         } catch (overflow: StackOverflowError) {
-            onFailed(claim, JobStackOverflowException(overflow)) // an Error: the clause above never sees it
+            claim.closeBestEffort("fail") { onFailed(claim, JobStackOverflowException(overflow)) } // an Error: not caught above
         }
     }
 
@@ -313,16 +321,13 @@ class IngestWorker internal constructor(
         heartbeat.close()
     }
 
-    private fun logStale(claim: SyncJobClaim, write: String) {
-        log.warn("Sync job {} attempt {}: {} matched no row, a newer attempt owns the job (stale run)", claim.id, claim.attempt, write)
-    }
-
     /** `internal` (the `runJob`/`tick` precedent above) so `IngestWorkerTest` can drive the config-revision
      * re-derive check deterministically, without needing to race a real config PUT against a real DERIVE run. */
     internal suspend fun onSucceeded(claim: SyncJobClaim, deriveRevisionUsed: Long? = null) {
-        if (!syncJobs.finish(claim.id, claim.attempt, clock())) {
+        val finished = claim.finishOrLeaveToLease { syncJobs.finish(claim.id, claim.attempt, clock()) } ?: return
+        if (!finished) {
             // A newer attempt owns the row: this run is stale, so it records nothing — no sync outcome, no chained DERIVE, no audit.
-            logStale(claim, "finish")
+            claim.warnStale("finish")
             return
         }
         when (claim.kind) {
@@ -372,7 +377,7 @@ class IngestWorker internal constructor(
             FailedWrite(null).takeIf { syncJobs.fail(claim.id, claim.attempt, errorCode, detail, clock()) }
         }
         if (written == null) {
-            logStale(claim, "fail")
+            claim.warnStale("fail")
             return
         }
         logJobFailure(claim, written, reported, trip, detail)
