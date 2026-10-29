@@ -719,8 +719,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   exactly as a domain does — `domainStandsForTeam` is true, no default team is added, `useReportPage` fetches it, and the team select shows
   "No team: a single epic is shown" — while a team picked from the bar replaces the epic (`applyBarChange`). A bare link or stored filter with none
   of the three gets the default team; with neither team nor domain in the unit (and no epic) the page is the `noTeams` empty state, with domains
-  but no team the `pickScope` note. The UNIT-level branches (`EpicProgressRows`' domains and teams tables, the `levelNote.UNIT` copy) stay in the code but the API no longer answers them (a request
-  naming no epic, domain or team is `400`, `reports.md` "Scope"; removing the rows is a BACKLOG follow-up) and the web never asks for them. The print summary names a single epic ("Epic: FLO-33 (stands for the team)"), as it does a domain.
+  but no team the `pickScope` note. A request naming no epic, domain or team is `400` (`reports.md` "Scope") and the wire `level` has no unit value, so `EpicProgressRows` draws only a domain's epics (EPIC and TEAM have nothing further). The print summary names a single epic ("Epic: FLO-33 (stands for the team)"), as it does a domain.
   Levels are drilled by the row NAME links (`scopedSearch` re-scopes the same report, the period travelling along); a
   domain → epic drill carries the domain in the router `state` so the breadcrumb (`EpicProgressBreadcrumb`) can offer the
   way back — there is no unit crumb (the unit is not a view of this page), so the breadcrumb exists only for an epic reached through its domain,

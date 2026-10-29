@@ -49,7 +49,7 @@ class EpicProgressPeriodKernelsTest {
     @Test
     fun `defaults - an epic reads its whole life, everything else the period`() {
         assertEquals(EpicProgressBasis.CUMULATIVE, EpicProgressLevel.EPIC.defaultBasis())
-        for (level in listOf(EpicProgressLevel.UNIT, EpicProgressLevel.DOMAIN, EpicProgressLevel.TEAM)) {
+        for (level in listOf(EpicProgressLevel.DOMAIN, EpicProgressLevel.TEAM)) {
             assertEquals(EpicProgressBasis.PERIOD, level.defaultBasis(), level.name)
         }
     }

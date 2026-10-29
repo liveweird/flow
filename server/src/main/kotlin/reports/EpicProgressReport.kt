@@ -5,12 +5,11 @@ import java.time.LocalDate
 import kotlinx.serialization.Serializable
 
 /**
- * What an epic-progress read is about: one domain, one epic or one team (`level` of the response). [UNIT], the whole unit, is no
- * longer answered (the scope guard refuses a request naming no epic, domain or team); the value stays on the wire until the web drops
- * its UNIT rows (BACKLOG).
+ * What an epic-progress read is about: one domain, one epic or one team (`level` of the response). The whole unit is never
+ * answered: the scope guard refuses a request naming no epic, domain or team, so there is no unit level.
  */
 @Serializable
-enum class EpicProgressLevel { UNIT, DOMAIN, EPIC, TEAM }
+enum class EpicProgressLevel { DOMAIN, EPIC, TEAM }
 
 /** What a [EpicProgressScope] or a drill [EpicProgressRow] stands for. */
 @Serializable
@@ -49,7 +48,7 @@ data class EpicProgressAsOf(
 )
 
 /**
- * One drill row (a domain's epic; a domain or a team of the unit), its CUMULATIVE figures as of the response's `asOf` day and
+ * One drill row (a domain's epic), its CUMULATIVE figures as of the response's `asOf` day and
  * its [period] figures beside them (A37). [active] is set on TEAM rows only: `false` marks a soft-deleted team that still has
  * figures, whose own drill (`teamId`) answers 400.
  */

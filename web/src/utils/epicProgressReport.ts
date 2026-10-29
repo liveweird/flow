@@ -49,12 +49,10 @@ export function applyBarChange(previous: ReportFilterState, next: ReportFilterSt
 
 /**
  * The query string of the same report re-scoped: the period and the other shared params travel, the scope is
- * replaced. `dropSprint` removes a one-sprint period (a sprint belongs to one team, so it must not follow a
- * link to a team that does not list it — the filter bar's `changeTeam` rule).
+ * replaced.
  */
-export function scopedSearch(params: URLSearchParams, scope: EpicScope, options: { dropSprint?: boolean } = {}): string {
+export function scopedSearch(params: URLSearchParams, scope: EpicScope): string {
   const next = { ...parseReportFilter(params), ...scope };
-  if (options.dropSprint) delete next.sprintId;
   if (scope.epicId === undefined) delete next.epicId;
   if (scope.domain === undefined) delete next.domain;
   if (scope.teamId === undefined) delete next.teamId;

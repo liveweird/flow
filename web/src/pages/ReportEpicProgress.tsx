@@ -36,7 +36,7 @@ const CONTROLS: ReportControls = { teamRequired: true, teamOrDomain: true, epicS
 /** The card title: what the numbers are about, named by the report's own scope. */
 function levelTitle(report: EpicProgressReport, t: TFunction): string {
   const { scope } = report;
-  if (report.level === "UNIT" || scope === null) return t("reports.epicProgress.levelTitle.UNIT");
+  if (scope === null) return "";
   const name = report.level === "EPIC" && scope.key && scope.name !== scope.key ? `${scope.key} · ${scope.name}` : scope.name;
   return t(`reports.epicProgress.levelTitle.${report.level}`, { name });
 }
@@ -170,9 +170,9 @@ export default function ReportEpicProgress() {
                 <EpicPlanPanel epic={report.epic} timeZone={filters.timeZone} />
               </ReportChartCard>
             )}
-            {report && (report.level === "UNIT" || report.level === "DOMAIN") && report.asOf.day !== null && (
+            {report && report.level === "DOMAIN" && report.asOf.day !== null && (
               <Paper withBorder p="md">
-                <EpicProgressRows report={report} filters={filters} />
+                <EpicProgressRows report={report} />
               </Paper>
             )}
           </>
