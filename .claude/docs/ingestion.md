@@ -59,7 +59,7 @@ for the ingestion worker.
 `2 x ingest.workerSlots` (a DERIVE holds two connections; `ingest/IngestWorkerConfig.kt`), and when its heap cannot hold
 `ingest.workerSlots` slots, each the largest of a worst-case response tree, a PROCESS slot and a CHANGELOGS / WORKLOGS answer-text slot, plus the
 bodies in flight and a reserve (`jira/JiraHeapFit.kt`, `jira-integration.md` "Node and depth ceiling", "Stored-size ceilings", build-times WHY 48: 2 slots x
-(2 - 1) x 137 MiB (PROCESS) + 160 MiB (WORKLOGS text + the converting tree) + 4 x 8 MiB + 96 MiB = 425 MiB against the 448 MiB old generation of `-Xmx512m -Xmn64m`). The heap message
+(2 - 1) x 137 MiB (PROCESS) + 174.3 MiB (WORKLOGS text + the flush rows + the converting tree) + 4 x 8 MiB + 96 MiB = 439.3 MiB against the 448 MiB old generation of `-Xmx512m -Xmn64m`). The heap message
 names `ingest.workerSlots`, `jira.maxConcurrentRequests`, the knobs of the dominating term (`jira.maxResponseBytes`, or `jira.processPageBytes` and
 `jira.maxStoredPayloadBytes`) and the `-Xmx` needed, so raising a slot count or a cap
 means raising the worker's `JAVA_OPTS` heap (and its memory limit) with it. A `web` role only logs a WARN. The `all` role (compose,
@@ -1433,15 +1433,27 @@ writes, assembled here rather than duplicated:
   `workItem` (and the interval lists) stay empty/absent for an issue this connection has fetched but
   never yet processed.
 - **A stored-size cap, and no tree (1.24.1).** BEFORE reading any of the issue's text the route sums its stored bytes in the database
-  (`JiraRawStore.storedBytesForIssue`: the payload, the histories and the live worklogs, `octet_length` of the jsonb text) and answers
-  **413** `application/problem+json` with the constant detail "The stored issue is too large to inspect" when the sum is over
+  (`JiraRawStore.storedBytesForIssue`: the payload, the histories and the live worklogs, `octet_length` of the jsonb text; plus
+  `WorkItemStore.customFieldsBytes`: the work item's `custom_fields` text, `norm/NormInspectorReads.kt`) and answers
+  **413** `application/problem+json` with the constant detail "The stored issue is too large to inspect" when the raw sum is over
   `jira.processPageBytes` - the very figure PROCESS refuses an issue at, so the inspector never serves what PROCESS would not process
-  (the web page shows `dataSources.inspect.tooLarge`). The route answers it itself (`respondProblem`): `ErrorHandling`'s
+  (the web page shows `dataSources.inspect.tooLarge`) - or when the whole (raw + `custom_fields`) is over the web heap share over
+  `INSPECTION_BYTES_PER_STORED_BYTE` (8): `capacityBytes / 8` = 14 MiB at the defaults, so an inspection always fits the share and there is no boot
+  pin (no config that booted before refuses now). The route answers it itself (`respondProblem`): `ErrorHandling`'s
   `PayloadTooLargeException` mapping is the REQUEST-body text. An id is resolved first (`issueIdByKey` for a key), so a 404 still precedes
-  the cap. Under the cap the stored text is embedded in the response AS TEXT (`JsonUnquotedLiteral`, Postgres's jsonb output - valid JSON by
-  construction), never parsed, so the `web` role builds no tree of a document; the wire shape is the objects they always were
-  (`RawIssueInspectorTest` pins the verbatim embedding and the 413). At most TWO issues are read, built and serialized at once per process
-  (a `Semaphore`, `MAX_CONCURRENT_INSPECTIONS`); further requests wait for a permit, so the `web` heap bounds the inspector at 2 x `jira.processPageBytes`.
+  the cap. Under the cap the stored text - the payload, the histories, the worklogs AND the work item's `customFields` - is embedded in the
+  response AS TEXT (`JsonUnquotedLiteral`, Postgres's jsonb output - valid JSON by construction), never parsed, so the `web` role builds no
+  tree of any document; the wire shape is the objects they always were (`RawIssueInspectorTest` pins the verbatim embedding, both 413s and
+  the headers). At most TWO issues are read, built and serialized at once per process
+  (a `Semaphore`, `MAX_CONCURRENT_INSPECTIONS`); further requests wait for a permit. Under the permit, an inspection is also admitted against the
+  web role's Jira heap share (`jira/JiraHeapShare.kt`, `JiraHeapShareKey`: one FIFO weighted budget of the single response tree the web heap fit
+  counts, 112 MiB at the defaults): it holds `INSPECTION_BYTES_PER_STORED_BYTE` (8) x the issue's stored bytes from the first read until the
+  response is ENCODED to a `ByteArray` (`Json.encodeToStream` with Ktor's own `DefaultJson`, so the wire bytes and `Content-Type` match
+  ContentNegotiation's); the share is released BEFORE the bytes are written (`respondBytes`), so a slow-reading client pins no share (only a
+  semaphore permit). It waits (FIFO) when the share is taken, so the inspector is inside the web heap fit (`jira-integration.md` "The boot-time heap fit
+  check"; `RawIssueInspectorTest` holds the share in full and sees the request wait, then answer byte-identically). `ingest/` reads the key from
+  `jira/` like it already reads `JiraRawStoreKey`. A Test connection (`DataSourceRoutes.kt`) holds the WHOLE share around its connector call, so
+  an inspection and a Test connection never run together (`DataSourceTestConnectionTest`; the wait it can cost: `jira-integration.md` "Test connection").
 - **A tombstoned issue is still returned, never `404`.** `deletedAt`/`movedOutAt` being set is
   itself part of the answer a debugging view exists to show; only a genuinely unknown id/key 404s.
 

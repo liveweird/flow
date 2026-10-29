@@ -5,6 +5,7 @@ import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JiraConnectionRequest
 import ch.nokillswit.infra.json.canonicalJson
 import ch.nokillswit.infra.json.sha256Hex
+import ch.nokillswit.infra.db.StatementProbe
 import ch.nokillswit.ingest.defaultBackfillFrom
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.RawChangelogInput
@@ -12,8 +13,10 @@ import ch.nokillswit.jira.RawEntityInput
 import ch.nokillswit.jira.RawIssueInput
 import ch.nokillswit.jira.RawUpsertOutcome
 import ch.nokillswit.jira.RawWorklogInput
+import ch.nokillswit.jira.trimmedWorklogCanonicalJson
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.Table
@@ -21,10 +24,12 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
 import java.util.UUID
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -651,6 +656,94 @@ class JiraRawStoreTest {
         assertEquals(expected, batchOutcomes)
         assertEquals(rowsOf(worklogs, worklogs.connectionId, perRow), rowsOf(worklogs, worklogs.connectionId, batch))
         assertEquals(5L, store.countWorklogs(batch))
+    }
+
+    @Test
+    fun `upsertWorklogs writes a big batch in bounded groups - the same rows the per-row path leaves`() = runBlocking {
+        val perRow = createConnection()
+        val batch = createConnection()
+        val store = rawStore()
+        val worklogs = JiraRawStore.Worklogs
+        // 1,100 rows: a full 1,024-row group is ONE statement; the 76 left decompose (64 + 8 + 4).
+        val page = (1L..1_100L).map { RawWorklogInput(8L, 900_000L + it, it, worklogPayload(900_000L + it, 8L, timeSpent = it)) }
+        val sizes = CopyOnWriteArrayList<Int>()
+        // Only this call's coroutine sees the probe, and only worklog statements are kept.
+        withContext(StatementProbe { table, size -> if (table == worklogs) sizes += size }) {
+            assertEquals(List(1_100) { RawUpsertOutcome.INSERTED }, store.upsertWorklogs(batch, page, now = 2_000))
+        }
+        assertEquals(listOf(1_024, 64, 8, 4), sizes)
+        page.forEach { store.upsertWorklog(perRow, it.issueId, it.worklogId, it.worklogUpdatedAt, it.payloadJson, now = 2_000) }
+        assertEquals(rowsOf(worklogs, worklogs.connectionId, perRow), rowsOf(worklogs, worklogs.connectionId, batch))
+        assertEquals(1_100L, store.countWorklogs(batch))
+    }
+
+    @Test
+    fun `upsertWorklogs bounds a group by its characters too - 100 worklogs of 12,000 characters go out in groups of at most 43 rows`() =
+        runBlocking {
+            val connId = createConnection()
+            val store = rawStore()
+            val padding = "x".repeat(12_000)
+            val page = (1L..100L).map {
+                RawWorklogInput(8L, 910_000L + it, it, """{"id":"${910_000L + it}","issueId":"8","comment":"$padding"}""")
+            }
+            val sizes = CopyOnWriteArrayList<Int>()
+            withContext(StatementProbe { table, size -> if (table == JiraRawStore.Worklogs) sizes += size }) {
+                store.upsertWorklogs(connId, page, now = 2_000)
+            }
+            // Groups of 43, 43 and 14 rows (43 x ~12,050 characters <= 512 Ki), each decomposed into power-of-two statements.
+            assertEquals(listOf(32, 8, 2, 1, 32, 8, 2, 1, 8, 4, 2), sizes)
+            assertEquals(100L, store.countWorklogs(connId))
+        }
+
+    /** The statements [tx] still keeps (Exposed lists every one it ran until the transaction ends); a rename on an upgrade fails here. */
+    private fun executedStatements(tx: R2dbcTransaction): Int {
+        val field = R2dbcTransaction::class.java.getDeclaredField("executedStatements").also { it.isAccessible = true }
+        return (field.get(tx) as List<*>).size
+    }
+
+    @Test
+    fun `a flush of changed worklogs keeps none of its per-row UPDATE statements and leaves the rows a fresh insert does`() = runBlocking {
+        val changed = createConnection()
+        val fresh = createConnection()
+        val store = rawStore()
+        val worklogs = JiraRawStore.Worklogs
+        // The version moves `timeSpentSeconds` (a kept field; `comment` is trimmed away before the hash).
+        fun page(version: Long) = (1L..1_200L).map {
+            RawWorklogInput(8L, 920_000L + it, it, """{"id":"${920_000L + it}","issueId":"8","timeSpentSeconds":${it + version}}""")
+        }
+        store.upsertWorklogs(changed, page(0), now = 1_000)
+        suspendTransaction(sharedDatabaseForTests()) {
+            // The control: the single-row path keeps its statements (so the counter works and the writer below joins THIS transaction).
+            store.upsertWorklog(changed, 8L, 920_001L, 1L, """{"id":"920001","issueId":"8","timeSpentSeconds":1}""", now = 1_500)
+            assertTrue(executedStatements(this) > 0, "the control: a single-row write leaves its statements listed")
+            val outcomes = store.upsertWorklogs(changed, page(10_000), now = 2_000)
+            assertEquals(List(1_200) { RawUpsertOutcome.CHANGED }, outcomes)
+            // 1,200 UPDATEs plus the key reads ran in this transaction; none of them may still be listed.
+            assertTrue(executedStatements(this) <= 1, "the flush left ${executedStatements(this)} executed statements reachable")
+        }
+        store.upsertWorklogs(fresh, page(10_000), now = 2_000)
+        // The same rows but for first_seen_at, which a change keeps from the insert (1,000) and a fresh insert sets (2,000).
+        fun withoutFirstSeen(rows: List<Map<String, Any?>>) = rows.map { it - worklogs.firstSeenAt.name }
+        assertEquals(
+            withoutFirstSeen(rowsOf(worklogs, worklogs.connectionId, fresh)),
+            withoutFirstSeen(rowsOf(worklogs, worklogs.connectionId, changed)),
+        )
+        assertEquals(1_200L, store.countWorklogs(changed))
+    }
+
+    @Test
+    fun `a batch worklog is stored under the hash of the very text it is rendered to`() = runBlocking {
+        val connId = createConnection()
+        val store = rawStore()
+        val payload = """{"timeSpentSeconds":60,"id":"930001","issueId":"8","author":{"accountId":"a","emailAddress":"e"}}"""
+        val input = RawWorklogInput(8L, 930_001L, 5L, payload)
+        store.upsertWorklogs(connId, listOf(input), now = 1_000)
+        val row = suspendTransaction(sharedDatabaseForTests()) {
+            JiraRawStore.Worklogs.selectAll().where { JiraRawStore.Worklogs.connectionId eq connId }.toList().single()
+        }
+        val rendered = trimmedWorklogCanonicalJson(input.payloadJson)
+        assertEquals(sha256Hex(rendered), row[JiraRawStore.Worklogs.sha256])
+        assertEquals(Json.parseToJsonElement(rendered), Json.parseToJsonElement(row[JiraRawStore.Worklogs.payload]))
     }
 
     @Test

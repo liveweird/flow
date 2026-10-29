@@ -23,6 +23,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -177,6 +178,43 @@ class JiraResponseNodeCeilingTest {
         val big = bytes("[" + "0,".repeat(600_000) + "0]")
         assertTrue(big.size > 1024 * 1024)
         assertEquals(600_001, (http(8L * 1024 * 1024, big).get() as JsonArray).size)
+    }
+
+    @Test
+    fun `a multi-byte body parses from its bytes to the same tree the text parses to`() = runBlocking<Unit> {
+        // Polish diacritics, CJK, an astral emoji (a surrogate pair), a literal and an escaped pair, and \u escapes of both kinds.
+        val text = """{"pl":"zażółć gęślą jaźń","cjk":"日本語のテキスト 漢字","emoji":"😀 𝄞","escaped":"\u0105\u4e2d \ud83d\ude00",""" +
+            """"key ż 中":["é",1.5,null,true]}"""
+        val expected = Json.parseToJsonElement(text)
+        val parsed = http(8L * 1024 * 1024, bytes(text)).get()
+        assertEquals(expected, parsed)
+        assertEquals(expected.toString(), parsed.toString())
+        val obj = parsed as JsonObject
+        assertEquals("zażółć gęślą jaźń", (obj.getValue("pl") as JsonPrimitive).content)
+        assertEquals("😀 𝄞", (obj.getValue("emoji") as JsonPrimitive).content)
+        assertEquals("ą中 😀", (obj.getValue("escaped") as JsonPrimitive).content)
+        // Past the 1 MiB big-parse lock, with a multi-byte character straddling the 8 KiB reads of the stream decoder.
+        val big = "[" + "\"żółć日😀\",".repeat(150_000) + "\"end\"]"
+        assertTrue(bytes(big).size > 1024 * 1024)
+        assertEquals(Json.parseToJsonElement(big), http(8L * 1024 * 1024, bytes(big)).get())
+    }
+
+    @Test
+    fun `a truncated body, text after the document and an empty body are INVALID_RESPONSE, not an unmapped one`() = runBlocking<Unit> {
+        listOf(
+            """{"a":[1,2""",
+            """{"a":"zażółć""",
+            """{"a":1}}""",
+            """{"a":1} trailing""",
+            """[1,2]3""",
+            """{"a":1}{"b":2}""",
+            "",
+            "not json",
+        ).forEach { body ->
+            val failure = assertFailsWith<JiraFetchException>(body) { http(8L * 1024 * 1024, bytes(body)).get() }
+            assertEquals("INVALID_RESPONSE", failure.code, body)
+            assertEquals(200, failure.status, body)
+        }
     }
 
     @Test

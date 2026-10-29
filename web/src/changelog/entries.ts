@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.27.2",
+    date: "2026-10-29",
+    en: `**Data sources: tighter memory limits for very large Jira data.**
+
+- Inspecting a stored issue and testing a connection now take turns for the memory they need, so several large inspections and a connection test at once can no longer exhaust the server's memory. An inspection may wait up to about half a second behind a connection test.
+- An issue too large to inspect safely (its stored text and custom fields together) is now refused with the usual "too large" answer instead of risking the server.
+- Syncing issues with tens of thousands of worklogs uses about a quarter less memory, and the server's start-up memory check now counts that work too.`,
+    pl: `**Źródła danych: ściślejsze limity pamięci dla bardzo dużych danych z Jiry.**
+
+- Podgląd zapisanego zgłoszenia i test połączenia korzystają teraz z pamięci po kolei, więc kilka dużych podglądów naraz z testem połączenia nie może już wyczerpać pamięci serwera. Podgląd może poczekać do około pół sekundy na zakończenie testu połączenia.
+- Zgłoszenie zbyt duże, by bezpiecznie je podejrzeć (jego zapisany tekst razem z polami niestandardowymi), jest teraz odrzucane zwykłą odpowiedzią „za duże”, zamiast narażać serwer.
+- Synchronizacja zgłoszeń z dziesiątkami tysięcy wpisów czasu pracy zużywa około jednej czwartej mniej pamięci, a sprawdzenie pamięci przy starcie serwera uwzględnia teraz także tę pracę.`,
+  },
+  {
     version: "1.27.1",
     date: "2026-10-29",
     en: `**Data sources: syncs are gentler on the database and recover faster from a database restart.**

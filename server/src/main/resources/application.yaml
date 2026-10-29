@@ -288,7 +288,7 @@ jira:
   # immediately rather than waiting it out.
   requestDeadlineSeconds: "$JIRA_REQUEST_DEADLINE_SECONDS:180"
   # The Covenant-shaped bounded-read ceiling on a single response body (8 MiB default; it was 32 MiB). It bounds the WIRE bytes, not
-  # the parsed tree: a response is held ~3-5x its size while read and parsed (buffer, copy, string, JSON tree), up to ~30x for a
+  # the parsed tree: a response is held ~3-5x its size while read and parsed (buffer, copy, JSON tree: the parse reads the bytes directly, no decoded String), up to ~30x for a
   # document of minimal objects, 4 in flight (maxConcurrentRequests), in a worker of -Xmx512m. So it closes the risk of a legitimate
   # tenant's biggest response. A body is also refused (LIMIT_EXCEEDED, before it is parsed) past a structural node ceiling of
   # maxResponseBytes / 8 tokens (derived from this value, so there is no second knob to raise with it: 1,048,576 at the default) or past
@@ -298,7 +298,7 @@ jira:
   # (jira/JiraHeapFit.kt) refuses a worker role whose heap cannot hold ingest.workerSlots slots, each the largest of one such tree
   # (112 B a node: the raw writers canonicalize the tree they are given), a PROCESS slot (processPageBytes, below) and the CHANGELOGS /
   # WORKLOGS answer text (those two convert every page under the big-parse lock, so one slot at a time adds a tree on top of its text),
-  # + maxConcurrentRequests bodies of this size + a 96 MiB reserve (425 MiB of the 448 MiB old generation of -Xmx512m at the defaults), so raising this value (or the slots, or the requests) means raising the worker's -Xmx with it (build-times WHY 48).
+  # + maxConcurrentRequests bodies of this size + a 96 MiB reserve (439.3 MiB of the 448 MiB old generation of -Xmx512m at the defaults), so raising this value (or the slots, or the requests) means raising the worker's -Xmx with it (build-times WHY 48).
   # A page over the cap is halved (ISSUES, CHANGELOGS, WORKLOGS batches) or its single id skipped, but a one-shot list cannot be: the
   # largest real one is `GET /field` (~4 MB on a site with ~10k fields; a WARN fires past half the cap), so a site whose own list
   # outgrows 8 MiB must raise this (`.claude/docs/jira-integration.md` "Response size cap"). The answer ceilings do not move with it.

@@ -24,12 +24,6 @@ internal data class WorklogsCursor(
 /** One round's worth of stale-issue ids the per-issue backfill claims at a time (heartbeat/resumability granularity). */
 private const val BACKFILL_BATCH_SIZE = 100
 
-/**
- * The backfill flushes (writes and stamps) a batch early once it holds this many worklogs, so a batch of long-lived tickets
- * (hundreds of worklogs each) stays bounded in memory; an ordinary batch of 100 issues is far below it.
- */
-private const val BACKFILL_FLUSH_WORKLOGS = 5_000
-
 /** The issues fetched and not yet written by one backfill batch, with their worklogs. */
 private class FetchedBatch {
     val issueIds = mutableListOf<Long>()

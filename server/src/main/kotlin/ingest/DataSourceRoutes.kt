@@ -9,6 +9,8 @@ import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.infra.paging.parsePaging
 import ch.nokillswit.infra.paging.toPage
 import ch.nokillswit.jira.JiraConnectorKey
+import ch.nokillswit.jira.JiraHeapShare
+import ch.nokillswit.jira.JiraHeapShareKey
 import ch.nokillswit.plugins.RateLimits
 import ch.nokillswit.plugins.servesApi
 import io.ktor.http.HttpHeaders
@@ -59,11 +61,12 @@ fun Application.configureDataSourceRoutes() {
 
     val service = attributes[DataSourceServiceKey]
     val connector = attributes[JiraConnectorKey]
+    val heapShare = attributes[JiraHeapShareKey]
     val syncJobs = attributes[SyncJobsServiceKey]
 
     routing {
         authenticate {
-            testConnectionRoutes(service, connector)
+            testConnectionRoutes(service, connector, heapShare)
             get<DataSourcesRoute> {
                 val caller = call.caller()
                 requireAdmin(caller)
@@ -133,22 +136,26 @@ fun Application.configureDataSourceRoutes() {
 
 /**
  * The rate-limited (`DATA_SOURCE_TEST`) ad-hoc and stored Test-connection endpoints — split out of
- * `configureDataSourceRoutes` (`LongMethod`).
+ * `configureDataSourceRoutes` (`LongMethod`). Each probe run parses up to one full response tree, so it holds the WHOLE web heap share
+ * (`jira/JiraHeapShare.kt`: one Test connection = one tree, and it excludes the raw-issue inspector meanwhile); only the connector call is
+ * inside the hold, and the call's own 30 s budget starts inside it, so waiting for the share never turns into TIMEOUT rows.
  */
-private fun Route.testConnectionRoutes(service: DataSourceService, connector: Connector) {
+private fun Route.testConnectionRoutes(service: DataSourceService, connector: Connector, heapShare: JiraHeapShare) {
     rateLimit(RateLimitName(RateLimits.DATA_SOURCE_TEST)) {
         post<DataSourcesRoute.Test> {
             val caller = call.caller()
             requireAdmin(caller)
             val jira = sanitizedJiraConnectionRequest(call.receive<DataSourceTestRequest>().jira)
             validateJira(jira, apiTokenRequired = true)
-            val result = connector.testConnection(
-                siteUrl = jira.siteUrl,
-                email = jira.email,
-                apiToken = checkNotNull(jira.apiToken) { "apiToken is required on the ad-hoc test" },
-                projectKeys = jira.projectKeys,
-                authScheme = jira.authScheme,
-            )
+            val result = heapShare.withShare(heapShare.capacityBytes) {
+                connector.testConnection(
+                    siteUrl = jira.siteUrl,
+                    email = jira.email,
+                    apiToken = checkNotNull(jira.apiToken) { "apiToken is required on the ad-hoc test" },
+                    projectKeys = jira.projectKeys,
+                    authScheme = jira.authScheme,
+                )
+            }
             auditConnectionTest(caller.userId, siteHost(jira.siteUrl), result)
             call.respond(HttpStatusCode.OK, result)
         }
@@ -156,13 +163,15 @@ private fun Route.testConnectionRoutes(service: DataSourceService, connector: Co
             val caller = call.caller()
             requireAdmin(caller)
             val stored = service.readForTest(route.parent.id).orNotFound("Data source")
-            val result = connector.testConnection(
-                siteUrl = stored.siteUrl,
-                email = stored.email,
-                apiToken = stored.apiToken,
-                projectKeys = stored.projectKeys,
-                authScheme = stored.authScheme,
-            )
+            val result = heapShare.withShare(heapShare.capacityBytes) {
+                connector.testConnection(
+                    siteUrl = stored.siteUrl,
+                    email = stored.email,
+                    apiToken = stored.apiToken,
+                    projectKeys = stored.projectKeys,
+                    authScheme = stored.authScheme,
+                )
+            }
             result.cloudId?.let { service.persistCloudId(route.parent.id, it) }
             auditConnectionTest(caller.userId, siteHost(stored.siteUrl), result)
             call.respond(HttpStatusCode.OK, result)

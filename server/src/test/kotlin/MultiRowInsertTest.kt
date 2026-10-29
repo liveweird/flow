@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.infra.db.insertRows
 import ch.nokillswit.infra.db.insertRowsIgnoringConflicts
+import ch.nokillswit.infra.db.StatementProbe
 import ch.nokillswit.infra.db.upsertRows
 import org.jetbrains.exposed.v1.core.Table
 import ch.nokillswit.infra.json.stringArrayJson
@@ -10,6 +11,7 @@ import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.norm.WorkItemStore
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.eq
@@ -496,6 +498,50 @@ class MultiRowInsertTest {
     private object SequencedStage : Table("metrics.item_stage") {
         val id = long("id").autoIncrement("metrics.item_stage_id_seq")
         val issueId = long("issue_id")
+    }
+
+    @Test
+    fun `insertRows builds a row only while its statement is assembled - the rows in flight are one statement's`() = runBlocking {
+        val connId = connection()
+        val table = MetricsTables.ItemStage
+        val rows = (1..12_000).map { Stage(it.toLong(), "IN_PROGRESS", "10001", it * 1_000L, null) }
+        val built = java.util.concurrent.atomic.AtomicInteger()
+        val builtAtStatement = mutableListOf<Int>()
+        val sizes = mutableListOf<Int>()
+        try {
+            val probe = StatementProbe { _, size ->
+                sizes += size
+                builtAtStatement += built.get()
+            }
+            withContext(probe) {
+                suspendTransaction(sharedDatabaseForTests()) {
+                    table.insertRows(rows) {
+                        built.incrementAndGet()
+                        this[table.connectionId] = connId
+                        this[table.issueId] = it.issueId
+                        this[table.stage] = it.stage
+                        this[table.statusId] = it.statusId
+                        this[table.validFrom] = it.from
+                        this[table.validTo] = it.to
+                    }
+                    assertEquals(12_000L, table.selectAll().where { table.connectionId eq connId }.count())
+                }
+            }
+        } finally {
+            cleanUp(listOf(connId))
+        }
+        // 6 columns: 5,333 rows a statement, so 5,333 + 5,333 + the binary decomposition of the 1,334 left.
+        assertEquals(chunkSizes(12_000, 5_333), sizes)
+        assertEquals(2 * 5_333 + 1_024 + 256 + 32 + 16 + 4 + 2, sizes.sum())
+        // Rows built when each statement is about to run: exactly the rows of the statements so far (every body ran once, the first row
+        // included) - never the whole call's rows ahead of the first statement.
+        var written = 0
+        sizes.forEachIndexed { index, size ->
+            written += size
+            assertEquals(written, builtAtStatement[index], "rows built when statement ${index + 1} ($size rows) runs")
+        }
+        assertEquals(12_000, built.get(), "every row is built exactly once")
+        assertTrue(builtAtStatement.first() <= 5_333, "only the first statement's rows exist before it runs")
     }
 
     @Test

@@ -7,6 +7,7 @@ import ch.nokillswit.ingest.DataSourceTestRequest
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JiraConnectionRequest
 import ch.nokillswit.flowusers.FlowUserRole
+import ch.nokillswit.jira.JiraHeapShareKey
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.get
 import com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching
@@ -18,6 +19,13 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -64,6 +72,42 @@ class DataSourceTestConnectionTest {
         assertTrue(searchRow.ok && !searchRow.required, "the field-search probe is optional and the stub serves it: $searchRow")
         assertEquals("read:field:jira, read:field-configuration:jira", searchRow.scopeHint)
     }
+
+    @Test
+    fun `a test connection holds the whole web heap share - it waits while the share is held, then answers like an unblocked one`() =
+        testApplication {
+            configureApp("jira.stubBaseUrl" to JiraStubServer.start())
+            startApplication()
+            val admin = seededClient("dstestshare", FlowUserRole.ADMIN)
+            val created = admin.postJson(
+                "/api/v1/data-sources",
+                DataSourceRequest(unique("Jira"), true, 60, null, 3, jiraRequest(uniqueProjectKeys(1))),
+            ).body<DataSourceResponse>()
+            val share = application.attributes[JiraHeapShareKey]
+            val adHoc = DataSourceTestRequest(jiraRequest())
+            val freeAdHoc = admin.postJson("/api/v1/data-sources/test", adHoc).body<ConnectionTestResult>()
+            val freeStored = admin.post("/api/v1/data-sources/${created.id}/test") {}.body<ConnectionTestResult>()
+            assertTrue(freeAdHoc.rows.none { it.required && !it.ok }, "required probes failed unblocked: ${freeAdHoc.rows}")
+
+            coroutineScope {
+                val release = CompletableDeferred<Unit>()
+                val holding = CompletableDeferred<Unit>()
+                val holder = launch { share.withShare(share.capacityBytes) { holding.complete(Unit); release.await() } }
+                holding.await()
+                val blockedAdHoc = async { admin.postJson("/api/v1/data-sources/test", adHoc) }
+                val blockedStored = async { admin.post("/api/v1/data-sources/${created.id}/test") {} }
+                withContext(Dispatchers.Default) { delay(500) } // real time, not the test scheduler's
+                assertTrue(blockedAdHoc.isActive && blockedStored.isActive, "both Test connections wait for the share")
+                release.complete(Unit)
+                holder.join()
+                val adHocResult = blockedAdHoc.await()
+                val storedResult = blockedStored.await()
+                assertEquals(HttpStatusCode.OK, adHocResult.status)
+                assertEquals(HttpStatusCode.OK, storedResult.status)
+                assertEquals(freeAdHoc, adHocResult.body<ConnectionTestResult>(), "waiting changes nothing about the ad-hoc answer")
+                assertEquals(freeStored, storedResult.body<ConnectionTestResult>(), "waiting changes nothing about the stored answer")
+            }
+        }
 
     @Test
     fun `a denied field-search probe is a failed optional row - it never fails the required set`() = testApplication {

@@ -1,12 +1,18 @@
 package ch.nokillswit
 
 import ch.nokillswit.infra.db.MAX_PAYLOAD_CHARS
+import ch.nokillswit.infra.db.insertRows
+import ch.nokillswit.infra.db.lazyStatements
+import ch.nokillswit.infra.db.maxRowsPerStatement
+import ch.nokillswit.infra.db.StatementProbe
 import ch.nokillswit.infra.db.payloadChunkSizes
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.RawUpsertOutcome
 import ch.nokillswit.jira.RawWorklogInput
+import ch.nokillswit.norm.WorkItemStore
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.statements.StatementContext
 import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
@@ -14,6 +20,7 @@ import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.statements.SuspendStatementInterceptor
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -108,6 +115,91 @@ class MultiRowInsertPayloadTest {
         val sizes = payloadChunkSizes(List(250) { 100 }, max, budget)
         assertTrue(sizes.all { it <= 8 }, "$sizes")
         assertEquals(250, sizes.sum())
+    }
+
+    /** Runs [lazyStatements] over [payloads]: the statement sizes and the most rows built but not yet handed out at any hand-out. */
+    private fun lazyRun(payloads: List<Int>, maxRows: Int): Pair<List<Int>, Int> {
+        var built = 0
+        var emitted = 0
+        var mostInFlight = 0
+        val sizes = ArrayList<Int>()
+        for (statement in lazyStatements(payloads.size, maxRows, budget, { weight: Int -> weight }) { payloads[built++] }) {
+            mostInFlight = maxOf(mostInFlight, built - emitted)
+            emitted += statement.size
+            sizes += statement.size
+            assertEquals(payloads.subList(emitted - statement.size, emitted), statement, "rows keep their order")
+        }
+        assertEquals(payloads.size, built, "every row is built exactly once")
+        return sizes to mostInFlight
+    }
+
+    @Test
+    fun `the lazy plan equals the full-list plan and builds ahead by at most one statement's row cap`() {
+        for (total in 0..450) {
+            val (sizes, inFlight) = lazyRun(List(total) { 1 }, max)
+            assertEquals(chunkSizes(total, max), sizes, "light total $total")
+            assertTrue(inFlight <= max, "light total $total built $inFlight ahead")
+            // no payload overflow: not even a power-of-two remainder is built before its statement is decided
+            val largest = sizes.maxOrNull() ?: 0
+            assertTrue(inFlight <= largest, "light total $total built $inFlight for a largest statement of $largest")
+        }
+        val random = Random(396)
+        repeat(400) { round ->
+            val total = random.nextInt(0, 451)
+            val heavyShare = listOf(0.0, 0.02, 0.1, 0.5, 1.0)[round % 5]
+            val payloads = List(total) {
+                when {
+                    random.nextDouble() < heavyShare -> random.nextInt(300, 1_600)
+                    random.nextBoolean() -> random.nextInt(0, 12)
+                    else -> random.nextInt(0, 60)
+                }
+            }
+            val (sizes, inFlight) = lazyRun(payloads, max)
+            assertEquals(payloadChunkSizes(payloads, max, budget), sizes, "round $round, payloads $payloads")
+            assertTrue(inFlight <= max, "round $round built $inFlight rows ahead of a statement, over the row cap $max")
+        }
+    }
+
+    @Test
+    fun `insertRows plans as the full-list planner does while building lazily - mixed light and heavy text rows`() = runBlocking {
+        val connId = SyncedStubFixture.createConnection(namePrefix = "payload-lazy", enabled = false)
+        val table = WorkItemStore.FieldChanges
+        val random = Random(1_396)
+        try {
+            repeat(3) { round ->
+                // `field` is TEXT: a heavy row is 100-700 K characters against the 1 MiB budget, so a statement holds few heavy rows.
+                val payloads = List(120) { if (random.nextInt(8) == 0) random.nextInt(100_000, 700_000) else random.nextInt(1, 40) }
+                val sizes = ArrayList<Int>()
+                val builtAtStatement = ArrayList<Int>()
+                var built = 0
+                val probe = StatementProbe { _, size ->
+                    sizes += size
+                    builtAtStatement += built
+                }
+                withContext(probe) {
+                    suspendTransaction(sharedDatabaseForTests()) {
+                        table.insertRows(payloads.indices.toList()) { index ->
+                            built++
+                            this[table.connectionId] = connId
+                            this[table.issueId] = round * 1_000L + index
+                            this[table.seq] = 1
+                            this[table.field] = "f".repeat(payloads[index])
+                            this[table.changedAt] = 1L
+                        }
+                    }
+                }
+                assertEquals(payloadChunkSizes(payloads, maxRowsPerStatement(5), MAX_PAYLOAD_CHARS.toLong()), sizes, "round $round")
+                assertEquals(payloads.size, built, "round $round: every row built exactly once")
+                assertTrue(builtAtStatement.first() < payloads.size, "round $round: the first statement ran before the last row was built")
+                assertEquals(
+                    payloads.size * (round + 1L),
+                    suspendTransaction(sharedDatabaseForTests()) { table.selectAll().where { table.connectionId eq connId }.count() },
+                )
+            }
+        } finally {
+            suspendTransaction(sharedDatabaseForTests()) { table.deleteWhere { table.connectionId eq connId } }
+            SyncedStubFixture.dataSources().delete(connId)
+        }
     }
 
     // --- Postgres ------------------------------------------------------------------------------------------------------------------

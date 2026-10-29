@@ -112,17 +112,14 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Security and operations
 
-- [new] **Jira paging loops: what the ceilings do not cover.** The REFERENCE, PROJECT_FIELDS, ISSUES, RECONCILE and WORKLOGS/CHANGELOGS
-  loops carry page, row and (ISSUES, RECONCILE) byte ceilings, the response cap is 8 MiB and a body over a structural node ceiling is
-  refused before the parse (`jira-integration.md` "Paging ceilings", "Response size cap", "Node and depth ceiling"). `GET /field` stays one
-  shot: the 1.23.0 Test-connection probe answered 200 on the real token, but `field/search` reports FEWER fields than `GET /field`, so a
-  paged FIELD step would drop fields (the one-shot response fits the 8 MiB cap, "Response size cap"). Left, heap only: since 1.24.2 the boot-time fit
-  check (`jira/JiraHeapFit.kt`) prices mixed slots, the raw writers refuse an item over a stored-size ceiling, CHANGELOGS / WORKLOGS convert
-  every page under the big-parse lock, and WHY 48's after-fix re-measure held every term on the shipped `-Xmx512m` worker (the response
-  path ~7 % over its own term, covered by the total). Still open: (1) the `all` role is budgeted for its worker only (no Test connection
-  tree); (2) a per-slot admission by estimated tree size before the parse, or a streaming parse, would close the response path for good,
-  and `ExitOnOutOfMemoryError` still makes an OOM a worker exit; (3) the web-role inspector is outside the fit
-  (`jira-integration.md` "What the boot check does NOT bound yet").
+- [new] **A pooled database connection pins the frame that created it (build-times WHY 51).** A heap dump after a two-connection
+  dense-worklog run: the netty selector keeps an idle pooled Postgres connection's channel, whose `NewConnectionProvider$NewConnectionObserver`
+  reaches the reactor subscriber chain of the acquire that CREATED the connection, and through Exposed's `withConnection` continuation the
+  caller's frame (here `diffPrepared`'s whole 25,000-row batch, +10.1 MiB) until the connection closes (600 s idle; never while reused). Up
+  to `postgres.pool.maxSize` connections, ~11.5 MiB each at the ceiling, outside the boot-time heap fit; seen in one of three runs. Find
+  where the reference should be dropped (r2dbc-pool / reactor-netty / Exposed), or bound it (e.g. warm the pool to its size at boot so no
+  job's acquire creates a connection). The other named heap residuals (the `all` role, non-Latin-1 worklog text, an UNCHANGED-heavy
+  re-backfill, the CHANGELOGS prepared text) are listed in `jira-integration.md` "What the boot check does NOT bound yet".
 - [parked] **Instance-local auth state.** The login lockout, reset throttle and MFA challenges live in memory.
   - That's safe because the web Deployment runs one replica with Recreate.
   - Moving to several web replicas first needs Lettuce's database-backed version (its V81 auth-state tables).

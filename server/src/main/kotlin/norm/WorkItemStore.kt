@@ -255,7 +255,8 @@ class WorkItemStore(database: R2dbcDatabase) {
         val assigneeAccountId: String?,
         val hierarchyLevel: Int?,
         val dueAt: Long?,
-        val customFields: JsonObject,
+        /** The stored `custom_fields` jsonb text, NOT parsed: the inspector embeds it verbatim (no tree of a dense document). */
+        val customFieldsJson: String,
         val anomalies: List<TilingAnomaly>,
         val processedAt: Long,
         val processingVersion: Int,
@@ -322,6 +323,7 @@ class WorkItemStore(database: R2dbcDatabase) {
     // --- Raw issue inspector reads ([NormInspectorReads]) ---
 
     suspend fun workItemView(connectionId: UInt, issueId: Long): WorkItemView? = inspector.workItemView(connectionId, issueId)
+    suspend fun customFieldsBytes(connectionId: UInt, issueId: Long): Long = inspector.customFieldsBytes(connectionId, issueId)
     suspend fun statusIntervalsForIssue(connectionId: UInt, issueId: Long): List<NormalizedStatusInterval> =
         inspector.statusIntervalsForIssue(connectionId, issueId)
     suspend fun fieldIntervalsForIssue(connectionId: UInt, issueId: Long): List<NormalizedFieldInterval> =
