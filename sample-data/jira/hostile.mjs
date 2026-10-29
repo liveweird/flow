@@ -44,7 +44,7 @@ import path from "node:path";
 
 const CLOUD_ID = "b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c"; // the normal stub's fixed gateway cloudId
 const GATEWAY = `/ex/jira/${CLOUD_ID}/rest/api/3`;
-const ISSUE_SEARCH_FIELDS = "*all,-comment,-worklog,-description,-attachment"; // jira/JiraIssuesStream.kt
+const ISSUE_SEARCH_FIELDS = "*all,-comment,-worklog,-description,-attachment,-subtasks,-environment"; // jira/JiraIssuesStream.kt
 const BYTES_PER_NODE = 8; // jira/JiraNodeCeiling.kt RESPONSE_BYTES_PER_NODE
 const MAX_DEPTH = 512; // jira/JiraNodeCeiling.kt MAX_RESPONSE_DEPTH
 const DEFAULT_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;

@@ -119,12 +119,12 @@ class JiraScopeCatchUpTest {
     private val floOps = "\"FLO\",\"OPS\""
 
     @Test
-    fun `the ISSUES stream asks for every field but the four the raw store drops`() = runBlocking {
+    fun `the ISSUES stream asks for every field but the six the raw store drops`() = runBlocking {
         val connId = newConnection("jira-fields-asked")
         val client = CapturingIssuesClient()
         runIssues(connId, client, listOf("FLO"))
-        assertEquals(listOf<String?>("*all,-comment,-worklog,-description,-attachment"), client.fieldsAsked)
-        assertEquals("*all,-comment,-worklog,-description,-attachment", ISSUE_SEARCH_FIELDS)
+        assertEquals(listOf<String?>("*all,-comment,-worklog,-description,-attachment,-subtasks,-environment"), client.fieldsAsked)
+        assertEquals("*all,-comment,-worklog,-description,-attachment,-subtasks,-environment", ISSUE_SEARCH_FIELDS)
     }
 
     @Test

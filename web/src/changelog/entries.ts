@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.25.0",
+    date: "2026-10-29",
+    en: `**Jira sync: stored Jira issues keep a slimmer copy of their links, and drop sub-tasks and environment.**
+
+- Each issue link now keeps only its id, its type (name, inward and outward wording) and the linked issue's id and key; the linked issue's summary, status, priority and type are no longer stored with it. The \`subtasks\` and \`environment\` fields are no longer stored or fetched. No report reads any of them, so no number changes.
+- Issues stored before this version are rewritten once by the first sync after the upgrade (the TRIM step runs again; it calls no Jira endpoint). The dropped parts do not come back on their own: getting them back would take a code change, a purge and a full re-sync.`,
+    pl: `**Synchronizacja z Jirą: zapisane zgłoszenia przechowują odchudzoną kopię powiązań i nie przechowują już podzadań ani środowiska.**
+
+- Każde powiązanie zgłoszenia przechowuje teraz tylko swój identyfikator, typ (nazwę oraz opis kierunku w obie strony) oraz identyfikator i klucz powiązanego zgłoszenia; podsumowanie, status, priorytet i typ powiązanego zgłoszenia nie są już przy nim zapisywane. Pola \`subtasks\` i \`environment\` nie są już zapisywane ani pobierane. Żaden raport ich nie czyta, więc żadna liczba się nie zmienia.
+- Zgłoszenia zapisane przed tą wersją zostaną raz przepisane przez pierwszą synchronizację po aktualizacji (krok TRIM uruchomi się ponownie; nie wywołuje on żadnego endpointu Jiry). Usuniętych części nie da się odzyskać samoczynnie: wymagałoby to zmiany w kodzie, wyczyszczenia danych i pełnej ponownej synchronizacji.`,
+  },
+  {
     version: "1.24.2",
     date: "2026-10-29",
     en: `**Jira sync: stored Jira documents now have size limits, and processing is cut into pages that fit in memory.**

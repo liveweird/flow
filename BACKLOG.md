@@ -98,10 +98,8 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   slices, derive clock, configuration revision): new server state with invalidation and a memory bound. Go / no-go: build it only if the measured 15-person
   year stays above 3x Compare people.
 - [new] **Remove the TRIM step once every install is trimmed.** `jira/JiraTrimStream.kt` + `JiraRawTrim.kt` + the `trim` cursor row rewrite the raw rows
-  stored before the payload trim (1.17.1) existed, once. When the dev stack and every other install show `phase: DONE` on the `trim` cursor (the data source status
+  stored before the payload trim (1.17.1) existed, once. When the dev stack and every other install show `phase: DONE` and `version: 2` on the `trim` cursor (the data source status
   endpoint), delete the stream, the collaborator, its wiring in `JiraConnector` (SYNC and REPROCESS), its tests and the docs; a `DELETE FROM sync_cursors WHERE stream = 'trim'` migration is optional.
-- [new] **Measure, then decide on the raw `issuelinks`, `subtasks` and `environment` keys.** The 1.17.1 trim keeps them (unread today, kept for follow-up measures such as
-  blockers and sub-task roll-ups). After the first real sync, `jsonb_object_keys` over `raw.jira_issues.payload->'fields'` with `pg_column_size` per key shows what they cost; drop the ones nobody reads.
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 
