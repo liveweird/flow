@@ -48,12 +48,24 @@ const BACKFILL_FLOOR_DATE = "2000-01-01";
 const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
 /** The later (stricter) of a fixed floor and N years before today — mirrors `backfillFloor()`. */
-function backfillFloorIso(): string {
+function legacyBackfillFloorIso(): string {
   const today = new Date();
   const rolling = new Date(Date.UTC(today.getUTCFullYear() - MAX_BACKFILL_YEARS_BACK, today.getUTCMonth(), today.getUTCDate()));
   const rollingIso = rolling.toISOString().slice(0, 10);
   return rollingIso > BACKFILL_FLOOR_DATE ? rollingIso : BACKFILL_FLOOR_DATE;
 }
+
+/**
+ * The earliest `backfillFrom` a created or moved date may take (`BackfillPolicy.floor`, A48): the later of the legacy floor and the
+ * history horizon's first day, which the server computes and the metrics settings carry as `historyHorizonFrom` (null/absent = off).
+ */
+export function backfillFloorIso(horizonFrom?: string | null): string {
+  const legacy = legacyBackfillFloorIso();
+  return horizonFrom && horizonFrom > legacy ? horizonFrom : legacy;
+}
+
+/** What the backfill rule knows beyond the field: the horizon's first day and, when editing, the date already stored. */
+export type BackfillContext = { horizonFrom?: string | null; storedBackfillFrom?: string };
 
 export type DataSourceFormValues = {
   name: string;
@@ -99,7 +111,7 @@ export function fromDataSourceResponse(dataSource: DataSourceResponse): DataSour
 }
 
 /** Validation rules shared by the create/edit modal AND the Test-connection button (mirrors the server's checks). */
-export function dataSourceFormValidation(t: TFunction, isEdit: boolean) {
+export function dataSourceFormValidation(t: TFunction, isEdit: boolean, backfill: BackfillContext = {}) {
   return {
     name: nameRule(t, "dataSources.validation.nameLength", MAX_DATA_SOURCE_NAME_LENGTH),
     siteUrl: (value: string) => {
@@ -138,8 +150,12 @@ export function dataSourceFormValidation(t: TFunction, isEdit: boolean) {
       if (v === "") return null; // omitted — the server computes the default
       if (!ISO_DATE_PATTERN.test(v)) return t("dataSources.validation.backfillFromInvalid");
       if (v > todayIsoDate()) return t("dataSources.validation.backfillFromFuture");
-      const floor = backfillFloorIso();
-      return v < floor ? t("dataSources.validation.backfillFromTooOld", { floor }) : null;
+      const legacyFloor = backfillFloorIso();
+      if (v < legacyFloor) return t("dataSources.validation.backfillFromTooOld", { floor: legacyFloor });
+      // The horizon floor binds only a date that MOVES (the server's rule): an older stored date stays legal on edit.
+      const floor = backfillFloorIso(backfill.horizonFrom);
+      const unchanged = isEdit && v === backfill.storedBackfillFrom;
+      return v < floor && !unchanged ? t("dataSources.validation.backfillFromBeforeHorizon", { floor }) : null;
     },
   };
 }

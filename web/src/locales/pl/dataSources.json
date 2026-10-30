@@ -81,6 +81,7 @@
     "projectKeysHint": "Klucze projektów Jira, wielkimi literami (np. ENG, OPS) — dodany projekt zostanie pobrany przy następnej synchronizacji; zadania usuniętego projektu zostaną ukryte.",
     "backfillFrom": "Uzupełnij dane od",
     "backfillFromHint": "Data ISO (RRRR-MM-DD) — zostaw puste, aby pobrać 24 miesiące wstecz (wyczyszczenie pola później przywraca tę wartość). Wcześniejsza data jednorazowo wczyta ponownie cały zakres przy następnej synchronizacji; późniejsza zachowa dane już pobrane, ale nie będą one już weryfikowane.",
+    "backfillFromHorizonHint": "Horyzont historii dopuszcza daty od {{floor}}; puste pole oznacza ten dzień.",
     "syncInterval": "Interwał synchronizacji (minuty)",
     "reconcileHour": "Godzina uzgadniania (UTC)",
     "authScheme": "Schemat uwierzytelniania",
@@ -103,7 +104,8 @@
     "reconcileHourRange": "Godzina uzgadniania musi być z zakresu 0–23",
     "backfillFromInvalid": "Data uzupełnienia musi być datą ISO (RRRR-MM-DD)",
     "backfillFromFuture": "Data uzupełnienia nie może być w przyszłości",
-    "backfillFromTooOld": "Data uzupełnienia nie może być wcześniejsza niż {{floor}}"
+    "backfillFromTooOld": "Data uzupełnienia nie może być wcześniejsza niż {{floor}}",
+    "backfillFromBeforeHorizon": "Data uzupełnienia nie może być wcześniejsza niż {{floor}} (horyzont historii)"
   },
   "testConnection": "Testuj połączenie",
   "test": {

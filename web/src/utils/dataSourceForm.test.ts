@@ -3,6 +3,7 @@ import i18n from "../i18n";
 import { ApiError } from "../api/http";
 import type { DataSourceResponse } from "../api/dataSources";
 import {
+  backfillFloorIso,
   DATA_SOURCE_PROBLEM_TYPES,
   dataSourceConflictField,
   dataSourceFormValidation,
@@ -135,6 +136,35 @@ describe("dataSourceFormValidation", () => {
 
   test("backfillFrom: accepts a valid in-range date", () => {
     expect(rulesCreate.backfillFrom("2023-01-01")).toBeNull();
+  });
+
+  describe("the history horizon floor", () => {
+    const horizon = { horizonFrom: "2025-06-15" };
+
+    test("create: a date before the horizon is refused, naming the floor; the floor day itself passes", () => {
+      const rules = dataSourceFormValidation(t, false, horizon);
+      expect(rules.backfillFrom("2025-06-14")).toBe("Backfill date must not be before 2025-06-15 (the history horizon)");
+      expect(rules.backfillFrom("2025-06-15")).toBeNull();
+      expect(rules.backfillFrom("2025-07-01")).toBeNull();
+    });
+
+    test("edit: the unchanged stored date stays legal, a different date before the horizon does not", () => {
+      const rules = dataSourceFormValidation(t, true, { ...horizon, storedBackfillFrom: "2024-01-01" });
+      expect(rules.backfillFrom("2024-01-01")).toBeNull();
+      expect(rules.backfillFrom("2023-12-31")).toBe("Backfill date must not be before 2025-06-15 (the history horizon)");
+      expect(rules.backfillFrom("2025-06-15")).toBeNull();
+    });
+
+    test("edit: the legacy 10-year floor still refuses an unchanged stored date (the server re-checks it)", () => {
+      const rules = dataSourceFormValidation(t, true, { storedBackfillFrom: "1999-01-01" });
+      expect(rules.backfillFrom("1999-01-01")).toContain("Backfill date must not be before");
+    });
+
+    test("a horizon off (null) or earlier than the legacy floor changes nothing", () => {
+      expect(dataSourceFormValidation(t, false, { horizonFrom: null }).backfillFrom("2023-01-01")).toBeNull();
+      expect(backfillFloorIso("1990-01-01")).toBe(backfillFloorIso());
+      expect(backfillFloorIso("2999-01-01")).toBe("2999-01-01");
+    });
   });
 });
 

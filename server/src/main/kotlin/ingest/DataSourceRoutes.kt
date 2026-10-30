@@ -80,7 +80,7 @@ fun Application.configureDataSourceRoutes() {
             post<DataSourcesRoute> {
                 val caller = call.caller()
                 requireAdmin(caller)
-                val request = sanitizedDataSourceRequest(call.receive())
+                val request = sanitizedDataSourceRequest(call.receive(), service.backfillPolicy().defaultFrom)
                 validateDataSource(request, apiTokenRequired = true)
                 val id = auditingScopeRejection(caller.userId, dataSourceId = null) { service.create(request) }
                 audit(
@@ -103,7 +103,7 @@ fun Application.configureDataSourceRoutes() {
             put<DataSourcesRoute.Id> { route ->
                 val caller = call.caller()
                 requireAdmin(caller)
-                val request = sanitizedDataSourceRequest(call.receive())
+                val request = sanitizedDataSourceRequest(call.receive(), service.backfillPolicy().defaultFrom)
                 validateDataSource(request, apiTokenRequired = false)
                 val outcome = auditingScopeRejection(caller.userId, dataSourceId = route.id) { service.update(route.id, request) }
                     .orNotFound("Data source")

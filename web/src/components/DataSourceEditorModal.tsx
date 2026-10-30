@@ -1,9 +1,11 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Button, Modal, NumberInput, PasswordInput, Select, Stack, Switch, TagsInput, TextInput } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import type { ParseKeys } from "i18next";
 import { ApiError } from "../api/http";
+import { getMetricsSettings } from "../api/metrics";
 import {
   createDataSource,
   testDataSourceAdHoc,
@@ -66,9 +68,14 @@ export default function DataSourceEditorModal({
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
 
   const isEdit = target !== null;
+  // The history horizon's first day is the backfill floor (A48). The modal is ADMIN-only; a failed read just means no horizon hint
+  // and no client-side horizon check (the server still enforces it).
+  const settings = useQuery({ queryKey: ["metrics-settings"], queryFn: getMetricsSettings });
+  const horizonFrom = settings.data?.historyHorizonFrom ?? null;
+  const backfillContext = { horizonFrom, storedBackfillFrom: target?.backfillFrom };
   const form = useForm<DataSourceFormValues>({
     initialValues: target ? fromDataSourceResponse(target) : EMPTY_DATA_SOURCE_FORM,
-    validate: dataSourceFormValidation(t, isEdit),
+    validate: dataSourceFormValidation(t, isEdit, backfillContext),
   });
 
   async function save(values: DataSourceFormValues) {
@@ -98,7 +105,7 @@ export default function DataSourceEditorModal({
 
   /** Validates only the Jira connection fields the probe needs — the rest of the form may be incomplete. */
   function jiraFieldsValid(): boolean {
-    const rules = dataSourceFormValidation(t, isEdit);
+    const rules = dataSourceFormValidation(t, isEdit, backfillContext);
     const errors = {
       siteUrl: rules.siteUrl(form.values.siteUrl),
       email: rules.email(form.values.email),
@@ -169,7 +176,11 @@ export default function DataSourceEditorModal({
           />
           <TextInput
             label={t("dataSources.field.backfillFrom")}
-            description={t("dataSources.field.backfillFromHint")}
+            description={
+              horizonFrom
+                ? `${t("dataSources.field.backfillFromHint")} ${t("dataSources.field.backfillFromHorizonHint", { floor: horizonFrom })}`
+                : t("dataSources.field.backfillFromHint")
+            }
             placeholder={t("common.dateFormatHint")}
             {...form.getInputProps("backfillFrom")}
           />

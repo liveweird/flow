@@ -942,7 +942,9 @@ carries the per-measure detail).
   - **Where it will apply** (later releases; this one only stores and edits the setting): at READ time, by each measure's own anchor -- never at DERIVE. A task counts by `done_at`, so one created before the cutoff and
     done after it counts in full; an open epic or work-in-progress item is current work however old; a sprint is whole-or-nothing by `complete_at`; day-anchored series start at the cutoff day. A period that lies entirely
     before the horizon is refused, a partly overlapping one is clamped. Admin and operational surfaces (data sources, sync status, the raw inspector, the data profile, capacity calendars, team memberships) ignore it.
-  - **The backfill floor** (later): the data-source `backfillFrom` may not be set before the horizon (when it is on), applied when the date is written, never as a sliding window, so a running backfill's identity is stable.
+  - **The backfill floor.** The data-source `backfillFrom` may not be created or MOVED before the horizon's first day (when it is on), applied when the date is written, never as a sliding window, so a running backfill's identity is stable: an
+    update that leaves the stored date alone is not re-checked (an older stored date stays legal), a blank date defaults to the horizon's first day (today minus 24 months when it is off), and the streams and cursors are untouched. `ingest/` reads the
+    floor through `JobHandlerRegistry`'s `BackfillFloorSource`, which `metrics/` registers. Operational detail: `.claude/docs/ingestion.md` "Data sources".
   - Operational detail: `.claude/docs/persistence.md` "History horizon (V39)", `.claude/docs/metrics.md` "Configuration model".
 
 

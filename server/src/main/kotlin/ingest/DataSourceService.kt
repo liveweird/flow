@@ -51,6 +51,8 @@ class DataSourceService(
     private val database: R2dbcDatabase,
     private val cipher: FieldCipher,
     private val scopeRules: ScopeRules = ScopeRules.ENFORCED,
+    /** Where the backfill floor comes from (A48); a registry nobody filled (a direct test construction) imposes none. */
+    private val registry: JobHandlerRegistry = JobHandlerRegistry(),
 ) : EncryptedAtRest {
 
     object Connections : UIntIdTable("source_connections"), SoftDeletable {
@@ -110,36 +112,47 @@ class DataSourceService(
     }
 
     /**
+     * What a `backfillFrom` write may name right now (A48): the default for a blank one and the floor for a created or moved date.
+     * Read from the registered [BackfillFloorSource] (the history horizon) -- none registered means today's rules (a 24-month default,
+     * the 10-year floor). Outside any transaction: the source opens its own.
+     */
+    suspend fun backfillPolicy(): BackfillPolicy = backfillPolicyFor(registry.backfillFloorSource?.floor())
+
+    /**
      * Creates the connection; `settings` starts from the request, `cloudId` fills in on the first successful probe/sync.
      * Under [ScopeRules.ENFORCED] the scope lock is taken first and the request must name the same Jira site as, and no
      * project key of, any other active data source (a [DataSourceScopeConflictException], 409).
      */
-    suspend fun create(request: DataSourceRequest): UInt = suspendTransaction(database) {
-        validateDataSource(request, apiTokenRequired = true) // re-checked service-side so direct callers stay guarded
-        takeDataSourceScopeLock(scopeRules)
-        enforceDataSourceScope(scopeRules, request, excludeId = null)
-        val stamp = nowMillis()
-        val settings = JiraConnectionSettings(
-            siteUrl = request.jira.siteUrl,
-            email = request.jira.email,
-            projectKeys = request.jira.projectKeys,
-            authScheme = request.jira.authScheme,
-        )
-        Connections.insert {
-            it[kind] = DataSourceKind.JIRA_CLOUD.name
-            it[name] = request.name
-            it[enabled] = request.enabled
-            it[secret] = cipher.encrypt(checkNotNull(request.jira.apiToken) { "apiToken is required on create" })
-            it[Connections.settings] = encodeSettings(settings)
-            it[syncIntervalMinutes] = request.syncIntervalMinutes
-            it[backfillFrom] = checkNotNull(request.backfillFrom)
-            it[reconcileHourUtc] = request.reconcileHourUtc
-            it[configRevision] = 1
-            it[consecutiveFailures] = 0
-            it[createdAt] = stamp
-            it[updatedAt] = stamp
-            it[markedAsDeleted] = false
-        }[Connections.id].value
+    suspend fun create(request: DataSourceRequest): UInt {
+        val policy = backfillPolicy()
+        return suspendTransaction(database) {
+            validateDataSource(request, apiTokenRequired = true) // re-checked service-side so direct callers stay guarded
+            requireBackfillNotBefore(request, policy)
+            takeDataSourceScopeLock(scopeRules)
+            enforceDataSourceScope(scopeRules, request, excludeId = null)
+            val stamp = nowMillis()
+            val settings = JiraConnectionSettings(
+                siteUrl = request.jira.siteUrl,
+                email = request.jira.email,
+                projectKeys = request.jira.projectKeys,
+                authScheme = request.jira.authScheme,
+            )
+            Connections.insert {
+                it[kind] = DataSourceKind.JIRA_CLOUD.name
+                it[name] = request.name
+                it[enabled] = request.enabled
+                it[secret] = cipher.encrypt(checkNotNull(request.jira.apiToken) { "apiToken is required on create" })
+                it[Connections.settings] = encodeSettings(settings)
+                it[syncIntervalMinutes] = request.syncIntervalMinutes
+                it[backfillFrom] = checkNotNull(request.backfillFrom)
+                it[reconcileHourUtc] = request.reconcileHourUtc
+                it[configRevision] = 1
+                it[consecutiveFailures] = 0
+                it[createdAt] = stamp
+                it[updatedAt] = stamp
+                it[markedAsDeleted] = false
+            }[Connections.id].value
+        }
     }
 
     /**
@@ -148,43 +161,48 @@ class DataSourceService(
      * `apiToken` keeps the current secret; a present value rotates it. Returns null when the row
      * is missing/deleted (→ 404 at the route).
      */
-    suspend fun update(id: UInt, request: DataSourceRequest): DataSourceUpdateResult? = suspendTransaction(database) {
-        validateDataSource(request, apiTokenRequired = false)
-        takeDataSourceScopeLock(scopeRules) // before the row lock: every scope-checked writer queues here first, one order, no deadlock
-        // NO KEY UPDATE, not UPDATE: DERIVE's inserts hold FOR KEY SHARE on this row (persistence.md "Row locks vs. FK locks").
-        val current = Connections.selectAll().where { (Connections.id eq id) and Connections.active() }
-            .forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate).toList().singleOrNull() ?: return@suspendTransaction null
-        val currentSettings = decodeSettings(current[Connections.settings])
-        if (request.jira.siteUrl != currentSettings.siteUrl) {
-            throw ConflictException("siteUrl is the data source identity; create a new connection to change it")
+    suspend fun update(id: UInt, request: DataSourceRequest): DataSourceUpdateResult? {
+        val policy = backfillPolicy()
+        return suspendTransaction(database) {
+            validateDataSource(request, apiTokenRequired = false)
+            takeDataSourceScopeLock(scopeRules) // before the row lock: every scope-checked writer queues here first, one order, no deadlock
+            // NO KEY UPDATE, not UPDATE: DERIVE's inserts hold FOR KEY SHARE on this row (persistence.md "Row locks vs. FK locks").
+            val current = Connections.selectAll().where { (Connections.id eq id) and Connections.active() }
+                .forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate).toList().singleOrNull() ?: return@suspendTransaction null
+            val currentSettings = decodeSettings(current[Connections.settings])
+            if (request.jira.siteUrl != currentSettings.siteUrl) {
+                throw ConflictException("siteUrl is the data source identity; create a new connection to change it")
+            }
+            // The history-horizon floor binds only a date that MOVES: an older stored one stays legal, or every edit would 400 (A48).
+            if (request.backfillFrom != current[Connections.backfillFrom]) requireBackfillNotBefore(request, policy)
+            enforceDataSourceScope(scopeRules, request, excludeId = id)
+            val tokenRotated = request.jira.apiToken != null
+            val secretValue = request.jira.apiToken?.let(cipher::encrypt) ?: current[Connections.secret]
+            val newSettings = currentSettings.copy(
+                email = request.jira.email, projectKeys = request.jira.projectKeys, authScheme = request.jira.authScheme,
+            )
+            Connections.update({ (Connections.id eq id) and Connections.active() }) {
+                it[name] = request.name
+                it[enabled] = request.enabled
+                it[secret] = secretValue
+                it[Connections.settings] = encodeSettings(newSettings)
+                it[syncIntervalMinutes] = request.syncIntervalMinutes
+                it[backfillFrom] = checkNotNull(request.backfillFrom)
+                it[reconcileHourUtc] = request.reconcileHourUtc
+                it[configRevision] = current[Connections.configRevision] + 1
+                it[updatedAt] = nowMillis()
+                // A save is the operator's fix: lift any failure back-off so the connection is due on the next tick.
+                it.clearBackoff(current)
+                // ... and the ceiling-trip pause with its counter (`SyncPause.kt`).
+                it.clearPause(current)
+                it.clearReconcilePause(current)
+            }
+            if (request.enabled) restampDelayedDerive(id, current[Connections.configRevision] + 1)
+            DataSourceUpdateResult(
+                tokenRotated, siteHost(request.jira.siteUrl),
+                resumed = listOfNotNull(current.pauseSnapshot(), current.reconcilePauseSnapshot()),
+            )
         }
-        enforceDataSourceScope(scopeRules, request, excludeId = id)
-        val tokenRotated = request.jira.apiToken != null
-        val secretValue = request.jira.apiToken?.let(cipher::encrypt) ?: current[Connections.secret]
-        val newSettings = currentSettings.copy(
-            email = request.jira.email, projectKeys = request.jira.projectKeys, authScheme = request.jira.authScheme,
-        )
-        Connections.update({ (Connections.id eq id) and Connections.active() }) {
-            it[name] = request.name
-            it[enabled] = request.enabled
-            it[secret] = secretValue
-            it[Connections.settings] = encodeSettings(newSettings)
-            it[syncIntervalMinutes] = request.syncIntervalMinutes
-            it[backfillFrom] = checkNotNull(request.backfillFrom)
-            it[reconcileHourUtc] = request.reconcileHourUtc
-            it[configRevision] = current[Connections.configRevision] + 1
-            it[updatedAt] = nowMillis()
-            // A save is the operator's fix: lift any failure back-off so the connection is due on the next tick.
-            it.clearBackoff(current)
-            // ... and the ceiling-trip pause with its counter (`SyncPause.kt`).
-            it.clearPause(current)
-            it.clearReconcilePause(current)
-        }
-        if (request.enabled) restampDelayedDerive(id, current[Connections.configRevision] + 1)
-        DataSourceUpdateResult(
-            tokenRotated, siteHost(request.jira.siteUrl),
-            resumed = listOfNotNull(current.pauseSnapshot(), current.reconcilePauseSnapshot()),
-        )
     }
 
     /**

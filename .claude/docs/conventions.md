@@ -18,10 +18,14 @@ spec paths in `openapi/documentation.yaml`, `cd web && npm run gen:api` (same co
 `NAV_SECTIONS` entries (`web/src/utils/navigation.ts`), and an e2e spec + scenario doc +
 coverage-map line. Fuller shapes (sub-collections, pipelines) live in `ingest/`, `metrics/`, `reports/`.
 
-**Two deliberate exceptions to the template.** (1) `metrics/`'s config PUT (`DataSourceMetricsConfig.kt`) validates in the
+**Three deliberate exceptions to the template.** (1) `metrics/`'s config PUT (`DataSourceMetricsConfig.kt`) validates in the
 service, not in a DTO validator the route also runs: `validateDataSourceMetricsConfig` is pure but needs the connection's
 reference data (`norm`, the stored profile, the active teams), which `MetricsConfigService.replaceConfig` reads in its own
 transaction; the route only sanitizes (trim/control characters) before the service. Its shape bounds (column widths)
 sit in the same function. (2) `ingest/` has one route file per sub-resource (`DataSourceRoutes`, `SyncJobRoutes`,
 `SyncStatusRoutes`, `DataProfileRoutes`, `RawIssueInspectorRoutes`) instead of one `<Entity>Routes.kt` — the
 connector registry, the job queue and the read-only views differ in shape and guard.
+(3) `DataSourceService` enforces the history-horizon floor on `backfillFrom` (`requireBackfillNotBefore`, A48) itself, beside the scope
+rules (`enforceDataSourceScope`), rather than in `validateDataSource`: it reads another feature's setting (through the
+`BackfillFloorSource` registry seam) and, on update, the stored date (only a MOVED date is checked). The route computes only the blank
+default (`backfillPolicy().defaultFrom`) and keeps `requireAdmin` before `receive()`.
