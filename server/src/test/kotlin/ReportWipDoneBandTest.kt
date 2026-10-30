@@ -198,6 +198,7 @@ class ReportWipDoneBandTest {
      * | 7 | never done | - | never |
      * | epic 8 | done on 6, domain AAA (owner X) | - | 6..11 |
      * | epic 9 | done on 6, domain CCC (no owner) | - | 6..11, UNOWNED |
+     * | epic 10 | done on 6, in BBB (owner Y) NOW but its fact (A49) says AAA at done | - | 6..11, in AAA / team X, never BBB / Y |
      */
     @Test
     fun `hand-built rows pin the team at done, a reopen, Done to Closed, the domain at done and a reopened open item`() = testApplication {
@@ -229,6 +230,7 @@ class ReportWipDoneBandTest {
             stage(7, "IN_PROGRESS", "prog", null, null),
             stage(8, "IN_PROGRESS", "prog", null, "2026-01-06"), stage(8, "DONE", "edone", "2026-01-06", null),
             stage(9, "IN_PROGRESS", "prog", null, "2026-01-06"), stage(9, "DONE", "edone", "2026-01-06", null),
+            stage(10, "IN_PROGRESS", "prog", null, "2026-01-06"), stage(10, "DONE", "edone", "2026-01-06", null),
         )
         val facts = listOf(
             handTask(1, doneAt = at("2026-01-05"), creditTeamId = teamX, currentTeamId = teamY, account = "acc-1"),
@@ -258,6 +260,8 @@ class ReportWipDoneBandTest {
                 listOf(
                     DimEpicRow(8, "EP-8", null, "AAA", null, "DONE", null, null),
                     DimEpicRow(9, "EP-9", null, "CCC", null, "DONE", null, null),
+                    // Moved AAA -> BBB after it was done: the dimension is the domain now, the fact the domain at done (A49).
+                    DimEpicRow(10, "EP-10", null, "BBB", null, "DONE", null, null),
                 ),
                 1L,
             )
@@ -268,6 +272,7 @@ class ReportWipDoneBandTest {
                 listOf(TaskDomainRow(4, "AAA", created, at("2026-01-08")), TaskDomainRow(4, "BBB", at("2026-01-08"), null)),
             )
             store.insertFactTaskDelivery(connId, facts, 1L)
+            store.insertFactEpicDelivery(connId, listOf(handEpic(10, doneAt = at("2026-01-06"), ownerTeamId = teamX, domain = "AAA")), 1L)
         }
         try {
             val client = seededClient("reports-wip-done-hand")
@@ -281,16 +286,18 @@ class ReportWipDoneBandTest {
             assertEquals(List(7) { 1 }, client.wip("$base&teamId=$y&itemKind=TASK").done(), "team Y tasks")
             // UNASSIGNED (teamId=0): the reopened-still-open task 5 while it was done (5, 6, 7); tasks only by default.
             assertEquals(listOf(1, 1, 1, 0, 0, 0, 0), client.wip("$base&teamId=0&itemKind=TASK").done(), "UNASSIGNED tasks")
-            // Epics: epic 8 -> owner X, epic 9 -> UNOWNED; both from the 6th.
-            assertEquals(listOf(0, 1, 1, 1, 1, 1, 1), client.wip("$base&teamId=$x&itemKind=EPIC").done(), "team X epics")
+            // Epics: epic 8 -> owner X, epic 9 -> UNOWNED, epic 10 -> the owner (X) of the domain it had at done (AAA); all from the 6th.
+            assertEquals(listOf(0, 2, 2, 2, 2, 2, 2), client.wip("$base&teamId=$x&itemKind=EPIC").done(), "team X epics (8 and 10)")
+            assertEquals(List(7) { 0 }, client.wip("$base&teamId=$y&itemKind=EPIC").done(), "team Y epics: epic 10 is in BBB only now")
             assertEquals(listOf(0, 1, 1, 1, 1, 1, 1), client.wip("$base&teamId=0&itemKind=EPIC").done(), "UNOWNED epics")
-            assertEquals(listOf(3, 4, 3, 3, 4, 4, 4), client.doneBothList("$base&teamId=$x"), "team X, both kinds")
+            assertEquals(listOf(3, 5, 4, 4, 5, 5, 5), client.doneBothList("$base&teamId=$x"), "team X, both kinds")
             // DOMAIN: the task's domain AT DONE — task 4 stays in AAA although it moved to BBB on the 8th; task 5 (no done_at)
             // falls back to its current domain AAA; epics their own.
             assertEquals(listOf(5, 5, 4, 3, 4, 4, 4), client.wip("$base&domain=AAA&itemKind=TASK").done(), "domain AAA tasks")
             assertEquals(List(7) { 0 }, client.wip("$base&domain=BBB&itemKind=TASK").done(), "domain BBB tasks (task 4 left it at done)")
             assertEquals(listOf(0, 1, 1, 1, 1, 1, 1), client.doneBothList("$base&domain=CCC"), "domain CCC (an unowned epic)")
-            assertEquals(listOf(5, 6, 5, 4, 5, 5, 5), client.doneBothList("$base&domain=AAA"), "domain AAA, both kinds")
+            assertEquals(listOf(5, 7, 6, 5, 6, 6, 6), client.doneBothList("$base&domain=AAA"), "domain AAA, both kinds (epic 10 at done)")
+            assertEquals(List(7) { 0 }, client.wip("$base&domain=BBB&itemKind=EPIC").done(), "domain BBB epics (epic 10 left it at done)")
 
             // Done -> Closed still moves the item between status keys; the band stays one item. Reopened task 3 is out on 7 and 8.
             val status = client.wip("$base&teamId=$x&itemKind=TASK&by=STATUS")
@@ -315,10 +322,11 @@ class ReportWipDoneBandTest {
             val teamYBoth = read(SnapshotScope.Team(teamY), listOf("acc-1", "acc-2")).perDay()
             assertEquals(listOf(1, 1, 1, 1, 1, 1, 1), teamYBoth, "acc-1/2 in team Y")
             assertEquals(List(7) { 0 }, read(aaa, listOf("nobody")).perDay())
-            assertEquals(listOf(5, 6, 5, 4, 5, 5, 5), read(aaa, null).perDay(), "no filter: tasks and epics")
+            assertEquals(listOf(5, 7, 6, 5, 6, 6, 6), read(aaa, null).perDay(), "no filter: tasks and epics")
         } finally {
             suspendTransaction(sharedDatabaseForTests()) {
                 store.deleteFactTaskDelivery(connId)
+                store.deleteFactEpicDelivery(connId)
                 store.deleteBridges(connId)
                 store.deleteDims(connId)
                 MetricsTables.ItemStage.deleteWhere { MetricsTables.ItemStage.connectionId eq connId }
@@ -399,6 +407,7 @@ class ReportWipDoneBandTest {
         } finally {
             suspendTransaction(sharedDatabaseForTests()) {
                 store.deleteFactTaskDelivery(connId)
+                store.deleteFactEpicDelivery(connId)
                 store.deleteBridges(connId)
                 store.deleteDims(connId)
                 MetricsTables.ItemStage.deleteWhere { MetricsTables.ItemStage.connectionId eq connId }

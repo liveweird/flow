@@ -1542,8 +1542,8 @@ WipReport {
   set-based statement per request over the period's `dim_date` days, never a per-day loop) counts an item on day `d` when a
   DONE-stage `item_stage` interval covers the end of `d` (`coveringAt`, the WIP step's own predicate), so a reopened item leaves the band while it is
   reopened. The status / column key is that interval's `status_id` (Done -> Closed moves the item between status keys). TEAM scope: a
-  task is in `fact_task_delivery.credit_team_id` (null -> `UNASSIGNED`), an epic in its domain's owner team (else `UNOWNED`);
-  DOMAIN scope: the task's `fact_task_delivery.domain_key` (the `task_domain` row DERIVE resolved at `done_at`, `[from, to)`; else its current domain), an epic's own domain. So the DONE band
+  task is in `fact_task_delivery.credit_team_id` (null -> `UNASSIGNED`), an epic in the owner team (else `UNOWNED`) of the domain it had at `done_at`;
+  DOMAIN scope: the task's `fact_task_delivery.domain_key` (the `task_domain` row DERIVE resolved at `done_at`, `[from, to)`; else its current domain), an epic's `fact_epic_delivery.domain_key` (its domain at `done_at`, A49; else its current domain). The stored epic bands read the epic's domain at the END of each day (A49). So the DONE band
   can differ from the as-was split the aggregate used to hold whenever a team or domain changed after done; the unit-wide band is
   unchanged. A reopened item that is still open has no `done_at`/`credit_team_id`: its earlier DONE days read `UNASSIGNED` /
   its current domain. The same helper takes an optional account filter (`WipDoneRequest.accountIds`, tasks only, by

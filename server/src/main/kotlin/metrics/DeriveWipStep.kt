@@ -29,12 +29,14 @@ package ch.nokillswit.metrics
  * - **TEAM/TASK** ([teamTaskWipSql]) — the sprint in the task's `norm` SPRINT field interval
  *   (its board's mapped team, only while that sprint is not yet closed at the instant), else the
  *   assignee's team (`task_assignee` + `team_membership`), else `UNASSIGNED`.
- * - **TEAM/EPIC** ([teamEpicWipSql]) — the epic's domain's resolved owner team
- *   (`dim_domain.owner_team_id`, as-is), else `UNOWNED`.
+ * - **TEAM/EPIC** ([teamEpicWipSql]) — the resolved owner team (`dim_domain.owner_team_id`, as-is) of the
+ *   epic's domain at the day's end (the covering `task_domain` row of the epic, else its current domain, A49),
+ *   else `UNOWNED`.
  * - **DOMAIN/TASK and DOMAIN/EPIC** ([domainWipSql]) — a task reads the covering `task_domain` row,
  *   else its current domain (`dim_task.domain_key`); a `LEFT JOIN` naturally reads NULL for BOTH
  *   "no covering row" and "a covering row whose own value is null", so `COALESCE` folds either case
- *   onto the current value alike. An epic reads its own (current) domain.
+ *   onto the current value alike. An epic reads its own covering `task_domain` row the same way (A49,
+ *   else `dim_epic.domain_key`): a move exactly at a day's end leaves that day in the OLD domain.
  * - **EPIC/TASK only** ([epicWipSql]) — the covering `task_epic` row's epic id; no row when it (or
  *   its absence) resolves to no epic — epics carry no epic scope of their own.
  */
@@ -135,6 +137,9 @@ internal fun teamTaskWipSql(connectionId: UInt, now: Long, configRevision: Long)
     GROUP BY team_id, day, status_id, stage
 """.trimIndent()
 
+/** The epic's domain at the END of the day (A49): its covering `task_domain` row, else the current `dim_epic.domain_key`. */
+private const val EPIC_DOMAIN_AT_DAY_END = "COALESCE(ed.domain_key, e.domain_key)"
+
 private fun teamEpicWipSql(connectionId: UInt, now: Long, configRevision: Long): String = """
     WITH ${dayRangeCte(connectionId, now, fromBackfill = true)},
     rows AS (
@@ -143,7 +148,9 @@ private fun teamEpicWipSql(connectionId: UInt, now: Long, configRevision: Long):
         JOIN metrics.dim_epic e ON e.connection_id = $connectionId
         JOIN metrics.item_stage s ON s.connection_id = $connectionId AND s.issue_id = e.issue_id
             AND $NOT_DONE AND ${coveringAt("s")}
-        LEFT JOIN metrics.dim_domain dom ON dom.connection_id = $connectionId AND dom.domain_key = e.domain_key
+        LEFT JOIN metrics.task_domain ed ON ed.connection_id = $connectionId AND ed.issue_id = e.issue_id
+            AND ${coveringAt("ed")}
+        LEFT JOIN metrics.dim_domain dom ON dom.connection_id = $connectionId AND dom.domain_key = $EPIC_DOMAIN_AT_DAY_END
     )
     ${wipInsertHead()}
     SELECT $connectionId, 'TEAM', COALESCE(team_id::text, 'UNOWNED'), day, 'EPIC', status_id, stage, COUNT(*), $configRevision
@@ -164,11 +171,13 @@ private fun domainWipSql(connectionId: UInt, now: Long, configRevision: Long): S
             AND ${coveringAt("td")}
     ),
     epic_rows AS (
-        SELECT d.day AS day, s.status_id AS status_id, s.stage AS stage, e.domain_key AS domain_key
+        SELECT d.day AS day, s.status_id AS status_id, s.stage AS stage, $EPIC_DOMAIN_AT_DAY_END AS domain_key
         FROM day_range d
         JOIN metrics.dim_epic e ON e.connection_id = $connectionId
         JOIN metrics.item_stage s ON s.connection_id = $connectionId AND s.issue_id = e.issue_id
             AND $NOT_DONE AND ${coveringAt("s")}
+        LEFT JOIN metrics.task_domain ed ON ed.connection_id = $connectionId AND ed.issue_id = e.issue_id
+            AND ${coveringAt("ed")}
     )
     ${wipInsertHead()}
     SELECT $connectionId, 'DOMAIN', domain_key, day, 'TASK', status_id, stage, COUNT(*), $configRevision

@@ -1,6 +1,6 @@
 package ch.nokillswit
 
-import ch.nokillswit.metrics.teamTaskWipSql
+import ch.nokillswit.metrics.wipStatements
 import ch.nokillswit.reports.SnapshotScope
 import ch.nokillswit.reports.WipDoneRequest
 import ch.nokillswit.reports.WipTaskDaysRequest
@@ -15,36 +15,41 @@ import java.time.LocalDate
 import java.time.format.DateTimeParseException
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import org.junit.BeforeClass
 
 /**
- * Pins the PLAN SHAPE of the WIP team/task statement (`DeriveWipStep.kt` `teamTaskWipSql`), not its timing: the team
- * is resolved by set-based joins, never by a correlated sub-select per (day, task). The sub-select version ran ~4.8 M
- * times at scale 20 and read `dim_sprint` by index or by seq scan at a near-equal cost, so a DERIVE took ~32 s or ~53 s
- * depending on the plan (`.claude/docs/build-times.md` WHY 16). A timing check at stub scale cannot see that flip; a
- * `SubPlan` node in the plan is exactly what brings it back. `EXPLAIN` without `ANALYZE` plans the `INSERT` without
- * running it, so the shared derived connection stays untouched.
+ * Pins the PLAN SHAPE of the four WIP statements (`DeriveWipStep.kt` `wipStatements`: team/task, team/epic, domain, epic), not their
+ * timing: the team (and, since A49, an epic's domain at each day's end) is resolved by set-based joins, never by a correlated
+ * sub-select per (day, task). The sub-select version ran ~4.8 M times at scale 20 and read `dim_sprint` by index or by seq scan at a
+ * near-equal cost, so a DERIVE took ~32 s or ~53 s depending on the plan (`.claude/docs/build-times.md` WHY 16). A timing check at
+ * stub scale cannot see that flip; a `SubPlan` node in the plan is exactly what brings it back. `EXPLAIN` without `ANALYZE` plans
+ * the `INSERT` without running it, so the shared derived connection stays untouched.
  */
 class WipPlanShapeTest {
     @Test
-    fun `the WIP team-task statement resolves sprint and assignee teams without a per-row sub-select`() = runBlocking {
+    fun `the WIP statements resolve sprint, assignee and epic domain without a per-row sub-select`() = runBlocking {
         val connId = DerivedStubFixture.connectionId()
-        val plan = PostgresTestSupport.connect()
-            .use { conn ->
-                conn.createStatement().use { st ->
-                    val sql = "EXPLAIN (FORMAT JSON) " + teamTaskWipSql(connId, DerivedStubFixture.PINNED_NOW, configRevision = 0)
-                    st.executeQuery(sql).use { rs -> buildString { while (rs.next()) append(rs.getString(1)) } }
+        val statements = wipStatements(connId, DerivedStubFixture.PINNED_NOW, configRevision = 0)
+        assertEquals(4, statements.size, "team/task, team/epic, domain, epic")
+        val subPlan = Regex("\"Parent Relationship\":\\s*\"SubPlan\"")
+        PostgresTestSupport.connect().use { conn ->
+            conn.createStatement().use { st ->
+                for ((index, statement) in statements.withIndex()) {
+                    val plan = st.executeQuery("EXPLAIN (FORMAT JSON) $statement")
+                        .use { rs -> buildString { while (rs.next()) append(rs.getString(1)) } }
+                    assertFalse(subPlan.containsMatchIn(plan), "a correlated sub-select (SubPlan) is back in WIP statement #$index:\n$plan")
+                    if (index == 0) assertTrue(plan.contains("\"dim_sprint\""), "the plan must read metrics.dim_sprint at all:\n$plan")
+                    // The epic bands (A49) read the epic's own task_domain history by join, TEAM/EPIC and DOMAIN alike.
+                    if (index == 1 || index == 2) {
+                        assertTrue(plan.contains("\"task_domain\""), "WIP statement #$index reads task_domain:\n$plan")
+                    }
                 }
             }
-
-        assertTrue(plan.contains("\"dim_sprint\""), "the plan must read metrics.dim_sprint at all:\n$plan")
-        assertFalse(
-            Regex("\"Parent Relationship\":\\s*\"SubPlan\"").containsMatchIn(plan),
-            "a correlated sub-select (SubPlan) is back in the WIP team/task statement:\n$plan",
-        )
+        }
     }
 
     /**
