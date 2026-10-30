@@ -1995,7 +1995,7 @@ EpicProgressReport {
   days that ended in the domain (the covering `task_domain` row at each day's end, the PV DOMAIN rule), EV the `estimate_at_done_md` of
   the children done while the epic was in the domain (`fact_task_delivery.epic_domain_key`), AC the worklogs started then
   (`fact_worklog.epic_domain_key`) -- so the rows of a domain add up to its `asOf` and `period` totals (AC to the stored per-day
-  rounding of `agg_daily_flow`), and the same epic's rows over its domains add up to the whole epic, which the EPIC level shows. A row of
+  rounding of `agg_daily_flow`), and the same epic's rows over its domains add up to the whole epic, which the EPIC level shows (exactly for PV and EV; AC within the same stored per-day rounding). A row of
   an epic that was in more than one domain up to the end of the `asOf` day carries `partial: true` (`null` on the others, and on every
   non-DOMAIN row); a move after `asOf` changes nothing. **Listed:** any non-zero share in the domain (PV, EV or AC), or a current
   baseline (`fact_epic_plan.superseded_at IS NULL`) while the domain is the one the epic has at the end of the `asOf` day. An epic that
@@ -2042,7 +2042,10 @@ calendar and an independent `ROUND(b*i/n, 2)` for a non-divisible budget, `hasPv
 above (a blank `epicId` included; a plain user gets `200`); `ReportEpicProgressMovedEpicTest` the moved-epic rows (A49): on one hand-built
 world with a derive, the AAA and BBB shares of an epic that moved, `partial`, a never-moved sibling (`partial` null), an epic planned wholly
 after the move, one that moves only after `asOf`, the sums of the rows against the domain totals (cumulative and period) and the EPIC level
-unchanged.
+unchanged; on a second small world an epic that goes AAA -> BBB -> AAA (`partial` in both domains, its shares making the whole epic), a
+covering `task_domain` row with no domain falling back to `dim_epic.domain_key` in the partial count and the PV domain alike, and
+fractional-hour worklogs (PV and EV exact, AC within the stored per-day rounding). A domain none of whose listed epics moved skips the two
+fact reads, and the history, the PV join and the rows all read the as-of day's end from `dim_date.day_end_ms` (the calendar only when the day has no row).
 
 ## Report 16 -- Costs
 

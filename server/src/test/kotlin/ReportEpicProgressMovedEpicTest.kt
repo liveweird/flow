@@ -39,7 +39,10 @@ class ReportEpicProgressMovedEpicTest {
         return response.body()
     }
 
-    private fun worklog(id: Long, startedAt: Long, hours: Long) = WorklogFact(id, null, startedAt, hours * 3600, startedAt, startedAt)
+    private fun worklog(id: Long, startedAt: Long, hours: Long) = worklogMinutes(id, startedAt, hours * 60)
+
+    private fun worklogMinutes(id: Long, startedAt: Long, minutes: Long) =
+        WorklogFact(id, null, startedAt, minutes * 60, startedAt, startedAt)
 
     private fun List<EpicProgressRow>.byKey(key: String): EpicProgressRow = single { it.key == key }
 
@@ -51,7 +54,7 @@ class ReportEpicProgressMovedEpicTest {
     fun `a moved epic lists under every domain it was in with that domain's share, and the rows add up to the totals`() = testApplication {
         usePostgresTestcontainer()
         val connId = SyncedStubFixture.createConnection(namePrefix = "jira-epic-progress-moved", enabled = false)
-        val (estimateField, startField, dueField) = cloneProfileFields(connId)
+        val (estimateField, startField, dueField) = cloneProfileFields(connId, SyncedStubFixture.connectionId())
         SyncedStubFixture.workItems().replaceStatuses(
             connId,
             listOf(
@@ -166,6 +169,120 @@ class ReportEpicProgressMovedEpicTest {
         assertSumsToTotals("AAA after the later move", after)
     }
 
+    /**
+     * A second small world (A49): `AAA-7` goes AAA -> BBB -> AAA ([OUT] and [BACK]) and `BBB-8` has a covering `task_domain` row with
+     * no domain at all (its first key, `NOPE`, is no project key), which every reader COALESCEs to `dim_epic.domain_key`. Worklogs are
+     * 1 h 20 min (a sixth of a man-day), so AC meets the stored rounding: `fact_worklog.md` has four decimals, `agg_daily_flow.ac_md`
+     * two per day. PV and EV are exact; AC agrees within [ROUNDING_TOLERANCE] per day with a share.
+     */
+    @Test
+    fun `a returning epic splits in both domains, a null domain row falls back, and fractional AC rounds per day`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val connId = SyncedStubFixture.createConnection(namePrefix = "jira-epic-progress-moved-back", enabled = false)
+            val (estimateField, startField, dueField) = cloneProfileFields(connId, SyncedStubFixture.connectionId())
+            SyncedStubFixture.workItems().replaceStatuses(
+                connId,
+                listOf(
+                    StatusRef("1", "To Do", StatusCategory.TODO),
+                    StatusRef("7", "In progress", StatusCategory.IN_PROGRESS),
+                    StatusRef("9", "Done", StatusCategory.DONE),
+                ),
+            )
+            val inProgress = listOf(StatusStep("7", "In progress", StatusCategory.IN_PROGRESS, epicCreated))
+
+            fun plan(budget: Double, start: String, due: String) =
+                """{"$estimateField": $budget, "$startField": "$start", "$dueField": "$due"}"""
+            // AAA-7 (10 man-days, Mon 9 - Fri 13 Feb: 2 a day) is in AAA until OUT (Tue 10 Feb midday), BBB until BACK (Thu 12 Feb
+            // midday), AAA again: PV 2 + 4 in AAA (9, 12, 13 Feb) and 4 in BBB (10, 11 Feb). Children done before OUT (1), between (2)
+            // and after BACK (4): EV 5 in AAA, 2 in BBB. A sixth of a man-day logged on 9 Feb (AAA), twice on 11 Feb (BBB), 13 Feb (AAA).
+            seedItem(
+                connId, RETURNED, "AAA-7", 1, null, epicCreated, inProgress, plan(10.0, "2026-02-09", "2026-02-13"),
+                keyChange = FieldChangeFact("Key", OUT, null, "AAA-7", null, "BBB-7", fieldId = "issuekey"),
+                laterKeyChanges = listOf(FieldChangeFact("Key", BACK, null, "BBB-7", null, "AAA-7", fieldId = "issuekey")),
+                worklogs = listOf(worklogMinutes(WL_RETURN_AAA_1, OUT - DAY, 80)),
+            )
+            seedChild(connId, RETURNED, CHILD_RETURN_1, 20, taskCreated, OUT - DAY, 1.0, estimateField)
+            seedChild(
+                connId, RETURNED, CHILD_RETURN_2, 21, taskCreated, OUT + DAY, 2.0, estimateField,
+                // Two logs on one day: the day's AC is 0.3333, stored 0.33.
+                worklogs = listOf(worklogMinutes(WL_RETURN_BBB_1, OUT + DAY, 80), worklogMinutes(WL_RETURN_BBB_2, OUT + DAY + HOUR, 80)),
+            )
+            seedChild(
+                connId, RETURNED, CHILD_RETURN_3, 22, taskCreated, BACK + DAY, 4.0, estimateField,
+                worklogs = listOf(worklogMinutes(WL_RETURN_AAA_2, BACK + DAY, 80)),
+            )
+            // BBB-8 (5 man-days, 9 - 13 Feb) has a null-domain row until NULL_END: the epic is BBB's throughout. A child done and
+            // 4 h logged inside that row: EV 2 and AC 0.5, all BBB's.
+            seedItem(
+                connId, NULL_ROW, "BBB-8", 1, null, epicCreated, inProgress, plan(5.0, "2026-02-09", "2026-02-13"),
+                keyChange = FieldChangeFact("Key", NULL_END, null, "NOPE", null, "BBB-8", fieldId = "issuekey"),
+            )
+            seedChild(
+                connId, NULL_ROW, CHILD_NULL_ROW, 23, taskCreated, NULL_END - DAY, 2.0, estimateField,
+                worklogs = listOf(worklog(WL_NULL_ROW, NULL_END - DAY, 4)),
+            )
+
+            val config = DerivedStubFixture.metricsConfig()
+            val current = config.effectiveConfig(connId)
+            assertEquals(setOf("AAA", "BBB"), current.domains.map { it.domainKey }.toSet(), "the defaults map both projects 1:1")
+            config.replaceConfig(
+                connId,
+                current.asRequest().copy(
+                    fields = current.fields.copy(
+                        estimateTask = estimateField, estimateEpic = null, epicStart = startField, epicDue = dueField,
+                    ),
+                ),
+            )
+            DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) { DerivedStubFixture.derivePinned(connId) }
+            assertEquals(
+                listOf(Triple("AAA", 0L, OUT), Triple("BBB", OUT, BACK), Triple("AAA", BACK, null)), domainRows(connId, RETURNED),
+                "the returning epic's history",
+            )
+            assertEquals(listOf(Triple(null, 0L, NULL_END), Triple("BBB", NULL_END, null)), domainRows(connId, NULL_ROW), "the null row")
+
+            val client = seededClient("reports-epic-progress-moved-back")
+            val base = "connectionId=$connId&from=2026-01-01&to=2026-02-20&basis=CUMULATIVE"
+
+            // (a) both domains list the returning epic with its share, partial in both; it ends in AAA, where its baseline is current.
+            val inA = client.epicProgress("$base&domain=AAA")
+            assertEquals(listOf("AAA-7"), inA.rows.map { it.key }, "BBB-8 never was in AAA")
+            assertEquals(true, inA.rows.byKey("AAA-7").partial)
+            assertEquals(listOf(6.0, 5.0), inA.rows.byKey("AAA-7").let { listOf(it.pv, it.ev) }, "AAA's two stretches, PV and EV exact")
+            assertEquals(0.33, inA.rows.byKey("AAA-7").ac, 1e-9, "two logs of a sixth, one man-day rounded to four decimals")
+            val inB = client.epicProgress("$base&domain=BBB")
+            assertEquals(listOf("AAA-7", "BBB-8"), inB.rows.map { it.key })
+            assertEquals(true, inB.rows.byKey("AAA-7").partial)
+            assertEquals(listOf(4.0, 2.0), inB.rows.byKey("AAA-7").let { listOf(it.pv, it.ev) }, "BBB's one stretch")
+            assertEquals(0.33, inB.rows.byKey("AAA-7").ac, 1e-9, "two logs on one day: 0.3333")
+            // (b) the null row reads as BBB, in the partial count (not partial) and in the PV domain (all five days).
+            assertEquals(Triple(5.0, 2.0, 0.5), inB.rows.byKey("BBB-8").evm(), "a null domain row is the epic's current domain, BBB")
+            assertNull(inB.rows.byKey("BBB-8").partial, "one domain, however the rows are keyed")
+            // The whole epic is the sum of its shares: exact for PV and EV, AC within the stored per-day rounding.
+            val whole = client.epicProgress("$base&epicId=AAA-7")
+            val shares = listOf(inA, inB).map { it.rows.byKey("AAA-7") }
+            assertEquals(whole.asOf.pv, shares.sumOf { it.pv })
+            assertEquals(whole.asOf.ev, shares.sumOf { it.ev })
+            assertEquals(10.0, whole.asOf.pv)
+            assertEquals(7.0, whole.asOf.ev)
+            assertEquals(whole.asOf.ac, shares.sumOf { it.ac }, ROUNDING_TOLERANCE * 4 + 1e-9, "AC to the rounding")
+            // (c) Σ rows vs the DOMAIN totals: PV and EV exact, AC within the rounding of the days that hold a share.
+            for ((label, body, days) in listOf(Triple("AAA", inA, 2), Triple("BBB", inB, 2))) {
+                assertEquals(body.asOf.pv, body.rows.sumOf { it.pv }, "$label: PV adds up exactly")
+                assertEquals(body.asOf.ev, body.rows.sumOf { it.ev }, "$label: EV adds up exactly")
+                // Half a cent per stored day with a share, and half a cent for the row's own final rounding.
+                val tolerance = ROUNDING_TOLERANCE * (days + 1) + 1e-9
+                assertEquals(body.asOf.ac, body.rows.sumOf { it.ac }, tolerance, "$label: AC within the stored per-day rounding")
+            }
+            assertEquals(Triple(6.0, 5.0, 0.34), Triple(inA.asOf.pv, inA.asOf.ev, inA.asOf.ac), "AAA's stored per-day AC: 0.17 + 0.17")
+            assertEquals(Triple(9.0, 4.0, 0.83), Triple(inB.asOf.pv, inB.asOf.ev, inB.asOf.ac), "BBB's: 0.33 + 0.5")
+            // The period view (10 - 20 Feb) splits the same way.
+            val periodB = client.epicProgress("connectionId=$connId&from=2026-02-10&to=2026-02-20&domain=BBB")
+            assertEquals(8.0, periodB.rows.sumOf { it.period.pv }, "BBB's period PV: the returning epic's 4, BBB-8's 4 (10 - 13 Feb)")
+            assertEquals(periodB.period.pv, periodB.rows.sumOf { it.period.pv })
+            assertEquals(periodB.period.ev, periodB.rows.sumOf { it.period.ev })
+        }
+
     private fun assertSumsToTotals(label: String, body: EpicProgressReport) {
         assertEquals(body.asOf.pv, body.rows.sumOf { it.pv }, 1e-9, "$label: the rows' PV add up to the domain's")
         assertEquals(body.asOf.ev, body.rows.sumOf { it.ev }, 1e-9, "$label: the rows' EV add up to the domain's")
@@ -179,6 +296,8 @@ class ReportEpicProgressMovedEpicTest {
     }
 
     companion object {
+        /** Half a cent: the rounding of one stored `agg_daily_flow` day (`MetricsDerivationTest`'s `ROUNDING_TOLERANCE`, private there). */
+        private const val ROUNDING_TOLERANCE = 0.005
         private const val HOUR = 3_600_000L
         private const val DAY = 24 * HOUR
         private const val MOVED = 923_001L
@@ -194,11 +313,27 @@ class ReportEpicProgressMovedEpicTest {
         private const val WL_CHILD_BEFORE = 923_023L
         private const val WL_CHILD_AFTER = 923_024L
         private const val WL_STAYED = 923_025L
+        private const val RETURNED = 923_031L
+        private const val NULL_ROW = 923_033L
+        private const val CHILD_RETURN_1 = 923_040L
+        private const val CHILD_RETURN_2 = 923_041L
+        private const val CHILD_RETURN_3 = 923_042L
+        private const val CHILD_NULL_ROW = 923_043L
+        private const val WL_RETURN_AAA_1 = 923_051L
+        private const val WL_RETURN_BBB_1 = 923_052L
+        private const val WL_RETURN_AAA_2 = 923_053L
+        private const val WL_RETURN_BBB_2 = 923_054L
+        private const val WL_NULL_ROW = 923_055L
 
         private fun at(iso: String) = Instant.parse(iso).toEpochMilli()
 
         /** The epics' project move: Wednesday 11 February, midday UTC (inside one local day in any plausible zone). */
         private val MOVE = at("2026-02-11T12:00:00Z")
+
+        /** AAA-7 leaves AAA (Tue 10 February, midday) and comes back ([BACK], Thu 12 February); BBB-8's null row ends at [NULL_END]. */
+        private val OUT = at("2026-02-10T12:00:00Z")
+        private val BACK = at("2026-02-12T12:00:00Z")
+        private val NULL_END = at("2026-02-11T12:00:00Z")
 
         /** BBB-4's move, after the report's asOf day. */
         private val LATER = at("2026-02-25T12:00:00Z")

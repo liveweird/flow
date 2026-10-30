@@ -35,12 +35,20 @@ private val NONE = Figures(NO_EVM, NO_EVM)
 private typealias EpicId = Pair<Int, Long>
 
 /**
+ * The instant the asOf day ends, as an SQL scalar: the stored `dim_date.day_end_ms` (the very value the PV join compares the
+ * `task_domain` rows against, so the history and the PV agree by construction), or the calendar's [fallbackMs] when `dim_date` has no
+ * row for the day. Inlined into the statements, no extra read.
+ */
+private fun dayEndSql(asOfDay: String, fallbackMs: Long): String =
+    "COALESCE((SELECT day_end_ms FROM metrics.dim_date WHERE day = '$asOfDay'), $fallbackMs)"
+
+/**
  * The epic's domain history up to the END of the asOf day (`task_domain` rows started before it, `COALESCE`d with the epic's current
  * domain exactly like PV DOMAIN, A47) and, per epic, the drilled domain's place in it: `seen` keeps the epics that were in the domain
  * (`HAVING BOOL_OR`), `key_count` counts their distinct domains, `ends_here` is the domain at that instant (the covering rule
  * `(from, to]`, [coveringAt]). An epic with no `task_domain` row is read as its current domain only. Two `?` (the domain, twice).
  */
-private fun seenCte(connections: String, endMs: Long): String = """
+private fun seenCte(connections: String, endMs: String): String = """
     hist AS (
         SELECT e.connection_id AS connection_id, e.issue_id AS issue_id, COALESCE(ed.domain_key, e.domain_key) AS domain_key,
                (ed.valid_to IS NULL OR ed.valid_to >= $endMs) AS at_end
@@ -73,7 +81,7 @@ private suspend fun <T> readRows(sql: String, domainArguments: Int, domain: Stri
 private fun Any?.dec(): BigDecimal = this as BigDecimal
 
 /** The epics of [domain] and what they are (see [DomainEpic]); one grouped read over `dim_epic` and `task_domain`. */
-private suspend fun domainEpics(connections: String, endMs: Long, domain: String): List<DomainEpic> {
+private suspend fun domainEpics(connections: String, endMs: String, domain: String): List<DomainEpic> {
     val sql = """
         WITH ${seenCte(connections, endMs)}
         SELECT s.connection_id, s.issue_id, e.issue_key, e.summary, s.key_count, s.ends_here,
@@ -100,7 +108,7 @@ private suspend fun domainEpics(connections: String, endMs: Long, domain: String
  */
 private suspend fun epicScopeFigures(
     connections: String,
-    endMs: Long,
+    endMs: String,
     domain: String,
     asOfDay: String,
     firstDay: String?,
@@ -134,7 +142,7 @@ private suspend fun epicScopeFigures(
 private suspend fun movedShares(
     connectionIds: List<UInt>,
     connections: String,
-    endMs: Long,
+    endMs: String,
     domain: String,
     asOfDay: String,
     firstDay: String?,
@@ -168,14 +176,16 @@ internal suspend fun domainRows(ctx: ProgressContext, domain: String): List<Epic
     val connectionIds = ctx.scope.connectionIds
     if (connectionIds.isEmpty()) return emptyList()
     val connections = connectionIds.joinToString(", ")
-    val endMs = ctx.calendar.dayBoundsMs(ctx.asOfDay).second
     val asOfDay = ctx.asOfDay.toString()
+    val endMs = dayEndSql(asOfDay, ctx.calendar.dayBoundsMs(ctx.asOfDay).second)
     val firstDay = ctx.firstDay?.toString()
     val epics = domainEpics(connections, endMs, domain)
     if (epics.isEmpty()) return emptyList()
     val scoped = epicScopeFigures(connections, endMs, domain, asOfDay, firstDay)
-    val movedEv = movedShares(connectionIds, connections, endMs, domain, asOfDay, firstDay, ev = true)
-    val movedAc = movedShares(connectionIds, connections, endMs, domain, asOfDay, firstDay, ev = false)
+    // Only a moved epic reads the facts; a domain whose epics all stayed needs neither read.
+    val anyMoved = epics.any { it.keyCount > 1 }
+    val movedEv = if (anyMoved) movedShares(connectionIds, connections, endMs, domain, asOfDay, firstDay, ev = true) else emptyMap()
+    val movedAc = if (anyMoved) movedShares(connectionIds, connections, endMs, domain, asOfDay, firstDay, ev = false) else emptyMap()
     return epics.mapNotNull { epic ->
         val id = epic.connectionId to epic.issueId
         val base = scoped[id] ?: NONE

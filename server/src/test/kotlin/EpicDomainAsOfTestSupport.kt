@@ -22,7 +22,10 @@ private const val SEED_HOUR_MS = 3_600_000L
 
 internal data class StatusStep(val statusId: String, val name: String, val category: StatusCategory, val atMs: Long)
 
-/** One hand-built item; [steps] is its status path from creation (the last is the current one); [custom] its `custom_fields` JSON. */
+/**
+ * One hand-built item; [steps] is its status path from creation (the last is the current one); [custom] its `custom_fields` JSON;
+ * [keyChange] its `issuekey` change and [laterKeyChanges] any further ones (a project moved more than once).
+ */
 internal suspend fun seedItem(
     connId: UInt,
     issueId: Long,
@@ -34,6 +37,7 @@ internal suspend fun seedItem(
     custom: String,
     keyChange: FieldChangeFact? = null,
     worklogs: List<WorklogFact> = emptyList(),
+    laterKeyChanges: List<FieldChangeFact> = emptyList(),
 ) {
     val current = steps.last()
     val facts = WorkItemFacts(
@@ -75,7 +79,7 @@ internal suspend fun seedItem(
         currentStatusCategory = current.category,
         statusIntervals = intervals,
         fieldIntervals = emptyList(),
-        fieldChanges = listOfNotNull(keyChange),
+        fieldChanges = listOfNotNull(keyChange) + laterKeyChanges,
         worklogs = worklogs,
         currentSprintIds = emptyList(),
         flagged = false,

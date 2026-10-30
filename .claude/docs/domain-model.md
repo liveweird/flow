@@ -971,8 +971,8 @@ carries the per-measure detail).
   - **A34's DONE band, epic part**, reads the epic's domain from the fact (`done_at`), the owner through the as-of domain; a reopened open epic has no `done_at` and stays in its current domain (the
     known A34 gap).
   - **Report 15 (the EPIC rows of a DOMAIN drill)** lists a moved epic once per domain it was in up to the end of the as-of day (decided with the user 2026-10-30), each row holding that domain's share only
-    (PV by the domain at the END of each planned day, EV by each child's `done_at`, AC by each worklog's `started_at` -- A47's anchors), so the rows of a domain add up to the domain's totals; the EPIC
-    level still shows the whole epic. Such a row is flagged `partial: true` (null on every other row). An epic is listed in a domain when it has any share there (PV, EV or AC), or a current plan baseline
+    (PV by the domain at the END of each planned day, EV by each child's `done_at`, AC by each worklog's `started_at` -- A47's anchors), so the rows of a domain add up to the domain's totals (PV and EV exactly, AC within the stored per-day rounding of `agg_daily_flow`); the same
+    epic's rows over its domains add up to the whole epic the EPIC level shows, by the same rule; the EPIC level still shows the whole epic. Such a row is flagged `partial: true` (null on every other row). An epic is listed in a domain when it has any share there (PV, EV or AC), or a current plan baseline
     while the domain is the one it has at the end of the as-of day; a move AFTER the as-of day changes nothing (the report sees the epic where it was). An epic that stayed in one domain up to then reads its
     stored EPIC scope, exactly as before (the same figures; AC to the stored per-day rounding); only a moved epic is split, from the facts through the very `done`/`logged` CTEs DERIVE aggregates
     (`evEpicDoneCte`, `acLoggedCte`), so the report and the stored DOMAIN scopes share one rule.
