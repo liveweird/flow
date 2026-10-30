@@ -164,7 +164,7 @@ fun Application.configureReportRoutes() {
                 get<ReportFiltersRoute> {
                     call.caller()
                     val scope = reportService.stampScope(StampClock.FIVE_MINUTES)
-                    call.respondRevalidated(reportService.etagFor(call, scope)) { reportService.filters(scope.nowMs) }
+                    call.respondRevalidated(reportService.etagFor(call, scope)) { reportService.filters(scope) }
                 }
                 deliveryRoutes(reportService)
                 flowRoutes(reportService)
@@ -201,7 +201,9 @@ internal inline fun <reified R : Any> Route.reportGet(
         call.caller()
         val stamp = reportService.stampScope(clock)
         val params = call.request.queryParameters
-        val filter = params.parseReportFilter(stamp.calendar, stamp.nowMs, defaultView, multipleAccounts, scope = scope)
+        val filter = params.parseReportFilter(
+            stamp.calendar, stamp.nowMs, defaultView, stamp.historyHorizon, multipleAccounts, scope = scope,
+        )
         val produce = prepare(filter, params, stamp.nowMs)
         call.respondRevalidated(reportService.etagFor(call, stamp), produce)
     }

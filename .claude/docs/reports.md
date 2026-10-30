@@ -122,7 +122,7 @@ problem body; `pg_sleep` cancelled with 57014; no leak to the pool; the knob's b
 ## The shared filter parser (`reports/ReportFilter.kt`)
 
 Every report endpoint parses its query string through ONE function,
-`Parameters.parseReportFilter(calendar, nowMs, defaultDomainView)`, into a `ReportFilter`. It does
+`Parameters.parseReportFilter(calendar, nowMs, defaultDomainView, historyHorizon)`, into a `ReportFilter`. It does
 **structural** validation only (ranges, mutual exclusion, ISO date syntax) -- id EXISTENCE (`teamId`,
 `sprintId`, `connectionId` against the database) is each report's own service's job once it reads
 the filter back, never this function's (the client-supplied-FK `400`-never-`404` idiom
@@ -135,11 +135,15 @@ data actually lives.
     (`metrics.settings.time_zone`). Default: the trailing 90 days ending today. `to` must not be
     before `from`; the span (`to - from`, inclusive of both ends) must not exceed 1100 days.
     Resolves to a half-open `[fromMs, toMs)` UTC-millis pair via `metrics/WorkingCalendar.kt`'s own
-    `dayBoundsMs` -- the parser never reimplements day-boundary math itself.
+    `dayBoundsMs` -- the parser never reimplements day-boundary math itself. **Under the history horizon** (A48, "History horizon" below)
+    those structural checks judge the REQUESTED dates; then a `to` before the horizon's first day is `400`
+    ("from/to lies entirely before the history horizon (<from>)") and an earlier `from` (the default period's too) is clamped to it, so `meta.from` tells.
   - `lastSprints` (1..52) -- each team's own last N CLOSED sprints, unioned at UNIT level
     (`.claude/docs/domain-model.md`: "sprint-relative periods ... are per team"). A report's own
-    service resolves the actual sprint ids and reports them in `meta.resolvedSprints`.
-  - `sprintId` -- one specific sprint's own period; must be >= 1 (`400` otherwise, like a `lastSprints` outside 1..52).
+    service resolves the actual sprint ids and reports them in `meta.resolvedSprints`. Sprints completed before the history horizon are not counted.
+  - `sprintId` -- one specific sprint's own period; must be >= 1 (`400` otherwise, like a `lastSprints` outside 1..52). A sprint completed before the
+    history horizon is `400` ("sprintId <id> closed before the history horizon (<from>)"), the family of `Unknown sprintId`.
+  The sprint resolution (`resolveSprintRows`, `reports/SprintPeriods.kt`) is the only place the parser's horizon reaches a sprint.
 - **Level -- `teamId`/`accountId` (plan section 7):** no `teamId` (so a `domain`: the scope guard refuses a read with neither,
   "Scope" above) -> `UNIT` (groups by team within the domain); `teamId`
   alone -> `TEAM` (groups by user); `teamId` AND `accountId` together -> `USER` (the one user).
@@ -164,6 +168,10 @@ data actually lives.
   blocked time, reported time ratio, data quality; the spec declares it on exactly those paths). Non-integer or outside `0..25` is
   `400`, a repeat is `400`. `ReportFilter.tailPercent` is threaded to every `buildDistribution` call (the function has no default,
   so a new call site cannot forget it). The cycle-time trend reads only `p50`/`p90` and passes `0`.
+- **`historyHorizon`** (the A48 horizon, `HistoryHorizon(months, from)` or `null` = off; NOT a request parameter) is the parser's fourth argument with NO default, like `tailPercent` in the
+  `Distribution` builders, so a new caller cannot forget it. The route computes it once per request: `StampScope.historyHorizon` = `settings.historyHorizon(calendar.dayOf(nowMs))`
+  (`reportGet`, which also serves every drill, Compare people and Person trend pass it on; Home's `homeFilter` computes the same from its own context). It rides `ReportFilter.historyHorizon`
+  so the sprint reads, the snapshot day plans and `meta` read it from the filter. The horizon needs **no stamp line**: it moves only with a settings PUT (`settings:<revision>`) or at local midnight (the `clock:` token).
 - **No `breakdown` parameter.** A `breakdown=NONE|DOMAIN|ACTIVITY_TYPE|WORK_CATEGORY` slice of `groups` was parsed by
   every report but changed none of them, so it was removed (checkup C12); a request still carrying it is ignored like
   any unknown parameter name (`.claude/docs/list-endpoints.md`: unknown names stay ignored by deliberate leniency).
@@ -279,7 +287,7 @@ Task estimates alone passes the fixed step.
 
 Every report response carries a `meta` block beside its own body:
 `{derivedAt, configRevision, from, to, level, domainView, resolvedSprints[{teamId, sprintIds}],
-minSampleSize}`. `derivedAt` is the latest SUCCEEDED `metrics.derive_runs.finished_at` across the
+minSampleSize, historyHorizon}`. `derivedAt` is the latest SUCCEEDED `metrics.derive_runs.finished_at` across the
 connection(s) the report actually read (`null` before any connection has ever completed a DERIVE);
 `configRevision` is the revision the served figures were DERIVED under
 (every DERIVE stamps its rows with the revision it ran under, invariant 12 -- `.claude/docs/domain-model.md`),
@@ -295,6 +303,11 @@ connection in scope has a successful run. `reports/ReportSupport.kt`'s `deriveSt
 `from`/`to`-selected period; a `lastSprints`/`sprintId` period instead describes itself entirely
 through `resolvedSprints`. `ReportFilter.toMeta(...)` assembles the DTO from an already-resolved
 filter plus the figures a report's own service computes -- pure, no DB access of its own.
+
+**History horizon (A48).** `meta.historyHorizon` is `{months, from}` (`from` the first day that counts, an ISO date; the shared `HistoryHorizon` schema) or an explicit `null` when the
+horizon is off; Home inherits it through `ReportMeta`. It says what the figures were read under: nothing anchored before `from` is in them. The deep dive builds its own `meta` and
+carries `null` until it reads the horizon (a later step of A48). Each report's anchor decides what "before" means (`measures.md` Conventions "History horizon"); a period that only
+partly overlaps is clamped (`meta.from` is the clamped day), one entirely before is `400`. Pinned by `ReportHistoryHorizonTest`.
 
 ## `GET /api/v1/reports/filters`
 
@@ -314,6 +327,7 @@ ReportFilters {
   configRevision: integer | null   // the derived revision, as in `meta` (oldest across the active connections)
   minSampleSize: integer
   timeZone: string   // IANA, metrics.settings.time_zone
+  historyHorizon: { months, from } | null   // the A48 horizon the data was read under, as in `meta`
 }
 ```
 
@@ -324,6 +338,8 @@ ReportFilters {
   roster, paired with a display name (`norm.people`, cross-feature read -- the FIRST place
   `/jira-memberships`' bare `accountId` gets a name attached, the same role `/jira-users` already
   plays).
+- **`historyHorizon` and `teams[].sprints`** -- the same `{months, from}` object as `meta.historyHorizon`. A team's `sprints` list the open sprints (`completeAt` null) and those completed on or
+  after the horizon's first day, so a sprint picker offers exactly what `lastSprints` and `sprintId` accept (`ReportService.filters(scope)` reads the horizon from the request's `StampScope`).
 - **`domains`/`activityTypes`/`workCategories`** -- the values a real DERIVE run has ACTUALLY
   produced (`metrics.dim_domain`/`dim_task`/`dim_epic`), never every value a per-connection
   config COULD map to: an admin's configured-but-unused mapping would otherwise clutter a filter
@@ -387,7 +403,9 @@ inputs and the capacity verdict.
     (`MetricsSettingsService.bumpRevision`; `TeamService.closeOpenJiraMemberships` bumps the row directly). That makes it the stamp of every input a
     report reads at QUERY time instead of through DERIVE: the working calendar (`readWithCalendar`: zone, weekend, hours, public holidays), the
     thresholds, the Costs capacity (stored sprint calendars, memberships, team defaults), the WIP/data-quality config reads (maps, boards, fields) and
-    every dated membership read (Compare people, Person trend, Home, `/filters`' roster, data quality's member-days).
+    every dated membership read (Compare people, Person trend, Home, `/filters`' roster, data quality's member-days). It also covers the **history horizon**
+    (A48): `history_horizon_months` is a column of that same row, so a PUT moves every tag, and the horizon's first day slides with the zone's day, which the
+    `clock:` token already carries -- the horizon has no stamp line of its own (`ReportValidatorInputsTest`).
   - `run:` -- the newest SUCCEEDED `derive_runs` row (id, `finished_at`, `config_revision`) of EVERY active connection, whatever the request's
     `connectionId` -- one `DISTINCT ON (connection_id)` query ordered by the monotonic run id (`newestSucceededRuns`), never
     the run history. It is the version of the whole `metrics` star and, since every successful SYNC chains a DERIVE, of the `norm` labels the reports
@@ -659,7 +677,7 @@ before the bound): each id must be a real ACTIVE team (0, a non-integer, an id b
 never depends on WHO asks (D12; the report cache validators of draft PR #75 rely on it). The "default to the teams I manage" rule therefore lives in the web
 (`/reports/filters` carries each team's `managerUserId`) and the SPA always sends explicit ids. The window is the shared parser's default period -- the 90 days ending today in the configured zone -- so a report link with
 `from`/`to` of `window` (and the team) reproduces the figure; `previousWindow` is `from − 90 … from − 1` by date arithmetic (`HomeKernels.kt`, never
-millisecond arithmetic across a DST change). It is composed from the other reports' own fetches under the UNIT default filter (`fetchAccuracyEpics`,
+millisecond arithmetic across a DST change). **History horizon (A48):** `homeFilter` passes the request's horizon to the parser, but the six-month minimum (at least 181 days; `HomeKernelsTest` walks every day of 2024-2028) always covers both windows, so no figure is cut; only `lastSprint` is: a team whose last closed sprint completed before the horizon shows `lastSprint: null` (`resolveSprintRows`). It is composed from the other reports' own fetches under the UNIT default filter (`fetchAccuracyEpics`,
 `fetchDqEpics`, `resolveSprintRows`, `fetchSnapshots`) plus the LISTED teams' done-task figures of both windows, **aggregated in Postgres** (`HomeDoneFigures.kt` over `HomeDoneSql.kt`, build-times WHY 38): one
 `GROUP BY` (team, window, week) statement of counts and exact sums, and one window-function statement that returns the few values at the ranks the medians and percentiles
 read; no done-task row is loaded. One `GROUP BY` count of the current window's done tasks of no active team (`countHomeDoneOutside`, `unassigned.doneTasks`) stays; the
@@ -674,7 +692,7 @@ HomeOverview {
   timeZone, epicEstimateGapTolerancePercent
   freshness: [{ connectionId, name, lastSyncAt?, lastDeriveAt? }]         // active connections, name order
   teams: [{ teamId, name,
-            lastSprint: HomeSprint | null,                                // section 1
+            lastSprint: HomeSprint | null,                                // section 1 (null too when the last sprint closed before the history horizon)
             granularity: { estimateMd, cycleWorkingDays, costMd },        // section 2, HomeFigure each
             accuracy: { tasks, epics }: { pred10, pred25, pred50 },       // section 3
             wipEpics, wipTasks: { count, hidden, p50?, p85?, p95? },       // sections 4, 5
@@ -1482,6 +1500,10 @@ aggregate has no row for are ZERO (the rows are sparse) -- but only days the agg
   the latest of their backfill dates)"; a period entirely before the start is an empty series with that note. The estimated backlog (reports
   10, 13) does not opt in: its aggregate keeps the creation-based start. The cut reads the CURRENT `backfill_from`, so rows an older DERIVE
   left before it are never listed.
+- **The history horizon (A48), every day-anchored series.** `planSnapshotDays` starts no series before the horizon's first day, whether or not the report opts in to the
+  backfill start (`notBefore` = the later of the two). A `from`/`to` period is already clamped by the parser; a sprint window that STRADDLES the cutoff (the sprint is kept whole
+  elsewhere) is cut here and says so in `note` -- "Before <date> history is hidden (history horizon: <months> months)". This covers WIP, the backlog trend, and Compare people's and
+  Person trend's WIP rows (they plan their days the same way).
 - **Not derived yet.** When NO connection in scope has a successful DERIVE run the answer is an empty series/trend with
   `note` "Not derived yet: ..." -- never a period's worth of zeros.
 - **`note`** carries whatever makes an empty or partial answer explicable: USER level (the backlog's "not stored"; WIP's "epics are left out"), not derived yet, no sprint
@@ -1581,6 +1603,8 @@ BacklogReport {
   a parent estimated only through its sub-tasks is not in it, A23) at the end of each day, `md` in man-days. **`current`**
   is the trend's last listed day (`asOfDay`, `null` for an empty trend), so it is the snapshot on the period's last day
   (or on the last derived day when the period reaches beyond it).
+- **History horizon (A48).** The trend starts no earlier than the horizon's first day (`note` above), and `meanDeliveredMd` averages only sprints completed on or after it
+  (`meanDelivered`, a `complete_at >= historyFromMs` predicate beside the as-of cut), so `sprintsUsed` can be lower than `windowSprints`.
 - **Backlog in sprints (report 13)**: `backlogInSprints = md / meanDeliveredMd`, where `meanDeliveredMd` is the mean
   `fact_sprint.delivered_md` of the team's last `windowSprints` (`backlog_window_sprints`) CLOSED sprints completed before
   the end of `asOfDay` -- as of the period end, so an older period is graded against the sprints known then -- and
@@ -1649,6 +1673,8 @@ AgingWipReport {
 }
 ```
 
+- **History horizon (A48).** The thresholds' reference set -- the last `agingWindowItems` DONE tasks (or epics) -- skips items done before the horizon (`fetchDoneCycles`:
+  `done_at >= historyFromMs`); the listed OPEN items and their ages are current work however old and are never cut.
 - **"As of now" -- the period is ignored.** The report has no period: the age is taken at the request's clock
   (`nowMillis()` in the route, injected into the service so tests pin it) with the configured calendar
   (`WorkingCalendar.workingDaysBetween(started_at, now)`, never negative). The shared parser still accepts `from`/`to`/

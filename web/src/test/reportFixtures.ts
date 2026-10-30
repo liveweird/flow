@@ -66,6 +66,7 @@ export const FILTERS: ReportFilters = {
   configRevision: 4,
   minSampleSize: 5,
   timeZone: "Europe/Warsaw",
+  historyHorizon: null,
 };
 
 const META: CommitmentsReport["meta"] = {
@@ -77,6 +78,7 @@ const META: CommitmentsReport["meta"] = {
   domainView: "TASK",
   resolvedSprints: [],
   minSampleSize: 5,
+  historyHorizon: null,
 };
 
 export const COMMITMENTS_UNIT: CommitmentsReport = {

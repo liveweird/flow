@@ -25,7 +25,7 @@ class ReportScopeInvariantsTest {
     private val now = 1_780_000_000_000L
 
     private fun filter(vararg query: Pair<String, List<String>>) =
-        parametersOf(*query).parseReportFilter(calendar, now, DomainView.TASK, scope = ReportScopeRule.UNSCOPED)
+        parametersOf(*query).parseReportFilter(calendar, now, DomainView.TASK, null, scope = ReportScopeRule.UNSCOPED)
 
     @Test
     fun `the snapshot scope is the domain, UNASSIGNED or the team, and a filter naming neither is refused`() {

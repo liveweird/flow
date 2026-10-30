@@ -24,7 +24,7 @@ class PersonTrendSelectionTest {
     private val calendar = WorkingCalendar(ZoneId.of("UTC"), weekendDays = emptySet(), holidays = emptySet())
     private val now = LocalDate.of(2026, 6, 15).atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli()
 
-    private fun parse(vararg pairs: Pair<String, List<String>>) = parametersOf(*pairs).parsePersonTrend(calendar, now)
+    private fun parse(vararg pairs: Pair<String, List<String>>) = parametersOf(*pairs).parsePersonTrend(calendar, now, null)
 
     @Test
     fun `one person with no team parses to a team-less USER filter on the default year`() {

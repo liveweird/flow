@@ -5,8 +5,10 @@ import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.norm.WorkItemStore
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
+import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.lessEq
@@ -121,8 +123,11 @@ suspend fun ReportService.agingWip(filter: ReportFilter, nowMs: Long): AgingWipR
     val percentiles = scope.settings.agingPercentiles.sorted()
     val window = scope.settings.agingWindowItems
     val minSample = scope.settings.minSampleSize
-    val taskThresholds = thresholdsOf(fetchDoneCycles(filter, scope.connectionIds, window, tasks = true), percentiles, minSample)
-    val epicThresholds = thresholdsOf(fetchDoneCycles(filter, scope.connectionIds, window, tasks = false), percentiles, minSample)
+    val historyFromMs = filter.historyHorizon?.let { calendar.dayBoundsMs(it.from).first }
+    val taskCycles = fetchDoneCycles(filter, scope.connectionIds, window, historyFromMs, tasks = true)
+    val epicCycles = fetchDoneCycles(filter, scope.connectionIds, window, historyFromMs, tasks = false)
+    val taskThresholds = thresholdsOf(taskCycles, percentiles, minSample)
+    val epicThresholds = thresholdsOf(epicCycles, percentiles, minSample)
     val selection = selectAgingItems(filter, scope.connectionIds, calendar, nowMs)
     val listed = selection.listed
     val labels = workItemLabels(listed.map { it.first.connectionId to it.first.issueId })
@@ -187,20 +192,30 @@ private fun bandOf(age: Double, thresholds: List<Pair<Int, Double>>): String? {
     return passed?.let { "P${it.first}" } ?: BAND_WITHIN
 }
 
-/** `cycle_working_days` of the last [limit] DONE tasks (or epics) of the scope, newest first — the aging window. */
-private suspend fun fetchDoneCycles(filter: ReportFilter, connectionIds: List<UInt>, limit: Int, tasks: Boolean): List<Double> {
+/**
+ * `cycle_working_days` of the last [limit] DONE tasks (or epics) of the scope, newest first — the aging window. Items done before
+ * [historyFromMs] (the history horizon, A48; `null` = off) are not part of the reference set; the OPEN items' ages are never cut.
+ */
+private suspend fun fetchDoneCycles(
+    filter: ReportFilter,
+    connectionIds: List<UInt>,
+    limit: Int,
+    historyFromMs: Long?,
+    tasks: Boolean,
+): List<Double> {
     if (connectionIds.isEmpty()) return emptyList()
     if (tasks) {
         val t = MetricsTables.FactTaskDelivery
         // Thresholds belong to the team, not the user: an `accountId` narrows the listed items only.
         val predicate = taskFactSlice(filter.copy(accountIds = emptyList()), connectionIds) and
-            t.doneAt.isNotNull() and t.cycleWorkingDays.isNotNull()
+            t.doneAt.isNotNull() and t.cycleWorkingDays.isNotNull() and (historyFromMs?.let { t.doneAt greaterEq it } ?: Op.TRUE)
         return t.select(t.cycleWorkingDays).where { predicate }
             .orderBy(t.doneAt to SortOrder.DESC, t.issueId to SortOrder.DESC).limit(limit)
             .toList().map { it[t.cycleWorkingDays]!!.toDouble() }
     }
     val e = MetricsTables.FactEpicDelivery
-    val predicate = epicFactSlice(filter, connectionIds) and e.doneAt.isNotNull() and e.cycleWorkingDays.isNotNull()
+    val predicate = epicFactSlice(filter, connectionIds) and e.doneAt.isNotNull() and e.cycleWorkingDays.isNotNull() and
+        (historyFromMs?.let { e.doneAt greaterEq it } ?: Op.TRUE)
     return e.select(e.cycleWorkingDays).where { predicate }
         .orderBy(e.doneAt to SortOrder.DESC, e.issueId to SortOrder.DESC).limit(limit)
         .toList().map { it[e.cycleWorkingDays]!!.toDouble() }

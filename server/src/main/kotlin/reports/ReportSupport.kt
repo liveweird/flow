@@ -13,7 +13,6 @@ import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
-import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greaterEq
@@ -159,7 +158,7 @@ internal suspend fun deriveStamp(connectionIds: List<UInt>): DeriveStamp {
     )
 }
 
-private fun sprintJoinQuery() = MetricsTables.FactSprint.join(
+internal fun sprintJoinQuery() = MetricsTables.FactSprint.join(
     MetricsTables.DimSprint,
     JoinType.INNER,
     onColumn = MetricsTables.FactSprint.sprintId,
@@ -178,7 +177,7 @@ private fun sprintJoinQuery() = MetricsTables.FactSprint.join(
     MetricsTables.FactSprint.droppedMd, MetricsTables.FactSprint.droppedItems,
 )
 
-private fun ResultRow.toSprintRow() = SprintRow(
+internal fun ResultRow.toSprintRow() = SprintRow(
     connectionId = this[MetricsTables.FactSprint.connectionId].value,
     sprintId = this[MetricsTables.FactSprint.sprintId],
     name = this[MetricsTables.DimSprint.name],
@@ -214,45 +213,6 @@ private fun ResultRow.toSprintRow() = SprintRow(
         droppedItems = this[MetricsTables.FactSprint.droppedItems],
     ),
 )
-
-internal suspend fun resolveSprintRows(period: ReportPeriod, connectionIds: List<UInt>, narrowTeamId: UInt?): List<SprintRow> {
-    if (connectionIds.isEmpty()) return emptyList()
-    return when (period) {
-        is ReportPeriod.DateRange -> sprintRowsInRange(connectionIds, narrowTeamId, period.fromMs, period.toMs)
-        is ReportPeriod.LastSprints -> sprintRowsLastN(connectionIds, narrowTeamId, period.count)
-        is ReportPeriod.BySprintId -> sprintRowsForId(connectionIds, narrowTeamId, period.sprintId)
-    }
-}
-
-private suspend fun sprintRowsInRange(connectionIds: List<UInt>, narrowTeamId: UInt?, fromMs: Long, toMs: Long): List<SprintRow> {
-    var predicate: Op<Boolean> = (MetricsTables.FactSprint.connectionId inList connectionIds) and
-        MetricsTables.FactSprint.teamId.isNotNull() and
-        (MetricsTables.FactSprint.completeAt greaterEq fromMs) and
-        (MetricsTables.FactSprint.completeAt less toMs) // toMs is exclusive: the day after `to` starts
-    narrowTeamId?.let { predicate = predicate and (MetricsTables.FactSprint.teamId eq it) }
-    return sprintJoinQuery().where { predicate }.toList().map { it.toSprintRow() }
-}
-
-private suspend fun sprintRowsLastN(connectionIds: List<UInt>, narrowTeamId: UInt?, count: Int): List<SprintRow> {
-    var predicate: Op<Boolean> = (MetricsTables.FactSprint.connectionId inList connectionIds) and
-        MetricsTables.FactSprint.teamId.isNotNull() and MetricsTables.FactSprint.completeAt.isNotNull()
-    narrowTeamId?.let { predicate = predicate and (MetricsTables.FactSprint.teamId eq it) }
-    val rows = sprintJoinQuery().where { predicate }
-        .orderBy(MetricsTables.FactSprint.teamId to SortOrder.ASC, MetricsTables.FactSprint.completeAt to SortOrder.DESC)
-        .toList().map { it.toSprintRow() }
-    return rows.groupBy { it.teamId }.values.flatMap { it.take(count) }
-}
-
-private suspend fun sprintRowsForId(connectionIds: List<UInt>, narrowTeamId: UInt?, sprintId: Long): List<SprintRow> {
-    val exists = MetricsTables.DimSprint.select(MetricsTables.DimSprint.sprintId)
-        .where { (MetricsTables.DimSprint.connectionId inList connectionIds) and (MetricsTables.DimSprint.sprintId eq sprintId) }
-        .toList().isNotEmpty()
-    if (!exists) throw BadRequestException("Unknown sprintId: $sprintId")
-    var predicate: Op<Boolean> = (MetricsTables.FactSprint.connectionId inList connectionIds) and
-        MetricsTables.FactSprint.teamId.isNotNull() and (MetricsTables.FactSprint.sprintId eq sprintId)
-    narrowTeamId?.let { predicate = predicate and (MetricsTables.FactSprint.teamId eq it) }
-    return sprintJoinQuery().where { predicate }.toList().map { it.toSprintRow() }
-}
 
 internal suspend fun fetchSnapshots(sprintRows: List<SprintRow>): List<SnapshotRow> {
     if (sprintRows.isEmpty()) return emptyList()

@@ -67,4 +67,6 @@ data class ReportFilters(
     val minSampleSize: Int,
     /** `metrics.settings.time_zone` (IANA) — the zone `from`/`to` are read in, so a client renders and defaults dates in it. */
     val timeZone: String,
+    /** The A48 history horizon the picker data was read under (`null` = off): no sprint completed before its `from` is listed. */
+    val historyHorizon: HistoryHorizonWire?,
 )

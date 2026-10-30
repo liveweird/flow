@@ -268,7 +268,7 @@ class ReportComparePeopleTest {
                     "connectionId" to listOf(w.connId.toString()), "from" to listOf("2026-01-01"), "to" to listOf("2026-01-31"),
                     "accountId" to listOf(w.alice, w.bob),
                 )
-                val filter = params.parseComparePeople(calendar, now)
+                val filter = params.parseComparePeople(calendar, now, null)
                 withMinSampleSize(2) {
                     assertNotNull(service.comparePeople(filter, now, CapacityGrant.Admin).capacity)
                     val both = service.comparePeople(filter, now, CapacityGrant.Teams(setOf(w.t1, w.t2)))

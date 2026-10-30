@@ -57,6 +57,7 @@ export function deepDiveReport(
       domainView: "TASK",
       resolvedSprints: [],
       minSampleSize: 5,
+      historyHorizon: null,
     },
     mode: "EPICS",
     range: { from: "2026-09-01", to: "2026-09-01", asOfDay: "2026-09-01" },

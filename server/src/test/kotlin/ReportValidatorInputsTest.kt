@@ -4,6 +4,7 @@ import ch.nokillswit.flowusers.FlowUserRole
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobsService
+import ch.nokillswit.metrics.MIN_HISTORY_HORIZON_MONTHS
 import ch.nokillswit.metrics.SprintCalendarCell
 import ch.nokillswit.metrics.SprintCalendarDay
 import ch.nokillswit.metrics.SprintCalendarDocument
@@ -198,6 +199,25 @@ class ReportValidatorInputsTest {
         }
 
     private fun nowPlus(extraMs: Long): Long = System.currentTimeMillis() + extraMs
+
+    @Test
+    fun `a history horizon change moves every report's etag through the settings revision, with no stamp line of its own`() =
+        testApplication {
+            usePostgresTestcontainer()
+            pinReportClock()
+            val client = seededClient("etag-horizon")
+            val connectionId = DerivedStubFixture.connectionId()
+            val settings = DerivedStubFixture.metricsSettings()
+            val scope = "connectionId=$connectionId&domain=${DerivedStubFixture.DOMAIN}"
+            val urls = listOf("throughput", "cycle-time", "costs", "wip", "backlog", "aging-wip").map { "/api/v1/reports/$it?$scope" } +
+                listOf("/api/v1/reports/filters", "/api/v1/reports/home")
+            val before = urls.associateWith { client.etagOf(it) }
+            val current = settings.read().historyHorizonMonths
+            val changed = if (current == null) MIN_HISTORY_HORIZON_MONTHS else null
+            withMetricsSettings(settings, { it.copy(historyHorizonMonths = changed) }) {
+                urls.forEach { assertNotEquals(before.getValue(it), client.etagOf(it), "$it follows the horizon through settings:") }
+            }
+        }
 
     @Test
     fun `a sprint-calendar save moves the etag through the revision bump`() = testApplication {

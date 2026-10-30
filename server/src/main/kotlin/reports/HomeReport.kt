@@ -2,6 +2,7 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.metrics.MetricsSettingsResponse
 import ch.nokillswit.metrics.WorkingCalendar
+import ch.nokillswit.metrics.historyHorizon
 import io.ktor.server.plugins.BadRequestException
 import java.math.BigDecimal
 import java.time.ZoneId
@@ -36,7 +37,7 @@ internal class HomeContext(
 internal suspend fun ReportService.homeContext(nowMs: Long): HomeContext {
     val (settings, calendar) = metricsSettings.readWithCalendar()
     val connections = fetchHomeConnections()
-    val filter = homeFilter(calendar, nowMs)
+    val filter = homeFilter(calendar, nowMs, settings.historyHorizon(calendar.dayOf(nowMs)))
     val stamp = deriveStamp(connections.map { it.id })
     return HomeContext(settings, calendar, filter, homeWindowsOf(calendar, filter), connections, stamp, nowMs)
 }
@@ -177,7 +178,7 @@ suspend fun ReportService.home(nowMs: Long, teamIds: List<UInt> = emptyList()): 
     val activeIds = active.map { it.id }.toSet()
     val rows = readHomeRows(ctx, listedIds, activeIds)
     // Only the listed teams' last sprints are kept, so only their snapshots are read (the sprint rows themselves are a unit-wide read).
-    val sprintRows = resolveSprintRows(ReportPeriod.LastSprints(1), ctx.connectionIds, null)
+    val sprintRows = resolveSprintRows(ReportPeriod.LastSprints(1), ctx.connectionIds, null, ctx.filter.historyHorizon, ctx.calendar)
         .filter { it.teamId in listedIds }.associateBy { it.teamId }
     val snapshots = fetchSnapshots(sprintRows.values.toList()).associateBy { it.connectionId to it.sprintId }
     val resolved = teams.mapNotNull { team -> sprintRows[team.id]?.let { ResolvedSprintGroup(team.id, listOf(it.sprintId)) } }

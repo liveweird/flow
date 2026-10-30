@@ -1,6 +1,7 @@
 package ch.nokillswit.reports
 
 import ch.nokillswit.ingest.DataSourceService
+import ch.nokillswit.metrics.HistoryHorizon
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.WorkingCalendar
 import io.ktor.server.plugins.BadRequestException
@@ -142,7 +143,8 @@ private const val NO_SPRINT_NOTE = "The sprint-relative period resolved no sprin
  * the period's days cut off at [derivedCoverage], with a note when no sprint resolved (`teamId=0` gets its own wording)
  * or when some connections in scope have never derived. With [startAtBackfill] (the WIP report, decision C) the series
  * also starts no earlier than the LATEST `backfill_from` among the derived connections in scope ([backfillStart]), and a
- * period that begins earlier says why in the note.
+ * period that begins earlier says why in the note. The history horizon ([ReportFilter.historyHorizon]) cuts the series the same way
+ * for EVERY snapshot report, startAtBackfill or not.
  */
 internal suspend fun planSnapshotDays(
     scope: ReportScope,
@@ -157,11 +159,19 @@ internal suspend fun planSnapshotDays(
     val notes = snapshotNotes(scope, filter, coverage).toMutableList()
     val start = if (startAtBackfill) backfillStart(scope.connectionIds - coverage.notDerived.toSet()) else null
     val window = scope.window
-    if (start != null && window != null && window.second > window.first && calendar.dayOf(window.first).isBefore(start.date)) {
-        notes += backfillNote(start)
-    }
-    return SnapshotPlan(snapshotDays(window, calendar, coveredThrough, start?.date), notes.joinToString(". ").ifEmpty { null })
+    val windowStart = window?.takeIf { it.second > it.first }?.let { calendar.dayOf(it.first) }
+    if (start != null && windowStart != null && windowStart.isBefore(start.date)) notes += backfillNote(start)
+    // The horizon cuts a day-anchored series at its first day whatever the report (a sprint window may begin before it; a from/to one
+    // was clamped by the parser already), where the backfill start only applies to the reports that ask for it.
+    val horizon = filter.historyHorizon
+    if (horizon != null && windowStart != null && windowStart.isBefore(horizon.from)) notes += horizonNote(horizon)
+    val notBefore = listOfNotNull(start?.date, horizon?.from).maxOrNull()
+    return SnapshotPlan(snapshotDays(window, calendar, coveredThrough, notBefore), notes.joinToString(". ").ifEmpty { null })
 }
+
+private fun horizonNote(horizon: HistoryHorizon): String =
+    "Before ${horizon.from} history is hidden (history horizon: ${horizon.months} months)"
+
 
 /** The first day a WIP series may list: the LATEST `backfill_from` [date] of the [connections] in scope. */
 internal data class BackfillStart(val date: LocalDate, val connections: Int)

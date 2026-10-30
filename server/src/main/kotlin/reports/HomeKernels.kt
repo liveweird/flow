@@ -1,5 +1,6 @@
 package ch.nokillswit.reports
 
+import ch.nokillswit.metrics.HistoryHorizon
 import ch.nokillswit.metrics.WorkingCalendar
 import io.ktor.http.Parameters
 import java.math.BigDecimal
@@ -34,8 +35,8 @@ internal data class HomeWindows(val current: HomeSpan, val previous: HomeSpan) {
  * configured zone, UNIT level, TASK domain view (the overview names its teams itself, so the scope guard is lifted:
  * [ReportScopeRule.UNSCOPED]). A Home link with `from`/`to` of this window reproduces exactly the page's figures.
  */
-internal fun homeFilter(calendar: WorkingCalendar, nowMs: Long): ReportFilter =
-    Parameters.Empty.parseReportFilter(calendar, nowMs, DomainView.TASK, scope = ReportScopeRule.UNSCOPED)
+internal fun homeFilter(calendar: WorkingCalendar, nowMs: Long, historyHorizon: HistoryHorizon?): ReportFilter =
+    Parameters.Empty.parseReportFilter(calendar, nowMs, DomainView.TASK, historyHorizon, scope = ReportScopeRule.UNSCOPED)
 
 /**
  * The windows of [filter]'s default period: the previous one is `from − 90 … from − 1` by date arithmetic (never ms arithmetic

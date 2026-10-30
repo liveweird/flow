@@ -90,6 +90,12 @@ last consumer of a fork is only caught by the explicit tripwire test, if that ru
 Effect: these three classes' combined runtime fell from ~590s (one full sync per test, ~30 of them)
 to under 2 minutes (one full sync, plus a handful of cheap clones and small real-HTTP stream runs).
 
+**The history horizon and the stub's dates (A48).** V39 wakes `metrics.settings.history_horizon_months` at 24 and the reports apply it at read time, so a test reading fixed old dates (2020, 2024) on the
+real clock would be clamped or refused. `PostgresTestSupport` therefore switches the horizon OFF right after migrating the container (the suite baseline; `MetricsSettingsRoutesTest.defaults` restores `null`
+too), and a test of the horizon sets its own through `withMetricsSettings`, which restores the baseline. `ReportHistoryHorizonTest` pins `ReportService.clock` to 2026-06-01 and sets 6 months (cutoff
+2025-12-01, inside the stub). The e2e stack has no such baseline -- it runs with the migration's 24 months -- and the stub's 2025-09 .. 2026-09 dates age out of that default in **2027-09**: from then
+`e2e/global-setup.ts` must set `historyHorizonMonths = null`, or the stub be regenerated at later dates.
+
 **The derived fixture (`DerivedStubFixture`, `server/src/test/kotlin/DerivedStubFixture.kt`).**
 `MetricsDerivationTest` used to clone `SyncedStubFixture`'s raw rows and re-run PROCESS → PROFILE
 (`jira/JiraProcessStream.kt`/`jira/JiraProfileStream.kt`, ~20s) for EVERY test, most of them only to

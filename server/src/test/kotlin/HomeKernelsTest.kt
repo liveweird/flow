@@ -1,6 +1,8 @@
 package ch.nokillswit
 
+import ch.nokillswit.metrics.MIN_HISTORY_HORIZON_MONTHS
 import ch.nokillswit.metrics.WorkingCalendar
+import ch.nokillswit.metrics.historyHorizonOf
 import ch.nokillswit.reports.CompareDirection
 import ch.nokillswit.reports.CompareUnit
 import ch.nokillswit.reports.HomeMeasure
@@ -36,11 +38,25 @@ class HomeKernelsTest {
     private val warsaw = ZoneId.of("Europe/Warsaw")
     private val calendar = WorkingCalendar(warsaw, setOf(6, 7), emptyMap())
 
-    private fun homeWindows(calendar: WorkingCalendar, nowMs: Long) = homeWindowsOf(calendar, homeFilter(calendar, nowMs))
+    private fun homeWindows(calendar: WorkingCalendar, nowMs: Long) = homeWindowsOf(calendar, homeFilter(calendar, nowMs, null))
 
     private fun homeAt(zoned: String): Long = ZonedDateTime.parse(zoned).toInstant().toEpochMilli()
 
     private fun measured(value: Double?, n: Int = 10, hidden: Boolean = false) = Measured(value, n, hidden)
+
+    @Test
+    fun `the shortest history horizon, six months, always covers both Home windows from every day of 2024 to 2028`() {
+        // 6 months is >= 181 days (Mar 1 minus 6 months is the shortest, 181 days in a common year), the two windows reach back 179 days.
+        generateSequence(LocalDate.of(2024, 1, 1)) { it.plusDays(1) }.takeWhile { it.year <= 2028 }.forEach { today ->
+            val horizon = historyHorizonOf(MIN_HISTORY_HORIZON_MONTHS, today)!!
+            assertTrue(ChronoUnit.DAYS.between(horizon.from, today) >= 181, "six months before $today is ${horizon.from}")
+            val nowMs = today.atStartOfDay(warsaw).toInstant().toEpochMilli()
+            val unlimited = homeWindowsOf(calendar, homeFilter(calendar, nowMs, null))
+            val limited = homeWindowsOf(calendar, homeFilter(calendar, nowMs, horizon))
+            assertEquals(unlimited, limited, "the horizon must not cut Home's windows on $today")
+            assertTrue(!limited.previous.fromDate.isBefore(horizon.from), "the previous window starts inside the horizon on $today")
+        }
+    }
 
     @Test
     fun `the windows are 90 days each by date arithmetic across Europe-Warsaw's DST changes`() {

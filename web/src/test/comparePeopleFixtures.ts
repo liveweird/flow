@@ -14,6 +14,7 @@ const META: ComparePeopleReport["meta"] = {
   domainView: "TASK",
   resolvedSprints: [],
   minSampleSize: 5,
+  historyHorizon: null,
 };
 
 const cell = (value: number | null, n: number, hidden = false): CompareCell => ({ value, n, hidden });

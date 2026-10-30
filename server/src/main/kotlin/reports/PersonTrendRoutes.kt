@@ -30,7 +30,7 @@ internal fun Route.personTrendRoutes(reportService: ReportService) {
     get<ReportPersonTrendRoute> {
         call.caller()
         val scope = reportService.stampScope(StampClock.DAY)
-        val filter = call.request.queryParameters.parsePersonTrend(scope.calendar, scope.nowMs)
+        val filter = call.request.queryParameters.parsePersonTrend(scope.calendar, scope.nowMs, scope.historyHorizon)
         // The stamp is read ONCE, before the report transaction: it is both the ETag's and the peer-cell cache's generation.
         val ticket = reportService.peerCells.nextTicket()
         val stamp = reportService.dataStamp(scope.settings, scope.calendar, scope.clock, scope.nowMs)
@@ -44,7 +44,7 @@ internal fun Route.personTrendRoutes(reportService: ReportService) {
         call.caller()
         val params = call.request.queryParameters
         val scope = reportService.stampScope(StampClock.DAY)
-        val filter = params.parsePersonTrend(scope.calendar, scope.nowMs)
+        val filter = params.parsePersonTrend(scope.calendar, scope.nowMs, scope.historyHorizon)
         val view = params.requireEnum<CompareDrillView>("view")
         if (view !in TREND_DRILL_VIEWS) {
             throw BadRequestException("view must be one of the trend rows' drills (${TREND_DRILL_VIEWS.joinToString { it.name }})")

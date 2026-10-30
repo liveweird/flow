@@ -32,7 +32,7 @@ internal fun Route.comparePeopleRoutes(reportService: ReportService, teams: Team
     get<ReportComparePeopleRoute> {
         val caller = call.caller()
         val scope = reportService.stampScope(StampClock.DAY)
-        val filter = call.request.queryParameters.parseComparePeople(scope.calendar, scope.nowMs)
+        val filter = call.request.queryParameters.parseComparePeople(scope.calendar, scope.nowMs, scope.historyHorizon)
         val grant = if (caller.isAdmin()) {
             CapacityGrant.Admin
         } else {
@@ -51,7 +51,7 @@ internal fun Route.comparePeopleRoutes(reportService: ReportService, teams: Team
         call.caller()
         val params = call.request.queryParameters
         val scope = reportService.stampScope(StampClock.DAY)
-        val filter = params.parseComparePeople(scope.calendar, scope.nowMs)
+        val filter = params.parseComparePeople(scope.calendar, scope.nowMs, scope.historyHorizon)
         val view = params.requireEnum<CompareDrillView>("view")
         val bucketIndex = params.optionalString("bucketIndex")?.let { params.requireBucketIndex() }
         val segmentAccountId = params.optionalString("segmentAccountId")

@@ -27,6 +27,12 @@ object PostgresTestSupport {
                 .locations("classpath:db/migration")
                 .load()
                 .migrate()
+            // The suite's baseline is "no history horizon": V39 wakes the settings row at 24 months, and a long-standing test reads fixed
+            // old dates (2020, 2024) on the real clock, which the horizon would clamp or refuse. A test of the horizon sets its own through
+            // `withMetricsSettings`, which restores this baseline (`ReportHistoryHorizonTest`).
+            createConnection("").use { connection ->
+                connection.createStatement().use { it.executeUpdate("UPDATE metrics.settings SET history_horizon_months = NULL") }
+            }
             // Fixture-cost marker (read by `scripts/timings/local-times.mjs`, which subtracts it from the suite that
             // paid it): `fixture-cost<TAB><name><TAB><millis>`; Gradle captures it in that suite's <system-out>.
             println("fixture-cost\tpostgres\t${(System.nanoTime() - startedAt) / 1_000_000L}")

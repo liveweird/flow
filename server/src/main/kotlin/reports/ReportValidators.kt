@@ -4,10 +4,12 @@ import ch.nokillswit.infra.db.active
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobsService
+import ch.nokillswit.metrics.HistoryHorizon
 import ch.nokillswit.metrics.MetricsSettingsResponse
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.TeamWorkCategoryTargetService
 import ch.nokillswit.metrics.WorkingCalendar
+import ch.nokillswit.metrics.historyHorizon
 import ch.nokillswit.plugins.offerValidator
 import ch.nokillswit.teams.TeamService
 import io.ktor.http.HttpHeaders
@@ -209,11 +211,22 @@ internal fun answer(block: ReportAnswer): ReportAnswer = block
 /** Reads the settings with the working calendar (one transaction) and `now` from the service's clock: what a route stamps with. */
 internal suspend fun ReportService.stampScope(clock: StampClock): StampScope {
     val (settings, calendar) = metricsSettings.readWithCalendar()
-    return StampScope(settings, calendar, clock, this.clock())
+    val nowMs = this.clock()
+    return StampScope(settings, calendar, clock, nowMs, settings.historyHorizon(calendar.dayOf(nowMs)))
 }
 
-/** What a route knows when it stamps: the settings and the working calendar read in one go, how finely `now` enters, and `now`. */
-internal data class StampScope(val settings: MetricsSettingsResponse, val calendar: WorkingCalendar, val clock: StampClock, val nowMs: Long)
+/**
+ * What a route knows when it stamps: the settings and the working calendar read in one go, how finely `now` enters, `now`, and the
+ * A48 [historyHorizon] derived from them once per request. The horizon needs no stamp line of its own: it moves only with
+ * `metrics.settings` (`settings:<revision>`) or at local midnight (the `clock:` token).
+ */
+internal data class StampScope(
+    val settings: MetricsSettingsResponse,
+    val calendar: WorkingCalendar,
+    val clock: StampClock,
+    val nowMs: Long,
+    val historyHorizon: HistoryHorizon?,
+)
 
 private val ENTITY_TAG = Regex("(?:W/)?\"[^\"]*\"")
 

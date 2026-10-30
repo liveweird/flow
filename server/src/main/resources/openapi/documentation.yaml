@@ -3920,25 +3920,32 @@ components:
       schema: { type: string, format: date, description: "ISO date (YYYY-MM-DD)." }
       description: >-
         Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today).
-        Mutually exclusive with `lastSprints`/`sprintId`.
+        Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's
+        first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`.
     ReportTo:
       name: to
       in: query
       required: false
       schema: { type: string, format: date, description: "ISO date (YYYY-MM-DD)." }
-      description: Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days.
+      description: >-
+        Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days.
+        A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it.
     ReportLastSprints:
       name: lastSprints
       in: query
       required: false
       schema: { type: integer, minimum: 1, maximum: 52 }
-      description: Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`.
+      description: >-
+        Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted.
+        Mutually exclusive with `from`/`to`/`sprintId`.
     ReportSprintId:
       name: sprintId
       in: query
       required: false
       schema: { type: integer, format: int64, minimum: 1 }
-      description: One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`.
+      description: >-
+        One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history
+        horizon's first day is a `400`, like an unknown one.
     ReportTeamId:
       name: teamId
       in: query
@@ -5816,7 +5823,7 @@ components:
     ReportMeta:
       type: object
       description: The `meta` block every report response carries beside its own body.
-      required: [derivedAt, configRevision, from, to, level, domainView, resolvedSprints, minSampleSize]
+      required: [derivedAt, configRevision, from, to, level, domainView, resolvedSprints, minSampleSize, historyHorizon]
       properties:
         derivedAt: { type: integer, format: int64, nullable: true, description: "Epoch millis; null before any connection has ever completed a DERIVE." }
         configRevision: { type: integer, format: int64, minimum: 1, nullable: true, description: "The config revision the served figures were DERIVED under: the oldest `config_revision` among the newest SUCCEEDED DERIVE runs of the connections the report read (not the live `metrics.settings.config_revision`, which runs ahead of the data between a configuration change and its DERIVE); null before any connection has completed a DERIVE." }
@@ -5829,6 +5836,17 @@ components:
           items: { $ref: '#/components/schemas/ResolvedSprintGroup' }
           description: Each team's resolved sprints for a lastSprints/sprintId period; empty for a from/to period, except on the Home overview, whose from/to window still lists each team's last closed sprint.
         minSampleSize: { type: integer, minimum: 1 }
+        historyHorizon:
+          allOf: [{ $ref: '#/components/schemas/HistoryHorizon' }]
+          nullable: true
+          description: The history horizon the report was read under (null = off); nothing anchored before its `from` is in the figures.
+    HistoryHorizon:
+      type: object
+      description: The reporting history horizon (domain-model A48) as of the request - read time only, no derived row depends on it.
+      required: [months, from]
+      properties:
+        months: { type: integer, minimum: 6, maximum: 120, description: The configured number of months (`metrics.settings.history_horizon_months`). }
+        from: { type: string, format: date, description: "The first day that still counts: today in the configured zone minus `months`." }
     ReportFilterSprint:
       type: object
       required: [sprintId, name, state, startAt, endAt, completeAt]
@@ -5889,10 +5907,11 @@ components:
             (never the account email, project keys or token). An empty string when unknown.
     ReportFilters:
       type: object
-      required: [teams, domains, activityTypes, workCategories, connections, derivedAt, configRevision, minSampleSize, timeZone]
+      required: [teams, domains, activityTypes, workCategories, connections, derivedAt, configRevision, minSampleSize, timeZone, historyHorizon]
       properties:
         teams:
           type: array
+          description: Each team's `sprints` list holds the open sprints and those completed on or after the history horizon's first day.
           items: { $ref: '#/components/schemas/ReportFilterTeam' }
         domains:
           type: array
@@ -5910,6 +5929,10 @@ components:
         configRevision: { type: integer, format: int64, minimum: 1, nullable: true, description: "The config revision the served figures were DERIVED under: the oldest `config_revision` among the newest SUCCEEDED DERIVE runs of the connections the report read (not the live `metrics.settings.config_revision`, which runs ahead of the data between a configuration change and its DERIVE); null before any connection has completed a DERIVE." }
         minSampleSize: { type: integer, minimum: 1 }
         timeZone: { type: string, description: "The configured IANA time zone (`metrics.settings.time_zone`) that `from`/`to` are read in — a client renders report dates and computes period presets in it." }
+        historyHorizon:
+          allOf: [{ $ref: '#/components/schemas/HistoryHorizon' }]
+          nullable: true
+          description: The history horizon the data was read under (null = off); the same object every report carries in `meta.historyHorizon`.
 
     CommitmentsSnapshot:
       type: object

@@ -28,7 +28,11 @@ internal suspend fun ReportService.resolveReportScope(filter: ReportFilter, nowM
     val unassigned = filter.teamId == UNASSIGNED_TEAM_ID
     if (!unassigned) filter.teamId?.let { requireActiveTeam(it) }
     val narrowTeamId = filter.teamId.takeIf { filter.level != ReportLevel.UNIT && !unassigned }
-    val sprintRows = if (unassigned) emptyList() else resolveSprintRows(filter.period, connectionIds, narrowTeamId)
+    val sprintRows = if (unassigned) {
+        emptyList()
+    } else {
+        resolveSprintRows(filter.period, connectionIds, narrowTeamId, filter.historyHorizon, calendar)
+    }
     val meta = filter.toMeta(stamp.derivedAt, stamp.configRevision, settings.minSampleSize, resolvedSprintGroups(filter.period, sprintRows))
     return ReportScope(settings, calendar, connectionIds, meta, sprintRows, periodWindow(filter.period, sprintRows, nowMs))
 }

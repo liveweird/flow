@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.metrics.HistoryHorizon
 import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.reports.DomainView
 import ch.nokillswit.reports.ReportLevel
@@ -33,7 +34,7 @@ class ReportFilterTest {
 
     @Test
     fun `defaults - trailing 90 days ending today, UNIT level via a domain`() {
-        val filter = parametersOf(floScope).parseReportFilter(utcCalendar, now, DomainView.TASK)
+        val filter = parametersOf(floScope).parseReportFilter(utcCalendar, now, DomainView.TASK, null)
         val period = assertIs<ReportPeriod.DateRange>(filter.period)
         assertEquals(LocalDate.of(2026, 6, 15), period.toDate)
         assertEquals(LocalDate.of(2026, 3, 18), period.fromDate) // 90 days inclusive of both ends
@@ -46,16 +47,16 @@ class ReportFilterTest {
 
     @Test
     fun `defaultDomainView is per-caller, overridable by the domainView param`() {
-        val default = parametersOf(floScope).parseReportFilter(utcCalendar, now, DomainView.EPIC)
+        val default = parametersOf(floScope).parseReportFilter(utcCalendar, now, DomainView.EPIC, null)
         assertEquals(DomainView.EPIC, default.domainView)
-        val overridden = parametersOf(floScope, "domainView" to listOf("TASK")).parseReportFilter(utcCalendar, now, DomainView.EPIC)
+        val overridden = parametersOf(floScope, "domainView" to listOf("TASK")).parseReportFilter(utcCalendar, now, DomainView.EPIC, null)
         assertEquals(DomainView.TASK, overridden.domainView)
     }
 
     @Test
     fun `explicit from-to resolves to UTC-millis day boundaries, to inclusive`() {
         val params = parametersOf(floScope, "from" to listOf("2026-01-01"), "to" to listOf("2026-01-03"))
-        val filter = params.parseReportFilter(utcCalendar, now, DomainView.TASK)
+        val filter = params.parseReportFilter(utcCalendar, now, DomainView.TASK, null)
         val period = assertIs<ReportPeriod.DateRange>(filter.period)
         assertEquals(LocalDate.of(2026, 1, 1), period.fromDate)
         assertEquals(LocalDate.of(2026, 1, 3), period.toDate)
@@ -67,51 +68,51 @@ class ReportFilterTest {
     @Test
     fun `to before from is 400`() {
         val params = parametersOf(floScope, "from" to listOf("2026-01-10"), "to" to listOf("2026-01-01"))
-        val failure = assertFailsWith<BadRequestException> { params.parseReportFilter(utcCalendar, now, DomainView.TASK) }
+        val failure = assertFailsWith<BadRequestException> { params.parseReportFilter(utcCalendar, now, DomainView.TASK, null) }
         assertTrue(failure.message!!.contains("to must not be before from"))
     }
 
     @Test
     fun `a span over 1100 days is 400, exactly 1100 days is accepted`() {
         val tooWide = parametersOf(floScope, "from" to listOf("2020-01-01"), "to" to listOf("2023-06-01"))
-        assertFailsWith<BadRequestException> { tooWide.parseReportFilter(utcCalendar, now, DomainView.TASK) }
+        assertFailsWith<BadRequestException> { tooWide.parseReportFilter(utcCalendar, now, DomainView.TASK, null) }
 
         val from = LocalDate.of(2020, 1, 1)
         val to = from.plusDays(1099) // 1100 days inclusive of both ends
         val exact = parametersOf(floScope, "from" to listOf(from.toString()), "to" to listOf(to.toString()))
-        val filter = exact.parseReportFilter(utcCalendar, now, DomainView.TASK)
+        val filter = exact.parseReportFilter(utcCalendar, now, DomainView.TASK, null)
         assertIs<ReportPeriod.DateRange>(filter.period)
     }
 
     @Test
     fun `a malformed date is 400`() {
         val params = parametersOf(floScope, "from" to listOf("not-a-date"))
-        val failure = assertFailsWith<BadRequestException> { params.parseReportFilter(utcCalendar, now, DomainView.TASK) }
+        val failure = assertFailsWith<BadRequestException> { params.parseReportFilter(utcCalendar, now, DomainView.TASK, null) }
         assertTrue(failure.message!!.contains("from must be an ISO date"))
     }
 
     @Test
     fun `lastSprints in range parses, out of range is 400`() {
-        val ok = parametersOf(floScope, "lastSprints" to listOf("3")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+        val ok = parametersOf(floScope, "lastSprints" to listOf("3")).parseReportFilter(utcCalendar, now, DomainView.TASK, null)
         assertEquals(ReportPeriod.LastSprints(3), ok.period)
 
         assertFailsWith<BadRequestException> {
-            parametersOf(floScope, "lastSprints" to listOf("0")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+            parametersOf(floScope, "lastSprints" to listOf("0")).parseReportFilter(utcCalendar, now, DomainView.TASK, null)
         }
         assertFailsWith<BadRequestException> {
-            parametersOf(floScope, "lastSprints" to listOf("53")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+            parametersOf(floScope, "lastSprints" to listOf("53")).parseReportFilter(utcCalendar, now, DomainView.TASK, null)
         }
         assertFailsWith<BadRequestException> {
-            parametersOf(floScope, "lastSprints" to listOf("abc")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+            parametersOf(floScope, "lastSprints" to listOf("abc")).parseReportFilter(utcCalendar, now, DomainView.TASK, null)
         }
     }
 
     @Test
     fun `sprintId parses, a non-numeric value is 400`() {
-        val ok = parametersOf(floScope, "sprintId" to listOf("42")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+        val ok = parametersOf(floScope, "sprintId" to listOf("42")).parseReportFilter(utcCalendar, now, DomainView.TASK, null)
         assertEquals(ReportPeriod.BySprintId(42L), ok.period)
         assertFailsWith<BadRequestException> {
-            parametersOf(floScope, "sprintId" to listOf("nope")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+            parametersOf(floScope, "sprintId" to listOf("nope")).parseReportFilter(utcCalendar, now, DomainView.TASK, null)
         }
     }
 
@@ -119,11 +120,11 @@ class ReportFilterTest {
     fun `sprintId below 1 is 400 - the spec's minimum`() {
         for (value in listOf("0", "-1", "-9223372036854775808")) {
             val failure = assertFailsWith<BadRequestException> {
-                parametersOf(floScope, "sprintId" to listOf(value)).parseReportFilter(utcCalendar, now, DomainView.TASK)
+                parametersOf(floScope, "sprintId" to listOf(value)).parseReportFilter(utcCalendar, now, DomainView.TASK, null)
             }
             assertTrue(failure.message!!.contains("sprintId must be at least 1"), value)
         }
-        val one = parametersOf(floScope, "sprintId" to listOf("1")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+        val one = parametersOf(floScope, "sprintId" to listOf("1")).parseReportFilter(utcCalendar, now, DomainView.TASK, null)
         assertEquals(ReportPeriod.BySprintId(1L), one.period)
     }
 
@@ -135,18 +136,18 @@ class ReportFilterTest {
             parametersOf(floScope, "lastSprints" to listOf("3"), "sprintId" to listOf("1")),
         )
         combos.forEach { params ->
-            val failure = assertFailsWith<BadRequestException> { params.parseReportFilter(utcCalendar, now, DomainView.TASK) }
+            val failure = assertFailsWith<BadRequestException> { params.parseReportFilter(utcCalendar, now, DomainView.TASK, null) }
             assertTrue(failure.message!!.contains("mutually exclusive"))
         }
     }
 
     @Test
     fun `teamId alone is TEAM level, 0 is a valid UNASSIGNED sentinel`() {
-        val team = parametersOf("teamId" to listOf("7")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+        val team = parametersOf("teamId" to listOf("7")).parseReportFilter(utcCalendar, now, DomainView.TASK, null)
         assertEquals(ReportLevel.TEAM, team.level)
         assertEquals(7u, team.teamId)
 
-        val unassigned = parametersOf("teamId" to listOf("0")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+        val unassigned = parametersOf("teamId" to listOf("0")).parseReportFilter(utcCalendar, now, DomainView.TASK, null)
         assertEquals(ReportLevel.TEAM, unassigned.level)
         assertEquals(0u, unassigned.teamId)
     }
@@ -154,7 +155,7 @@ class ReportFilterTest {
     @Test
     fun `teamId plus accountId is USER level`() {
         val filter = parametersOf("teamId" to listOf("7"), "accountId" to listOf("acc-1"))
-            .parseReportFilter(utcCalendar, now, DomainView.TASK)
+            .parseReportFilter(utcCalendar, now, DomainView.TASK, null)
         assertEquals(ReportLevel.USER, filter.level)
         assertEquals(7u, filter.teamId)
         assertEquals("acc-1", filter.accountId)
@@ -163,31 +164,33 @@ class ReportFilterTest {
     @Test
     fun `a repeated accountId is 400 unless the caller opts in, then 1 to 8 distinct values in request order`() {
         val repeated = parametersOf("teamId" to listOf("7"), "accountId" to listOf("b", "a", "b"))
-        assertFailsWith<BadRequestException> { repeated.parseReportFilter(utcCalendar, now, DomainView.TASK) }
+        assertFailsWith<BadRequestException> { repeated.parseReportFilter(utcCalendar, now, DomainView.TASK, null) }
 
-        val filter = repeated.parseReportFilter(utcCalendar, now, DomainView.TASK, multipleAccounts = true)
+        val filter = repeated.parseReportFilter(utcCalendar, now, DomainView.TASK, null, multipleAccounts = true)
         assertEquals(ReportLevel.USER, filter.level)
         assertEquals(listOf("b", "a"), filter.accountIds)
         assertEquals("b", filter.accountId)
 
         val single = parametersOf("teamId" to listOf("7"), "accountId" to listOf("acc-1"))
-            .parseReportFilter(utcCalendar, now, DomainView.TASK)
+            .parseReportFilter(utcCalendar, now, DomainView.TASK, null)
         assertEquals(listOf("acc-1"), single.accountIds)
-        val teamOnly = parametersOf("teamId" to listOf("7")).parseReportFilter(utcCalendar, now, DomainView.TASK, multipleAccounts = true)
+        val teamOnly = parametersOf("teamId" to listOf("7"))
+            .parseReportFilter(utcCalendar, now, DomainView.TASK, null, multipleAccounts = true)
         assertEquals(emptyList(), teamOnly.accountIds)
 
         fun many(count: Int) = parametersOf("teamId" to listOf("7"), "accountId" to (1..count).map { "acc-$it" })
-        assertEquals(8, many(8).parseReportFilter(utcCalendar, now, DomainView.TASK, multipleAccounts = true).accountIds.size)
-        assertFailsWith<BadRequestException> { many(9).parseReportFilter(utcCalendar, now, DomainView.TASK, multipleAccounts = true) }
+        assertEquals(8, many(8).parseReportFilter(utcCalendar, now, DomainView.TASK, null, multipleAccounts = true).accountIds.size)
+        assertFailsWith<BadRequestException> { many(9).parseReportFilter(utcCalendar, now, DomainView.TASK, null, multipleAccounts = true) }
         assertFailsWith<BadRequestException> {
-            parametersOf("accountId" to listOf("a", "b")).parseReportFilter(utcCalendar, now, DomainView.TASK, multipleAccounts = true)
+            parametersOf("accountId" to listOf("a", "b"))
+                .parseReportFilter(utcCalendar, now, DomainView.TASK, null, multipleAccounts = true)
         }
     }
 
     @Test
     fun `accountId is derived from accountIds, so a copy can never leave the two disagreeing`() {
         val filter = parametersOf("teamId" to listOf("7"), "accountId" to listOf("b", "a"))
-            .parseReportFilter(utcCalendar, now, DomainView.TASK, multipleAccounts = true)
+            .parseReportFilter(utcCalendar, now, DomainView.TASK, null, multipleAccounts = true)
         assertEquals("b", filter.accountId)
         assertNull(filter.copy(accountIds = emptyList()).accountId)
         assertEquals("c", filter.copy(accountIds = listOf("c", "a")).accountId)
@@ -197,7 +200,7 @@ class ReportFilterTest {
     @Test
     fun `accountId without teamId is 400`() {
         val failure = assertFailsWith<BadRequestException> {
-            parametersOf("accountId" to listOf("acc-1")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+            parametersOf("accountId" to listOf("acc-1")).parseReportFilter(utcCalendar, now, DomainView.TASK, null)
         }
         assertTrue(failure.message!!.contains("accountId requires teamId"))
     }
@@ -205,28 +208,29 @@ class ReportFilterTest {
     @Test
     fun `teamless lifts accountId requires teamId - USER level with no team - and only when asked`() {
         val params = parametersOf("accountId" to listOf("acc-1", "acc-2"))
-        val filter = params.parseReportFilter(utcCalendar, now, DomainView.TASK, multipleAccounts = true, teamless = true)
+        val filter = params.parseReportFilter(utcCalendar, now, DomainView.TASK, null, multipleAccounts = true, teamless = true)
         assertEquals(ReportLevel.USER, filter.level)
         assertNull(filter.teamId)
         assertEquals(listOf("acc-1", "acc-2"), filter.accountIds)
         // Without the flag the very same query is still 400, with it or without multipleAccounts.
-        assertFailsWith<BadRequestException> { params.parseReportFilter(utcCalendar, now, DomainView.TASK, multipleAccounts = true) }
+        assertFailsWith<BadRequestException> { params.parseReportFilter(utcCalendar, now, DomainView.TASK, null, multipleAccounts = true) }
         assertFailsWith<BadRequestException> {
-            parametersOf("accountId" to listOf("acc-1")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+            parametersOf("accountId" to listOf("acc-1")).parseReportFilter(utcCalendar, now, DomainView.TASK, null)
         }
         // A team still wins if one is given, and no account stays UNIT/TEAM as ever.
         assertEquals(
             ReportLevel.USER,
             parametersOf("accountId" to listOf("a"), "teamId" to listOf("3"))
-                .parseReportFilter(utcCalendar, now, DomainView.TASK, multipleAccounts = true, teamless = true).level,
+                .parseReportFilter(utcCalendar, now, DomainView.TASK, null, multipleAccounts = true, teamless = true).level,
         )
-        assertEquals(ReportLevel.UNIT, parametersOf(floScope).parseReportFilter(utcCalendar, now, DomainView.TASK, teamless = true).level)
+        val teamlessUnit = parametersOf(floScope).parseReportFilter(utcCalendar, now, DomainView.TASK, null, teamless = true)
+        assertEquals(ReportLevel.UNIT, teamlessUnit.level)
     }
 
     @Test
     fun `an unknown domainView value is 400`() {
         assertFailsWith<BadRequestException> {
-            parametersOf(floScope, "domainView" to listOf("BOGUS")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+            parametersOf(floScope, "domainView" to listOf("BOGUS")).parseReportFilter(utcCalendar, now, DomainView.TASK, null)
         }
     }
 
@@ -234,9 +238,10 @@ class ReportFilterTest {
     fun `the removed breakdown param is ignored like any unknown param name - never a 400`() {
         // list-endpoints.md: unknown parameter names stay ignored by deliberate leniency. `breakdown` was parsed but
         // changed nothing in any report; it was removed until a report actually slices `groups` by it.
-        val plain = parametersOf(floScope).parseReportFilter(utcCalendar, now, DomainView.TASK)
+        val plain = parametersOf(floScope).parseReportFilter(utcCalendar, now, DomainView.TASK, null)
         for (value in listOf("DOMAIN", "NONE", "BOGUS")) {
-            val withBreakdown = parametersOf(floScope, "breakdown" to listOf(value)).parseReportFilter(utcCalendar, now, DomainView.TASK)
+            val withBreakdown = parametersOf(floScope, "breakdown" to listOf(value))
+                .parseReportFilter(utcCalendar, now, DomainView.TASK, null)
             assertEquals(plain, withBreakdown, value)
         }
     }
@@ -244,7 +249,7 @@ class ReportFilterTest {
     @Test
     fun `a repeated scalar param is 400 - the singleValue rule`() {
         assertFailsWith<BadRequestException> {
-            parametersOf("teamId" to listOf("1", "2")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+            parametersOf("teamId" to listOf("1", "2")).parseReportFilter(utcCalendar, now, DomainView.TASK, null)
         }
     }
 
@@ -256,7 +261,7 @@ class ReportFilterTest {
             "workCategory" to listOf("UNCATEGORIZED"),
             "connectionId" to listOf("3"),
         )
-        val filter = params.parseReportFilter(utcCalendar, now, DomainView.TASK)
+        val filter = params.parseReportFilter(utcCalendar, now, DomainView.TASK, null)
         assertEquals("FLO", filter.domain)
         assertEquals("Bug", filter.activityType)
         assertEquals("UNCATEGORIZED", filter.workCategory)
@@ -265,25 +270,25 @@ class ReportFilterTest {
 
     @Test
     fun `tailPercent defaults to 5, takes 0 to 25 and anything else is 400`() {
-        assertEquals(5, parametersOf(floScope).parseReportFilter(utcCalendar, now, DomainView.TASK).tailPercent)
+        assertEquals(5, parametersOf(floScope).parseReportFilter(utcCalendar, now, DomainView.TASK, null).tailPercent)
         for (ok in listOf(0, 1, 5, 25)) {
-            val parsed = parametersOf(floScope, "tailPercent" to listOf("$ok")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+            val parsed = parametersOf(floScope, "tailPercent" to listOf("$ok")).parseReportFilter(utcCalendar, now, DomainView.TASK, null)
             assertEquals(ok, parsed.tailPercent)
         }
         for (bad in listOf("26", "-1", "x", "2.5", "100")) {
             assertFailsWith<BadRequestException>(bad) {
-                parametersOf(floScope, "tailPercent" to listOf(bad)).parseReportFilter(utcCalendar, now, DomainView.TASK)
+                parametersOf(floScope, "tailPercent" to listOf(bad)).parseReportFilter(utcCalendar, now, DomainView.TASK, null)
             }
         }
         assertFailsWith<BadRequestException> {
-            parametersOf(floScope, "tailPercent" to listOf("5", "6")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+            parametersOf(floScope, "tailPercent" to listOf("5", "6")).parseReportFilter(utcCalendar, now, DomainView.TASK, null)
         }
     }
 
     // The scope guard (CLAUDE.md: a report is read per team or per domain, never for the whole unit).
 
     private fun refusal(rule: ReportScopeRule, vararg query: Pair<String, List<String>>, teamless: Boolean = false): String? = try {
-        parametersOf(*query).parseReportFilter(utcCalendar, now, DomainView.TASK, teamless = teamless, scope = rule)
+        parametersOf(*query).parseReportFilter(utcCalendar, now, DomainView.TASK, null, teamless = teamless, scope = rule)
         null
     } catch (failure: BadRequestException) {
         failure.message
@@ -342,7 +347,7 @@ class ReportFilterTest {
             refusal(ReportScopeRule.TEAM_OR_DOMAIN, teamless = true),
         )
         assertNull(refusal(ReportScopeRule.UNSCOPED))
-        val unscoped = parametersOf().parseReportFilter(utcCalendar, now, DomainView.TASK, scope = ReportScopeRule.UNSCOPED)
+        val unscoped = parametersOf().parseReportFilter(utcCalendar, now, DomainView.TASK, null, scope = ReportScopeRule.UNSCOPED)
         assertEquals(ReportLevel.UNIT, unscoped.level)
     }
 
@@ -356,5 +361,83 @@ class ReportFilterTest {
         // The scope precedes the later structural checks.
         val refused = refusal(rule, "tailPercent" to listOf("99"))
         assertTrue(refused!!.startsWith("teamId or domain is required"), refused)
+    }
+
+    // The history horizon (domain-model A48): the parser clamps a period to it and refuses one wholly before it.
+
+    private val horizon = HistoryHorizon(6, LocalDate.of(2025, 12, 15)) // six months before `now`
+
+    private fun range(vararg query: Pair<String, List<String>>, under: HistoryHorizon? = horizon): ReportPeriod.DateRange =
+        assertIs<ReportPeriod.DateRange>(parametersOf(floScope, *query).parseReportFilter(utcCalendar, now, DomainView.TASK, under).period)
+
+    @Test
+    fun `a from before the horizon is clamped to it, to stays, and the echoed horizon rides the filter`() {
+        val filter = parametersOf(floScope, "from" to listOf("2025-09-01"), "to" to listOf("2026-03-04"))
+            .parseReportFilter(utcCalendar, now, DomainView.TASK, horizon)
+        val period = assertIs<ReportPeriod.DateRange>(filter.period)
+        assertEquals(LocalDate.of(2025, 12, 15), period.fromDate)
+        assertEquals(LocalDate.of(2026, 3, 4), period.toDate)
+        assertEquals(utcCalendar.dayBoundsMs(LocalDate.of(2025, 12, 15)).first, period.fromMs, "the ms bound follows the clamped day")
+        assertEquals(utcCalendar.dayBoundsMs(LocalDate.of(2026, 3, 4)).second, period.toMs)
+        assertEquals(horizon, filter.historyHorizon)
+    }
+
+    @Test
+    fun `a from on or after the horizon is untouched`() {
+        assertEquals(LocalDate.of(2025, 12, 15), range("from" to listOf("2025-12-15"), "to" to listOf("2026-01-01")).fromDate)
+        assertEquals(LocalDate.of(2026, 1, 1), range("from" to listOf("2026-01-01")).fromDate)
+    }
+
+    @Test
+    fun `a period ending before the horizon is 400, a period ending on its first day is accepted`() {
+        val params = parametersOf(floScope, "from" to listOf("2025-01-01"), "to" to listOf("2025-12-14"))
+        val failure = assertFailsWith<BadRequestException> { params.parseReportFilter(utcCalendar, now, DomainView.TASK, horizon) }
+        assertEquals("from/to lies entirely before the history horizon (2025-12-15)", failure.message)
+        val onTheFirstDay = range("from" to listOf("2025-01-01"), "to" to listOf("2025-12-15"))
+        assertEquals(LocalDate.of(2025, 12, 15), onTheFirstDay.fromDate)
+        assertEquals(LocalDate.of(2025, 12, 15), onTheFirstDay.toDate)
+    }
+
+    @Test
+    fun `the structural checks judge the requested dates before the horizon does`() {
+        // to before from stays that 400 even though both lie before the horizon.
+        val inverted = parametersOf(floScope, "from" to listOf("2025-02-10"), "to" to listOf("2025-02-01"))
+        assertEquals(
+            "to must not be before from",
+            assertFailsWith<BadRequestException> { inverted.parseReportFilter(utcCalendar, now, DomainView.TASK, horizon) }.message,
+        )
+        // The span cap counts the REQUESTED span, not the clamped one: 2020..2026 is over 1100 days although the clamp would shrink it.
+        val wide = parametersOf(floScope, "from" to listOf("2020-01-01"), "to" to listOf("2026-01-01"))
+        assertEquals(
+            "from/to span must not exceed 1100 days",
+            assertFailsWith<BadRequestException> { wide.parseReportFilter(utcCalendar, now, DomainView.TASK, horizon) }.message,
+        )
+    }
+
+    @Test
+    fun `the default period is clamped too, a six-month horizon never touches the 90 day default`() {
+        val tight = HistoryHorizon(6, LocalDate.of(2026, 5, 1))
+        val clamped = range(under = tight)
+        assertEquals(LocalDate.of(2026, 5, 1), clamped.fromDate)
+        assertEquals(LocalDate.of(2026, 6, 15), clamped.toDate)
+        val roomy = range(under = horizon)
+        assertEquals(LocalDate.of(2026, 3, 18), roomy.fromDate, "the default 90 days lie inside the horizon")
+    }
+
+    @Test
+    fun `without a horizon nothing is clamped or refused`() {
+        val period = range("from" to listOf("2001-01-01"), "to" to listOf("2001-02-01"), under = null)
+        assertEquals(LocalDate.of(2001, 1, 1), period.fromDate)
+        val filter = parametersOf(floScope).parseReportFilter(utcCalendar, now, DomainView.TASK, null)
+        assertNull(filter.historyHorizon)
+    }
+
+    @Test
+    fun `sprint-relative periods are not judged by the parser`() {
+        val last = parametersOf(floScope, "lastSprints" to listOf("3")).parseReportFilter(utcCalendar, now, DomainView.TASK, horizon)
+        assertEquals(ReportPeriod.LastSprints(3), last.period)
+        assertEquals(horizon, last.historyHorizon)
+        val one = parametersOf(floScope, "sprintId" to listOf("7")).parseReportFilter(utcCalendar, now, DomainView.TASK, horizon)
+        assertEquals(ReportPeriod.BySprintId(7), one.period)
     }
 }

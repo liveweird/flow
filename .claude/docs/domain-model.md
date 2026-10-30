@@ -910,9 +910,16 @@ carries the per-measure detail).
     minus the months (Java's `minusMonths`: 31 March minus one month is 28 February), computed by the server.
   - **Hides, never deletes.** Stored `raw`/`norm`/`metrics` rows stay; nothing is purged, so raising the horizon (or turning it off) brings the figures back on the next request with no re-derive. It is read at
     query time like `min_sample_size` and the epic gap tolerance (V31): a change bumps the config revision and enqueues the harmless DERIVE every setting change does.
-  - **Where it will apply** (later releases; this one only stores and edits the setting): at READ time, by each measure's own anchor -- never at DERIVE. A task counts by `done_at`, so one created before the cutoff and
+  - **Where it applies** (the reports read it from 1.29.0; step 1 only stored the setting): at READ time, by each measure's own anchor -- never at DERIVE. A task counts by `done_at`, so one created before the cutoff and
     done after it counts in full; an open epic or work-in-progress item is current work however old; a sprint is whole-or-nothing by `complete_at`; day-anchored series start at the cutoff day. A period that lies entirely
-    before the horizon is refused, a partly overlapping one is clamped. Admin and operational surfaces (data sources, sync status, the raw inspector, the data profile, capacity calendars, team memberships) ignore it.
+    before the horizon is refused (`400`), a partly overlapping one is clamped. Admin and operational surfaces (data sources, sync status, the raw inspector, the data profile, capacity calendars, team memberships) ignore it.
+    The server computes the horizon ONCE per request from the settings and the request's own `now` in the configured zone (`ReportService.clock`, never the wall clock inside the settings row), so a pinned clock pins the cutoff.
+  - **The read-time rule, as built.** (1) A `from`/`to` period (the default one too) is clamped to the horizon's first day by the shared parser, after the structural checks on the REQUESTED dates (`to` before `from`, the 1100-day span); one
+    whose `to` lies before it is refused. (2) A sprint-relative period is whole-or-nothing: `lastSprints` skips sprints completed before the horizon, a `sprintId` of one is `400`, an open sprint is never cut; a sprint that
+    STRADDLES the cutoff is kept whole for its sprint-anchored figures, while a day-anchored series inside it (WIP, backlog days) starts at the cutoff day and says so. (3) The reference sets that are not the period -- the aging
+    thresholds' last-N done items and the backlog's mean delivery per sprint -- skip work done before the horizon; the open items' own ages and every PV/EV/AC baseline stay whole-life. (4) `meta.historyHorizon` and
+    `GET /reports/filters` echo `{months, from}` (or `null`), and the filters list no sprint closed before it. A bar and its drill share one parsed filter, so they agree by construction. Pinned by `ReportHistoryHorizonTest`
+    (the one-truth rule: a report under the horizon over a period reaching before it equals the report without a horizon over the period starting at the cutoff).
   - **The backfill floor** (later): the data-source `backfillFrom` may not be set before the horizon (when it is on), applied when the date is written, never as a sliding window, so a running backfill's identity is stable.
   - Operational detail: `.claude/docs/persistence.md` "History horizon (V39)", `.claude/docs/metrics.md` "Configuration model".
 
