@@ -18,7 +18,6 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
 import java.time.Instant
-import java.time.ZoneId
 
 val MetricsSettingsServiceKey = AttributeKey<MetricsSettingsService>("MetricsSettingsService")
 
@@ -167,7 +166,7 @@ class MetricsSettingsService(
     private fun ResultRow.toResponse(): MetricsSettingsResponse {
         val months = this[Settings.historyHorizonMonths]
         // The horizon's first day is server-computed in the configured zone so the admin form never does month arithmetic.
-        val today = Instant.ofEpochMilli(nowMillis()).atZone(ZoneId.of(this[Settings.timeZone])).toLocalDate()
+        val today = Instant.ofEpochMilli(nowMillis()).atZone(WorkingCalendar.zoneOf(this[Settings.timeZone])).toLocalDate()
         return MetricsSettingsResponse(
             configRevision = this[Settings.configRevision],
             hoursPerDay = this[Settings.hoursPerDay].toDouble(),

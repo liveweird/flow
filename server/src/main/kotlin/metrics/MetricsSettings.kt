@@ -85,7 +85,7 @@ internal fun MetricsSettingsResponse.asRequest(): MetricsSettingsRequest = Metri
 
 /**
  * Enforced by the route AND re-checked by the service (the `validateTeam` idiom) — mirrors every
- * CHECK constraint `V15__create_metrics_config.sql` declares on `metrics.settings`, plus the
+ * CHECK constraint `metrics.settings` carries (V15, V31, V39), plus the
  * checks no CHECK constraint can express (`ZoneId.of`, the all-weekend and
  * percentile-set rules below).
  */

@@ -7,13 +7,15 @@ import ch.nokillswit.metrics.MetricsSettingsRequest
 import ch.nokillswit.metrics.historyHorizonOf
 import ch.nokillswit.metrics.validateMetricsSettings
 import io.ktor.server.plugins.BadRequestException
+import java.sql.SQLException
 import java.time.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
-/** The pure kernel and validation of the history horizon (domain-model A48): no database, no clock. */
+/** The kernel and validation of the history horizon (domain-model A48), and the V39 column they mirror. */
 class HistoryHorizonTest {
 
     private val valid = MetricsSettingsRequest(
@@ -62,5 +64,29 @@ class HistoryHorizonTest {
     fun `the bounds are the ones the V39 CHECK enforces`() {
         assertEquals(6, MIN_HISTORY_HORIZON_MONTHS)
         assertEquals(120, MAX_HISTORY_HORIZON_MONTHS)
+        // The live singleton row, inside a transaction that is always rolled back: the CHECK refuses one month either side of the
+        // bounds and accepts the bounds and null; the column default is 24.
+        PostgresTestSupport.connect().use { db ->
+            db.autoCommit = false
+            try {
+                db.createStatement().use { st ->
+                    fun set(value: String) = st.execute("SAVEPOINT p; UPDATE metrics.settings SET history_horizon_months = $value")
+                    for (bad in listOf(MIN_HISTORY_HORIZON_MONTHS - 1, MAX_HISTORY_HORIZON_MONTHS + 1)) {
+                        assertEquals("23514", assertFailsWith<SQLException>("$bad") { set("$bad") }.sqlState, "$bad")
+                        st.execute("ROLLBACK TO SAVEPOINT p")
+                    }
+                    listOf("$MIN_HISTORY_HORIZON_MONTHS", "$MAX_HISTORY_HORIZON_MONTHS", "NULL").forEach { set(it) }
+                    st.executeQuery(
+                        "SELECT column_default FROM information_schema.columns " +
+                            "WHERE table_schema = 'metrics' AND table_name = 'settings' AND column_name = 'history_horizon_months'",
+                    ).use { rs ->
+                        assertTrue(rs.next())
+                        assertEquals("24", rs.getString(1))
+                    }
+                }
+            } finally {
+                db.rollback()
+            }
+        }
     }
 }
