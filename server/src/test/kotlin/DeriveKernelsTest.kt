@@ -2,14 +2,19 @@ package ch.nokillswit
 
 import ch.nokillswit.metrics.ActiveWait
 import ch.nokillswit.metrics.BlockedInterval
+import ch.nokillswit.metrics.DomainScope
 import ch.nokillswit.metrics.ItemStage
 import ch.nokillswit.metrics.SprintBucket
 import ch.nokillswit.metrics.SprintScopeItem
 import ch.nokillswit.metrics.StageInterval
+import ch.nokillswit.metrics.TaskDomainRow
 import ch.nokillswit.metrics.activeWaitMs
 import ch.nokillswit.metrics.blockedIntervals
 import ch.nokillswit.metrics.bucketMd
+import ch.nokillswit.metrics.coverFromTheStart
 import ch.nokillswit.metrics.dimDateRange
+import ch.nokillswit.metrics.domainHistoryRows
+import ch.nokillswit.metrics.epicDomainKeyAt
 import ch.nokillswit.metrics.epicDriftFlags
 import ch.nokillswit.metrics.epicPlanBaselines
 import ch.nokillswit.metrics.estimateAt
@@ -1326,5 +1331,100 @@ class DeriveKernelsTest {
         assertTrue(!inPvHorizon(isoMs("2016-03-04"), isoMs("2026-06-30"), dimNow))
         assertTrue(!inPvHorizon(isoMs("2026-01-05"), isoMs("2036-03-06"), dimNow))
         assertTrue(!inPvHorizon(isoMs("2026-01-05"), isoMs("9999-12-31"), dimNow))
+    }
+
+    @Test
+    fun `epicDomainKeyAt reads the covering epic row half-open and falls back to the current domain without one`() {
+        val history = listOf(TaskDomainRow(7L, "AAA", 1_000L, 5_000L), TaskDomainRow(7L, "BBB", 5_000L, null))
+        assertEquals("AAA", epicDomainKeyAt(history, 1_000L, "ZZZ"), "the first row covers its own from instant")
+        assertEquals("AAA", epicDomainKeyAt(history, 4_999L, "ZZZ"))
+        assertEquals("BBB", epicDomainKeyAt(history, 5_000L, "ZZZ"), "half-open [from, to): the NEW row covers the boundary")
+        assertEquals("BBB", epicDomainKeyAt(history, 90_000L, "ZZZ"), "the open row covers every later instant")
+        assertEquals("ZZZ", epicDomainKeyAt(history, 999L, "ZZZ"), "an anchor before the epic's first row falls back to its current domain")
+        assertEquals("ZZZ", epicDomainKeyAt(emptyList(), 5_000L, "ZZZ"), "an epic with no history at all falls back too")
+        val unparsed = listOf(TaskDomainRow(7L, null, 1_000L, null))
+        assertEquals("ZZZ", epicDomainKeyAt(unparsed, 2_000L, "ZZZ"), "a covering row whose key failed to parse falls back, the task rule")
+        assertNull(epicDomainKeyAt(emptyList(), 5_000L, null), "no current domain either: none")
+    }
+
+    private fun keyChange(atMs: Long, from: String, to: String) = FieldChangeRow(7L, "issuekey", "Key", atMs, from, from, to, to)
+
+    @Test
+    fun `domainHistoryRows gives a non-ingested project's row the item's CURRENT domain, a move between its own domains stays as-was`() {
+        val scope = DomainScope(mapOf("AAA" to "DOMX", "BBB" to "DOMY"), setOf("AAA", "BBB", "CCC"))
+        // A move IN from a project the data source does not read (OUT): the pre-move row carries the current domain, never the raw key.
+        assertEquals(
+            listOf(TaskDomainRow(7L, "DOMY", 100L, 500L), TaskDomainRow(7L, "DOMY", 500L, null)),
+            domainHistoryRows(7L, 100L, "BBB-9", "BBB", listOf(keyChange(500L, "OUT-9", "BBB-9")), scope),
+        )
+        // A move between two of its own domains is attributed as-was; the mapped key is the domain, an unmapped read one is its own.
+        assertEquals(
+            listOf(TaskDomainRow(7L, "DOMX", 100L, 500L), TaskDomainRow(7L, "DOMY", 500L, 900L), TaskDomainRow(7L, "CCC", 900L, null)),
+            domainHistoryRows(
+                7L, 100L, "CCC-9", "CCC", listOf(keyChange(500L, "AAA-9", "BBB-9"), keyChange(900L, "BBB-9", "CCC-9")), scope,
+            ),
+        )
+        // Out of scope in the MIDDLE of a chain: AAA -> OUT -> BBB reads DOMX, then the current DOMY twice.
+        assertEquals(
+            listOf(TaskDomainRow(7L, "DOMX", 100L, 500L), TaskDomainRow(7L, "DOMY", 500L, 900L), TaskDomainRow(7L, "DOMY", 900L, null)),
+            domainHistoryRows(
+                7L, 100L, "BBB-9", "BBB", listOf(keyChange(500L, "AAA-9", "OUT-9"), keyChange(900L, "OUT-9", "BBB-9")), scope,
+            ),
+        )
+        // An item whose own current project is not read either keeps the raw rule (a defensive total: DERIVE's scope always
+        // holds a live item's project).
+        assertEquals(
+            listOf(TaskDomainRow(7L, "OUT", 100L, 500L), TaskDomainRow(7L, "ZZZ", 500L, null)),
+            domainHistoryRows(7L, 100L, "ZZZ-9", "ZZZ", listOf(keyChange(500L, "OUT-9", "ZZZ-9")), scope),
+        )
+        // A history project that is only in the domain map still counts as read.
+        val mapOnly = DomainScope(mapOf("AAA" to "DOMX"), setOf("BBB"))
+        val moved = domainHistoryRows(7L, 100L, "BBB-9", "BBB", listOf(keyChange(500L, "AAA-9", "BBB-9")), mapOnly)
+        assertEquals("DOMX", moved.first().domainKey)
+    }
+
+    /** Real Jira's key change: `from`/`to` are null, the keys sit in `fromString`/`toString` only (the text columns). */
+    private fun realKeyChange(atMs: Long, from: String, to: String) = FieldChangeRow(7L, "issuekey", "Key", atMs, null, from, null, to)
+
+    @Test
+    fun `domainHistoryRows reads the real key-change shape, the keys in the text columns with null value columns`() {
+        val scope = DomainScope(mapOf("AAA" to "DOMX", "BBB" to "DOMY"), setOf("AAA", "BBB"))
+        assertEquals(
+            listOf(TaskDomainRow(7L, "DOMX", 100L, 500L), TaskDomainRow(7L, "DOMY", 500L, null)),
+            domainHistoryRows(7L, 100L, "BBB-9", "BBB", listOf(realKeyChange(500L, "AAA-9", "BBB-9")), scope),
+            "the null from/to must not hide the keys: they are read from fromText/toText",
+        )
+    }
+
+    @Test
+    fun `a configured project stays in the scope without an item, and one outside it reads the current domain`() {
+        // CFG has no live item (all its issues moved to BBB) but is among the configured project keys the caller adds to the scope.
+        val withConfigured = DomainScope(mapOf("BBB" to "DOMY"), setOf("BBB", "CFG"))
+        assertEquals(
+            listOf(TaskDomainRow(7L, "CFG", 100L, 500L), TaskDomainRow(7L, "DOMY", 500L, null)),
+            domainHistoryRows(7L, 100L, "BBB-9", "BBB", listOf(keyChange(500L, "CFG-9", "BBB-9")), withConfigured),
+            "a configured project is read: its pre-move row stays as-was",
+        )
+        // The same history without the configured key in the scope would re-attribute the whole pre-move row to the current domain.
+        val withoutConfigured = DomainScope(mapOf("BBB" to "DOMY"), setOf("BBB"))
+        assertEquals(
+            listOf(TaskDomainRow(7L, "DOMY", 100L, 500L), TaskDomainRow(7L, "DOMY", 500L, null)),
+            domainHistoryRows(7L, 100L, "BBB-9", "BBB", listOf(keyChange(500L, "CFG-9", "BBB-9")), withoutConfigured),
+        )
+    }
+
+    @Test
+    fun `coverFromTheStart stretches an epic's first covering row to instant 0 and drops an empty row`() {
+        val moved = listOf(TaskDomainRow(7L, "AAA", 1_000L, 5_000L), TaskDomainRow(7L, "BBB", 5_000L, null))
+        assertEquals(listOf(TaskDomainRow(7L, "AAA", 0L, 5_000L), TaskDomainRow(7L, "BBB", 5_000L, null)), coverFromTheStart(moved))
+        // A change clamped to the creation instant leaves an empty first row; the row that really covers is stretched instead.
+        val clamped = listOf(TaskDomainRow(7L, "OLD", 1_000L, 1_000L), TaskDomainRow(7L, "BBB", 1_000L, null))
+        assertEquals(listOf(TaskDomainRow(7L, "BBB", 0L, null)), coverFromTheStart(clamped))
+        assertEquals(
+            "AAA",
+            epicDomainKeyAt(coverFromTheStart(moved), 10L, "ZZZ"),
+            "an anchor before the epic's creation reads the domain at creation, not the current one",
+        )
+        assertEquals(emptyList(), coverFromTheStart(emptyList()))
     }
 }

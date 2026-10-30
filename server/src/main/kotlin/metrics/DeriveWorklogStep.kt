@@ -7,7 +7,9 @@ import ch.nokillswit.norm.hierarchyBucket
 /**
  * The worklog step's own body (`.claude/docs/metrics.md` "Worklog cost facts (fact_worklog)", `.claude/docs/domain-model.md`
  * "Cross-team time"/D3): one `fact_worklog` row per `norm.work_item_worklogs` row of a live item, carrying the author's team AND
- * the task's domain/epic, BOTH as-of the worklog's own `started_at` — never the item's current/done-time values.
+ * the task's domain/epic, BOTH as-of the worklog's own `started_at` — never the item's current/done-time values. The epic's domain
+ * (`epic_domain_key`, and the A22 owner-team fallback keyed on it) is read as of `started_at` too (A47); an epic-logged worklog's
+ * `task_domain_key` is that same as-of epic domain.
  *
  * **Two writers, split by what the item is to the model (A31).** The worklogs of every TASK, sub-task and EPIC come from ONE
  * `INSERT ... SELECT` ([worklogFactSql]) over the bridges and dimensions this run has already written — no worklog row is ever

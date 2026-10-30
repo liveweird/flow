@@ -185,7 +185,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
   create a connection against the Jira stub → test connection → sync it end to end (polling until
   the job succeeds and the raw-store counts show the full 1,201-issue in-scope dataset) → read the
   data profile and the raw issue inspector (a known key, then a malformed one) → delete from the
-  list; a regular user sees no Data sources nav link and is bounced from the URL.
+  list; the editor refuses a backfill date before the history horizon (the floor, A48) with nothing sent; a regular user sees no Data sources nav link and is bounced from the URL.
 - [`metrics-config.spec.ts`](scenarios/metrics-config.md) — the v0.3.0 metrics CONFIGURATION
   surfaces (the reports are `reports.spec.ts`): the global Metrics settings form (a save of the aging window and the epic estimate gap tolerance
   persists, an all-weekend-days value is refused inline) restored to its pre-test values through

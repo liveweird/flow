@@ -40,6 +40,7 @@ internal suspend fun buildContext(
     now: Long,
     hoursPerDay: Double,
     epicDriftDays: Int,
+    configuredProjectKeys: Set<String>,
 ): DeriveContext {
     val stageMap = config.statusStages.associate { it.statusId to ItemStage.valueOf(it.stage.name) }
     val configMaps = ConfigMaps(
@@ -55,6 +56,7 @@ internal suspend fun buildContext(
         epicDriftDays = epicDriftDays,
         epicStartFieldId = config.fields.epicStart,
         epicDueFieldId = config.fields.epicDue,
+        configuredProjectKeys = configuredProjectKeys,
     )
     val sprints = workItemStore.allSprintRefs(connectionId)
     val activeTeamIds = activeTeamIds()

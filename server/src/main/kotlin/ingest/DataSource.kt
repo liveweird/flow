@@ -169,10 +169,40 @@ private const val MAX_BACKFILL_YEARS_BACK = 10L
 private fun backfillFloor(): LocalDate =
     maxOf(LocalDate.of(2000, 1, 1), LocalDate.now(ZoneOffset.UTC).minusYears(MAX_BACKFILL_YEARS_BACK))
 
-/** Trims/canonicalizes the scalars — the sanitizer convention (control characters are a 400). */
-fun sanitizedDataSourceRequest(request: DataSourceRequest): DataSourceRequest = request.copy(
+/**
+ * What a `backfillFrom` write may name today (domain-model A48): [defaultFrom] is what a blank one becomes, [floor] the earliest day a
+ * created or MOVED date may take. Both already include the legacy structural floor, so [defaultFrom] always passes [validateDataSource].
+ */
+data class BackfillPolicy(val defaultFrom: LocalDate, val floor: LocalDate)
+
+/**
+ * The policy for the history horizon's first day [horizonFrom] (null = the horizon is off): the floor is the later of the horizon and
+ * the legacy 10-year floor, and the default is today minus [DEFAULT_BACKFILL_MONTHS] raised to that floor when the floor is later --
+ * the horizon only ever RAISES the default, so a long horizon never silently widens a blank date into a longer backfill.
+ */
+fun backfillPolicyFor(horizonFrom: LocalDate?): BackfillPolicy {
+    val floor = maxOf(backfillFloor(), horizonFrom ?: backfillFloor())
+    val defaultFrom = LocalDate.now(ZoneOffset.UTC).minusMonths(DEFAULT_BACKFILL_MONTHS)
+    return BackfillPolicy(defaultFrom = maxOf(defaultFrom, floor), floor = floor)
+}
+
+/**
+ * The horizon floor on a sanitized, already-[validateDataSource]d request (which has refused anything before the legacy 10-year
+ * floor, so a date failing here is one the history horizon refuses); `DataSourceService` calls it on create and on a moving update.
+ */
+fun requireBackfillNotBefore(request: DataSourceRequest, policy: BackfillPolicy) {
+    if (LocalDate.parse(checkNotNull(request.backfillFrom)).isBefore(policy.floor)) {
+        throw BadRequestException("backfillFrom must not be before ${policy.floor} (the history horizon)")
+    }
+}
+
+/**
+ * Trims/canonicalizes the scalars — the sanitizer convention (control characters are a 400); a blank `backfillFrom` becomes
+ * [defaultFrom].
+ */
+fun sanitizedDataSourceRequest(request: DataSourceRequest, defaultFrom: LocalDate): DataSourceRequest = request.copy(
     name = sanitizeSingleLine(request.name, "Name"),
-    backfillFrom = sanitizeSingleLine(request.backfillFrom ?: defaultBackfillFrom(), "Backfill date"),
+    backfillFrom = sanitizeSingleLine(request.backfillFrom ?: defaultFrom.toString(), "Backfill date"),
     jira = sanitizedJiraConnectionRequest(request.jira),
 )
 
@@ -192,7 +222,8 @@ fun sanitizedJiraConnectionRequest(jira: JiraConnectionRequest): JiraConnectionR
 
 /**
  * The data-source rules — enforced by the route AND re-checked by the service (the `validateTeam` idiom);
- * both take an already-sanitized request.
+ * both take an already-sanitized request. `backfillFrom` gets only the structural bounds here; the history-horizon floor
+ * ([BackfillPolicy.floor]) reads another feature's setting and, on update, the stored date, so `DataSourceService` enforces it.
  */
 fun validateDataSource(request: DataSourceRequest, apiTokenRequired: Boolean) {
     if (request.name.isBlank() || request.name.length > MAX_DATA_SOURCE_NAME_LENGTH) {

@@ -17,6 +17,46 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.30.0",
+    date: "2026-10-30",
+    en: `**Data sources: the history horizon is also the earliest backfill date.**
+
+- When a history horizon is set in the metrics settings, a data source can no longer be set to fetch Jira history from before it. A blank date still means 24 months back, or the horizon's first day when that is later.
+- An existing data source keeps its saved date; only moving the date earlier than the horizon is refused. Syncs that are already running are not affected.`,
+    pl: `**Źródła danych: horyzont historii jest też najwcześniejszą datą pobierania.**
+
+- Gdy w ustawieniach metryk jest ustawiony horyzont historii, źródła danych nie można już ustawić tak, by pobierało historię z Jiry sprzed niego. Puste pole nadal oznacza 24 miesiące wstecz albo pierwszy dzień horyzontu, jeśli jest późniejszy.
+- Istniejące źródło danych zachowuje zapisaną datę; odrzucane jest tylko przesunięcie daty przed horyzont. Trwające synchronizacje nie są zmieniane.`,
+  },
+  {
+    version: "1.29.0",
+    date: "2026-10-30",
+    en: `**Metrics settings: a history horizon.**
+
+- Administrators can now set how far back the reports look: 24 months by default, anything from 6 to 120 months, or no limit. The settings page shows the first day that still counts.
+- This version only stores the setting; the reports start to follow it in the next versions. Nothing is ever deleted: raising the horizon or turning it off brings older work back.`,
+    pl: `**Ustawienia metryk: horyzont historii.**
+
+- Administratorzy mogą teraz ustawić, jak daleko wstecz sięgają raporty: domyślnie 24 miesiące, dowolnie od 6 do 120 miesięcy albo bez limitu. Strona ustawień pokazuje pierwszy dzień, który jeszcze się liczy.
+- Ta wersja tylko zapisuje ustawienie; raporty zaczną je uwzględniać w kolejnych wersjach. Nic nie jest usuwane: wydłużenie horyzontu lub jego wyłączenie przywraca starszą pracę.`,
+  },
+  {
+    version: "1.28.0",
+    date: "2026-10-30",
+    en: `**Reports: work stays with the domain it was done in when an issue or epic moves between your projects.**
+
+- When a task or an epic moves from one of your projects to another, work done and tasks finished before the move now count for the domain they belonged to at the time, in Costs, Throughput, Epic progress and the other domain views. Before, everything followed the item to its new project.
+- Moves recorded in Jira's history were partly missed until now; they are read correctly from this version on. The first sync after the update re-reads every stored issue, so it takes longer than usual.
+- Moves from projects this data source does not read keep counting for the item's current domain, so older history is not lost from your domains. A move between two projects of the same data source is the case that changes: the earlier work stays with the domain it had.
+- An epic's own list entry still appears under its current domain, so in Epic progress a moved epic's row can differ from its domain totals.`,
+    pl: `**Raporty: praca zostaje przy domenie, w której ją wykonano, gdy zgłoszenie lub epik przechodzi między Twoimi projektami.**
+
+- Gdy zadanie lub epik przechodzi z jednego z Twoich projektów do innego, praca wykonana i zadania zakończone przed przeniesieniem liczą się teraz dla domeny, do której wtedy należały — w kosztach, przepustowości, postępie epików i pozostałych widokach domen. Wcześniej wszystko przechodziło razem z elementem do nowego projektu.
+- Przeniesienia zapisane w historii Jiry były dotąd częściowo pomijane; od tej wersji są odczytywane poprawnie. Pierwsza synchronizacja po aktualizacji ponownie przetwarza wszystkie zapisane zgłoszenia, więc potrwa dłużej niż zwykle.
+- Przeniesienia z projektów, których to źródło danych nie odczytuje, nadal liczą się dla bieżącej domeny elementu, więc starsza historia nie znika z Twoich domen. Zmienia się dopiero przeniesienie między dwoma projektami tego samego źródła danych: wcześniejsza praca zostaje przy domenie, którą wtedy miała.
+- Sam epik nadal jest wymieniony pod swoją bieżącą domeną, więc w postępie epików wiersz przeniesionego epiku może różnić się od sum jego domeny.`,
+  },
+  {
     version: "1.27.3",
     date: "2026-10-29",
     en: `**Data sources: memory from a finished sync is released.**

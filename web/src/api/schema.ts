@@ -766,7 +766,9 @@ export interface paths {
          *     project key sits in two active data sources (a key already in another one answers
          *     `urn:flow:problem:data-source-project-overlap`). Both name the conflicting data source
          *     and, for the overlap, the shared keys in `detail`, and carry that data source's path
-         *     (`/api/v1/data-sources/{id}`) as `instance`; a soft-deleted source holds nothing.
+         *     (`/api/v1/data-sources/{id}`) as `instance`; a soft-deleted source holds nothing. A
+         *     `backfillFrom` before the history horizon's first day (`historyHorizonFrom` on the metrics
+         *     settings) is `400`; a blank one becomes today minus 24 months, or that day when it is later.
          */
         post: operations["createDataSource"];
         delete?: never;
@@ -849,7 +851,10 @@ export interface paths {
          *     shared keys, `instance` is its path `/api/v1/data-sources/{id}`); the site never changes
          *     on update, so the one-Jira-site rule cannot fire here. A save also lifts the ceiling-trip
          *     pauses (SYNC's `status.pausedAt` and RECONCILE's `status.reconcilePausedAt`) with their trip counts,
-         *     each audited as `data_source.resumed`.
+         *     each audited as `data_source.resumed`. A `backfillFrom` that MOVES to a day before the
+         *     history horizon's first day (`historyHorizonFrom` on the metrics settings) is `400`; the
+         *     stored date unchanged is accepted however old it is, and a blank one becomes today minus 24
+         *     months, or the horizon's first day when that is later.
          */
         put: operations["updateDataSource"];
         post?: never;
@@ -1293,9 +1298,11 @@ export interface paths {
          *     the resolved sprints' overall envelope `[min(start_at, else complete_at, else now), max(complete_at,
          *     else now)]` — an open sprint (no `complete_at`, reachable only by an explicit `sprintId`) ends at the
          *     request's now, and a future sprint yields an empty period view. `domain` (with
-         *     `domainView`: TASK = the task's own domain, EPIC = the epic's domain with an epic-less task
-         *     falling back to its own when `epic_domain_key` is null, which also covers an epic outside the ingested
-         *     scope — A21), `activityType` and `workCategory` (`UNCATEGORIZED` = none)
+         *     `domainView`: TASK = the task's own domain, EPIC = the epic's domain as of the row's anchor (`done_at`,
+         *     or `started_at` for worklogs, A47) with an epic-less task
+         *     falling back to its own when `epic_domain_key` is null: the task has no epic, or its epic is not an ingested
+         *     item — A21; an epic that moved in from a project the data source does not read is not null, its
+         *     earlier rows read its current domain, A47), `activityType` and `workCategory` (`UNCATEGORIZED` = none)
          *     slice the period view only; the sprint view carries no slice. Levels: UNIT (a `domain` with no `teamId`) — `groups`
          *     are one per credit team (a `teamId: null` group is UNASSIGNED); `teamId` narrows to TEAM level
          *     (`bySprint` to that team's sprints, the period view to tasks credited to that team — `teamId=0`
@@ -2126,8 +2133,8 @@ export interface paths {
          *     (that path is gone, no alias; the author-team × domain matrix, its per-person capacity column, the zero rows, the `split` and
          *     the by-epic table were removed with the rename). Every worklog whose `started_at` falls in the period (a sprint-relative
          *     period reads the resolved sprints' envelope), narrowed by the shared slices: `domain` (with `domainView`: `EPIC`, the default,
-         *     uses the task's epic's domain, an epic-less task falling back to its own; `TASK` the task's own domain; a worklog logged on an
-         *     epic takes the epic's own domain in both views, A21), `activityType`, `workCategory` (`UNCATEGORIZED` = none) and
+         *     uses the task's epic's domain as of `started_at` (A47), an epic-less task falling back to its own; `TASK` the task's own domain;
+         *     a worklog logged on an epic takes the epic's own domain as of `started_at` in both views, A21/A47), `activityType`, `workCategory` (`UNCATEGORIZED` = none) and
          *     `connectionId`. The level narrows the worklogs by their AUTHOR's team as of `started_at`: UNIT (a `domain` with no `teamId`) every worklog of the domain;
          *     `teamId` the worklogs authored by that team's members (`teamId=0`: the authors in no team); `teamId` and `accountId` that one
          *     person's. `totalMd` is the rounded EXACT sum of every worklog in scope (never a sum of rounded parts, so it can differ from
@@ -2873,7 +2880,7 @@ export interface components {
             syncIntervalMinutes: number;
             /**
              * Format: date
-             * @description ISO date (YYYY-MM-DD), not in the future and not more than 10 years back (nor before 2000-01-01). Omitted computes today minus 24 months.
+             * @description ISO date (YYYY-MM-DD), not in the future and not more than 10 years back (nor before 2000-01-01), and not before the history horizon's first day (`historyHorizonFrom` on the metrics settings; an update that leaves the stored date unchanged is exempt). Omitted or null takes today minus 24 months, or that first day when it is later (the horizon only floors the default, it never widens it).
              */
             backfillFrom?: string | null;
             /** @default 3 */
@@ -5876,7 +5883,7 @@ export interface components {
             missing: components["schemas"]["DataQualityMissing"];
             /** @description DONE tasks with no sprint at done (D10); `md` is their estimate at done. */
             outsideSprint: components["schemas"]["DataQualityTaskFinding"];
-            /** @description DONE tasks whose epic lives in another domain. */
+            /** @description DONE tasks whose epic's domain as of `done_at` (A47) is not the task's own domain. */
             crossDomain: components["schemas"]["DataQualityTaskFinding"];
             /** @description Epics with a D11 drift flag. */
             epicDrift: components["schemas"]["DataQualityEpicList"];

@@ -414,8 +414,8 @@ class MetricsDerivationTest {
             }
         }
 
-        // task_epic/task_domain/task_assignee are TASK-only bridges (review round 2a: "skip epics
-        // for task_* bridges") — an epic issue id must never appear as the issueId of a task_assignee row.
+        // task_epic/task_assignee are TASK-only bridges (review round 2a: "skip epics for task_* bridges"; task_domain also
+        // holds the epics' rows since A47) — an epic issue id must never appear as the issueId of a task_assignee row.
         val epicIds = suspendTransaction(sharedDatabaseForTests()) {
             MetricsTables.DimEpic.selectAll().where { MetricsTables.DimEpic.connectionId eq connId }
                 .toList().map { it[MetricsTables.DimEpic.issueId] }.toSet()
@@ -3007,21 +3007,46 @@ class MetricsDerivationTest {
                 fun dayOf(ts: Long) = dayBounds.firstOrNull { ts >= it.second && ts < it.third }?.first
                     ?: error("timestamp $ts falls on no dim_date day — an event would be dropped from agg_daily_flow")
 
-                // EPIC -> DOMAIN as the facts themselves carry it (epic_domain_key): EV and AC group by that key.
-                val epicDomainByFacts = (
-                    doneTasks.map { it[ft.epicId]!!.toString() to it[ft.epicDomainKey] } +
-                        worklogs.filter { it[wl.epicId] != null }.map { it[wl.epicId]!!.toString() to it[wl.epicDomainKey] }
-                    ).toMap()
+                // A47: an epic's domain depends on the day. EV and AC: the domain the facts themselves carry (epic_domain_key) on that
+                // (epic, day). PV: the epic's own task_domain row covering the day's END instant (the aggregates' `(from, to]`
+                // convention), else its current domain. The stub has no epic move, so each (epic, day) has ONE domain here; a mover's
+                // EPIC row would list under its current domain at its full value while the DOMAIN rows split (measures.md).
+                val epicDomainByFactsDay = (
+                    doneTasks.map { (it[ft.epicId]!!.toString() to dayOf(it[ft.doneAt]!!)) to it[ft.epicDomainKey] } +
+                        worklogs.filter { it[wl.epicId] != null }
+                            .map { (it[wl.epicId]!!.toString() to dayOf(it[wl.startedAt])) to it[wl.epicDomainKey] }
+                    ).groupBy({ it.first }) { it.second }.mapValues { (key, domains) ->
+                    domains.distinct().also { assertEquals(1, it.size, "the stub has no epic move, so $key has one domain: $it") }.single()
+                }
+                val epicHistory = MetricsTables.TaskDomain.selectAll().where { MetricsTables.TaskDomain.connectionId eq connId }
+                    .toList().filter { it[MetricsTables.TaskDomain.issueId].toString() in epicDomainByDimEpic }
+                    .groupBy { it[MetricsTables.TaskDomain.issueId].toString() }
+                // Independent of the pass under test: the stub has no epic move, so every epic's stored history carries exactly its
+                // dim_epic domain (a wrong key written by the epic pass would otherwise be echoed by the oracle below).
+                epicDomainByDimEpic.forEach { (epicId, domainKey) ->
+                    val keys = epicHistory[epicId].orEmpty().map { it[MetricsTables.TaskDomain.domainKey] }
+                    assertTrue(keys.isNotEmpty(), "epic $epicId has task_domain rows")
+                    assertEquals(setOf(domainKey), keys.toSet(), "epic $epicId: every task_domain row is its dim_epic domain")
+                }
+                val dayEndByDay = dayBounds.associate { it.first to it.third }
+                fun pvDomainOf(epicId: String, day: String): String? {
+                    val end = dayEndByDay.getValue(day)
+                    val covering = epicHistory[epicId].orEmpty().firstOrNull {
+                        val to = it[MetricsTables.TaskDomain.validTo]
+                        it[MetricsTables.TaskDomain.validFrom] < end && (to == null || to >= end)
+                    }
+                    return covering?.get(MetricsTables.TaskDomain.domainKey) ?: epicDomainByDimEpic[epicId]
+                }
 
                 fun assertDomainEqualsEpics(
                     label: String,
                     column: org.jetbrains.exposed.v1.core.Column<java.math.BigDecimal>,
-                    domainOf: (String) -> String?,
+                    domainOf: (String, String) -> String?,
                     tolerancePerEpic: Double,
                 ): Int {
                     val epicSums = flowRows.filterKeys { it.kind == "EPIC" }.entries
                         .filter { it.value[column].signum() != 0 }
-                        .groupBy({ domainOf(it.key.scopeId) to it.key.day }) { it.value[column] }
+                        .groupBy({ domainOf(it.key.scopeId, it.key.day) to it.key.day }) { it.value[column] }
                     val domainRows = flowRows.filterKeys { it.kind == "DOMAIN" }.entries.filter { it.value[column].signum() != 0 }
                         .associate { (it.key.scopeId to it.key.day) to it.value[column] }
                     val expectedKeys = epicSums.keys.filter { it.first != null }.map { it.first!! to it.second }.toSet()
@@ -3036,9 +3061,11 @@ class MetricsDerivationTest {
                     }
                     return domainRows.size
                 }
-                val pvRows = assertDomainEqualsEpics("PV", flow.pvMd, { epicDomainByDimEpic[it] }, EXACT_TOLERANCE)
-                val evRows = assertDomainEqualsEpics("EV", flow.evMd, { epicDomainByFacts[it] }, EXACT_TOLERANCE)
-                val acRows = assertDomainEqualsEpics("AC", flow.acMd, { epicDomainByFacts[it] }, ROUNDING_TOLERANCE)
+                val pvRows = assertDomainEqualsEpics("PV", flow.pvMd, ::pvDomainOf, EXACT_TOLERANCE)
+                val evRows = assertDomainEqualsEpics("EV", flow.evMd, { epic, day -> epicDomainByFactsDay[epic to day] }, EXACT_TOLERANCE)
+                val acRows = assertDomainEqualsEpics(
+                    "AC", flow.acMd, { epic, day -> epicDomainByFactsDay[epic to day] }, ROUNDING_TOLERANCE,
+                )
                 assertTrue(pvRows > 0 && evRows > 0 && acRows > 0, "PV/EV/AC DOMAIN rows must all exist (pv=$pvRows ev=$evRows ac=$acRows)")
 
                 // The fact-derived oracle for DOMAIN EV and AC — independent of the EPIC rows.

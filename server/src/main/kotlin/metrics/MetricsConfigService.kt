@@ -339,4 +339,13 @@ class MetricsConfigService(
     suspend fun detectedSprintFieldId(connectionId: UInt): String? = suspendTransaction(database) {
         dataSources.readProfileSections(connectionId)?.customFields.orEmpty().firstOrNull { it.role == SPRINT_ROLE }?.id
     }
+
+    /**
+     * The project keys the connection's data source is CONFIGURED to read (`source_connections.settings.projectKeys`), through the
+     * owner's own read ([DataSourceService.read] — no table access from here): DERIVE's `task_domain` scope (A47), so a project whose
+     * issues all moved to another of the connection's projects still counts as one the data source reads. Empty for a connection that
+     * is gone (DERIVE then falls back to the live items' keys).
+     */
+    suspend fun configuredProjectKeys(connectionId: UInt): Set<String> =
+        dataSources.read(connectionId)?.jira?.projectKeys.orEmpty().toSet()
 }

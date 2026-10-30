@@ -39,6 +39,18 @@ the two never run at the same time, whatever the dispatch order.
 9. Back on the Data sources list, they delete the connection from its row menu.
    - *Expected*: the row is gone.
 
+## Scenario: admin cannot move a backfill date before the history horizon
+
+1. The admin signs in and opens **New data source**.
+   - *Expected*: the **Backfill from** hint names the history horizon's first day ("The history
+     horizon allows dates from YYYY-MM-DD on; blank means 24 months back, or that day when it is
+     later.") - 24 months back on a fresh stack.
+2. They fill a unique name, the site URL `https://flow-e2e.atlassian.net`, a service-account email,
+   an API token and one project key, then type a **Backfill from** date three years back and click
+   **Create**.
+   - *Expected*: the field shows "Backfill date must not be before YYYY-MM-DD (the history horizon)"
+     and no create request is sent; nothing is created, so there is nothing to clean up.
+
 ## Scenario: a regular user sees no Data sources surface
 
 1. The admin creates a throwaway user and signs out.

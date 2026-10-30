@@ -14,6 +14,7 @@ import ch.nokillswit.ingest.SyncCursorsServiceKey
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.ingest.SyncJobsServiceKey
 import ch.nokillswit.ingest.configuredScopeRules
+import ch.nokillswit.ingest.jobHandlerRegistry
 import ch.nokillswit.teams.TeamService
 import ch.nokillswit.teams.TeamServiceKey
 import ch.nokillswit.flowusers.FlowUserService
@@ -266,7 +267,7 @@ suspend fun Application.configureDatabase() {
     )
     // The first EncryptedAtRest consumer (infra/crypto/EncryptedAtRest.kt) — the FieldCipher was
     // published by configureCrypto, which application.yaml runs before this module.
-    attributes.put(DataSourceServiceKey, DataSourceService(database, attributes[FieldCipherKey], scopeRules))
+    attributes.put(DataSourceServiceKey, DataSourceService(database, attributes[FieldCipherKey], scopeRules, jobHandlerRegistry()))
     // The sync-job queue (v0.2.0 plan §5/§9): published here (not gated by role) since the web
     // role's job API (ingest/SyncJobRoutes.kt) enqueues/lists/cancels jobs too — only the actual
     // claim/scan loop (ingest/IngestWorker.kt) is worker-only.
