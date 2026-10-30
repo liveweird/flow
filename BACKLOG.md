@@ -25,10 +25,9 @@ The first real-Jira sync works end to end (2026-10-08, #112–#116): SYNC, PROCE
 
 Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 override the body.
 
-- [new] **Epic-level facts as-of.** A47 (1.28.0) made `epic_domain_key` as-of on task deliveries, worklogs and PV, but
-  the epic's OWN domain columns stay current: `dim_epic.domain_key`, `fact_epic_delivery.domain_key`/`owner_team_id`, the
-  WIP epic band and A34's done band, and Report 15's per-domain epic list. So a moved epic's row lists under its current
-  domain at its full value while the domain totals split at the move (documented in `measures.md`).
+- [next] **Epic-level facts as-of, the rest (A49).** 1.32.0 made the epic's own fact, its WIP bands and A34's DONE band
+  as-of; report 15's per-domain epic list still shows a moved epic once, under its current domain, at its full value
+  (split rows with each domain's share, `partial`, next release).
 - [blocked] **Sprint capacities from Jira Plans.** Probed 2026-10-08: the Plans REST API (`/rest/api/3/plans/plan`, then
   `…/team/atlassian/{id}` for `capacity`, `planningStyle`, `sprintLength` and `issueSourceId`) returns 403 to the sync
   service account: "You do not have the Administer Jira global permission". Every Plans endpoint needs it, reads included.
