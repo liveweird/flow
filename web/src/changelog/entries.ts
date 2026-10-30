@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.32.0",
+    date: "2026-10-30",
+    en: `**Epics that changed project are counted where they were.**
+
+- A finished epic now belongs to the domain it was in when it was finished, like its tasks. Epic accuracy, Cycle time, Blocked time, estimate adjustments and data quality follow that rule.
+- Work in progress counts an epic under the domain it was in on each day, and the Done band uses the domain at the moment it was finished. Open epics are unchanged.`,
+    pl: `**Epiki, które zmieniły projekt, liczą się tam, gdzie były.**
+
+- Zakończony epik należy teraz do domeny, w której był w chwili zakończenia, tak jak jego zadania. Trafność epików, Czas cyklu, Czas zablokowania, zmiany estymacji i jakość danych stosują tę zasadę.
+- Praca w toku liczy epik w domenie, w której był danego dnia, a pasmo Zakończone używa domeny z chwili zakończenia. Otwarte epiki się nie zmieniają.`,
+  },
+  {
     version: "1.31.0",
     date: "2026-10-30",
     en: `**Reports: work since the history horizon.**

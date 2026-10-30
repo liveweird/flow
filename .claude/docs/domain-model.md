@@ -958,13 +958,13 @@ carries the per-measure detail).
   - Operational detail: `.claude/docs/persistence.md` "History horizon (V39)", `.claude/docs/metrics.md` "Configuration model".
 - **A49 — An epic's own facts, its WIP bands and its report 15 rows follow the domain the epic was in** (agreed with the user 2026-10-30; completes A47, which made only the rows that CARRY an
   epic's domain as-of): a finished epic is attributed, like a finished task (A21), to the domain it had when it finished. An epic that moved projects therefore stays in the old domain's
-  cycle time, accuracy and throughput history, and its work in progress before the move stays in the old domain's bands. `dim_epic.domain_key` stays the domain NOW, as `dim_task.domain_key`
+  cycle time and accuracy history, and its work in progress before the move stays in the old domain's bands. `dim_epic.domain_key` stays the domain NOW, as `dim_task.domain_key`
   does, and is the `COALESCE` fallback of every as-of read below.
   - **The history and the kernels** are A47's: the epic's `issuekey` changes in `metrics.task_domain` (the first row from instant 0), `epicDomainKeyAt`, the unread-project rule and the
     fallbacks. No migration and no `PROCESSING_VERSION` bump: the next DERIVE writes the new values.
-  - **The fact.** `fact_epic_delivery.domain_key` is the epic's domain at `done_at ?: the DERIVE clock`, half-open `[from, to)` (an epic done exactly at its move is in the NEW domain), and
-    `owner_team_id` is the owner of THAT domain (`dim_domain.owner_team_id` has no history, so the owner is the as-of domain's owner NOW, A19/A22). An open epic is read at the clock, so it
-    is in its current domain and every open-item surface (aging WIP, open items, estimate gap) is unchanged. Every reader of the fact follows (cycle time, epic accuracy, estimate adjustments,
+  - **The fact.** `fact_epic_delivery.domain_key` is the epic's domain at `done_at`, half-open `[from, to)` (an epic done exactly at its move is in the NEW domain), and
+    `owner_team_id` is the owner of THAT domain (`dim_domain.owner_team_id` has no history, so the owner is the as-of domain's owner NOW, A19/A22). An open epic (no `done_at`) keeps its current domain directly, so
+    every open-item surface (aging WIP, open items, estimate gap) is unchanged. Every reader of the fact follows (cycle time, epic accuracy, estimate adjustments,
     blocked time, data quality's done epics, the Home drills), by domain and by team.
   - **The WIP epic band** (`agg_daily_wip` TEAM/EPIC and DOMAIN/EPIC) reads the epic's domain at the END of each day, `(from, to]` like PV (A47): a move exactly at a day's end leaves that day in the OLD
     domain; TEAM/EPIC follows the as-of domain's owner.

@@ -109,14 +109,18 @@ internal fun domainRows(connId: UInt, issueId: Long): List<Triple<String?, Long,
     connId.toLong(), issueId,
 ).map { Triple(it[0] as String?, it[1] as Long, it[2] as Long?) }
 
-/** Copies the shared connection's profile onto [connId] (as `cloneProcessedData` does) and returns three custom field ids to use. */
-internal suspend fun cloneProfileFields(connId: UInt): Triple<String, String, String> {
+/**
+ * Copies [sourceConnId]'s profile (the shared synced connection; the caller passes `SyncedStubFixture.connectionId()` so the
+ * fixture trigger stays in a class that warms it, `StubFixtureWarmupGuardTest`) onto [connId], as `cloneProcessedData` does,
+ * and returns three custom field ids to use.
+ */
+internal suspend fun cloneProfileFields(connId: UInt, sourceConnId: UInt): Triple<String, String, String> {
     PostgresTestSupport.connect().use { c ->
         c.createStatement().use { st ->
             val table = DataSourceService.Connections.tableName
             st.executeUpdate(
                 "UPDATE $table SET profile = src.profile, profile_at = src.profile_at " +
-                    "FROM $table src WHERE src.id = ${SyncedStubFixture.connectionId()} AND $table.id = $connId",
+                    "FROM $table src WHERE src.id = $sourceConnId AND $table.id = $connId",
             )
         }
     }
