@@ -924,7 +924,7 @@
       "epic": "Epik"
     },
     "epicsTitle": "Epiki",
-    "epicsCaption": "Epiki tej domeny, które mają plan albo jakąkolwiek wartość wypracowaną lub koszt; epik, który zmienił domenę, pokazuje tylko udział tej domeny, więc wiersze sumują się do sum powyżej.",
+    "epicsCaption": "Epiki tej domeny, które mają plan albo jakąkolwiek wartość wypracowaną lub koszt; epik, który zmienił domenę, pokazuje tylko udział tej domeny, więc wiersze sumują się do łącznych wartości powyżej.",
     "partialBadge": "część",
     "partialTooltip": "Ten epik był też w innej domenie: ten wiersz zawiera tylko udział tej domeny. Widok epika pokazuje cały epik.",
     "noRows": "Na ten dzień nie ma czego wyświetlić.",

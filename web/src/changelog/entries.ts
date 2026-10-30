@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.33.0",
+    date: "2026-10-30",
+    en: `**Epic progress: an epic that changed domain is split between its domains.**
+
+- In a domain's view, an epic that moved between domains is listed under each domain it was in, with only that domain's share of the plan, earned value and cost. Such a row is marked "part".
+- So the epic rows of a domain now add up to the domain's totals. The epic view still shows the whole epic.`,
+    pl: `**Postęp epików: epik, który zmienił domenę, jest dzielony między swoje domeny.**
+
+- W widoku domeny epik przeniesiony między domenami jest pokazany w każdej domenie, w której był, tylko z udziałem tej domeny w planie, wartości wypracowanej i koszcie. Taki wiersz ma oznaczenie „część”.
+- Dzięki temu wiersze epików domeny sumują się teraz do łącznych wartości domeny. Widok epika nadal pokazuje cały epik.`,
+  },
+  {
     version: "1.32.0",
     date: "2026-10-30",
     en: `**Epics that changed project are counted where they were.**
