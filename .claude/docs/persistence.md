@@ -891,7 +891,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V38`:
+Current migrations are `V1`–`V39`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -1067,6 +1067,7 @@ Current migrations are `V1`–`V38`:
   `recordReconcileTrip`), by `recordReconcileSucceededRow` (reset) or by an ADMIN's resume (`resumeFromReconcilePauseRow`, the PUT's
   `clearReconcilePause`), under the connection row's `FOR NO KEY UPDATE`; the scheduler's RECONCILE scan (not SYNC's) filters on
   `reconcile_paused_at IS NULL`. `MigrationChecksumTest` pins it.
+- `V39__history_horizon_months` - see "History horizon (V39)" below: `metrics.settings.history_horizon_months`.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
@@ -1239,6 +1240,22 @@ which is also read at query time and also bumps. Purely additive (an old pod ign
   ownership do not filter it: Costs attributes a team's worklogs by author team across all active connections. Report code (Costs part 4) may read the table at query time.
 
 `MigrationChecksumTest` gains V32's pin.
+
+### History horizon (V39)
+
+`V39__history_horizon_months.sql` (domain-model A48): **`metrics.settings.history_horizon_months INTEGER NULL DEFAULT 24`** with
+`CHECK (history_horizon_months IS NULL OR (… >= 6 AND … <= 120))` -- the global "work older than this is noise" setting
+(`MetricsSettingsResponse`/`Request.historyHorizonMonths`, validated 6..120 or null server-side too; `metrics/HistoryHorizon.kt` holds the bounds and the pure
+`historyHorizonOf`). **NULL = off**: the request key is required-nullable (an absent key is a `400`, an explicit `null` turns the horizon off), and
+the column default 24 means an existing deployment wakes up at 24 months. The response also carries the server-computed `historyHorizonFrom` (today in
+`time_zone` minus the months, ISO date; null when off), so no form does month arithmetic; it is derived on every read, never stored.
+
+- **Read at query time**: no derived row depends on it, so the migration bumps no `config_revision` and enqueues no DERIVE (the V31 posture), and no
+  `raw`/`norm`/`metrics` row is ever removed because of it -- the horizon hides, it does not purge (raising it brings the figures back, no re-derive).
+  Editing it later goes through `MetricsSettingsService.replace`, whose uniform rule (any change bumps the revision and enqueues one debounced DERIVE per
+  enabled connection) is kept: the DERIVE is unnecessary but harmless, the same documented precedent as V31/`min_sample_size`.
+- **This release stores and edits the setting only**; the reports' read-time clamp and the data-source backfill floor follow.
+- Purely additive (an old pod ignores the column). `MigrationChecksumTest` gains V39's pin.
 
 ### Telemetry (V36)
 

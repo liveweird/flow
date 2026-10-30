@@ -40,6 +40,10 @@ data class MetricsSettingsResponse(
     val backlogWindowSprints: Int,
     val epicDriftDays: Int,
     val epicEstimateGapTolerancePercent: Int,
+    /** The history horizon in months (A48), null = off. */
+    val historyHorizonMonths: Int?,
+    /** The first day the horizon still shows (today in [timeZone] minus the months, ISO date), computed by the server; null when off. */
+    val historyHorizonFrom: String?,
     val updatedAt: Long,
     val updatedByUserId: UInt?,
 )
@@ -57,6 +61,8 @@ data class MetricsSettingsRequest(
     val backlogWindowSprints: Int,
     val epicDriftDays: Int,
     val epicEstimateGapTolerancePercent: Int,
+    /** Required-nullable on purpose (no default): an absent key is a 400, an explicit `null` turns the horizon off. */
+    val historyHorizonMonths: Int?,
 )
 
 /** The outcome of a PUT — [changed] false means an idempotent re-PUT, no write/revision bump/audit (the features-PUT precedent). */
@@ -74,6 +80,7 @@ internal fun MetricsSettingsResponse.asRequest(): MetricsSettingsRequest = Metri
     backlogWindowSprints = backlogWindowSprints,
     epicDriftDays = epicDriftDays,
     epicEstimateGapTolerancePercent = epicEstimateGapTolerancePercent,
+    historyHorizonMonths = historyHorizonMonths,
 )
 
 /**
@@ -114,5 +121,12 @@ fun validateMetricsSettings(request: MetricsSettingsRequest) {
     if (request.epicDriftDays < 0) throw BadRequestException("epicDriftDays must be >= 0")
     if (request.epicEstimateGapTolerancePercent !in PERCENT_RANGE) {
         throw BadRequestException("epicEstimateGapTolerancePercent must be between 0 and 100")
+    }
+    request.historyHorizonMonths?.let {
+        if (it !in MIN_HISTORY_HORIZON_MONTHS..MAX_HISTORY_HORIZON_MONTHS) {
+            throw BadRequestException(
+                "historyHorizonMonths must be between $MIN_HISTORY_HORIZON_MONTHS and $MAX_HISTORY_HORIZON_MONTHS, or null (off)",
+            )
+        }
     }
 }

@@ -15,7 +15,12 @@
       "backlogWindowSprints": "Okno zaległości (sprinty)",
       "epicDriftDays": "Próg dryfu epika (dni)",
       "epicEstimateGapTolerancePercent": "Tolerancja rozbieżności szacunku epika (%)",
-      "epicEstimateGapTolerancePercentHint": "O ile szacunek samego epika może się różnić od sumy jego zadań, zanim Jakość danych i Strona główna to oznaczą."
+      "epicEstimateGapTolerancePercentHint": "O ile szacunek samego epika może się różnić od sumy jego zadań, zanim Jakość danych i Strona główna to oznaczą.",
+      "historyHorizonEnabled": "Ogranicz historię",
+      "historyHorizonEnabledHint": "Praca starsza niż horyzont nie trafia do raportów. Zapisane dane zostają, więc podniesienie horyzontu przywraca je.",
+      "historyHorizonMonths": "Horyzont historii (miesiące)",
+      "historyHorizonMonthsHint": "Zapisane: liczy się praca od {{from}}.",
+      "historyHorizonMonthsHintOff": "Zapisane: bez ograniczenia."
     },
     "holidaysNote": "Święta są zawsze dniami wolnymi od pracy. Mają własną listę — nie są ustawieniem.",
     "holidaysLink": "Otwórz Święta państwowe",
@@ -47,7 +52,8 @@
       "agingPercentilesMustInclude85": "Percentyle starzenia muszą zawierać {{required}}",
       "backlogWindowSprints": "Okno zaległości musi obejmować co najmniej 1 sprint",
       "epicDriftDays": "Próg dryfu epika musi wynosić 0 lub więcej",
-      "epicEstimateGapTolerancePercent": "Tolerancja rozbieżności szacunku epika musi być liczbą całkowitą procent od 0 do 100"
+      "epicEstimateGapTolerancePercent": "Tolerancja rozbieżności szacunku epika musi być liczbą całkowitą procent od 0 do 100",
+      "historyHorizonMonths": "Horyzont historii musi być liczbą całkowitą miesięcy od {{min}} do {{max}}"
     }
   },
   "teamMembers": {

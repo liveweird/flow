@@ -106,6 +106,7 @@ test("admin adjusts metrics settings", async ({ page }) => {
       backlogWindowSprints: original.backlogWindowSprints,
       epicDriftDays: original.epicDriftDays,
       epicEstimateGapTolerancePercent: original.epicEstimateGapTolerancePercent,
+      historyHorizonMonths: original.historyHorizonMonths,
     },
   });
   expect(restore.ok(), await restore.text()).toBeTruthy();

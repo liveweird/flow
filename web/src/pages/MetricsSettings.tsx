@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ParseKeys } from "i18next";
 import { Link as RouterLink } from "react-router-dom";
-import { Anchor, Button, Chip, Group, Input, NumberInput, Paper, Select, Stack, TagsInput, Text } from "@mantine/core";
+import { Anchor, Button, Chip, Group, Input, NumberInput, Paper, Select, Stack, Switch, TagsInput, Text } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getMetricsSettings, updateMetricsSettings } from "../api/metrics";
@@ -14,6 +14,8 @@ import { publicHolidaysPath } from "../utils/publicHolidayLinks";
 import {
   EMPTY_METRICS_SETTINGS_FORM,
   fromMetricsSettingsResponse,
+  MAX_HISTORY_HORIZON_MONTHS,
+  MIN_HISTORY_HORIZON_MONTHS,
   metricsSettingsFormValidation,
   metricsSettingsSaveErrorMessage,
   supportedTimeZones,
@@ -162,6 +164,24 @@ export default function MetricsSettings() {
                 max={100}
                 allowDecimal={false}
                 {...form.getInputProps("epicEstimateGapTolerancePercent")}
+              />
+              <Switch
+                label={t("metrics.settings.field.historyHorizonEnabled")}
+                description={t("metrics.settings.field.historyHorizonEnabledHint")}
+                {...form.getInputProps("historyHorizonEnabled", { type: "checkbox" })}
+              />
+              <NumberInput
+                label={t("metrics.settings.field.historyHorizonMonths")}
+                description={
+                  settings.data?.historyHorizonFrom
+                    ? t("metrics.settings.field.historyHorizonMonthsHint", { from: settings.data.historyHorizonFrom })
+                    : t("metrics.settings.field.historyHorizonMonthsHintOff")
+                }
+                min={MIN_HISTORY_HORIZON_MONTHS}
+                max={MAX_HISTORY_HORIZON_MONTHS}
+                allowDecimal={false}
+                disabled={!form.values.historyHorizonEnabled}
+                {...form.getInputProps("historyHorizonMonths")}
               />
               {error && (
                 <FormErrorAlert>

@@ -9,6 +9,10 @@ const MAX_HOURS_PER_DAY = 24;
 const VALID_WEEKDAY_NUMBERS = [1, 2, 3, 4, 5, 6, 7] as const;
 const MIN_GAP_TOLERANCE_PERCENT = 0;
 const MAX_GAP_TOLERANCE_PERCENT = 100;
+/** The history horizon bounds (`MIN_`/`MAX_HISTORY_HORIZON_MONTHS` in metrics/HistoryHorizon.kt, the V39 CHECK) and the shipped default. */
+export const MIN_HISTORY_HORIZON_MONTHS = 6;
+export const MAX_HISTORY_HORIZON_MONTHS = 120;
+const DEFAULT_HISTORY_HORIZON_MONTHS = 24;
 const VALID_PERCENTILE_MIN = 1;
 const VALID_PERCENTILE_MAX = 99;
 /** Report 11 (aging WIP) reads `p85` off this list by name — the overview relies on it always being present. */
@@ -52,6 +56,10 @@ export type MetricsSettingsFormValues = {
   backlogWindowSprints: number;
   epicDriftDays: number;
   epicEstimateGapTolerancePercent: number;
+  /** The "Limit history" switch; off sends `historyHorizonMonths: null`. */
+  historyHorizonEnabled: boolean;
+  /** Kept (and shown disabled) while the switch is off, so toggling it back restores the number; "" is a cleared input. */
+  historyHorizonMonths: number | "";
 };
 
 export const EMPTY_METRICS_SETTINGS_FORM: MetricsSettingsFormValues = {
@@ -65,6 +73,8 @@ export const EMPTY_METRICS_SETTINGS_FORM: MetricsSettingsFormValues = {
   backlogWindowSprints: 3,
   epicDriftDays: 14,
   epicEstimateGapTolerancePercent: 25,
+  historyHorizonEnabled: true,
+  historyHorizonMonths: DEFAULT_HISTORY_HORIZON_MONTHS,
 };
 
 export function fromMetricsSettingsResponse(data: MetricsSettingsResponse): MetricsSettingsFormValues {
@@ -79,6 +89,8 @@ export function fromMetricsSettingsResponse(data: MetricsSettingsResponse): Metr
     backlogWindowSprints: data.backlogWindowSprints,
     epicDriftDays: data.epicDriftDays,
     epicEstimateGapTolerancePercent: data.epicEstimateGapTolerancePercent,
+    historyHorizonEnabled: data.historyHorizonMonths !== null,
+    historyHorizonMonths: data.historyHorizonMonths ?? DEFAULT_HISTORY_HORIZON_MONTHS,
   };
 }
 
@@ -94,6 +106,7 @@ export function toMetricsSettingsRequest(values: MetricsSettingsFormValues): Met
     backlogWindowSprints: values.backlogWindowSprints,
     epicDriftDays: values.epicDriftDays,
     epicEstimateGapTolerancePercent: values.epicEstimateGapTolerancePercent,
+    historyHorizonMonths: values.historyHorizonEnabled && values.historyHorizonMonths !== "" ? values.historyHorizonMonths : null,
   };
 }
 
@@ -132,6 +145,15 @@ export function metricsSettingsFormValidation(t: TFunction) {
       Number.isInteger(value) && value >= MIN_GAP_TOLERANCE_PERCENT && value <= MAX_GAP_TOLERANCE_PERCENT
         ? null
         : t("metrics.settings.validation.epicEstimateGapTolerancePercent"),
+    // Only checked while the switch is on: a switched-off horizon keeps its number but sends null.
+    historyHorizonMonths: (value: number | "", values: MetricsSettingsFormValues) =>
+      !values.historyHorizonEnabled ||
+      (typeof value === "number" &&
+        Number.isInteger(value) &&
+        value >= MIN_HISTORY_HORIZON_MONTHS &&
+        value <= MAX_HISTORY_HORIZON_MONTHS)
+        ? null
+        : t("metrics.settings.validation.historyHorizonMonths", { min: MIN_HISTORY_HORIZON_MONTHS, max: MAX_HISTORY_HORIZON_MONTHS }),
   };
 }
 

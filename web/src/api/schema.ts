@@ -2563,7 +2563,7 @@ export interface paths {
         get: operations["getMetricsSettings"];
         /**
          * Replace the global metrics settings
-         * @description ADMIN only, guard before the body decode. A full replace — every field is required. Bumps `configRevision`, which (from a later commit on) enqueues a `DERIVE` job for every enabled connection.
+         * @description ADMIN only, guard before the body decode. A full replace — every field is required. Bumps `configRevision`, which (from a later commit on) enqueues a `DERIVE` job for every enabled connection. `historyHorizonMonths` is required but nullable: 6..120 months, or `null` for no horizon (domain-model A48; the reports and the data-source backfill floor follow in later releases).
          */
         put: operations["updateMetricsSettings"];
         post?: never;
@@ -3497,6 +3497,13 @@ export interface components {
             epicDriftDays: number;
             /** @description Data quality's and Home's epic estimate-gap tolerance, a whole percent (default 25). */
             epicEstimateGapTolerancePercent: number;
+            /** @description The history horizon (domain-model A48): work older than this many months is hidden from the reports; null = off. Default 24. */
+            historyHorizonMonths: number | null;
+            /**
+             * Format: date
+             * @description The first day the horizon still shows (today in `timeZone` minus `historyHorizonMonths` months), computed by the server; null when the horizon is off.
+             */
+            historyHorizonFrom: string | null;
             /**
              * Format: int64
              * @description Epoch millis
@@ -3518,6 +3525,8 @@ export interface components {
             epicDriftDays: number;
             /** @description Data quality's and Home's epic estimate-gap tolerance, a whole percent (default 25). */
             epicEstimateGapTolerancePercent: number;
+            /** @description The history horizon in months (6..120), or null to turn it off. Required: an absent key is a 400, an explicit null means off. */
+            historyHorizonMonths: number | null;
         };
         PublicHoliday: {
             /** Format: int32 */

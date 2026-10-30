@@ -58,6 +58,7 @@ class MigrationChecksumTest {
         "V36__create_ops_telemetry.sql" to 704302949,
         "V37__source_connection_pause.sql" to 1262797409,
         "V38__source_connection_reconcile_pause.sql" to -1348539040,
+        "V39__history_horizon_months.sql" to -441676957,
     )
 
     @Test
