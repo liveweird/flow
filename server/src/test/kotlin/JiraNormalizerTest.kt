@@ -571,6 +571,37 @@ class JiraNormalizerTest {
     }
 
     @Test
+    fun `a fieldId-bearing Key twin with its keys in from and to collapses with the name-only copy with null from and to`() {
+        val changelogs = listOf(
+            """{"id":"1","created":"2026-01-01T01:00:00.000Z","items":[
+                {"field":"Key","fieldtype":"jira","from":null,"fromString":"OLD-12","to":null,"toString":"NEW-34"},
+                {"field":"Key","fieldId":"issuekey","from":"OLD-12","fromString":"OLD-12","to":"NEW-34","toString":"NEW-34"}
+            ]}""",
+        )
+        val input = JiraNormalizer.normalizeIssue(minimalIssuePayload(), changelogs, emptyList(), noFieldIds, TombstoneKind.NONE)
+
+        val keyChanges = input.fieldChanges.filter { it.fieldId == "issuekey" }
+        assertEquals(listOf("OLD-12" to "NEW-34"), keyChanges.map { it.fromText to it.toText }, "one move, however many spellings of it")
+    }
+
+    @Test
+    fun `a name-only Key item is a key change only for a system fieldtype, or when the fieldtype is absent`() {
+        fun keyChanges(fieldType: String?): List<String?> {
+            val typeMember = fieldType?.let { """"fieldtype":"$it",""" }.orEmpty()
+            val changelogs = listOf(
+                """{"id":"1","created":"2026-01-01T01:00:00.000Z","items":[
+                    {"field":"Key",$typeMember"from":null,"fromString":"OLD-12","to":null,"toString":"NEW-34"}
+                ]}""",
+            )
+            val input = JiraNormalizer.normalizeIssue(minimalIssuePayload(), changelogs, emptyList(), noFieldIds, TombstoneKind.NONE)
+            return input.fieldChanges.map { it.fieldId }
+        }
+        assertEquals(listOf("issuekey"), keyChanges("jira"))
+        assertEquals(listOf("issuekey"), keyChanges(null), "an absent fieldtype is accepted: a trimmed payload of the system item")
+        assertEquals(emptyList(), keyChanges("custom"), "a custom field that happens to be named Key is not an issue-key change")
+    }
+
+    @Test
     fun `a name-only item that merely mentions Key but carries another fieldId is not an issue-key change`() {
         val changelogs = listOf(
             """{"id":"1","created":"2026-01-01T01:00:00.000Z","items":[

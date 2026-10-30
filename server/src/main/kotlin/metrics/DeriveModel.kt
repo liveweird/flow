@@ -41,6 +41,8 @@ internal data class ConfigMaps(
     val epicDriftDays: Int,
     val epicStartFieldId: String?,
     val epicDueFieldId: String?,
+    /** The project keys the data source is CONFIGURED to read (`settings.projectKeys`), part of [DeriveContext.domainScope] (A47). */
+    val configuredProjectKeys: Set<String>,
 )
 
 /**
@@ -107,8 +109,13 @@ internal class DeriveContext(
 
     val domainByProject get() = configMaps.domainByProject
 
-    /** The projects this connection ingests, for `task_domain` rows (A47): the live items' project keys plus the domain map's. */
-    val domainScope: DomainScope by lazy { DomainScope(domainByProject, itemsById.values.mapTo(HashSet()) { it.projectKey }) }
+    /**
+     * The projects this data source reads, for `task_domain` rows (A47): the CONFIGURED project keys plus the live items' and the domain
+     * map's. Configured keys keep an emptied project (all its issues moved to another of the data source's projects) in the scope.
+     */
+    val domainScope: DomainScope by lazy {
+        DomainScope(domainByProject, itemsById.values.mapTo(HashSet(configMaps.configuredProjectKeys)) { it.projectKey })
+    }
     val activityTypeByIssueType get() = configMaps.activityTypeByIssueType
     val workCategoryMap get() = configMaps.workCategoryMap
     val boardTeamByBoardId get() = configMaps.boardTeamByBoardId

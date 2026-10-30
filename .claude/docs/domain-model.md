@@ -912,13 +912,16 @@ carries the per-measure detail).
   - **The anchor.** `fact_task_delivery`: `done_at`, else the DERIVE clock; the task's own domain and epic use it already. `agg_daily_flow` EV DOMAIN inherits it from the fact. `fact_worklog`: the worklog's `started_at`, the instant its task domain and epic already use; AC DOMAIN inherits it. PV DOMAIN reads the
     epic's history at the END of each planned day (the aggregates' covering rule, `(from, to]`), so a baseline spanning a move splits its budget between the two domains by day and the sum
     stays the budget; a move exactly AT a day's end instant leaves that day in the OLD domain (the row that ends there still covers it). Half-open `[from, to)` everywhere else: a task done exactly at the move belongs to the NEW domain.
-  - **A project the connection does not ingest is not a domain (decided 2026-10-30, tasks AND epics).** The connection's own domains are the domains of the projects its live items
-    carry (`domain_map` applied, else the project key itself: the set the metrics-config options offer; a move BETWEEN them is attributed as-was). A history row whose project is outside
-    it (typically the origin of a bulk migration out of a foreign project) carries the item's CURRENT domain instead of the raw key, so such a move re-attributes nothing: its pre-move
-    work stays where the item lives now. An item whose own current project is not ingested either keeps the raw key (there is no current domain to prefer). The rule lives in the one
+  - **A project the data source does not read is not a domain (decided 2026-10-30, tasks AND epics).** The projects the data source reads are the project keys it is CONFIGURED with
+    (`source_connections.settings.projectKeys`, taken through the owner's `DataSourceService.read`) plus the project keys its live items carry and the `domain_map`'s keys (config validation only
+    lets `domains[]` name an observed project, so the map adds nothing in practice); a domain is `domain_map`, else the project key itself. A move BETWEEN two of them is attributed as-was, also when
+    the source project has emptied (all its issues moved to another project of the data source): the configured keys keep it in the scope, so the scope never shrinks with the data. A history row whose
+    project is outside it (typically the origin of a bulk migration out of a foreign project) carries the item's CURRENT domain instead of the raw key, so such a move re-attributes nothing: its pre-move
+    work stays where the item lives now. The `currentProjectKey !in scope` arm of the kernel (an item whose own current project is not read keeps the raw key) is a defensive total, not an observed case:
+    every live item's own project is in the scope by construction. The rule lives in the one
     kernel (`DomainScope.historyDomainKey`, applied by `taskDomainHistory`), so every reader (Kotlin attribution, the worklog laterals, PV, the backlog and domain-WIP reads) follows. Adjacent
     rows that end up with one key are left as tiled; every reader is a covering lookup. This replaces the raw-key rule the task kernel had (`CCC`, a project nobody maps, is still a domain
-    when it is ingested; `OUT`, which no item carries, is not). It never maps to `null` (`null` means "no epic", A21).
+    when the data source reads it; `OUT`, which it neither is configured with nor has an item of, is not). It never maps to `null` (`null` means "no epic", A21).
   - **Fallbacks and the epic's first row.** A covering row wins; a covering row whose key is `null` (a malformed issue key), or no covering row, falls back to the epic's CURRENT domain
     (`domain_map`, else its project key). An EPIC's first row starts at instant 0, not at its `created_at` (`coverFromTheStart`), so every anchor is covered: a task done, a worklog
     started or a plan day ending before the epic existed (a backdated plan start) reads the domain the epic had when it was created, never a flip current, then old, then new. Tasks keep

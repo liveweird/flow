@@ -51,7 +51,10 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   (a fetch size < ~250 rows) costs a round trip per statement and is not taken.
 - [todo] **CI duration: check the trend at every milestone.** Run `node scripts/timings/ci-times.mjs --branch master`.
   A trend jump gets an investigation, never a raised budget.
-  - Last checked 2026-10-29 (1.26.0): `server` median-5 14m54s (prev-5 12m52s; 30 master runs 10-24..10-29; latest 17m11s, the max), `web` 3m56s,
+  - Last checked 2026-10-30 (1.28.0): `server` median-5 16m21s (prev-5 16m22s; 30 master runs 10-27..10-29; min 9m18s, max 18m04s), `web` 3m20s,
+    `images` 3m49s — no new jump, the runner draw (fast 9-11 min, slow 16-18); suite ~2,280 tests; `server` and `web` still over their alarms;
+    nightly `e2e` median-5 12m49s.
+    2026-10-29 (1.26.0): `server` median-5 14m54s (prev-5 12m52s; 30 master runs 10-24..10-29; latest 17m11s, the max), `web` 3m56s,
     `images` 3m39s — the runner draw: the 280 classes common to a fast run (597 s Gradle step) and a slow one (1020 s) slowed by one factor, 1.56x
     (886 → 1386 s summed). Real growth +34 tests / 4 classes, of which `JiraProcessBudgetTest` (1.24.2) took 27-43 s: its one-issue-per-page walk
     over every stub issue re-rendered 50 candidates per claim — bounded to 12 claims (1 s locally). `server` and `web` still over their alarms.
@@ -106,7 +109,8 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [todo] **Atlassian API-token quota: re-check developer.atlassian.com/changelog before releases.**
   - API-token traffic is excluded from the 2026 points-based rate limits.
   - Atlassian is evaluating a quota for tokens "with advance notice".
-  - Last checked 2026-10-29 (1.26.0): no token quota announced (entries through 10-28; the 10-27 `portfolioChildIssuesOf()` JQL change
+  - Last checked 2026-10-30 (1.28.0): no token quota announced (entries through 10-28: Bitbucket SSH, Confluence byline, org-level app
+    sharing, an MCP tool promotion — none touch Flow's endpoints). 2026-10-29 (1.26.0): no token quota announced (entries through 10-28; the 10-27 `portfolioChildIssuesOf()` JQL change
     does not touch Flow, which never sends it). 2026-10-28 (1.22.1): the 2026-10-20 Tier 2 clarification covers apps (per-tenant quotas), not tokens.
 
 ## Sibling handoffs

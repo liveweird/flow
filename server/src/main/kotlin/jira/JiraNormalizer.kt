@@ -52,6 +52,7 @@ private const val CUSTOM_FIELD_PREFIX = "customfield_"
  */
 private const val ISSUE_KEY_CHANGE_FIELD_ID = "issuekey"
 private const val ISSUE_KEY_CHANGE_FIELD_NAME = "Key"
+private const val ISSUE_KEY_CHANGE_FIELD_TYPE = "jira"
 
 /**
  * The Jira-specific field ids the PROCESS step needs, discovered ONCE per run from the REFERENCE
@@ -300,11 +301,18 @@ object JiraNormalizer {
         )
     }
 
-    /** An issue-key change item: `fieldId == "issuekey"`, or the real, name-only `field == "Key"` with no `fieldId`. */
+    /**
+     * An issue-key change item: `fieldId == "issuekey"`, or the real, name-only `field == "Key"` with no `fieldId` whose `fieldtype` is
+     * `"jira"` (a system field) or absent. A present `fieldtype` other than `jira` (a custom field that happens to be NAMED "Key")
+     * is not a key change. An absent `fieldtype` is accepted: Jira always sends it, so an item without one is a trimmed payload of the
+     * system item (and the cost of a missed move, silent mis-attribution, outweighs the odds of a fieldtype-less custom "Key" field).
+     */
     private fun isIssueKeyChangeItem(item: JsonObject): Boolean {
         val fieldId = item["fieldId"]?.jsonPrimitive?.contentOrNull
-        return fieldId == ISSUE_KEY_CHANGE_FIELD_ID ||
-            (fieldId == null && item["field"]?.jsonPrimitive?.contentOrNull == ISSUE_KEY_CHANGE_FIELD_NAME)
+        if (fieldId == ISSUE_KEY_CHANGE_FIELD_ID) return true
+        val fieldType = item["fieldtype"]?.jsonPrimitive?.contentOrNull
+        return fieldId == null && item["field"]?.jsonPrimitive?.contentOrNull == ISSUE_KEY_CHANGE_FIELD_NAME &&
+            (fieldType == null || fieldType == ISSUE_KEY_CHANGE_FIELD_TYPE)
     }
 
     /**
@@ -321,13 +329,14 @@ object JiraNormalizer {
             STATUS_FIELD_ID, ASSIGNEE_FIELD_ID, "priority", "resolution", "issuetype", "project", ISSUE_KEY_CHANGE_FIELD_ID, "duedate",
             fieldIds.sprintFieldId, fieldIds.flaggedFieldId, fieldIds.rankFieldId, fieldIds.storyPointsFieldId,
         )
-        // One key move spelled both ways in one history (fieldId-bearing and name-only) is ONE change:
-        // keep the first of each identical (from, fromString, to, toString) key item.
-        val seenKeyChanges = mutableSetOf<List<String?>>()
+        // One key move spelled both ways in one history (fieldId-bearing and name-only) is ONE change: keep the first of each
+        // (fromString, toString) key item. Only the texts are compared: the real name-only item carries the keys there with null
+        // `from`/`to`, while a fieldId-bearing twin may fill `from`/`to` as well, so comparing those would keep both.
+        val seenKeyChanges = mutableSetOf<Pair<String?, String?>>()
         return items.filter { item ->
             val fieldId = item["fieldId"]?.jsonPrimitive?.contentOrNull
             if (isIssueKeyChangeItem(item)) {
-                seenKeyChanges.add(listOf("from", "fromString", "to", "toString").map { item[it]?.jsonPrimitive?.contentOrNull })
+                seenKeyChanges.add(item["fromString"]?.jsonPrimitive?.contentOrNull to item["toString"]?.jsonPrimitive?.contentOrNull)
             } else {
                 fieldId in explicitTrackedFieldIds || fieldId?.startsWith(CUSTOM_FIELD_PREFIX) == true || isParentChangeItem(item, fieldIds)
             }

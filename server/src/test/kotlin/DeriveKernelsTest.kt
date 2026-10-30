@@ -1352,12 +1352,12 @@ class DeriveKernelsTest {
     @Test
     fun `domainHistoryRows gives a non-ingested project's row the item's CURRENT domain, a move between its own domains stays as-was`() {
         val scope = DomainScope(mapOf("AAA" to "DOMX", "BBB" to "DOMY"), setOf("AAA", "BBB", "CCC"))
-        // A move IN from a project Flow does not ingest (OUT): the pre-move row carries the current domain, never the raw key.
+        // A move IN from a project the data source does not read (OUT): the pre-move row carries the current domain, never the raw key.
         assertEquals(
             listOf(TaskDomainRow(7L, "DOMY", 100L, 500L), TaskDomainRow(7L, "DOMY", 500L, null)),
             domainHistoryRows(7L, 100L, "BBB-9", "BBB", listOf(keyChange(500L, "OUT-9", "BBB-9")), scope),
         )
-        // A move between two of its own domains is attributed as-was; the mapped key is the domain, an unmapped ingested one is its own.
+        // A move between two of its own domains is attributed as-was; the mapped key is the domain, an unmapped read one is its own.
         assertEquals(
             listOf(TaskDomainRow(7L, "DOMX", 100L, 500L), TaskDomainRow(7L, "DOMY", 500L, 900L), TaskDomainRow(7L, "CCC", 900L, null)),
             domainHistoryRows(
@@ -1371,15 +1371,46 @@ class DeriveKernelsTest {
                 7L, 100L, "BBB-9", "BBB", listOf(keyChange(500L, "AAA-9", "OUT-9"), keyChange(900L, "OUT-9", "BBB-9")), scope,
             ),
         )
-        // An item whose own current project is not ingested either keeps the raw rule (no current domain to prefer).
+        // An item whose own current project is not read either keeps the raw rule (a defensive total: DERIVE's scope always
+        // holds a live item's project).
         assertEquals(
             listOf(TaskDomainRow(7L, "OUT", 100L, 500L), TaskDomainRow(7L, "ZZZ", 500L, null)),
             domainHistoryRows(7L, 100L, "ZZZ-9", "ZZZ", listOf(keyChange(500L, "OUT-9", "ZZZ-9")), scope),
         )
-        // A history project that is only in the domain map still counts as ingested.
+        // A history project that is only in the domain map still counts as read.
         val mapOnly = DomainScope(mapOf("AAA" to "DOMX"), setOf("BBB"))
         val moved = domainHistoryRows(7L, 100L, "BBB-9", "BBB", listOf(keyChange(500L, "AAA-9", "BBB-9")), mapOnly)
         assertEquals("DOMX", moved.first().domainKey)
+    }
+
+    /** Real Jira's key change: `from`/`to` are null, the keys sit in `fromString`/`toString` only (the text columns). */
+    private fun realKeyChange(atMs: Long, from: String, to: String) = FieldChangeRow(7L, "issuekey", "Key", atMs, null, from, null, to)
+
+    @Test
+    fun `domainHistoryRows reads the real key-change shape, the keys in the text columns with null value columns`() {
+        val scope = DomainScope(mapOf("AAA" to "DOMX", "BBB" to "DOMY"), setOf("AAA", "BBB"))
+        assertEquals(
+            listOf(TaskDomainRow(7L, "DOMX", 100L, 500L), TaskDomainRow(7L, "DOMY", 500L, null)),
+            domainHistoryRows(7L, 100L, "BBB-9", "BBB", listOf(realKeyChange(500L, "AAA-9", "BBB-9")), scope),
+            "the null from/to must not hide the keys: they are read from fromText/toText",
+        )
+    }
+
+    @Test
+    fun `a configured project stays in the scope without an item, and one outside it reads the current domain`() {
+        // CFG has no live item (all its issues moved to BBB) but is among the configured project keys the caller adds to the scope.
+        val withConfigured = DomainScope(mapOf("BBB" to "DOMY"), setOf("BBB", "CFG"))
+        assertEquals(
+            listOf(TaskDomainRow(7L, "CFG", 100L, 500L), TaskDomainRow(7L, "DOMY", 500L, null)),
+            domainHistoryRows(7L, 100L, "BBB-9", "BBB", listOf(keyChange(500L, "CFG-9", "BBB-9")), withConfigured),
+            "a configured project is read: its pre-move row stays as-was",
+        )
+        // The same history without the configured key in the scope would re-attribute the whole pre-move row to the current domain.
+        val withoutConfigured = DomainScope(mapOf("BBB" to "DOMY"), setOf("BBB"))
+        assertEquals(
+            listOf(TaskDomainRow(7L, "DOMY", 100L, 500L), TaskDomainRow(7L, "DOMY", 500L, null)),
+            domainHistoryRows(7L, 100L, "BBB-9", "BBB", listOf(keyChange(500L, "CFG-9", "BBB-9")), withoutConfigured),
+        )
     }
 
     @Test

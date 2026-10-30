@@ -28,7 +28,8 @@ import kotlin.test.assertTrue
  * fixture"): epic [EPIC] lives in `BBB` now and started in `AAA`, moved at [MOVE]; its children are tasks of `AAA` done before the
  * move, after it, exactly at it (half-open: the NEW row covers), never (open) and before the epic existed (the epic's first row reaches
  * back to instant 0, so the domain at its creation); a second test does the same for the worklog statement (`started_at`), a third
- * pins PV days before an epic's creation, a move exactly at a day's end and an origin the connection does not ingest. Every figure is
+ * pins PV days before an epic's creation, a move exactly at a day's end and an origin the data source does not read, a fourth an
+ * origin it is configured to read although no item of it is left. Every figure is
  * graded from the stored rows via plain SQL, never through the report code.
  */
 class MetricsEpicDomainAsOfTest {
@@ -175,7 +176,8 @@ class MetricsEpicDomainAsOfTest {
             connId, EPIC, "BBB-1", 1, null, epicCreated,
             listOf(StatusStep("7", "In progress", StatusCategory.IN_PROGRESS, epicCreated)),
             """{"$estimateField": 10.0, "$startField": "2026-02-09", "$dueField": "2026-02-13"}""",
-            keyChange = FieldChangeFact("Key", MOVE, "AAA-1", "AAA-1", "BBB-1", "BBB-1", fieldId = "issuekey"),
+            // The REAL Jira shape: `from`/`to` are null and the keys sit in `fromString`/`toString` only (the value columns are NULL).
+            keyChange = FieldChangeFact("Key", MOVE, null, "AAA-1", null, "BBB-1", fieldId = "issuekey"),
         )
         seedChild(connId, BEFORE_MOVE, 10, taskCreated, MOVE - DAY, 3.0, estimateField)
         seedChild(connId, AFTER_MOVE, 11, taskCreated, MOVE + DAY, 5.0, estimateField)
@@ -251,7 +253,7 @@ class MetricsEpicDomainAsOfTest {
                 listOf(StatusRef("7", "In progress", StatusCategory.IN_PROGRESS), StatusRef("9", "Done", StatusCategory.DONE)),
             )
             val inProgress = listOf(StatusStep("7", "In progress", StatusCategory.IN_PROGRESS, epicCreated))
-            // AAA is one of the connection's projects only because it has an item (the scope is the live items' projects).
+            // AAA is a domain of the options (and so of the as-was map) only because it has an item; OUT is neither configured nor carried.
             seed(connId, AAA_ITEM, "AAA-20", 0, null, taskCreated, inProgress.map { it.copy(atMs = taskCreated) }, "{}")
             // BACKDATED: created Monday 12 January midday, planned Thu 8 - Wed 14 January (five working days; the first two end before the
             // epic existed), moved to BBB at MOVE. Every planned day belongs to AAA, the domain at its creation; reading the CURRENT
@@ -327,6 +329,62 @@ class MetricsEpicDomainAsOfTest {
             )
         }
 
+    @Test
+    fun `a configured project with no live item keeps its history as-was, an unread one reads the current domain`() =
+        runBlocking {
+            // CFG is among the data source's CONFIGURED project keys although every issue of it moved to BBB (no item carries it).
+            val connId = SyncedStubFixture.createConnection(
+                projectKeys = SyncedStubFixture.IN_SCOPE_PROJECT_KEYS + "CFG", namePrefix = "jira-epic-domain-asof-cfg", enabled = false,
+            )
+            val (estimateField, _, _) = cloneProfileFields(connId)
+            SyncedStubFixture.workItems().replaceStatuses(
+                connId,
+                listOf(StatusRef("7", "In progress", StatusCategory.IN_PROGRESS), StatusRef("9", "Done", StatusCategory.DONE)),
+            )
+            val inProgress = listOf(StatusStep("7", "In progress", StatusCategory.IN_PROGRESS, epicCreated))
+            // The real, null-valued key-change shape for both moves: one from CFG (configured, emptied), one from OUT (not read at all).
+            seed(
+                connId, CONFIGURED, "BBB-6", 1, null, epicCreated, inProgress, "{}",
+                keyChange = FieldChangeFact("Key", MOVE, null, "CFG-6", null, "BBB-6", fieldId = "issuekey"),
+            )
+            seed(
+                connId, CONFIGURED_CHILD, "BBB-7", 0, CONFIGURED, taskCreated,
+                listOf(
+                    StatusStep("7", "In progress", StatusCategory.IN_PROGRESS, taskCreated),
+                    StatusStep("9", "Done", StatusCategory.DONE, MOVE - DAY),
+                ),
+                """{"$estimateField": 4.0}""",
+            )
+            seed(
+                connId, UNREAD, "BBB-8", 1, null, epicCreated, inProgress, "{}",
+                keyChange = FieldChangeFact("Key", MOVE, null, "OUT-8", null, "BBB-8", fieldId = "issuekey"),
+            )
+            val config = DerivedStubFixture.metricsConfig()
+            val current = config.effectiveConfig(connId)
+            assertEquals(setOf("BBB"), current.domains.map { it.domainKey }.toSet(), "CFG carries no item: the options do not offer it")
+            config.replaceConfig(
+                connId, current.asRequest().copy(fields = current.fields.copy(estimateTask = estimateField, estimateEpic = null)),
+            )
+            DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) { DerivedStubFixture.derivePinned(connId) }
+
+            assertEquals(
+                listOf(Triple("CFG", 0L, MOVE), Triple("BBB", MOVE, null)), domainRows(connId, CONFIGURED),
+                "CFG is read by the data source: its row stays as-was although no item of it is left",
+            )
+            assertEquals(
+                listOf(Triple("BBB", 0L, MOVE), Triple("BBB", MOVE, null)), domainRows(connId, UNREAD),
+                "OUT is not read: the current domain",
+            )
+            assertEquals(
+                Delivery(CONFIGURED, "BBB", "CFG", true), delivery(connId, CONFIGURED_CHILD),
+                "done before the move: the epic was still in CFG, a domain of its own",
+            )
+            assertEquals(
+                mapOf(("CFG" to dayOf(MOVE - DAY)) to 4.0), domainFlow(connId, "ev_md"),
+                "the pre-move completion is delivered into the epic's domain then",
+            )
+        }
+
     private data class Logged(val taskDomainKey: String?, val epicId: Long?, val epicDomainKey: String?, val md: Double)
 
     private fun logged(connId: UInt, worklogId: Long): Logged = jdbcRows(
@@ -391,6 +449,9 @@ class MetricsEpicDomainAsOfTest {
         private const val FOREIGN = 920_004L
         private const val FOREIGN_CHILD = 920_005L
         private const val AAA_ITEM = 920_006L
+        private const val CONFIGURED = 920_007L
+        private const val CONFIGURED_CHILD = 920_008L
+        private const val UNREAD = 920_009L
         private const val BEFORE_MOVE = 920_010L
         private const val AFTER_MOVE = 920_011L
         private const val OPEN = 920_012L

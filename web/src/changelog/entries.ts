@@ -23,13 +23,13 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
 
 - When a task or an epic moves from one of your projects to another, work done and tasks finished before the move now count for the domain they belonged to at the time, in Costs, Throughput, Epic progress and the other domain views. Before, everything followed the item to its new project.
 - Moves recorded in Jira's history were partly missed until now; they are read correctly from this version on. The first sync after the update re-reads every stored issue, so it takes longer than usual.
-- Moves from projects that Flow does not read keep counting for the item's current domain, so older history is not lost from your domains.
+- Moves from projects this data source does not read keep counting for the item's current domain, so older history is not lost from your domains. A move between two projects of the same data source is the case that changes: the earlier work stays with the domain it had.
 - An epic's own list entry still appears under its current domain, so in Epic progress a moved epic's row can differ from its domain totals.`,
     pl: `**Raporty: praca zostaje przy domenie, w której ją wykonano, gdy zgłoszenie lub epik przechodzi między Twoimi projektami.**
 
 - Gdy zadanie lub epik przechodzi z jednego z Twoich projektów do innego, praca wykonana i zadania zakończone przed przeniesieniem liczą się teraz dla domeny, do której wtedy należały — w kosztach, przepustowości, postępie epików i pozostałych widokach domen. Wcześniej wszystko przechodziło razem z elementem do nowego projektu.
 - Przeniesienia zapisane w historii Jiry były dotąd częściowo pomijane; od tej wersji są odczytywane poprawnie. Pierwsza synchronizacja po aktualizacji ponownie przetwarza wszystkie zapisane zgłoszenia, więc potrwa dłużej niż zwykle.
-- Przeniesienia z projektów, których Flow nie odczytuje, nadal liczą się dla bieżącej domeny elementu, więc starsza historia nie znika z Twoich domen.
+- Przeniesienia z projektów, których to źródło danych nie odczytuje, nadal liczą się dla bieżącej domeny elementu, więc starsza historia nie znika z Twoich domen. Zmienia się dopiero przeniesienie między dwoma projektami tego samego źródła danych: wcześniejsza praca zostaje przy domenie, którą wtedy miała.
 - Sam epik nadal jest wymieniony pod swoją bieżącą domeną, więc w postępie epików wiersz przeniesionego epiku może różnić się od sum jego domeny.`,
   },
   {

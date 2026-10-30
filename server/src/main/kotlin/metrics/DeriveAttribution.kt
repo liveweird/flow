@@ -36,34 +36,36 @@ internal fun taskEpicHistory(item: WorkItemStore.DerivationWorkItemRow, context:
 }
 
 /**
- * The projects this connection INGESTS, for `task_domain`'s history (A47): [ingestedProjectKeys] is every project key a live work item
- * of the connection carries now, plus every key the domain map names (config validation only lets `domains[]` name an observed
- * project, so the map adds nothing in practice; it keeps the scope total if an item vanished). This is the same set the
- * metrics-config options offer as `projects` (`distinctProjectKeys`) and the set whose keys DERIVE reads as a domain
- * (`domainByProject[key] ?: key`), so "a connection's own domains" is exactly the domains its items live in. A project outside it
- * is one whose issues Flow does not ingest (a bulk migration out of a foreign project, say).
+ * The projects this DATA SOURCE reads, for `task_domain`'s history (A47): [readProjectKeys] is every project key the data source is
+ * CONFIGURED to read (`source_connections.settings.projectKeys`) plus every project key a live work item of the connection carries now
+ * (a no-op once the connection has synced, but it keeps the scope total for a row stored under a key since removed from the
+ * configuration), and the scope adds every key the domain map names. The configured keys are what keeps a project whose issues all
+ * moved to another of the connection's projects IN the scope: the scope never shrinks because a project emptied, so that project's
+ * history stays as-was. A project outside it is one this data source does not read (a bulk migration out of a foreign project, say).
+ * The domain a key stands for is `domainByProject[key] ?: key` (the rule DERIVE reads a live item's domain by).
  */
-internal class DomainScope(val domainByProject: Map<String, String>, ingestedProjectKeys: Set<String>) {
-    private val ingested: Set<String> = ingestedProjectKeys + domainByProject.keys
+internal class DomainScope(val domainByProject: Map<String, String>, readProjectKeys: Set<String>) {
+    private val read: Set<String> = readProjectKeys + domainByProject.keys
 
     /** The domain an item of [projectKey] has NOW: its `domain_map` entry, else the project key itself. */
     fun domainOf(projectKey: String): String = domainByProject[projectKey] ?: projectKey
 
     /**
      * The domain a `task_domain` row for [historyProjectKey] carries on an item whose project is [currentProjectKey] now (A47): the
-     * history project's domain when this connection ingests that project (a move BETWEEN its own domains is attributed as-was),
-     * else the item's CURRENT domain (a move IN from a project Flow does not ingest re-attributes nothing). An item whose own
-     * current project is not ingested either keeps the raw rule (`domainOf`), there being no "current domain" to prefer.
+     * history project's domain when this data source reads that project (a move BETWEEN its own projects is attributed as-was),
+     * else the item's CURRENT domain (a move IN from a project this data source does not read re-attributes nothing). The
+     * `currentProjectKey !in read` arm (keep the raw rule, there being no "current domain" to prefer) is a defensive total, not an
+     * observed case: every live item's own project is in [read] by construction, so DERIVE never reaches it.
      */
     fun historyDomainKey(historyProjectKey: String, currentProjectKey: String): String =
-        if (historyProjectKey in ingested || currentProjectKey !in ingested) domainOf(historyProjectKey) else domainOf(currentProjectKey)
+        if (historyProjectKey in read || currentProjectKey !in read) domainOf(historyProjectKey) else domainOf(currentProjectKey)
 }
 
 /**
  * `task_domain`'s effective-dated history (review round 2a fix) — see [projectKeyTimeline]. Built for TASKS and for EPICS alike
  * (A47: an epic's history is what a task's `epic_domain_key` and the PV DOMAIN scope read as-of); the key of each row follows
- * [DomainScope.historyDomainKey]. Adjacent rows that end up with the same key (a move out of a non-ingested project, or between two
- * projects mapped to one domain) are left as the changelog tiled them: every reader is a covering lookup, none counts rows.
+ * [DomainScope.historyDomainKey]. Adjacent rows that end up with the same key (a move out of a project the data source does not read,
+ * or between two projects mapped to one domain) are left as the changelog tiled them: every reader is a covering lookup, none counts rows.
  */
 internal fun taskDomainHistory(item: WorkItemStore.DerivationWorkItemRow, context: DeriveContext): List<TaskDomainRow> =
     domainHistoryRows(
@@ -200,7 +202,7 @@ internal fun asWasAttribution(
  * A47: an epic's domain at [atMs] — the covering `task_domain` row of the EPIC (half-open `[from, to)`, [domainRowAt]) wins; no
  * covering row (an epic with no history; the epic pass stretches the first row to 0, [coverFromTheStart]) or a covering row whose key
  * failed to parse falls back to [currentDomainKey], the epic's domain now. A history row's key is already the epic's current domain
- * when the row's project is not ingested ([DomainScope]).
+ * when the row's project is not read by the data source ([DomainScope]).
  */
 internal fun epicDomainKeyAt(history: List<TaskDomainRow>, atMs: Long, currentDomainKey: String?): String? =
     domainRowAt(history, atMs)?.domainKey ?: currentDomainKey

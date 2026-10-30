@@ -3021,6 +3021,13 @@ class MetricsDerivationTest {
                 val epicHistory = MetricsTables.TaskDomain.selectAll().where { MetricsTables.TaskDomain.connectionId eq connId }
                     .toList().filter { it[MetricsTables.TaskDomain.issueId].toString() in epicDomainByDimEpic }
                     .groupBy { it[MetricsTables.TaskDomain.issueId].toString() }
+                // Independent of the pass under test: the stub has no epic move, so every epic's stored history carries exactly its
+                // dim_epic domain (a wrong key written by the epic pass would otherwise be echoed by the oracle below).
+                epicDomainByDimEpic.forEach { (epicId, domainKey) ->
+                    val keys = epicHistory[epicId].orEmpty().map { it[MetricsTables.TaskDomain.domainKey] }
+                    assertTrue(keys.isNotEmpty(), "epic $epicId has task_domain rows")
+                    assertEquals(setOf(domainKey), keys.toSet(), "epic $epicId: every task_domain row is its dim_epic domain")
+                }
                 val dayEndByDay = dayBounds.associate { it.first to it.third }
                 fun pvDomainOf(epicId: String, day: String): String? {
                     val end = dayEndByDay.getValue(day)

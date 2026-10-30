@@ -188,6 +188,7 @@ class MetricsDeriver(
 
         val context = buildContext(
             workItemStore, teamMembership, domainOwners, connectionId, workItems, config, calendar, now, hoursPerDay, epicDriftDays,
+            metricsConfig.configuredProjectKeys(connectionId),
         )
         metricsStore.insertDomains(connectionId, domainDims(context), configRevision)
 

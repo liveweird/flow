@@ -1296,7 +1296,7 @@ export interface paths {
          *     `domainView`: TASK = the task's own domain, EPIC = the epic's domain as of the row's anchor (`done_at`,
          *     or `started_at` for worklogs, A47) with an epic-less task
          *     falling back to its own when `epic_domain_key` is null: the task has no epic, or its epic is not an ingested
-         *     item — A21; an epic that moved in from a project the connection does not ingest is not null, its
+         *     item — A21; an epic that moved in from a project the data source does not read is not null, its
          *     earlier rows read its current domain, A47), `activityType` and `workCategory` (`UNCATEGORIZED` = none)
          *     slice the period view only; the sprint view carries no slice. Levels: UNIT (a `domain` with no `teamId`) — `groups`
          *     are one per credit team (a `teamId: null` group is UNASSIGNED); `teamId` narrows to TEAM level

@@ -975,7 +975,7 @@ endpoint), one more reason to ask Jira's own default. The stub answers each chun
 
 A key change (move to another project) arrives as a changelog item with `field: "Key"`, `fieldtype: "jira"`, null `from`/`to`
 and the old/new key in `fromString`/`toString`, with NO `fieldId`; the stub's `fieldId: "issuekey"` spelling hid this. The
-normalizer matches the English display name when `fieldId` is absent and stores `field_id = 'issuekey'` (`PROCESSING_VERSION = 3`;
+normalizer matches the English display name when `fieldId` is absent and `fieldtype` is `jira` or absent (a custom field named Key is not a key change) and stores `field_id = 'issuekey'` (`PROCESSING_VERSION = 3`;
 a site localized to another language would not match). See "Issue-key changes" in `.claude/docs/ingestion.md`.
 
 ## Parent field spellings (open real-tenant question)
