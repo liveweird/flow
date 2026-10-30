@@ -2293,10 +2293,10 @@ an epic selection nor fails the request (`ReportDeepDiveTest` pins it), and alon
   Approximate EV split runs over that list, and the range cuts the series at assembly, so a clamped or clipped range keeps each day's whole-life
   share (never a re-split over the visible days) and `totals.evMd` stays whole. The envelope reads a span by its first and last day. With no
   marks at all the range is the single day `from ?? to ?? today`.
-- **History horizon (A48).** `range.from` is never before the horizon's first day (`clampRangeToHorizon`, `DeepDiveKernels.kt`, called by `resolveRange` after the 1100-day cut): only the DRAWN
+- **History horizon (A48).** `range.from` is never before the horizon's first day (`clampRangeToHorizon`, `DeepDiveKernels.kt`, called by `resolveRange` BEFORE the 1100-day cut, which then judges only the span the horizon left: a ~2000-day implied envelope under a 24-month horizon is NOT `RANGE_CLAMPED`, and a lone `from` before the cutoff is raised first): only the DRAWN
   series is cut, every task's `totals` stay whole-life (A40), so the answer equals the same selection without a horizon over `from=<cutoff>`. A range whose end lies before the cutoff (the envelope of an epic
   selection all of whose marks are older) becomes the single empty day on the cutoff and `note` carries `HISTORY_HORIZON: ...` after `RANGE_CLAMPED` when both apply (the leading code stays stable for clients; the
-  parts are joined with ". "). A plain clip is silent: `meta.historyHorizon` and `range.from` say so. `meta.historyHorizon` is filled on every answer, the not-derived one included.
+  parts are joined with ". "). A plain clip is silent: `meta.historyHorizon` and `range.from` say so. `meta.historyHorizon` is filled on every answer, the not-derived one included, whose `range` echo is clipped the same way (`from` raised to the cutoff).
 - Day offsets in the series count from `range.from`. `range.asOfDay` is the day of the SELECTED connection's last DERIVE clock (its newest
   SUCCEEDED `derive_runs.started_at`, `deriveClocks`) -- the same clock open in-progress intervals stop at; a selected connection with
   dimension rows but no successful run reads as not derived. (`meta` is `deriveStamp` over the connections in scope, as everywhere.)

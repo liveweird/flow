@@ -175,5 +175,12 @@ class ReportDeepDiveHorizonTest {
         val report = withHorizon(6) { client.dive("connectionId=$connId&epicId=NOPE-1&from=2026-02-02&to=2026-02-08") }
         assertEquals(HistoryHorizonWire(6, CUTOFF), report.meta.historyHorizon)
         assertTrue(report.note!!.startsWith("Not derived yet"))
+        assertEquals("2026-02-02" to "2026-02-08", report.range.from to report.range.to, "a range inside the horizon is echoed as asked")
+        // An earlier `from` is raised to the cutoff in the echo too (`to` stays); a lone `from` is also its own `to`: the cutoff day.
+        val early = withHorizon(6) { client.dive("connectionId=$connId&epicId=NOPE-1&from=2025-01-01&to=2026-02-08") }
+        assertEquals(CUTOFF to "2026-02-08", early.range.from to early.range.to)
+        assertEquals(CUTOFF, early.meta.from)
+        val lone = withHorizon(6) { client.dive("connectionId=$connId&epicId=NOPE-1&from=2025-01-01") }
+        assertEquals(CUTOFF to CUTOFF, lone.range.from to lone.range.to)
     }
 }
