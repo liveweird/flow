@@ -78,6 +78,11 @@ internal fun domainDims(context: DeriveContext): List<DimDomainRow> =
  * dropped every sub-task's worklog time from the epic's own cost entirely. [childFacts] are the
  * SAME `fact_task_delivery` rows already written for this epic's level-0 children — computed in
  * an earlier pass over [workItems] specifically so this rollup never re-derives them.
+ *
+ * A49: the FACT's `domain_key` and `owner_team_id` are the epic's domain AS-WAS at `done_at ?: now` (the task rule, A21;
+ * [epicDomainKeyAt] over the epic's own `issuekey` history, half-open `[from, to)` so an epic done exactly at its move is in the
+ * NEW domain) and that domain's owner; an open epic is read now, so only a finished epic moves. [domainKey] — the epic's domain NOW —
+ * is the fallback and stays the dimension's `dim_epic.domain_key` (like `dim_task.domain_key`).
  */
 internal fun buildEpicRow(
     item: WorkItemStore.DerivationWorkItemRow,
@@ -94,6 +99,8 @@ internal fun buildEpicRow(
     val ownCategory = derived.ownCategory
     val epicStartAt = context.epicDateValue(item, context.epicStartFieldId)
     val epicDueAt = context.epicDateValue(item, context.epicDueFieldId)
+    val asOfDomainKey =
+        epicDomainKeyAt(context.epicDomainHistoryById[item.issueId].orEmpty(), derived.done ?: context.now, domainKey) ?: domainKey
     val dim = DimEpicRow(
         item.issueId, item.issueKey, item.summary, domainKey, ownCategory, currentStage.name, epicStartAt, epicDueAt,
     )
@@ -122,10 +129,10 @@ internal fun buildEpicRow(
         cycleWorkingDays = cycleWorkingDays(derived, context.calendar),
         blockedMs = blockedMs,
         blockedWorkingDays = blockedWorkingDays,
-        domainKey = domainKey,
+        domainKey = asOfDomainKey,
         workCategory = ownCategory,
         driftFlags = driftFlags.map { it.name },
-        ownerTeamId = context.ownerTeamByDomain[domainKey],
+        ownerTeamId = context.ownerTeamByDomain[asOfDomainKey],
     )
     return dim to fact
 }

@@ -375,8 +375,9 @@ once. The fix has two parts:
     `derivedById` (no fresh raw reads needed there), and inserts them. `factTasksByIssueId` (small
     fact rows, not raw data) accumulates across every batch for pass 3's epic roll-up.
   - **Pass 3** (EPIC items only, `hierarchyBucket(level) == EPIC`): no per-batch raw reads at all — an epic's own facts come entirely
-    from `derivedById`/`factTasksByIssueId`/config, already in memory; builds and inserts
-    `dim_epic`/`fact_epic_delivery` per batch.
+    from `derivedById`/`factTasksByIssueId`/config and the epic-domain pass's `epicDomainHistoryById`, already in memory; builds and inserts
+    `dim_epic`/`fact_epic_delivery` per batch. `dim_epic.domain_key` is the domain now; the fact's `domain_key` and `owner_team_id` are as-of
+    `done_at ?: now` (`epicDomainKeyAt`, A49) and that domain's owner.
   - **Worklogs are a connection-wide AGGREGATE, not per-issue rows**: `WorkItemStore
     .worklogSecondsByIssue` returns a plain `Map<Long, Long>` (summed `time_spent_seconds` per
     issue) via one query — this commit's algorithm only ever SUMS worklog seconds (a task's own
@@ -932,7 +933,7 @@ A18/A19/A21 describe. This commit closes all five, backed by the additive V17 co
   the scope): a bulk move out of a foreign project re-attributes nothing, a move between two of the data source's own projects
   is as-was, and a project that is read but left out of `domain_map` is a domain by its project key (never `null`, which means "no
   epic"). `cross_domain` follows. The epic's OWN columns
-  (`dim_epic.domain_key`, `fact_epic_delivery.domain_key`/`owner_team_id`) stay current (A47). The worklog statement reads the epic's domain as of `started_at` the same way (see `fact_worklog` below).
+  (`dim_epic.domain_key`, the dimension) stays current; `fact_epic_delivery.domain_key`/`owner_team_id` are as-of `done_at ?: now` (A49). The worklog statement reads the epic's domain as of `started_at` the same way (see `fact_worklog` below).
 - **Epic-logged worklogs get the epic's own domain, never `null` (A21, strengthening invariant 6).**
   The worklog step's `task_domain_key` used to read `null` for a worklog logged directly on an
   epic; it now reads the epic's own domain AS OF `started_at` (A47), same as `epic_domain_key` — every
