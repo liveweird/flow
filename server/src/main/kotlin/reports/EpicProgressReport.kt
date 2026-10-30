@@ -50,7 +50,7 @@ data class EpicProgressAsOf(
 /**
  * One drill row (a domain's epic), its CUMULATIVE figures as of the response's `asOf` day and
  * its [period] figures beside them (A37). [active] is set on TEAM rows only: `false` marks a soft-deleted team that still has
- * figures, whose own drill (`teamId`) answers 400.
+ * figures, whose own drill (`teamId`) answers 400. [partial] is set on a DOMAIN drill's rows (see the field).
  */
 @Serializable
 data class EpicProgressRow(
@@ -67,6 +67,11 @@ data class EpicProgressRow(
     val cpi: Double?,
     val period: EpicProgressRowPeriod,
     val active: Boolean? = null,
+    /**
+     * EPIC rows of a DOMAIN drill only (A49): `true` when the epic was in another domain up to the asOf day, so this row holds this
+     * domain's share of it; `null` otherwise.
+     */
+    val partial: Boolean? = null,
 )
 
 /**

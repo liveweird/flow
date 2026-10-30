@@ -1937,7 +1937,7 @@ EpicProgressReport {
            baselines: [{ effectiveFrom, supersededAt?, startAt?, dueAt?, budgetMd? }], drift: { dates, budget } }   // EPIC only
   foreignWorkShare?: number            // TEAM only, cumulative window
   foreignWorkSharePeriod?: number      // TEAM only, worklogs started inside the period (A37)
-  rows: [{ kind: EPIC|DOMAIN|TEAM, id?, key?, name, pv, ev, ac, sv, spi?, cv, cpi?, period: { pv, ev, ac, sv, spi?, cv, cpi? }, active? }]   // active: TEAM rows only
+  rows: [{ kind: EPIC|DOMAIN|TEAM, id?, key?, name, pv, ev, ac, sv, spi?, cv, cpi?, period: { pv, ev, ac, sv, spi?, cv, cpi? }, active?, partial? }]   // active: TEAM rows only; partial: DOMAIN drill rows only (A49)
   note?: string
 }
 ```
@@ -1989,10 +1989,18 @@ EpicProgressReport {
   has an empty series, `asOf` still the running sum at `asOf.day`, and a `note` saying so. `sv = ev - pv`, `spi = ev / pv` (`null`
   when PV is 0), `cv = ev - ac`, `cpi = ev / ac` (`null` when AC is 0). MD are rounded to 2 decimals, the ratios are unrounded
   (as every other report's ratios).
-- **`rows` -- the drill, as of `asOf.day`.** DOMAIN: one row per epic of that domain (`dim_epic.domain_key`, the epic's current
-  domain) with a current baseline OR any EV/AC up to `asOf` (`kind` EPIC, `key` the issue key, `name` the summary, else the key),
-  ordered by key -- an epic that changed domain is listed under its current one, while the DOMAIN totals keep the as-was attribution,
-  so the DOMAIN total is authoritative. EPIC and TEAM: empty. (The whole-unit read, whose rows were every domain and every team with
+- **`rows` -- the drill, as of `asOf.day`.** DOMAIN: one row per epic that was in that domain up to the end of the `asOf` day and has a
+  share there (`kind` EPIC, `key` the issue key, `name` the summary, else the key), ordered by key then name. An epic that changed domain
+  is listed under EVERY domain it was in (A49, decided 2026-10-30) and each row holds only that domain's share: PV the epic's baseline
+  days that ended in the domain (the covering `task_domain` row at each day's end, the PV DOMAIN rule), EV the `estimate_at_done_md` of
+  the children done while the epic was in the domain (`fact_task_delivery.epic_domain_key`), AC the worklogs started then
+  (`fact_worklog.epic_domain_key`) -- so the rows of a domain add up to its `asOf` and `period` totals (AC to the stored per-day
+  rounding of `agg_daily_flow`), and the same epic's rows over its domains add up to the whole epic, which the EPIC level shows. A row of
+  an epic that was in more than one domain up to the end of the `asOf` day carries `partial: true` (`null` on the others, and on every
+  non-DOMAIN row); a move after `asOf` changes nothing. **Listed:** any non-zero share in the domain (PV, EV or AC), or a current
+  baseline (`fact_epic_plan.superseded_at IS NULL`) while the domain is the one the epic has at the end of the `asOf` day. An epic that
+  stayed in one domain reads its stored EPIC scope (same figures as its facts, without the AC rounding drift); only a moved epic is split
+  from the facts, through DERIVE's own `done`/`logged` CTEs (`evEpicDoneCte`, `acLoggedCte` in `DeriveFlowStep.kt`). EPIC and TEAM: empty. (The whole-unit read, whose rows were every domain and every team with
   `active` marking a soft-deleted team, is refused by the scope guard; a soft-deleted team's own drill, `teamId`, answers `400`.)
 - **The EPIC block.** `budgetMd`/`budgetSource` are the CURRENT baseline's (D4: `OWN` estimate, else `CHILDREN`), or, with no current
   baseline, the delivery fact's; `startAt`/`dueAt` the epic's own dates (UTC midnight millis of a calendar date, zone-free);
@@ -2017,7 +2025,7 @@ Code: `reports/EpicProgressReport.kt` (the DTOs, the `epicProgress` entry as an 
 assembly; `snapshotNotes` in `reports/SnapshotSupport.kt` is shared with WIP/backlog), split by concern like `DataQuality*`:
 `EpicProgressTargets.kt` (`ProgressTarget`/`ResolvedTarget`, the `400` combination checks `progressTargetOf`, `resolveTarget`),
 `EpicProgressEvm.kt` (the `Evm` triple, `aggPredicate`/`fetchIncrements`/`totalsThrough`, the EPIC-level plan block and curve replay
-`epicDetail`, `foreignWorkShare`), `EpicProgressRows.kt` (the `domainRows` drill tables, cumulative and period) and
+`epicDetail`, `foreignWorkShare`), `EpicProgressRows.kt` (the `domainRows` drill: four set-based statements -- the domain's epics with their history and baseline, the stored EPIC-scope PV (+ EV/AC of an unmoved epic), and a moved epic's EV and AC from the facts; cumulative and period in one pass each) and
 `EpicProgressPeriod.kt` (A37: the `basis`/`trendWindowDays` options, the pure period delta, series rebase, trend and thin-index arithmetic).
 Tests -- `EpicProgressPeriodKernelsTest` (the pure period/trend arithmetic and the options parser) and `ReportEpicProgressPeriodTest` (on the
 derived fixture every level's PERIOD series, `period` block, trend, rows and the foreign-work share of the period against an INDEPENDENT read
@@ -2031,7 +2039,10 @@ the exact SV/SPI/CV/CPI (PV 0 -> SPI null, AC 0 -> CPI null), a superseded basel
 out-of-horizon epic, the drill rows (incl. a soft-deleted team's own drill answering `400`), the oldest-derive cut-off
 across connections, the never-derived answer, the cumulative team foreign-work share, `pvOriginal` against the stamped `dim_date`
 calendar and an independent `ROUND(b*i/n, 2)` for a non-divisible budget, `hasPvCurve` for a weekend-only window, and every `400`
-above (a blank `epicId` included; a plain user gets `200`).
+above (a blank `epicId` included; a plain user gets `200`); `ReportEpicProgressMovedEpicTest` the moved-epic rows (A49): on one hand-built
+world with a derive, the AAA and BBB shares of an epic that moved, `partial`, a never-moved sibling (`partial` null), an epic planned wholly
+after the move, one that moves only after `asOf`, the sums of the rows against the domain totals (cumulative and period) and the EPIC level
+unchanged.
 
 ## Report 16 -- Costs
 

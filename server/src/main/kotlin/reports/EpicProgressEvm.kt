@@ -43,8 +43,15 @@ internal class DayIncrement(val day: String, val evm: Evm)
 internal fun Evm.toAsOf(day: LocalDate?) = EpicProgressAsOf(day?.toString(), pv.md(), ev.md(), ac.md(), sv.md(), spi, cv.md(), cpi)
 
 /** A drill row: this [Evm] is the CUMULATIVE figures, [period] the same row inside the period (A37). */
-internal fun Evm.toRow(kind: EpicProgressKind, id: UInt?, key: String?, name: String, period: Evm, active: Boolean? = null) =
-    EpicProgressRow(kind, id, key, name, pv.md(), ev.md(), ac.md(), sv.md(), spi, cv.md(), cpi, period.toRowPeriod(), active)
+internal fun Evm.toRow(
+    kind: EpicProgressKind,
+    id: UInt?,
+    key: String?,
+    name: String,
+    period: Evm,
+    active: Boolean? = null,
+    partial: Boolean? = null,
+) = EpicProgressRow(kind, id, key, name, pv.md(), ev.md(), ac.md(), sv.md(), spi, cv.md(), cpi, period.toRowPeriod(), active, partial)
 
 /** The `agg_daily_flow` rows of a target: a team its own TEAM scope (`0` = UNASSIGNED), a domain/epic their own scope. */
 internal fun aggPredicate(resolved: ResolvedTarget, connectionIds: List<UInt>): Op<Boolean> {

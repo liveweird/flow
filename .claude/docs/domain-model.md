@@ -970,11 +970,15 @@ carries the per-measure detail).
     domain; TEAM/EPIC follows the as-of domain's owner.
   - **A34's DONE band, epic part**, reads the epic's domain from the fact (`done_at`), the owner through the as-of domain; a reopened open epic has no `done_at` and stays in its current domain (the
     known A34 gap).
-  - **Report 15 (the EPIC rows of a DOMAIN drill)** lists a moved epic once per domain it was in, each row holding that domain's share only (PV by the day's end, EV by each child's `done_at`, AC by each
-    worklog's `started_at` -- A47's anchors), so the rows of a domain add up to the domain's totals; the EPIC level still shows the whole epic. A plan baseline stays with the epic's domain at the end of the as-of day.
-  - **Where it applies.** Built: the fact (`fact_epic_delivery`), the WIP epic band (`DeriveWipStep.kt`, the epic's `task_domain` row covering each day's end) and A34's DONE band, epic part
-    (`reports/WipDoneBand.kt`, `COALESCE(fact_epic_delivery.domain_key, dim_epic.domain_key)`, the owner through `dim_domain` keyed on that domain). Not built yet: report 15's rows (the next release), which
-    still read the epic's CURRENT domain.
+  - **Report 15 (the EPIC rows of a DOMAIN drill)** lists a moved epic once per domain it was in up to the end of the as-of day (decided with the user 2026-10-30), each row holding that domain's share only
+    (PV by the domain at the END of each planned day, EV by each child's `done_at`, AC by each worklog's `started_at` -- A47's anchors), so the rows of a domain add up to the domain's totals; the EPIC
+    level still shows the whole epic. Such a row is flagged `partial: true` (null on every other row). An epic is listed in a domain when it has any share there (PV, EV or AC), or a current plan baseline
+    while the domain is the one it has at the end of the as-of day; a move AFTER the as-of day changes nothing (the report sees the epic where it was). An epic that stayed in one domain up to then reads its
+    stored EPIC scope, exactly as before (the same figures; AC to the stored per-day rounding); only a moved epic is split, from the facts through the very `done`/`logged` CTEs DERIVE aggregates
+    (`evEpicDoneCte`, `acLoggedCte`), so the report and the stored DOMAIN scopes share one rule.
+  - **Where it applies.** All built: the fact (`fact_epic_delivery`), the WIP epic band (`DeriveWipStep.kt`, the epic's `task_domain` row covering each day's end), A34's DONE band, epic part
+    (`reports/WipDoneBand.kt`, `COALESCE(fact_epic_delivery.domain_key, dim_epic.domain_key)`, the owner through `dim_domain` keyed on that domain) and report 15's rows (`reports/EpicProgressRows.kt`,
+    1.33.0).
   - Operational detail: `.claude/docs/measures.md` "Domain codes (D3)", `.claude/docs/metrics.md` "DERIVE run algorithm".
 
 ## Gaps in `norm` (closed in v0.3.0)
