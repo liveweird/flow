@@ -51,7 +51,11 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   (a fetch size < ~250 rows) costs a round trip per statement and is not taken.
 - [todo] **CI duration: check the trend at every milestone.** Run `node scripts/timings/ci-times.mjs --branch master`.
   A trend jump gets an investigation, never a raised budget.
-  - Last checked 2026-10-30 (1.28.0): `server` median-5 16m21s (prev-5 16m22s; 30 master runs 10-27..10-29; min 9m18s, max 18m04s), `web` 3m20s,
+  - Last checked 2026-10-30 (1.31.0): `server` median-5 16m22s (prev-5 12m53s, so a TREND +27 % flag; 30 master runs 10-28..10-30; min 9m18s,
+    max 18m04s), `web` 3m42s, `images` 3m03s — no new jump: the median equals the 1.28.0 check and the last 14 runs are the same two modes
+    (fast 629-773 s, slow 981-1084 s; the slow mode was 982-988 s on 10-29), so the flag is the window moving across the draw; `server` and `web`
+    still over their alarms; nightly `e2e` median-5 12m49s.
+    2026-10-30 (1.28.0): `server` median-5 16m21s (prev-5 16m22s; 30 master runs 10-27..10-29; min 9m18s, max 18m04s), `web` 3m20s,
     `images` 3m49s — no new jump, the runner draw (fast 9-11 min, slow 16-18); suite ~2,280 tests; `server` and `web` still over their alarms;
     nightly `e2e` median-5 12m49s.
     2026-10-29 (1.26.0): `server` median-5 14m54s (prev-5 12m52s; 30 master runs 10-24..10-29; latest 17m11s, the max), `web` 3m56s,
@@ -109,7 +113,8 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [todo] **Atlassian API-token quota: re-check developer.atlassian.com/changelog before releases.**
   - API-token traffic is excluded from the 2026 points-based rate limits.
   - Atlassian is evaluating a quota for tokens "with advance notice".
-  - Last checked 2026-10-30 (1.28.0): no token quota announced (entries through 10-28: Bitbucket SSH, Confluence byline, org-level app
+  - Last checked 2026-10-30 (1.31.0): no token quota announced (the only new entry, a Forge custom-field UI RFC, does not touch Flow).
+    2026-10-30 (1.28.0): no token quota announced (entries through 10-28: Bitbucket SSH, Confluence byline, org-level app
     sharing, an MCP tool promotion — none touch Flow's endpoints). 2026-10-29 (1.26.0): no token quota announced (entries through 10-28; the 10-27 `portfolioChildIssuesOf()` JQL change
     does not touch Flow, which never sends it). 2026-10-28 (1.22.1): the 2026-10-20 Tier 2 clarification covers apps (per-tenant quotas), not tokens.
 

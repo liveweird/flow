@@ -2117,6 +2117,21 @@ the time. `local-times.mjs slow-tests` reproduces this table for any run.
    - **After the measurement**, review made the bridge offer the driver an EMPTY Reactor context (reactor-netty copies it into the observer for the channel's life; the measured image passed the pool's on, which held no caller state here). It only removes references; not re-measured.
    - **Not done:** the G1 JVM; the `web` role (same factory, same fix, not dumped). The harness (`observer-reach.py`) is not committed.
 
+53. **The `PROCESSING_VERSION` 3 reprocess costs one slower scheduled round, then nothing - OBSERVED 2026-10-30 (1.28.0, the dev stack on real data).**
+   Question: A47's version 3 makes every stored issue `processing_version`-stale, so the first PROCESS pass after the upgrade re-normalizes the whole raw layer inside the scheduled SYNC (no separate REPROCESS job, no Jira calls). How much does that cost, and does it linger?
+   - **World.** The dev stack (`docker compose`, role `all`, the baked JVM flags), rebuilt on 1.28.0 with the stub off; the enabled data sources on the real tenant, each on its normal SYNC interval; `sync_jobs` read after each round (kind, status, count, max duration). No load besides the stack itself.
+   - **Result.**
+
+     | round | SYNC | DERIVE |
+     |---|---|---|
+     | routine before the upgrade | max 14 s | max 8 s |
+     | first round after the upgrade (the reprocess) | all SUCCEEDED, 15-26 s | max 9 s |
+     | every round from 1 h to 5 h later | all SUCCEEDED, max 15-16 s | max 8-10 s |
+
+   - **Why.** PROCESS claims stale issues in keyset pages within `jira.processPageBytes`, so the reprocess is one bounded pass per connection with no second job; DERIVE barely moves because its input (the normalized rows) changes only where a key change was found. Issues of a soft-deleted, disabled data source stay on version 2 until its PURGE, as intended: nothing processes a stopped connection.
+   - **Verdict.** No action: a version bump costs the next scheduled round a few seconds per connection on this data size; the later rounds are back to routine (the 1-2 s over the old max is within the round-to-round spread). A larger tenant pays the same one-off pass scaled by its raw size (not measured here).
+   - **Not done:** a timed REPROCESS on the `flow-perf` scaled world (~64k issues); the per-connection PROCESS durations (only the job totals were read).
+
 ## Review cadence
 
 - Run `node scripts/timings/ci-times.mjs --branch master` at every milestone / PR, and in every
