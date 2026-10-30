@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Anchor, Stack, Text, Title } from "@mantine/core";
+import { Anchor, Badge, Stack, Text, Title, Tooltip } from "@mantine/core";
 import { Link as RouterLink, useSearchParams } from "react-router-dom";
 import type { EpicProgressReport, EpicProgressRow } from "../api/reports";
 import { scopedSearch, type EpicScope, type EvmFigures } from "../utils/epicProgressReport";
@@ -126,6 +126,13 @@ export default function EpicProgressRows({ report }: { report: EpicProgressRepor
                   {" "}
                   {row.name}
                 </Text>
+              )}
+              {row.partial === true && (
+                <Tooltip label={t("reports.epicProgress.partialTooltip")} multiline w={280} events={{ hover: true, focus: true, touch: true }}>
+                  <Badge color="gray" variant="light" size="sm" ml="xs" tabIndex={0} style={{ verticalAlign: "middle" }}>
+                    {t("reports.epicProgress.partialBadge")}
+                  </Badge>
+                </Tooltip>
               )}
             </Text>
           )

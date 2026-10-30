@@ -60,6 +60,18 @@ describe("EpicProgressRows", () => {
     expect(epics.getAllByText("FLO-40")).toHaveLength(1);
   });
 
+  test("an epic that changed domain carries a 'part' badge with its explanation; a whole epic does not", async () => {
+    show({
+      ...EPIC_PROGRESS_DOMAIN,
+      rows: EPIC_PROGRESS_DOMAIN.rows.map((row, i) => ({ ...row, partial: i === 0 ? true : null })),
+    });
+    const badges = within(screen.getByRole("table", { name: "Epics" })).getAllByText("part");
+    expect(badges).toHaveLength(1);
+    expect(within(screen.getAllByRole("row")[1]).getByText("part")).toBe(badges[0]);
+    await userEvent.hover(badges[0]);
+    expect(await screen.findByText(/holds only this domain's share/)).toBeInTheDocument();
+  });
+
   test("DOMAIN on PERIOD, and a report with no rows says there is nothing to list", () => {
     show({ ...EPIC_PROGRESS_DOMAIN_PERIOD, rows: [] });
     expect(screen.getByText("Nothing to list as of this day.")).toBeInTheDocument();

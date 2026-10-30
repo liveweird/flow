@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: flow-api
-  version: 1.32.0
+  version: 1.33.0
   description: |
     JWT-authenticated REST API for Flow — a developer-intelligence tool that reads Jira Cloud, stores the raw data
     incrementally and derives flow metrics (cycle and lead time, throughput, WIP, flow efficiency, work-item age),
@@ -2993,7 +2993,9 @@ paths:
         the share of the team authors' logged MD from the beginning of time up to `asOf.day` — the same cumulative window
         as CPI — that was foreign work (A20 — read team CPI with it), and `foreignWorkSharePeriod` the same over the
         worklogs started inside the period (the window of the period CPI). `rows` is the drill table as of `asOf.day`: at DOMAIN
-        level one row per epic of that domain with a current baseline or any EV/AC; empty at EPIC and TEAM level. Sprint-relative periods use the resolved sprints'
+        level one row per epic that was in that domain up to `asOf.day` and has a share in it (PV, EV or AC) or a current baseline
+        while the domain is the one it has then; an epic that moved is listed under every domain it was in, each row holding only
+        that domain's share (`partial` true; A49), so a domain's rows add up to its totals; empty at EPIC and TEAM level. Sprint-relative periods use the resolved sprints'
         envelope. Nothing derived yet gives an empty answer with a `note` ("Not derived yet").
       parameters:
         - { $ref: '#/components/parameters/ReportFrom' }
@@ -7374,6 +7376,7 @@ components:
         key: { type: string, nullable: true, description: The epic's issue key or the domain key; null for a team. }
         name: { type: string }
         active: { type: boolean, nullable: true, description: 'TEAM rows only: false for a soft-deleted team that still has figures (its own drill answers 400); null otherwise.' }
+        partial: { type: boolean, nullable: true, description: 'EPIC rows of a DOMAIN drill only: true when the epic was in another domain up to asOf, so this row holds this domain''s share; null otherwise.' }
         pv: { type: number, format: double }
         ev: { type: number, format: double }
         ac: { type: number, format: double }

@@ -892,7 +892,9 @@
       "epic": "Epic"
     },
     "epicsTitle": "Epics",
-    "epicsCaption": "Epics of this domain that have a plan or any earned value or cost; the domain's totals above stay authoritative.",
+    "epicsCaption": "Epics of this domain that have a plan or any earned value or cost; an epic that changed domain shows only this domain's share, so the rows add up to the totals above.",
+    "partialBadge": "part",
+    "partialTooltip": "This epic was in another domain too: this row holds only this domain's share. The epic view shows the whole epic.",
     "noRows": "Nothing to list as of this day.",
     "epic": {
       "title": "Plan",

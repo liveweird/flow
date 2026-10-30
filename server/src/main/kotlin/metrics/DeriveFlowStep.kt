@@ -244,6 +244,37 @@ private fun evTeamFlowSql(connectionId: UInt, configRevision: Long): String = ""
     ${flowMergeTail(EV_COLUMNS)}
 """.trimIndent()
 
+/** `IN (1, 2)` over [connectionIds] (UInt, so interpolating them is safe); callers never pass an empty list. */
+private fun connectionsIn(connectionIds: List<UInt>): String = "IN (${connectionIds.joinToString(", ")})"
+
+/**
+ * The `done AS (...)` CTE of EV, EPIC and DOMAIN: one row per (level-0 done task with an epic, its `done_at` day),
+ * `(connection_id, day, epic_id, epic_domain_key, md)` with `md = COALESCE(estimate_at_done_md, 0)`. ONE rule, ONE place: DERIVE
+ * aggregates it into `agg_daily_flow.ev_md` ([evEpicDomainFlowSql]) and `reports/EpicProgressRows.kt` splits a moved epic's EV by
+ * `epic_domain_key` from it (domain-model A49), so the two can never disagree on what an epic earned in a domain.
+ */
+internal fun evEpicDoneCte(connectionIds: List<UInt>): String = """
+    done AS (
+        SELECT f.connection_id AS connection_id, d.day AS day, f.epic_id AS epic_id, f.epic_domain_key AS epic_domain_key,
+               COALESCE(f.estimate_at_done_md, 0) AS md
+        FROM metrics.fact_task_delivery f
+        JOIN metrics.dim_date d ON d.day_start_ms <= f.done_at AND f.done_at < d.day_end_ms
+        WHERE f.connection_id ${connectionsIn(connectionIds)} AND f.is_subtask = false AND f.done_at IS NOT NULL AND f.epic_id IS NOT NULL
+    )""".trimIndent()
+
+/**
+ * The `logged AS (...)` CTE of AC: one row per worklog and its `started_at` day, `(connection_id, day, team_id, epic_id,
+ * epic_domain_key, md)`. Shared by DERIVE ([acFlowSql]) and the moved-epic split of report 15 (A49), like [evEpicDoneCte].
+ */
+internal fun acLoggedCte(connectionIds: List<UInt>): String = """
+    logged AS (
+        SELECT w.connection_id AS connection_id, d.day AS day, w.author_team_id AS team_id, w.epic_id AS epic_id,
+               w.epic_domain_key AS epic_domain_key, w.md AS md
+        FROM metrics.fact_worklog w
+        JOIN metrics.dim_date d ON d.day_start_ms <= w.started_at AND w.started_at < d.day_end_ms
+        WHERE w.connection_id ${connectionsIn(connectionIds)}
+    )""".trimIndent()
+
 /**
  * EV, EPIC and DOMAIN: only epic-attributed work counts (A23 — an epic-less task has no PV to
  * compare against): each level-0 done task with an epic contributes `COALESCE(estimate_at_done_md,
@@ -251,13 +282,7 @@ private fun evTeamFlowSql(connectionId: UInt, configRevision: Long): String = ""
  * no DOMAIN row).
  */
 private fun evEpicDomainFlowSql(connectionId: UInt, configRevision: Long): String = """
-    WITH done AS (
-        SELECT d.day AS day, f.epic_id AS epic_id, f.epic_domain_key AS epic_domain_key,
-               COALESCE(f.estimate_at_done_md, 0) AS md
-        FROM metrics.fact_task_delivery f
-        JOIN metrics.dim_date d ON d.day_start_ms <= f.done_at AND f.done_at < d.day_end_ms
-        WHERE f.connection_id = $connectionId AND f.is_subtask = false AND f.done_at IS NOT NULL AND f.epic_id IS NOT NULL
-    )
+    WITH ${evEpicDoneCte(listOf(connectionId))}
     ${flowInsertHead(EV_COLUMNS)}
     SELECT $connectionId, 'EPIC', epic_id::text, day, SUM(md), $configRevision
     FROM done
@@ -279,12 +304,7 @@ private fun evEpicDomainFlowSql(connectionId: UInt, configRevision: Long): Strin
  * `epic_domain_key`; worklogs with no epic are left out of both (A23 — epic-attributed cost only).
  */
 private fun acFlowSql(connectionId: UInt, configRevision: Long): String = """
-    WITH logged AS (
-        SELECT d.day AS day, w.author_team_id AS team_id, w.epic_id AS epic_id, w.epic_domain_key AS epic_domain_key, w.md AS md
-        FROM metrics.fact_worklog w
-        JOIN metrics.dim_date d ON d.day_start_ms <= w.started_at AND w.started_at < d.day_end_ms
-        WHERE w.connection_id = $connectionId
-    )
+    WITH ${acLoggedCte(listOf(connectionId))}
     ${flowInsertHead(AC_COLUMNS)}
     SELECT $connectionId, 'TEAM', COALESCE(team_id::text, 'UNASSIGNED'), day, SUM(md), $configRevision
     FROM logged
