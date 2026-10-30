@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.29.0",
+    date: "2026-10-30",
+    en: `**Metrics settings: a history horizon.**
+
+- Administrators can now set how far back the reports look: 24 months by default, anything from 6 to 120 months, or no limit. The settings page shows the first day that still counts.
+- This version only stores the setting; the reports start to follow it in the next versions. Nothing is ever deleted: raising the horizon or turning it off brings older work back.`,
+    pl: `**Ustawienia metryk: horyzont historii.**
+
+- Administratorzy mogą teraz ustawić, jak daleko wstecz sięgają raporty: domyślnie 24 miesiące, dowolnie od 6 do 120 miesięcy albo bez limitu. Strona ustawień pokazuje pierwszy dzień, który jeszcze się liczy.
+- Ta wersja tylko zapisuje ustawienie; raporty zaczną je uwzględniać w kolejnych wersjach. Nic nie jest usuwane: wydłużenie horyzontu lub jego wyłączenie przywraca starszą pracę.`,
+  },
+  {
     version: "1.28.0",
     date: "2026-10-30",
     en: `**Reports: work stays with the domain it was done in when an issue or epic moves between your projects.**
