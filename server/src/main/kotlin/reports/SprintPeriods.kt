@@ -12,7 +12,9 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
+import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.less
+import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.r2dbc.select
 
 /*
@@ -81,5 +83,9 @@ private suspend fun sprintRowsForId(
     var predicate: Op<Boolean> = (MetricsTables.FactSprint.connectionId inList connectionIds) and
         MetricsTables.FactSprint.teamId.isNotNull() and (MetricsTables.FactSprint.sprintId eq sprintId)
     narrowTeamId?.let { predicate = predicate and (MetricsTables.FactSprint.teamId eq it) }
+    // A sprint id shared by two connections: the copy completed before the cutoff drops out, like `lastSprints` drops it.
+    horizonMs?.let {
+        predicate = predicate and (MetricsTables.FactSprint.completeAt.isNull() or (MetricsTables.FactSprint.completeAt greaterEq it))
+    }
     return sprintJoinQuery().where { predicate }.toList().map { it.toSprintRow() }
 }

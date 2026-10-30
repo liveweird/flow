@@ -1,8 +1,10 @@
 package ch.nokillswit
 
+import ch.nokillswit.metrics.HistoryHorizon
 import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.reports.AuthorDayCost
 import ch.nokillswit.reports.CostEntry
+import ch.nokillswit.reports.DEEP_DIVE_RANGE_CLAMPED_NOTE
 import ch.nokillswit.reports.DayAmount
 import ch.nokillswit.reports.EvState
 import ch.nokillswit.reports.NoPlanReason
@@ -11,6 +13,7 @@ import ch.nokillswit.reports.SprintWindow
 import ch.nokillswit.reports.StageSpan
 import ch.nokillswit.reports.TaskPlan
 import ch.nokillswit.reports.approximateEv
+import ch.nokillswit.reports.clampRangeToHorizon
 import ch.nokillswit.reports.costDays
 import ch.nokillswit.reports.evStateOf
 import ch.nokillswit.reports.inProgressDays
@@ -406,5 +409,28 @@ class DeepDiveKernelsTest {
             listOf(AuthorDayCost(-2, "a", md("1.00"))),
             costDays(listOf(CostEntry(utcMs("2026-10-03T10:00:00Z"), "a", md("1.00"))), weekdays, origin),
         )
+    }
+
+    @Test
+    fun `clampRangeToHorizon raises an earlier from, empties a range ending before the horizon and joins the notes`() {
+        val horizon = HistoryHorizon(6, LocalDate.of(2026, 4, 1))
+        val d = { text: String -> LocalDate.parse(text) }
+        // Off, or a range wholly inside: untouched. A range reaching back: only its start moves.
+        val off = clampRangeToHorizon(d("2020-01-01"), d("2026-03-01"), null, spanClamped = false)
+        assertEquals(d("2020-01-01") to d("2026-03-01"), off.from to off.to)
+        assertNull(off.note)
+        val inside = clampRangeToHorizon(d("2026-05-01"), d("2026-06-01"), horizon, spanClamped = false)
+        assertEquals(d("2026-05-01") to d("2026-06-01"), inside.from to inside.to)
+        assertNull(inside.note)
+        val reaching = clampRangeToHorizon(d("2026-01-01"), d("2026-04-01"), horizon, spanClamped = false)
+        assertEquals(d("2026-04-01") to d("2026-04-01"), reaching.from to reaching.to, "ending ON the cutoff day still overlaps it")
+        assertNull(reaching.note, "a plain clip is silent: meta.historyHorizon tells")
+        // Entirely before: the single day on the cutoff and the note, beside RANGE_CLAMPED when the span was cut.
+        val emptied = clampRangeToHorizon(d("2026-01-01"), d("2026-03-31"), horizon, spanClamped = false)
+        assertEquals(d("2026-04-01") to d("2026-04-01"), emptied.from to emptied.to)
+        assertTrue(emptied.note!!.startsWith("HISTORY_HORIZON: ") && "2026-04-01" in emptied.note!! && "6 months" in emptied.note!!)
+        val both = clampRangeToHorizon(d("2020-01-01"), d("2026-03-31"), horizon, spanClamped = true)
+        assertTrue(both.note!!.startsWith("RANGE_CLAMPED") && ". HISTORY_HORIZON: " in both.note!!, both.note)
+        assertEquals(DEEP_DIVE_RANGE_CLAMPED_NOTE, clampRangeToHorizon(d("2020-01-01"), d("2026-06-01"), null, spanClamped = true).note)
     }
 }

@@ -1,7 +1,6 @@
 package ch.nokillswit.reports
 
 import ch.nokillswit.ingest.DataSourceService
-import ch.nokillswit.metrics.HistoryHorizon
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.WorkingCalendar
 import io.ktor.server.plugins.BadRequestException
@@ -136,6 +135,12 @@ internal const val NOT_DERIVED_NOTE = "Not derived yet: no connection in scope h
 private const val UNASSIGNED_SPRINTS_NOTE = "teamId=0 (UNASSIGNED) resolves no sprint, so a sprint-relative period has nothing to read"
 private const val NO_SPRINT_NOTE = "The sprint-relative period resolved no sprint, so there is nothing to read"
 
+/** [NO_SPRINT_NOTE], naming the history horizon when it may be what hid every sprint (a `lastSprints` period under one). */
+private fun noSprintNote(filter: ReportFilter): String {
+    val horizon = filter.historyHorizon ?: return NO_SPRINT_NOTE
+    return "$NO_SPRINT_NOTE (history horizon: ${horizon.months} months hides the sprints completed before ${horizon.from})"
+}
+
 /**
  * The days a daily-snapshot report lists and the note it carries: USER level is empty by design with [userNote] (the
  * estimated backlog), or read like any other level when it is `null` (WIP answers USER level at query time, brief 04); no
@@ -163,15 +168,18 @@ internal suspend fun planSnapshotDays(
     if (start != null && windowStart != null && windowStart.isBefore(start.date)) notes += backfillNote(start)
     // The horizon cuts a day-anchored series at its first day whatever the report (a sprint window may begin before it; a from/to one
     // was clamped by the parser already), where the backfill start only applies to the reports that ask for it.
-    val horizon = filter.historyHorizon
-    if (horizon != null && windowStart != null && windowStart.isBefore(horizon.from)) notes += horizonNote(horizon)
-    val notBefore = listOfNotNull(start?.date, horizon?.from).maxOrNull()
+    horizonNoteOf(filter, window, calendar)?.let { notes += it }
+    val notBefore = listOfNotNull(start?.date, filter.historyHorizon?.from).maxOrNull()
     return SnapshotPlan(snapshotDays(window, calendar, coveredThrough, notBefore), notes.joinToString(". ").ifEmpty { null })
 }
 
-private fun horizonNote(horizon: HistoryHorizon): String =
-    "Before ${horizon.from} history is hidden (history horizon: ${horizon.months} months)"
-
+/** The note of a day-anchored series whose [window] begins before [filter]'s history horizon (which cuts it), else `null`. */
+internal fun horizonNoteOf(filter: ReportFilter, window: Pair<Long, Long>?, calendar: WorkingCalendar): String? {
+    val horizon = filter.historyHorizon ?: return null
+    val windowStart = window?.takeIf { it.second > it.first }?.let { calendar.dayOf(it.first) } ?: return null
+    if (!windowStart.isBefore(horizon.from)) return null
+    return "Before ${horizon.from} history is hidden (history horizon: ${horizon.months} months)"
+}
 
 /** The first day a WIP series may list: the LATEST `backfill_from` [date] of the [connections] in scope. */
 internal data class BackfillStart(val date: LocalDate, val connections: Int)
@@ -206,7 +214,7 @@ private fun backfillNote(start: BackfillStart): String =
 internal fun snapshotNotes(scope: ReportScope, filter: ReportFilter, coverage: DerivedCoverage): List<String> {
     if (coverage.day == null) return listOf(NOT_DERIVED_NOTE)
     return buildList {
-        if (scope.window == null) add(if (filter.teamId == UNASSIGNED_TEAM_ID) UNASSIGNED_SPRINTS_NOTE else NO_SPRINT_NOTE)
+        if (scope.window == null) add(if (filter.teamId == UNASSIGNED_TEAM_ID) UNASSIGNED_SPRINTS_NOTE else noSprintNote(filter))
         if (coverage.notDerived.isNotEmpty()) {
             val ids = coverage.notDerived.joinToString()
             add("Connection(s) $ids have no successful DERIVE run yet and are ignored for the last-derived-day cut-off")

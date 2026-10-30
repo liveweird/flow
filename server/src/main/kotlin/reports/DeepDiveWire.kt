@@ -1,5 +1,6 @@
 package ch.nokillswit.reports
 
+import ch.nokillswit.metrics.HistoryHorizon
 import kotlinx.serialization.Serializable
 
 // The wire shapes of report 17, the Deep dive (`.claude/docs/reports.md` "Report 17", A29, A40). Every series is SPARSE and every day an
@@ -124,4 +125,14 @@ data class DeepDiveReport(
     val tasks: List<DeepDiveTask>,
     val quality: DeepDiveQuality,
     val note: String?,
+)
+
+/**
+ * The deep dive's `meta`: the DERIVE [stamp] over the connections in scope, the answer's [range] and the request's A48 [horizon]
+ * (`null` = off). Level UNIT, task view, no resolved sprints: the report has its own selection, not the shared filter.
+ */
+internal fun deepDiveMeta(stamp: DeriveStamp, range: DeepDiveRange, minSampleSize: Int, horizon: HistoryHorizon?) = ReportMeta(
+    derivedAt = stamp.derivedAt, configRevision = stamp.configRevision, from = range.from, to = range.to,
+    level = ReportLevel.UNIT, domainView = DomainView.TASK, resolvedSprints = emptyList(), minSampleSize = minSampleSize,
+    historyHorizon = horizon?.toWire(),
 )

@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.reports.AgingWipReport
 import ch.nokillswit.reports.BacklogReport
+import ch.nokillswit.reports.EpicProgressReport
 import ch.nokillswit.reports.HistoryHorizonWire
 import ch.nokillswit.reports.ReportFilters
 import ch.nokillswit.reports.ReportServiceKey
@@ -56,9 +57,14 @@ class ReportHistoryHorizonTest {
     }
 
     /** Runs [block] under a history horizon of [months] (null = off), the aging window wide open and `hoursPerDay` as the fixture's. */
-    private suspend fun <T> withHorizon(months: Int?, block: suspend () -> T): T = withMetricsSettings(
+    private suspend fun <T> withHorizon(months: Int?, backlogWindowSprints: Int? = null, block: suspend () -> T): T = withMetricsSettings(
         settings,
-        { it.copy(historyHorizonMonths = months, hoursPerDay = DerivedStubFixture.HOURS_PER_DAY, agingWindowItems = 1000) },
+        {
+            it.copy(
+                historyHorizonMonths = months, hoursPerDay = DerivedStubFixture.HOURS_PER_DAY, agingWindowItems = 1000,
+                backlogWindowSprints = backlogWindowSprints ?: it.backlogWindowSprints,
+            )
+        },
         block,
     )
 
@@ -240,11 +246,96 @@ class ReportHistoryHorizonTest {
         assertTrue(unlimitedAging.thresholds.n > 0, "the fixture has finished tasks")
         assertTrue(limitedAging.thresholds.n < unlimitedAging.thresholds.n, "done tasks before the cutoff leave the reference set")
 
+        // A window wider than the fixture's sprint count, so the mean reaches back across the cutoff.
         val period = "from=$WIDE_FROM&to=$TO"
-        val limitedBacklog = withHorizon(6) { client.get("/api/v1/reports/backlog?$scope&$period").body<BacklogReport>() }
-        val unlimitedBacklog = withHorizon(null) { client.get("/api/v1/reports/backlog?$scope&$period").body<BacklogReport>() }
+        val limitedBacklog = withHorizon(6, backlogWindowSprints = 50) {
+            client.get("/api/v1/reports/backlog?$scope&$period").body<BacklogReport>()
+        }
+        val unlimitedBacklog = withHorizon(null, backlogWindowSprints = 50) {
+            client.get("/api/v1/reports/backlog?$scope&$period").body<BacklogReport>()
+        }
         assertTrue(unlimitedBacklog.current.sprintsUsed > 0, "sprints closed in the fixture feed the mean")
-        assertTrue(limitedBacklog.current.sprintsUsed <= unlimitedBacklog.current.sprintsUsed)
+        assertTrue(limitedBacklog.current.sprintsUsed > 0, "sprints closed after the cutoff still feed it")
+        assertTrue(
+            limitedBacklog.current.sprintsUsed < unlimitedBacklog.current.sprintsUsed,
+            "sprints closed before the cutoff are skipped",
+        )
+        assertNotEquals(unlimitedBacklog.current.meanDeliveredMd, limitedBacklog.current.meanDeliveredMd, "so is their delivery")
         assertEquals(CUTOFF, limitedBacklog.trend.first().day)
+    }
+
+    @Test
+    fun `a cutoff in the middle of a month gives a partial first bucket, and its bar still equals its drill`() = testApplication {
+        usePostgresTestcontainer()
+        pinReportClock(Instant.parse("2026-06-15T00:00:00Z").toEpochMilli())
+        val connId = DerivedStubFixture.connectionId()
+        val client = seededClient("horizon-mid-month")
+        val midCutoff = "2025-12-15"
+        val scope = "connectionId=$connId&domain=${DerivedStubFixture.DOMAIN}&bucket=MONTH"
+        val limited = withHorizon(6) { client.json("/api/v1/reports/throughput?$scope&from=$WIDE_FROM&to=$TO") }
+        val plain = withHorizon(null) { client.json("/api/v1/reports/throughput?$scope&from=$midCutoff&to=$TO") }
+        val unlimited = withHorizon(null) { client.json("/api/v1/reports/throughput?$scope&from=$CUTOFF&to=$TO") }
+        assertEquals(plain.withoutHorizon(), limited.withoutHorizon(), "the clamped range is the no-horizon range from the cutoff")
+        assertEquals("""{"months":6,"from":"$midCutoff"}""", limited.horizonOfMeta().toString())
+        assertNotEquals(unlimited.withoutHorizon(), limited.withoutHorizon(), "the half month before the cutoff really is left out")
+        val bars = withHorizon(6) {
+            client.get("/api/v1/reports/throughput?$scope&from=$WIDE_FROM&to=$TO").body<ThroughputReport>().byBucket
+        }
+        assertTrue(bars.any { it.deliveredItems > 0 })
+        for (bar in bars.filter { it.deliveredItems > 0 }) {
+            val drill = withHorizon(6) {
+                client.json("/api/v1/reports/throughput/items?$scope&from=$WIDE_FROM&to=$TO&bucketStart=${bar.bucketStart}")
+            }
+            assertEquals(bar.deliveredItems, drill.getValue("bar").jsonObject.getValue("count").toString().toInt(), bar.bucketStart)
+        }
+    }
+
+    @Test
+    fun `epic progress over a sprint straddling the cutoff starts its series at the cutoff, as the clamped from-to period does`() =
+        testApplication {
+            usePostgresTestcontainer()
+            pinReportClock()
+            val connId = DerivedStubFixture.connectionId()
+            val teamId = DerivedStubFixture.teamId()
+            val client = seededClient("horizon-epic-progress")
+            val zone = withHorizon(null) { client.get("/api/v1/reports/filters").body<ReportFilters>().timeZone }
+            val cutoff = cutoffMs(zone)
+            val straddling = withHorizon(null) { client.sprintsOf(teamId) }.first { s ->
+                s.startAt != null && s.completeAt != null && s.startAt < cutoff - TWO_DAYS_MS && s.completeAt >= cutoff + TWO_DAYS_MS
+            }
+            val endDay = Instant.ofEpochMilli(straddling.completeAt!!).atZone(ZoneId.of(zone)).toLocalDate()
+            val scope = "connectionId=$connId&teamId=$teamId"
+            val bySprint = withHorizon(6) {
+                client.get("/api/v1/reports/epic-progress?$scope&sprintId=${straddling.sprintId}").body<EpicProgressReport>()
+            }
+            val clamped = withHorizon(null) {
+                client.get("/api/v1/reports/epic-progress?$scope&from=$CUTOFF&to=$endDay").body<EpicProgressReport>()
+            }
+            val whole = withHorizon(null) {
+                client.get("/api/v1/reports/epic-progress?$scope&sprintId=${straddling.sprintId}").body<EpicProgressReport>()
+            }
+            assertEquals(CUTOFF, bySprint.series.first().date)
+            assertEquals(clamped.series, bySprint.series, "one truth: the series")
+            assertEquals(clamped.asOf, bySprint.asOf)
+            assertEquals(clamped.period, bySprint.period)
+            assertEquals(clamped.trend, bySprint.trend)
+            assertTrue("Before $CUTOFF history is hidden (history horizon: 6 months)" in bySprint.note.orEmpty(), bySprint.note)
+            assertTrue(whole.series.first().date < CUTOFF, "off keeps the whole sprint window")
+            assertEquals(whole.asOf, bySprint.asOf, "the cumulative baselines stay whole-life")
+        }
+
+    @Test
+    fun `when the horizon hides every sprint the empty answer says so`() = testApplication {
+        usePostgresTestcontainer()
+        pinReportClock(Instant.parse("2028-06-01T00:00:00Z").toEpochMilli())
+        val connId = DerivedStubFixture.connectionId()
+        val teamId = DerivedStubFixture.teamId()
+        val client = seededClient("horizon-no-sprint")
+        val scope = "connectionId=$connId&teamId=$teamId&lastSprints=5"
+        val limited = withHorizon(6) { client.get("/api/v1/reports/wip?$scope").body<WipReport>() }
+        val unlimited = withHorizon(null) { client.get("/api/v1/reports/wip?$scope").body<WipReport>() }
+        val said = "history horizon: 6 months hides the sprints completed before 2027-12-01"
+        assertTrue(limited.series.isEmpty() && said in limited.note.orEmpty(), limited.note)
+        assertTrue("history horizon" !in unlimited.note.orEmpty(), "off: no horizon talk")
     }
 }

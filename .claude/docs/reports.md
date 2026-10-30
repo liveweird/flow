@@ -305,8 +305,8 @@ through `resolvedSprints`. `ReportFilter.toMeta(...)` assembles the DTO from an 
 filter plus the figures a report's own service computes -- pure, no DB access of its own.
 
 **History horizon (A48).** `meta.historyHorizon` is `{months, from}` (`from` the first day that counts, an ISO date; the shared `HistoryHorizon` schema) or an explicit `null` when the
-horizon is off; Home inherits it through `ReportMeta`. It says what the figures were read under: nothing anchored before `from` is in them. The deep dive builds its own `meta` and
-carries `null` until it reads the horizon (a later step of A48). Each report's anchor decides what "before" means (`measures.md` Conventions "History horizon"); a period that only
+horizon is off; Home inherits it through `ReportMeta`. It says what the figures were read under: nothing anchored before `from` is in them. The deep dive builds its own `meta` (`deepDiveMeta`) and
+fills it from the horizon its parser was given. Each report's anchor decides what "before" means (`measures.md` Conventions "History horizon"); a period that only
 partly overlaps is clamped (`meta.from` is the clamped day), one entirely before is `400`. Pinned by `ReportHistoryHorizonTest`.
 
 ## `GET /api/v1/reports/filters`
@@ -1917,7 +1917,10 @@ none -- `TEAM_DOMAIN_OR_EPIC`, "Scope" above). It reads `agg_daily_flow`'s per-d
 them at query time. `asOf` is **CUMULATIVE** -- from the beginning of time, the running sum is not reset at `from`; a series
 point is everything planned/earned/spent up to the end of that day under `basis=CUMULATIVE`, or (A37) rebased to the period's first
 day under `basis=PERIOD`. Takes the shared `from`/`to`/`lastSprints`/`sprintId` period, `connectionId`, and its own `epicId`,
-`basis` and `trendWindowDays`; `domainView` defaults to (and only accepts) `EPIC`.
+`basis` and `trendWindowDays`; `domainView` defaults to (and only accepts) `EPIC`. **History horizon (A48):** the series lists no day before the horizon's first day
+(`ProgressContext.notBefore`; a sprint window straddling the cutoff starts there, where a `from`/`to` period was clamped by the parser already) and `note` says "Before <date> history is
+hidden (history horizon: <months> months)" (`horizonNoteOf`); `firstDay`, the `basis=PERIOD` rebase, the `period` figures and the trend start at the cutoff too, so a straddling `sprintId`
+equals the same report over the clamped `from`/`to`. The PV/EV/AC baselines stay whole-life (`asOf` and the running sums read from the beginning of time, A23). Pinned by `ReportHistoryHorizonTest`.
 
 ```
 EpicProgressReport {
@@ -2248,9 +2251,9 @@ Option list shapes (all take `connectionId`, `q`, `page`, `pageSize`, `sort`; it
 within a connection): **sprints** -- `domain` REQUIRED (missing, blank or unknown on an active connection in scope is `400`); the sprints in which
 at least one level-0 task of that domain (the task's OWN domain, as mode (a) selects) was `in_scope_at_close`, each `{id (sprint id), connectionId,
 name, state, startAt, endAt, completeAt, taskCount}` with `taskCount` the number of those tasks; `q` over the name; sort `id|name|startAt|completeAt`,
-default `-id`. A domain absent from `dim_domain` (for example a task's as-was raw project key that the domain map no longer holds) is `400` here while `/epics`
+default `-id`; a sprint completed before the history horizon is not offered (`complete_at IS NULL OR >= the cutoff`: selecting it would be `400`). A domain absent from `dim_domain` (for example a task's as-was raw project key that the domain map no longer holds) is `400` here while `/epics`
 answers an empty page, consistent with `/reports/filters` never offering such a domain. **epics** -- `dim_epic` rows `{id, connectionId, key, summary?, domain?}`; optional `domain` (an unknown domain is an empty page, not a
-`400`); `q` over key and summary; sort `id|key|summary|domain`, default `key`. `domain` and `q` are trimmed and checked for control characters (a NUL is `400`, never a database error). The connection id is the final tiebreaker after `id`. No planned dates ride on the epic options: `dim_epic.start_at`/`due_at` are not the
+`400`); `q` over key and summary; sort `id|key|summary|domain`, default `key`; an epic finished before the history horizon is not offered (`fact_epic_delivery.done_at` LEFT JOINed: `NULL OR >= the cutoff`) -- an `epicId` typed by hand still resolves (an epic is a container, not a period). `domain` and `q` are trimmed and checked for control characters (a NUL is `400`, never a database error). The connection id is the final tiebreaker after `id`. No planned dates ride on the epic options: `dim_epic.start_at`/`due_at` are not the
 `fact_epic_plan` baseline the report draws.
 
 ### Selection -- exactly one of two modes, set by the parameters
@@ -2281,7 +2284,7 @@ an epic selection nor fails the request (`ReportDeepDiveTest` pins it), and alon
 - Mode (b): the envelope of every mark that would be drawn -- plan days, in-progress days, done days, cost days and the epics'
   planned windows.
 - `from`/`to` CLIP that envelope (clipped data stays in `totals`). With BOTH given, `from > to` is `400` and so is a span over 1100 days
-  (inclusive of both ends). A lone bound never fails: one outside the envelope pulls the implied other end onto itself, so the range is a
+  (inclusive of both ends; the REQUESTED span, before any clamp). A lone bound never fails: one outside the envelope pulls the implied other end onto itself, so the range is a
   single empty day (totals intact); one inside keeps the envelope's other end.
 - An IMPLIED range (not both bounds given) over 1100 days is not an error: it keeps its LAST 1100 days -- a given `from` or `to` is
   honoured and the other end follows it; with neither, the days end at the envelope's end -- and `note` says so
@@ -2290,6 +2293,10 @@ an epic selection nor fails the request (`ReportDeepDiveTest` pins it), and alon
   Approximate EV split runs over that list, and the range cuts the series at assembly, so a clamped or clipped range keeps each day's whole-life
   share (never a re-split over the visible days) and `totals.evMd` stays whole. The envelope reads a span by its first and last day. With no
   marks at all the range is the single day `from ?? to ?? today`.
+- **History horizon (A48).** `range.from` is never before the horizon's first day (`clampRangeToHorizon`, `DeepDiveKernels.kt`, called by `resolveRange` after the 1100-day cut): only the DRAWN
+  series is cut, every task's `totals` stay whole-life (A40), so the answer equals the same selection without a horizon over `from=<cutoff>`. A range whose end lies before the cutoff (the envelope of an epic
+  selection all of whose marks are older) becomes the single empty day on the cutoff and `note` carries `HISTORY_HORIZON: ...` after `RANGE_CLAMPED` when both apply (the leading code stays stable for clients; the
+  parts are joined with ". "). A plain clip is silent: `meta.historyHorizon` and `range.from` say so. `meta.historyHorizon` is filled on every answer, the not-derived one included.
 - Day offsets in the series count from `range.from`. `range.asOfDay` is the day of the SELECTED connection's last DERIVE clock (its newest
   SUCCEEDED `derive_runs.started_at`, `deriveClocks`) -- the same clock open in-progress intervals stop at; a selected connection with
   dimension rows but no successful run reads as not derived. (`meta` is `deriveStamp` over the connections in scope, as everywhere.)
@@ -2298,7 +2305,9 @@ an epic selection nor fails the request (`ReportDeepDiveTest` pins it), and alon
 
 Checked before any data is read, always `400` and never `404`: no mode or mixed modes (for example `sprintId` with `epicId`); `domain` without
 `sprintId` (mode a); too many values (more than 52 sprints or 50 epics); a selection that
-resolves to more than 500 tasks; a GIVEN range (both `from` and `to`) over 1100 days or with `from` after `to`; an unknown or inactive sprint, epic or connection; an ambiguous epic key or sprint id (several connections in scope); an unknown `domain` (mode a, on a connection that
+resolves to more than 500 tasks; a GIVEN range (both `from` and `to`) over 1100 days or with `from` after `to`; a `to` (alone or with `from`) before the history horizon's first day (A48, "from/to lies
+entirely before the history horizon (<from>)", the shared parser's text) and a mode-(a) `sprintId` completed before it ("sprintId <id> closed before the history horizon (<from>)", the shared
+`sprintId` rule; an open sprint is current work, never cut; checked with the other data-dependent `400`s in `resolveDeepDiveTargets`); an unknown or inactive sprint, epic or connection; an ambiguous epic key or sprint id (several connections in scope); an unknown `domain` (mode a, on a connection that
 has derived); epics or sprints that do not share one connection; a malformed date or id; a repeated scalar parameter; control characters; and on the option lists
 an unknown sort field or a bad page parameter. Nothing in scope derived yet is NOT a `400`: it is the empty answer below.
 
@@ -2383,7 +2392,7 @@ overlapping sprints, the later fallback, a task never in a sprint, no working da
 missing author, 501 tasks (epic and sprint selections), a given range over 1100 days, lone `from`/`to` clips, an implied range over 1100 days clamped (an epic
 window of years; a task in progress since 2020 whose Approximate EV keeps its whole-life split under the clamped range), the same issue in two connections keeping each one's figures, an unselected parent's sub-task
 contributing nothing, ambiguity across connections and never-derived; every `400`).
-The kernels' `taskPlan` takes an optional `daysOf` so the report memoizes `planDays` per distinct window set. `ReportDeepDiveOptionsTest` (landed with the option lists): the shared derived fixture graded against independent reads of the stored
+The kernels' `taskPlan` takes an optional `daysOf` so the report memoizes `planDays` per distinct window set. `ReportDeepDiveHorizonTest` (A48 on the derived fixture: the clipped range equals the no-horizon range from the cutoff, a sprint or `to` before it is `400`, both pickers skip what finished before it, the not-derived `meta`) with the emptied-envelope case on the hand-built world in `ReportDeepDiveTest` and the pure `clampRangeToHorizon` in `DeepDiveKernelsTest`. `ReportDeepDiveOptionsTest` (landed with the option lists): the shared derived fixture graded against independent reads of the stored
 facts (sprint counts per domain, the epic list, paging/total, sorts, uppercase/accented `q`), every option-list `400`, and hand-built
 rows in a disabled connection for stored diacritics and an epic key present in two connections.
 
@@ -2407,6 +2416,10 @@ people alike, except to the WIP rows, which read `item_stage` and carry no slice
 (`parseComparePeople`) is the only caller of the shared parser's `teamless = true` mode, which yields a USER-level `ReportFilter` with a null `teamId`
 -- an invariant the rest of the package relies on elsewhere (`snapshotScopeOf` and `readWipUserCells` need a team at USER level and refuse such a filter), so
 it never leaves the compare-people code.
+
+**History horizon (A48).** The window is read from the horizon's first day: the parser clamps `from` (`meta.from` tells) and refuses a period entirely before it (`400`), so a window
+straddling the cutoff IS the report over `from=<cutoff>`. Its WIP rows go through `planSnapshotDays` (cut at the cutoff like any day-anchored series). Compare people has no coverage label of
+its own; Person trend's labels follow the same clamp (Report 20). Pinned by `ReportHistoryHorizonPeopleTest`.
 
 ### Response
 
@@ -2546,7 +2559,8 @@ The slices apply to every window alike, except to the WIP rows (as Report 9). Un
 
 `pointEnds(from, to)` (`PersonTrendKernels.kt`): `to`, then every **14** days back while not before `from`, oldest first; at most `MAX_TREND_POINTS` = 1100 / 14 + 1 = **79**.
 Each point is the window of the **90** calendar days ending on it (`end - 89 .. end`, inclusive, the configured zone's day bounds), so the first window reaches 89 days
-before `from`; `meta.from`/`to` stay the requested range. `windows[]` is `{end, from, coverage}`.
+before `from`; `meta.from`/`to` stay the requested range (`meta.from` is the cutoff when the history horizon, A48, clamped it: the parser raises `from`, so no point ends before the cutoff, and
+a `to` before it is `400`). `windows[]` is `{end, from, coverage}`; a window's `from` stays the plain `end - 89`, even when it begins before the cutoff.
 
 ### Response
 
@@ -2576,7 +2590,11 @@ PersonTrendReport {
 - **Cells.** `{value?, n, hidden}` as Report 18: `value` is absent when hidden (a distribution under `minSampleSize`) or undefined (no denominator); a count of items is 0, never hidden, so a
   window with no sample still has a `deliveredItems` value of 0.
 - **Coverage (`coverageOf`).** `NONE`: nothing derived for the connections in scope, the window ends before the latest `backfill_from` of the derived connections, or it starts after the last derived day.
-  `PARTIAL`: it starts before that backfill day or ends after the last derived day. `FULL` otherwise. One label per window, shared by every row (they read facts the same DERIVE wrote). A `NONE` window still
+  `PARTIAL`: it starts before that backfill day or ends after the last derived day. `FULL` otherwise. **History horizon (A48):** the horizon's first day counts as a backfill day of its own
+  (the report passes `maxOf(backfill, horizon.from)` to `coverageOf`), so a window beginning before the cutoff is `PARTIAL`, like one beginning before the backfill. The one wide fact fetch starts no
+  earlier than the cutoff either (the lower bound `from - 89` is clamped), so an early window holds only its part inside the horizon -- exactly Compare people over `from=max(window.from, cutoff)`,
+  which is what the `atPoint` drill asks (`ReportFilter.atPoint` clamps the rebuilt window's `from`; the drill's `meta.from` is that day). The WIP plan clips itself (`planSnapshotDays`) and `note` carries the
+  horizon note when the first window begins before it. Pinned by `ReportHistoryHorizonPeopleTest`. One label per window, shared by every row (they read facts the same DERIVE wrote). A `NONE` window still
   carries Compare people's figures over it (typically empty): the client draws a gap, the server does not blank them (the one-truth rule). `note` is the WIP plan's text (not derived yet, a range
   before the backfill window, connections never derived), computed once over the whole range.
 - **The cue (`rows[].trend`, `cueOf`).** The first against the last point whose window is `FULL`, whose cell is not hidden and has a value, by Report 18's `compareValues` (A = first, B = last; B better is

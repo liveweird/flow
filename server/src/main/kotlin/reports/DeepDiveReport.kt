@@ -85,12 +85,9 @@ internal suspend fun ReportService.deepDive(request: DeepDiveRequest, nowMs: Lon
     val connectionIds = resolveConnectionScope(request.connectionId)
     val stamp = deriveStamp(connectionIds)
     val clocks = deriveClocks(connectionIds)
-    fun metaOf(range: DeepDiveRange) = ReportMeta(
-        derivedAt = stamp.derivedAt, configRevision = stamp.configRevision, from = range.from, to = range.to,
-        level = ReportLevel.UNIT, domainView = DomainView.TASK, resolvedSprints = emptyList(), minSampleSize = settings.minSampleSize,
-    )
+    fun metaOf(range: DeepDiveRange) = deepDiveMeta(stamp, range, settings.minSampleSize, request.historyHorizon)
     if (clocks.isEmpty()) return@reportTransaction notDerived(request, calendar, nowMs, ::metaOf)
-    val targets = resolveDeepDiveTargets(request, connectionIds)
+    val targets = resolveDeepDiveTargets(request, connectionIds, calendar)
     // The selected connection's own DERIVE clock: where an open in-progress interval stops and the day `range.asOfDay` names. A
     // connection with dimension rows but no successful run reads as not derived, never as "now".
     val clockMs = clocks[targets.connectionId] ?: return@reportTransaction notDerived(request, calendar, nowMs, ::metaOf)
@@ -98,7 +95,7 @@ internal suspend fun ReportService.deepDive(request: DeepDiveRequest, nowMs: Lon
     val series = seriesOf(facts, calendar, clockMs)
     val choice = resolveRange(request, targets, facts, series, calendar, nowMs)
     val assembly = Assembly(targets, facts, series, choice.range, calendar, clockMs)
-    assemble(assembly, choice.clamped, ::metaOf)
+    assemble(assembly, choice.note, ::metaOf)
 }
 
 /** The empty answer for a scope with no successful DERIVE: the range echoes `from`/`to` (a single day without them). */
@@ -309,14 +306,15 @@ private fun epicWindowDays(window: EpicWindow?): Pair<LocalDate, LocalDate>? {
 
 // ---- range --------------------------------------------------------------------------------------------
 
-/** The resolved range and whether an implied span was cut to [MAX_WINDOW_DAYS] days. */
-private class RangeChoice(val range: ResolvedRange, val clamped: Boolean)
+/** The resolved range and the `note` it earned (an implied span cut to [MAX_WINDOW_DAYS] days, the history horizon). */
+private class RangeChoice(val range: ResolvedRange, val note: String?)
 
 /**
  * The range (`.claude/docs/reports.md` "Range"): a given `from`/`to` CLIPS the envelope, so a lone bound outside the envelope pulls the
  * implied other end onto itself (a single, empty day) rather than failing; both given were already validated (`from` not after `to`, at
  * most 1100 days). An implied span over 1100 days keeps its LAST 1100 days (a given `from` or `to` is kept, the other end follows it) and
  * says so ([DEEP_DIVE_RANGE_CLAMPED_NOTE]). With no marks at all the range is the single day `from ?: to ?: today`.
+ * The A48 history horizon then clips it ([clampRangeToHorizon]: only the drawn series, never `totals`).
  */
 private fun resolveRange(
     request: DeepDiveRequest,
@@ -347,7 +345,8 @@ private fun resolveRange(
     if (clamped) {
         if (request.from != null) to = from.plusDays(DEEP_DIVE_MAX_RANGE_DAYS - 1L) else from = to.minusDays(DEEP_DIVE_MAX_RANGE_DAYS - 1L)
     }
-    return RangeChoice(ResolvedRange(from, to), clamped)
+    val cut = clampRangeToHorizon(from, to, request.historyHorizon, clamped)
+    return RangeChoice(ResolvedRange(cut.from, cut.to), cut.note)
 }
 
 /**
@@ -379,7 +378,7 @@ private val KEY_ORDER: Comparator<String> = Comparator { a, b ->
         ?: a.compareTo(b)
 }
 
-private suspend fun assemble(a: Assembly, clamped: Boolean, metaOf: (DeepDiveRange) -> ReportMeta): DeepDiveReport {
+private suspend fun assemble(a: Assembly, note: String?, metaOf: (DeepDiveRange) -> ReportMeta): DeepDiveReport {
     val range = a.range
     fun clipped(entries: List<AuthorDayCost>) = entries.filter { range.contains(range.rebase(it.offset)) }
     val accountIds = (a.series.tasks.flatMap { clipped(it.cost) } + a.series.epicOwn.values.flatMap { clipped(it) })
@@ -415,7 +414,7 @@ private suspend fun assemble(a: Assembly, clamped: Boolean, metaOf: (DeepDiveRan
             doneUnestimated = a.series.tasks.count { it.evState == EvState.UNESTIMATED },
             epicOwnCostMd = ownCostMd.md(),
         ),
-        note = if (clamped) DEEP_DIVE_RANGE_CLAMPED_NOTE else null,
+        note = note,
     )
 }
 

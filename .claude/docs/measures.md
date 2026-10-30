@@ -23,7 +23,8 @@ API); a marked row becomes binding when its commit fills "Pinned by".
   is reported. A task by `done_at` (created before and done after counts in full), a worklog by `started_at`, a sprint by `complete_at` (whole or nothing; an inside-the-sprint day series -- WIP,
   backlog days -- starts at the cutoff day), a day-anchored series from the cutoff day. Open work (WIP, aging, open epics) is current whatever its age, and PV/EV/AC baselines stay whole-life.
   The aging thresholds' last-N done items and the backlog's mean delivery per sprint skip what finished before it. The shared parser clamps `from`/`to` and refuses a period wholly before it
-  (`reports.md` "The shared filter parser"). A table row never mentions it: it is a window on the anchor, not a figure.
+  (`reports.md` "The shared filter parser"). The deep dive's drawn series start at the cutoff while its `totals` stay whole-life; Person trend's windows reading from it are `PARTIAL`; Epic progress' series start at it.
+  A table row never mentions it: it is a window on the anchor, not a figure.
 - **Level-0 by default (D2):** task-level reads use `is_subtask = false`; sub-task rows exist for
   drill-down only — their worklogs and estimates are already rolled into the parent (`actual_md`,
   `estimate_source = SUBTASKS`). An unfiltered sum double counts.

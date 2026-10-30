@@ -21,6 +21,7 @@ import ch.nokillswit.reports.DeepDiveNoPlanReason
 import ch.nokillswit.reports.DeepDivePlanSource
 import ch.nokillswit.reports.DeepDiveReport
 import ch.nokillswit.reports.DeepDiveTask
+import ch.nokillswit.reports.ReportServiceKey
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -29,6 +30,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 import kotlinx.coroutines.flow.toList
@@ -865,6 +867,42 @@ class ReportDeepDiveTest {
             cleanUp(store, connId)
         }
     }
+
+    /**
+     * The history horizon (A48) on the hand-built world, whose marks all lie between Feb 2 and Mar 2 2026: with the report clock pinned to
+     * 2026-10-01 and a six-month horizon (cutoff 2026-04-01) the epic selection's envelope ends before it, so the range is the single
+     * empty day on the cutoff with a `HISTORY_HORIZON` note and every total stays whole-life; a sprint closed before it is `400`.
+     */
+    @Test
+    fun `hand-built rows - an envelope entirely before the history horizon is the single empty day with a note, totals whole-life`() =
+        testApplication {
+            usePostgresTestcontainer()
+            assertCalendarAssumption()
+            application.attributes[ReportServiceKey].clock = { Instant.parse("2026-10-01T00:00:00Z").toEpochMilli() }
+            val store = MetricsStore(sharedDatabaseForTests())
+            val connId = SyncedStubFixture.createConnection(namePrefix = "dd-hand-h", enabled = false)
+            try {
+                buildWorld(store, connId)
+                val client = seededClient("reports-dd-hand-h")
+                val whole = client.dive("connectionId=$connId&epicId=DDX-1&epicId=DDX-2")
+                withMetricsSettings(DerivedStubFixture.metricsSettings(), { it.copy(historyHorizonMonths = 6) }) {
+                    val limited = client.dive("connectionId=$connId&epicId=DDX-1&epicId=DDX-2")
+                    assertEquals("2026-04-01", limited.range.from)
+                    assertEquals("2026-04-01", limited.range.to, "a single day")
+                    assertEquals("2026-04-01", limited.meta.from)
+                    assertTrue(limited.note!!.startsWith("HISTORY_HORIZON: ") && "2026-04-01" in limited.note!!, limited.note)
+                    assertEquals(whole.tasks.map { it.totals }, limited.tasks.map { it.totals }, "totals stay whole-life")
+                    assertTrue(limited.tasks.all { it.pv.isEmpty() && it.approxEv.isEmpty() && it.cost.isEmpty() && it.done == null })
+                    assertTrue(limited.tasks.all { it.inProgress.isEmpty() }, "nothing is drawn on the cutoff day")
+                    assertTrue(limited.authors.isEmpty() && limited.epics.all { it.ownCost?.cost.orEmpty().isEmpty() })
+                    client.assertBadRequest("connectionId=$connId&domain=DD1&sprintId=1")
+                    client.assertBadRequest("connectionId=$connId&epicId=DDX-1&to=2026-03-01")
+                }
+                assertEquals("2026-02-02", client.dive("connectionId=$connId&epicId=DDX-1&epicId=DDX-2").range.from, "off: as before")
+            } finally {
+                cleanUp(store, connId)
+            }
+        }
 
     /**
      * Approximate EV (A40) on a hand-built epic, derived through Tue Feb 17 13:00 local, Mon-Fri week of Feb 2: A done Fri Feb 6 with 3 MD,

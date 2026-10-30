@@ -228,6 +228,9 @@ internal data class StampScope(
     val historyHorizon: HistoryHorizon?,
 )
 
+/** The first instant the A48 history horizon admits, in the configured zone (`null` = off): what the sprint/epic option lists filter on. */
+internal fun StampScope.historyFromMs(): Long? = historyHorizon?.let { calendar.dayBoundsMs(it.from).first }
+
 private val ENTITY_TAG = Regex("(?:W/)?\"[^\"]*\"")
 
 /** What a request's `If-None-Match` says about the current ETag. */

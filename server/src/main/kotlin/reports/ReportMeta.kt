@@ -37,9 +37,7 @@ data class ReportMeta(
     val domainView: DomainView,
     val resolvedSprints: List<ResolvedSprintGroup>,
     val minSampleSize: Int,
-    // The default only keeps the deep dive's own `ReportMeta(...)` call compiling until it reads the horizon (A48 step 2b); Ktor's JSON
-    // encodes defaults, so the wire still carries the `null` of "off" (the spec lists the field as required).
-    val historyHorizon: HistoryHorizonWire? = null,
+    val historyHorizon: HistoryHorizonWire?,
 )
 
 /** `meta.historyHorizon` / `filters.historyHorizon` on the wire: the configured [months] and [from], the first day that counts (ISO). */
