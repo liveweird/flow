@@ -905,6 +905,58 @@ class ReportDeepDiveTest {
         }
 
     /**
+     * The history horizon clips an implied range BEFORE the 1100-day cut. DDX-3's planned window is 2020-01-01 - 2026-01-01 (2193 days),
+     * the report clock 2026-10-01: a 24-month horizon (cutoff 2024-10-01) leaves 458 days, so the answer is the plain `from=<cutoff>`
+     * one with NO `RANGE_CLAMPED` note; a lone `from` before the cutoff does not walk 1099 days from itself first (which would end
+     * before the cutoff); a 72-month horizon (cutoff 2020-10-01) still leaves more than 1100 days, and the cut then judges those.
+     */
+    @Test
+    fun `hand-built rows - a long implied range is cut to the horizon first and only the span left can be clamped`() = testApplication {
+        usePostgresTestcontainer()
+        assertCalendarAssumption()
+        application.attributes[ReportServiceKey].clock = { Instant.parse("2026-10-01T00:00:00Z").toEpochMilli() }
+        val store = MetricsStore(sharedDatabaseForTests())
+        val connId = SyncedStubFixture.createConnection(namePrefix = "dd-hand-l", enabled = false)
+        try {
+            buildWorld(store, connId)
+            suspendTransaction(sharedDatabaseForTests()) {
+                store.insertEpics(connId, listOf(DimEpicRow(503, "DDX-3", "Years long", "DD1", null, "IN_PROGRESS", null, null)), 1L)
+                store.insertFactEpicPlan(connId, listOf(plan(503, 1, "2020-01-01", "2026-01-01", 5.0, null)), 1L)
+            }
+            val client = seededClient("reports-dd-hand-l")
+            val epic = "connectionId=$connId&epicId=DDX-3"
+            fun DeepDiveReport.shape() = copy(meta = meta.copy(historyHorizon = null))
+            val off = client.dive(epic)
+            assertTrue(assertNotNull(off.note).startsWith("RANGE_CLAMPED"), "without a horizon the 2193 days are cut to 1100")
+
+            val limited = withMetricsSettings(DerivedStubFixture.metricsSettings(), { it.copy(historyHorizonMonths = 24) }) {
+                val implied = client.dive(epic)
+                val explicit = withMetricsSettings(DerivedStubFixture.metricsSettings(), { it.copy(historyHorizonMonths = null) }) {
+                    client.dive("$epic&from=2024-10-01")
+                }
+                assertEquals("2024-10-01" to "2026-01-01", implied.range.from to implied.range.to)
+                assertNull(implied.note, "the 458 days the horizon leaves are not clamped")
+                assertEquals(explicit.shape(), implied.shape(), "one truth: implied == the explicit from=<cutoff>, note included")
+                // A lone `from` before the cutoff is raised first, then follows the same envelope end as `from=<cutoff>`.
+                val lone = client.dive("$epic&from=2020-06-01")
+                assertEquals(implied.shape(), lone.shape())
+                implied
+            }
+            assertEquals("2024-10-01", limited.meta.from)
+
+            withMetricsSettings(DerivedStubFixture.metricsSettings(), { it.copy(historyHorizonMonths = 72) }) {
+                val implied = client.dive(epic)
+                assertEquals("2026-01-01", implied.range.to)
+                assertEquals(LocalDate.parse("2026-01-01").minusDays(1099).toString(), implied.range.from, "the last 1100 days")
+                assertTrue(assertNotNull(implied.note).startsWith("RANGE_CLAMPED"))
+                assertEquals(off.range.from, implied.range.from)
+            }
+        } finally {
+            cleanUp(store, connId)
+        }
+    }
+
+    /**
      * Approximate EV (A40) on a hand-built epic, derived through Tue Feb 17 13:00 local, Mon-Fri week of Feb 2: A done Fri Feb 6 with 3 MD,
      * in progress Mon-Fri (5 days, 0.60 each); B open since Mon Feb 9 (7 days, earns nothing, marked); C done with no estimate, in progress
      * Mon-Tue; D done with a 0 estimate and no stage; E done on Sat Feb 7 with 2 MD and only weekend time in progress (the whole EV on the

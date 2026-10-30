@@ -106,7 +106,8 @@ private fun notDerived(
     metaOf: (DeepDiveRange) -> ReportMeta,
 ): DeepDiveReport {
     val from = request.from ?: request.to ?: calendar.dayOf(nowMs)
-    val range = DeepDiveRange(from.toString(), (request.to ?: from).toString(), null)
+    val cut = clampRangeToHorizon(from, request.to ?: from, request.historyHorizon) // the A48 horizon clips the echo too
+    val range = DeepDiveRange(cut.from.toString(), cut.to.toString(), null)
     return DeepDiveReport(
         meta = metaOf(range), mode = request.selection.mode.toWire(), range = range, nonWorkingDays = emptyList(),
         sprints = emptyList(), authors = emptyList(), epics = emptyList(), tasks = emptyList(),
@@ -314,7 +315,6 @@ private class RangeChoice(val range: ResolvedRange, val note: String?)
  * implied other end onto itself (a single, empty day) rather than failing; both given were already validated (`from` not after `to`, at
  * most 1100 days). An implied span over 1100 days keeps its LAST 1100 days (a given `from` or `to` is kept, the other end follows it) and
  * says so ([DEEP_DIVE_RANGE_CLAMPED_NOTE]). With no marks at all the range is the single day `from ?: to ?: today`.
- * The A48 history horizon then clips it ([clampRangeToHorizon]: only the drawn series, never `totals`).
  */
 private fun resolveRange(
     request: DeepDiveRequest,
@@ -340,13 +340,13 @@ private fun resolveRange(
             to = envelope?.second ?: from
         }
     }
+    val cut = clampRangeToHorizon(from, to, request.historyHorizon); from = cut.from; to = cut.to
     val implied = request.from == null || request.to == null
     val clamped = implied && ChronoUnit.DAYS.between(from, to) + 1 > DEEP_DIVE_MAX_RANGE_DAYS
     if (clamped) {
         if (request.from != null) to = from.plusDays(DEEP_DIVE_MAX_RANGE_DAYS - 1L) else from = to.minusDays(DEEP_DIVE_MAX_RANGE_DAYS - 1L)
     }
-    val cut = clampRangeToHorizon(from, to, request.historyHorizon, clamped)
-    return RangeChoice(ResolvedRange(cut.from, cut.to), cut.note)
+    return RangeChoice(ResolvedRange(from, to), deepDiveRangeNote(clamped, cut.emptied, request.historyHorizon))
 }
 
 /**

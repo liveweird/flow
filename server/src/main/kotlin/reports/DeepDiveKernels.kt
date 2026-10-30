@@ -46,22 +46,30 @@ internal fun <D> spreadCumulative(total: BigDecimal, days: List<D>): List<Pair<D
 /** `note` code of an answer whose range was emptied by the history horizon; the leading code is stable for clients. */
 internal const val DEEP_DIVE_HISTORY_HORIZON_CODE = "HISTORY_HORIZON"
 
-/** The range after the horizon: [from]..[to] inclusive and the `note` it earns ([DEEP_DIVE_RANGE_CLAMPED_NOTE] and/or the horizon's). */
-internal class HorizonClip(val from: LocalDate, val to: LocalDate, val note: String?)
+/** The range after the horizon: [from]..[to] inclusive, and whether the horizon [emptied] it to its single first day. */
+internal class HorizonClip(val from: LocalDate, val to: LocalDate, val emptied: Boolean)
 
 /**
  * The range [from]..[to] under [horizon] (`null` = off): `from` never precedes the horizon's first day, and a range that ends before it
- * (an envelope of old work) becomes the single empty day on that first day, with a `HISTORY_HORIZON` note beside
- * `RANGE_CLAMPED` when [spanClamped]. Only the drawn series is cut: each task's `totals` stay whole-life (A40).
+ * (an envelope of old work) becomes the single day on that first day, [HorizonClip.emptied]. This runs BEFORE the 1100-day cut of an
+ * implied range, which then judges the span the horizon left. Only the drawn series is cut: each task's `totals` stay whole-life (A40).
  */
-internal fun clampRangeToHorizon(from: LocalDate, to: LocalDate, horizon: HistoryHorizon?, spanClamped: Boolean): HorizonClip {
-    val spanNote = DEEP_DIVE_RANGE_CLAMPED_NOTE.takeIf { spanClamped }
-    if (horizon == null || !to.isBefore(horizon.from)) {
-        return HorizonClip(horizon?.let { maxOf(from, it.from) } ?: from, to, spanNote)
+internal fun clampRangeToHorizon(from: LocalDate, to: LocalDate, horizon: HistoryHorizon?): HorizonClip = when {
+    horizon == null -> HorizonClip(from, to, false)
+    to.isBefore(horizon.from) -> HorizonClip(horizon.from, horizon.from, true)
+    else -> HorizonClip(maxOf(from, horizon.from), to, false)
+}
+
+/**
+ * The `note` of a range: `RANGE_CLAMPED` when an implied span was cut ([spanClamped]) and/or a `HISTORY_HORIZON` message when the horizon
+ * [emptied] the range, joined with ". "; `null` for neither.
+ */
+internal fun deepDiveRangeNote(spanClamped: Boolean, emptied: Boolean, horizon: HistoryHorizon?): String? {
+    val horizonNote = horizon?.takeIf { emptied }?.let {
+        "$DEEP_DIVE_HISTORY_HORIZON_CODE: the selection lies before ${it.from} (history horizon: ${it.months} months), " +
+            "so only that day is shown; totals are whole-life"
     }
-    val horizonNote = "$DEEP_DIVE_HISTORY_HORIZON_CODE: the selection lies before ${horizon.from} (history horizon: ${horizon.months} " +
-        "months), so only that day is shown; totals are whole-life"
-    return HorizonClip(horizon.from, horizon.from, listOfNotNull(spanNote, horizonNote).joinToString(". "))
+    return listOfNotNull(DEEP_DIVE_RANGE_CLAMPED_NOTE.takeIf { spanClamped }, horizonNote).joinToString(". ").ifEmpty { null }
 }
 
 // ---- shapes -------------------------------------------------------------------------------------------
