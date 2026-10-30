@@ -22,6 +22,8 @@ const STORED_SETTINGS = {
   backlogWindowSprints: 3,
   epicDriftDays: 14,
   epicEstimateGapTolerancePercent: 25,
+  historyHorizonMonths: 24,
+  historyHorizonFrom: "2024-10-30",
   updatedAt: 1700000000000,
   updatedByUserId: 1,
 };
@@ -41,6 +43,12 @@ function mockGetAndPut(mockFetch: FetchMock, putStatus = 204, putBody: unknown =
     }
     return Promise.resolve(jsonResponse(404, {}));
   });
+}
+
+/** The parsed body of the PUT the page sent, null when it sent none. */
+function putBody(mockFetch: FetchMock): unknown {
+  const call = mockFetch.mock.calls.find(([url, init]) => url === "/api/v1/metrics-settings" && (init as RequestInit | undefined)?.method === "PUT");
+  return call ? JSON.parse((call[1] as RequestInit).body as string) : null;
 }
 
 describe("MetricsSettings page", () => {
@@ -72,6 +80,39 @@ describe("MetricsSettings page", () => {
     expect(screen.queryByLabelText(/holidays/i)).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open Public holidays" })).toHaveAttribute("href", "/public-holidays");
     expect((screen.getByLabelText(/minimum sample size/i) as HTMLInputElement).value).toBe("5");
+    // The history horizon: switch on, the stored months, and the server-computed first day in the hint.
+    expect(screen.getByRole("switch", { name: /^Limit history/ })).toBeChecked();
+    expect((screen.getByLabelText(/history horizon \(months\)/i) as HTMLInputElement).value).toBe("24");
+    expect(screen.getByText("Saved: work since 2024-10-30 counts.")).toBeInTheDocument();
+  });
+
+  test("switching the horizon off disables the months field and PUTs null", async () => {
+    mockGetAndPut(mockFetch);
+    const user = userEvent.setup();
+    renderWithProviders(<MetricsSettings />);
+
+    const monthsInput = (await screen.findByLabelText(/history horizon \(months\)/i)) as HTMLInputElement;
+    await waitFor(() => expect(monthsInput.value).toBe("24"));
+    await user.click(screen.getByRole("switch", { name: /^Limit history/ }));
+    expect(monthsInput).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => expect(putBody(mockFetch)).not.toBeNull());
+    expect(putBody(mockFetch)).toMatchObject({ historyHorizonMonths: null });
+  });
+
+  test("an emptied horizon blocks the save with the fixed message (the input itself clamps typed numbers to 6..120 on blur)", async () => {
+    mockGetAndPut(mockFetch);
+    const user = userEvent.setup();
+    renderWithProviders(<MetricsSettings />);
+
+    const monthsInput = (await screen.findByLabelText(/history horizon \(months\)/i)) as HTMLInputElement;
+    await waitFor(() => expect(monthsInput.value).toBe("24"));
+    await user.clear(monthsInput);
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+    expect(await screen.findByText("History horizon must be a whole number of months between 6 and 120")).toBeInTheDocument();
+    expect(putBody(mockFetch)).toBeNull();
   });
 
   test("blocks submission and shows the fixed message when hours per day is invalid", async () => {
@@ -121,6 +162,7 @@ describe("MetricsSettings page", () => {
       backlogWindowSprints: 3,
       epicDriftDays: 14,
       epicEstimateGapTolerancePercent: 50,
+      historyHorizonMonths: 24,
     });
   });
 

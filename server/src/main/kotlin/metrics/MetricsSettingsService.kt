@@ -17,6 +17,7 @@ import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
+import java.time.Instant
 
 val MetricsSettingsServiceKey = AttributeKey<MetricsSettingsService>("MetricsSettingsService")
 
@@ -59,6 +60,7 @@ class MetricsSettingsService(
         val backlogWindowSprints = integer("backlog_window_sprints")
         val epicDriftDays = integer("epic_drift_days")
         val epicEstimateGapTolerancePercent = integer("epic_estimate_gap_tolerance_percent")
+        val historyHorizonMonths = integer("history_horizon_months").nullable()
         val updatedAt = long("updated_at")
         val updatedByUserId = long("updated_by_user_id").nullable()
         override val primaryKey = PrimaryKey(id)
@@ -113,6 +115,7 @@ class MetricsSettingsService(
             it[backlogWindowSprints] = request.backlogWindowSprints
             it[epicDriftDays] = request.epicDriftDays
             it[epicEstimateGapTolerancePercent] = request.epicEstimateGapTolerancePercent
+            it[historyHorizonMonths] = request.historyHorizonMonths
             it[updatedAt] = nowMillis()
             it[updatedByUserId] = byUserId.toLong()
         }
@@ -160,19 +163,26 @@ class MetricsSettingsService(
         newRevision
     }
 
-    private fun ResultRow.toResponse(): MetricsSettingsResponse = MetricsSettingsResponse(
-        configRevision = this[Settings.configRevision],
-        hoursPerDay = this[Settings.hoursPerDay].toDouble(),
-        timeZone = this[Settings.timeZone],
-        weekendDays = parseIntArray(this[Settings.weekendDays]),
-        commitmentGraceMinutes = this[Settings.commitmentGraceMinutes],
-        minSampleSize = this[Settings.minSampleSize],
-        agingWindowItems = this[Settings.agingWindowItems],
-        agingPercentiles = parseIntArray(this[Settings.agingPercentiles]),
-        backlogWindowSprints = this[Settings.backlogWindowSprints],
-        epicDriftDays = this[Settings.epicDriftDays],
-        epicEstimateGapTolerancePercent = this[Settings.epicEstimateGapTolerancePercent],
-        updatedAt = this[Settings.updatedAt],
-        updatedByUserId = this[Settings.updatedByUserId]?.toUInt(),
-    )
+    private fun ResultRow.toResponse(): MetricsSettingsResponse {
+        val months = this[Settings.historyHorizonMonths]
+        // The horizon's first day is server-computed in the configured zone so the admin form never does month arithmetic.
+        val today = Instant.ofEpochMilli(nowMillis()).atZone(WorkingCalendar.zoneOf(this[Settings.timeZone])).toLocalDate()
+        return MetricsSettingsResponse(
+            configRevision = this[Settings.configRevision],
+            hoursPerDay = this[Settings.hoursPerDay].toDouble(),
+            timeZone = this[Settings.timeZone],
+            weekendDays = parseIntArray(this[Settings.weekendDays]),
+            commitmentGraceMinutes = this[Settings.commitmentGraceMinutes],
+            minSampleSize = this[Settings.minSampleSize],
+            agingWindowItems = this[Settings.agingWindowItems],
+            agingPercentiles = parseIntArray(this[Settings.agingPercentiles]),
+            backlogWindowSprints = this[Settings.backlogWindowSprints],
+            epicDriftDays = this[Settings.epicDriftDays],
+            epicEstimateGapTolerancePercent = this[Settings.epicEstimateGapTolerancePercent],
+            historyHorizonMonths = months,
+            historyHorizonFrom = historyHorizonOf(months, today)?.from?.toString(),
+            updatedAt = this[Settings.updatedAt],
+            updatedByUserId = this[Settings.updatedByUserId]?.toUInt(),
+        )
+    }
 }

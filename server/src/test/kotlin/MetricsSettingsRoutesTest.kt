@@ -7,8 +7,12 @@ import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
+import java.time.LocalDate
+import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -33,6 +37,7 @@ class MetricsSettingsRoutesTest {
         backlogWindowSprints = 3,
         epicDriftDays = 14,
         epicEstimateGapTolerancePercent = 25,
+        historyHorizonMonths = 24,
     )
 
     private suspend fun restoreDefaults(client: io.ktor.client.HttpClient) {
@@ -89,6 +94,7 @@ class MetricsSettingsRoutesTest {
             backlogWindowSprints = 2,
             epicDriftDays = 7,
             epicEstimateGapTolerancePercent = 50,
+            historyHorizonMonths = 60,
         )
         try {
             assertEquals(HttpStatusCode.NoContent, admin.putJson("/api/v1/metrics-settings", changed).status)
@@ -104,6 +110,7 @@ class MetricsSettingsRoutesTest {
             assertEquals(2, after.backlogWindowSprints)
             assertEquals(7, after.epicDriftDays)
             assertEquals(50, after.epicEstimateGapTolerancePercent)
+            assertEquals(60, after.historyHorizonMonths)
             assertNotNull(after.updatedByUserId)
         } finally {
             restoreDefaults(admin)
@@ -133,10 +140,60 @@ class MetricsSettingsRoutesTest {
             defaults.copy(epicDriftDays = -1) to "negative epicDriftDays",
             defaults.copy(epicEstimateGapTolerancePercent = 101) to "epicEstimateGapTolerancePercent = 101",
             defaults.copy(epicEstimateGapTolerancePercent = -1) to "epicEstimateGapTolerancePercent = -1",
+            defaults.copy(historyHorizonMonths = 5) to "historyHorizonMonths = 5 (below the minimum)",
+            defaults.copy(historyHorizonMonths = 121) to "historyHorizonMonths = 121 (above the maximum)",
+            defaults.copy(historyHorizonMonths = 0) to "historyHorizonMonths = 0",
         )
         for ((case, description) in cases) {
             assertEquals(HttpStatusCode.BadRequest, admin.putJson("/api/v1/metrics-settings", case).status, "expected 400 for $description")
         }
+    }
+
+    @Test
+    fun `history horizon accepts null (off) and echoes historyHorizonFrom in the configured zone`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("metricshorizon", FlowUserRole.ADMIN)
+        val zone = ZoneId.of("Pacific/Kiritimati") // UTC+14: the zone's "today" differs from the UTC one for ten hours of every day
+        try {
+            val dayBefore = LocalDate.now(zone)
+            assertEquals(
+                HttpStatusCode.NoContent,
+                admin.putJson("/api/v1/metrics-settings", defaults.copy(timeZone = zone.id, historyHorizonMonths = 6)).status,
+            )
+            val limited = admin.get("/api/v1/metrics-settings").body<MetricsSettingsResponse>()
+            val dayAfter = LocalDate.now(zone)
+            assertEquals(6, limited.historyHorizonMonths)
+            // Computed before AND after the call so a midnight roll in the zone cannot flake the test.
+            assertTrue(
+                limited.historyHorizonFrom in setOf(dayBefore, dayAfter).map { it.minusMonths(6).toString() },
+                "historyHorizonFrom ${limited.historyHorizonFrom} is today in ${zone.id} minus six months",
+            )
+
+            val offStatus = admin.putJson("/api/v1/metrics-settings", defaults.copy(historyHorizonMonths = null)).status
+            assertEquals(HttpStatusCode.NoContent, offStatus)
+            val off = admin.get("/api/v1/metrics-settings").body<MetricsSettingsResponse>()
+            assertEquals(null, off.historyHorizonMonths, "null turns the horizon off")
+            assertEquals(null, off.historyHorizonFrom, "no horizon, no first day")
+            assertEquals(limited.configRevision + 1, off.configRevision, "turning it off bumps the revision like every setting")
+        } finally {
+            restoreDefaults(admin)
+        }
+    }
+
+    @Test
+    fun `a PUT without the historyHorizonMonths key is 400 - required-nullable, not defaulted`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("metricshorizonabsent", FlowUserRole.ADMIN)
+        val body = """
+            {"hoursPerDay":8.0,"timeZone":"Europe/Warsaw","weekendDays":[6,7],"commitmentGraceMinutes":0,"minSampleSize":5,
+             "agingWindowItems":50,"agingPercentiles":[50,85,95],"backlogWindowSprints":3,"epicDriftDays":14,
+             "epicEstimateGapTolerancePercent":25}
+        """.trimIndent()
+        val response = admin.put("/api/v1/metrics-settings") {
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+        assertEquals(HttpStatusCode.BadRequest, response.status)
     }
 
     @Test

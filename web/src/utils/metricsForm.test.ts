@@ -111,10 +111,24 @@ describe("metricsSettingsFormValidation", () => {
     expect(rules.epicEstimateGapTolerancePercent(100)).toBeNull();
   });
 
+  test("historyHorizonMonths: accepts 6..120 whole months while the switch is on, ignores the number while it is off", () => {
+    const on = { ...VALID, historyHorizonEnabled: true };
+    const message = "History horizon must be a whole number of months between 6 and 120";
+    expect(rules.historyHorizonMonths(5, on)).toBe(message);
+    expect(rules.historyHorizonMonths(121, on)).toBe(message);
+    expect(rules.historyHorizonMonths(12.5, on)).toBe(message);
+    expect(rules.historyHorizonMonths("", on)).toBe(message);
+    expect(rules.historyHorizonMonths(6, on)).toBeNull();
+    expect(rules.historyHorizonMonths(120, on)).toBeNull();
+    const off = { ...VALID, historyHorizonEnabled: false };
+    expect(rules.historyHorizonMonths("", off)).toBeNull();
+    expect(rules.historyHorizonMonths(1, off)).toBeNull();
+  });
+
   test("every default form value passes validation", () => {
     for (const [field, rule] of Object.entries(rules)) {
       const value = VALID[field as keyof MetricsSettingsFormValues];
-      expect((rule as (v: never) => string | null)(value as never)).toBeNull();
+      expect((rule as (v: never, values: MetricsSettingsFormValues) => string | null)(value as never, VALID)).toBeNull();
     }
   });
 });
@@ -132,6 +146,8 @@ describe("fromMetricsSettingsResponse / toMetricsSettingsRequest", () => {
     backlogWindowSprints: 3,
     epicDriftDays: 14,
     epicEstimateGapTolerancePercent: 25,
+    historyHorizonMonths: 24,
+    historyHorizonFrom: "2024-10-30",
     updatedAt: 1700000000000,
     updatedByUserId: 1,
   };
@@ -153,7 +169,17 @@ describe("fromMetricsSettingsResponse / toMetricsSettingsRequest", () => {
       backlogWindowSprints: 3,
       epicDriftDays: 14,
       epicEstimateGapTolerancePercent: 25,
+      historyHorizonMonths: 24,
     });
+  });
+
+  test("a null horizon is a switched-off form that keeps the default number, and a switched-off form sends null again", () => {
+    const form = fromMetricsSettingsResponse({ ...response, historyHorizonMonths: null, historyHorizonFrom: null });
+    expect(form.historyHorizonEnabled).toBe(false);
+    expect(form.historyHorizonMonths).toBe(24);
+    expect(toMetricsSettingsRequest(form).historyHorizonMonths).toBeNull();
+    expect(toMetricsSettingsRequest({ ...form, historyHorizonEnabled: true, historyHorizonMonths: 6 }).historyHorizonMonths).toBe(6);
+    expect(toMetricsSettingsRequest({ ...form, historyHorizonEnabled: true, historyHorizonMonths: "" }).historyHorizonMonths).toBeNull();
   });
 
   test("the request carries no holidays: they are the public-holiday dictionary, not a setting", () => {

@@ -175,7 +175,7 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   not a rejection and emits no audit event: `GuardedDns` logs a WARN per attempt, `DNS resolution failed for allow-listed outbound host
   <host>` (logger `ch.nokillswit.outbound`, host only) and the call is retried like any other IO failure.
 - `metrics_settings.updated` (byUserId/configRevision) — the global `metrics.settings` singleton's
-  full-replace PUT (v0.3.0 M1 commit 3, `metrics/Metrics.kt`) / `team.jira_membership_added`
+  full-replace PUT (v0.3.0 M1 commit 3, `metrics/Metrics.kt`; the history horizon, A48, rides this event -- no event of its own) / `team.jira_membership_added`
   (byUserId/teamId/accountId/validFrom/validTo) / `team.jira_membership_updated` (same fields, the row's NEW values) /
   `team.jira_membership_removed` (same fields, the row's values just before deletion) — D1's dated Jira-user team
   membership CRUD (`metrics/TeamMembershipRoutes.kt`). `GET /api/v1/jira-users` is read-only, so it

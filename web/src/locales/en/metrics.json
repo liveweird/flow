@@ -15,7 +15,12 @@
       "backlogWindowSprints": "Backlog window (sprints)",
       "epicDriftDays": "Epic drift threshold (days)",
       "epicEstimateGapTolerancePercent": "Epic estimate gap tolerance (%)",
-      "epicEstimateGapTolerancePercentHint": "How far an epic's own estimate may differ from its tasks' total before Data quality and Home flag it."
+      "epicEstimateGapTolerancePercentHint": "How far an epic's own estimate may differ from its tasks' total before Data quality and Home flag it.",
+      "historyHorizonEnabled": "Limit history",
+      "historyHorizonEnabledHint": "Work older than the horizon is left out of the reports. Stored data is kept, so raising the horizon brings it back.",
+      "historyHorizonMonths": "History horizon (months)",
+      "historyHorizonMonthsHint": "Saved: work since {{from}} counts.",
+      "historyHorizonMonthsHintOff": "Saved: no limit."
     },
     "holidaysNote": "Public holidays are always non-working days. They have their own list, not a setting here.",
     "holidaysLink": "Open Public holidays",
@@ -47,7 +52,8 @@
       "agingPercentilesMustInclude85": "Aging percentiles must include {{required}}",
       "backlogWindowSprints": "Backlog window must be at least 1 sprint",
       "epicDriftDays": "Epic drift threshold must be 0 or more",
-      "epicEstimateGapTolerancePercent": "Epic estimate gap tolerance must be a whole percent between 0 and 100"
+      "epicEstimateGapTolerancePercent": "Epic estimate gap tolerance must be a whole percent between 0 and 100",
+      "historyHorizonMonths": "History horizon must be a whole number of months between {{min}} and {{max}}"
     }
   },
   "teamMembers": {
