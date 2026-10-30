@@ -85,12 +85,9 @@ internal suspend fun ReportService.deepDive(request: DeepDiveRequest, nowMs: Lon
     val connectionIds = resolveConnectionScope(request.connectionId)
     val stamp = deriveStamp(connectionIds)
     val clocks = deriveClocks(connectionIds)
-    fun metaOf(range: DeepDiveRange) = ReportMeta(
-        derivedAt = stamp.derivedAt, configRevision = stamp.configRevision, from = range.from, to = range.to,
-        level = ReportLevel.UNIT, domainView = DomainView.TASK, resolvedSprints = emptyList(), minSampleSize = settings.minSampleSize,
-    )
+    fun metaOf(range: DeepDiveRange) = deepDiveMeta(stamp, range, settings.minSampleSize, request.historyHorizon)
     if (clocks.isEmpty()) return@reportTransaction notDerived(request, calendar, nowMs, ::metaOf)
-    val targets = resolveDeepDiveTargets(request, connectionIds)
+    val targets = resolveDeepDiveTargets(request, connectionIds, calendar)
     // The selected connection's own DERIVE clock: where an open in-progress interval stops and the day `range.asOfDay` names. A
     // connection with dimension rows but no successful run reads as not derived, never as "now".
     val clockMs = clocks[targets.connectionId] ?: return@reportTransaction notDerived(request, calendar, nowMs, ::metaOf)
@@ -98,7 +95,7 @@ internal suspend fun ReportService.deepDive(request: DeepDiveRequest, nowMs: Lon
     val series = seriesOf(facts, calendar, clockMs)
     val choice = resolveRange(request, targets, facts, series, calendar, nowMs)
     val assembly = Assembly(targets, facts, series, choice.range, calendar, clockMs)
-    assemble(assembly, choice.clamped, ::metaOf)
+    assemble(assembly, choice.note, ::metaOf)
 }
 
 /** The empty answer for a scope with no successful DERIVE: the range echoes `from`/`to` (a single day without them). */
@@ -109,7 +106,8 @@ private fun notDerived(
     metaOf: (DeepDiveRange) -> ReportMeta,
 ): DeepDiveReport {
     val from = request.from ?: request.to ?: calendar.dayOf(nowMs)
-    val range = DeepDiveRange(from.toString(), (request.to ?: from).toString(), null)
+    val cut = clampRangeToHorizon(from, request.to ?: from, request.historyHorizon) // the A48 horizon clips the echo too
+    val range = DeepDiveRange(cut.from.toString(), cut.to.toString(), null)
     return DeepDiveReport(
         meta = metaOf(range), mode = request.selection.mode.toWire(), range = range, nonWorkingDays = emptyList(),
         sprints = emptyList(), authors = emptyList(), epics = emptyList(), tasks = emptyList(),
@@ -309,8 +307,8 @@ private fun epicWindowDays(window: EpicWindow?): Pair<LocalDate, LocalDate>? {
 
 // ---- range --------------------------------------------------------------------------------------------
 
-/** The resolved range and whether an implied span was cut to [MAX_WINDOW_DAYS] days. */
-private class RangeChoice(val range: ResolvedRange, val clamped: Boolean)
+/** The resolved range and the `note` it earned (an implied span cut to [MAX_WINDOW_DAYS] days, the history horizon). */
+private class RangeChoice(val range: ResolvedRange, val note: String?)
 
 /**
  * The range (`.claude/docs/reports.md` "Range"): a given `from`/`to` CLIPS the envelope, so a lone bound outside the envelope pulls the
@@ -342,12 +340,13 @@ private fun resolveRange(
             to = envelope?.second ?: from
         }
     }
+    val cut = clampRangeToHorizon(from, to, request.historyHorizon); from = cut.from; to = cut.to
     val implied = request.from == null || request.to == null
     val clamped = implied && ChronoUnit.DAYS.between(from, to) + 1 > DEEP_DIVE_MAX_RANGE_DAYS
     if (clamped) {
         if (request.from != null) to = from.plusDays(DEEP_DIVE_MAX_RANGE_DAYS - 1L) else from = to.minusDays(DEEP_DIVE_MAX_RANGE_DAYS - 1L)
     }
-    return RangeChoice(ResolvedRange(from, to), clamped)
+    return RangeChoice(ResolvedRange(from, to), deepDiveRangeNote(clamped, cut.emptied, request.historyHorizon))
 }
 
 /**
@@ -379,7 +378,7 @@ private val KEY_ORDER: Comparator<String> = Comparator { a, b ->
         ?: a.compareTo(b)
 }
 
-private suspend fun assemble(a: Assembly, clamped: Boolean, metaOf: (DeepDiveRange) -> ReportMeta): DeepDiveReport {
+private suspend fun assemble(a: Assembly, note: String?, metaOf: (DeepDiveRange) -> ReportMeta): DeepDiveReport {
     val range = a.range
     fun clipped(entries: List<AuthorDayCost>) = entries.filter { range.contains(range.rebase(it.offset)) }
     val accountIds = (a.series.tasks.flatMap { clipped(it.cost) } + a.series.epicOwn.values.flatMap { clipped(it) })
@@ -415,7 +414,7 @@ private suspend fun assemble(a: Assembly, clamped: Boolean, metaOf: (DeepDiveRan
             doneUnestimated = a.series.tasks.count { it.evState == EvState.UNESTIMATED },
             epicOwnCostMd = ownCostMd.md(),
         ),
-        note = if (clamped) DEEP_DIVE_RANGE_CLAMPED_NOTE else null,
+        note = note,
     )
 }
 

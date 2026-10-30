@@ -135,6 +135,12 @@ internal const val NOT_DERIVED_NOTE = "Not derived yet: no connection in scope h
 private const val UNASSIGNED_SPRINTS_NOTE = "teamId=0 (UNASSIGNED) resolves no sprint, so a sprint-relative period has nothing to read"
 private const val NO_SPRINT_NOTE = "The sprint-relative period resolved no sprint, so there is nothing to read"
 
+/** [NO_SPRINT_NOTE], naming the history horizon when it may be what hid every sprint (a `lastSprints` period under one). */
+private fun noSprintNote(filter: ReportFilter): String {
+    val horizon = filter.historyHorizon ?: return NO_SPRINT_NOTE
+    return "$NO_SPRINT_NOTE (history horizon: ${horizon.months} months hides the sprints completed before ${horizon.from})"
+}
+
 /**
  * The days a daily-snapshot report lists and the note it carries: USER level is empty by design with [userNote] (the
  * estimated backlog), or read like any other level when it is `null` (WIP answers USER level at query time, brief 04); no
@@ -142,7 +148,8 @@ private const val NO_SPRINT_NOTE = "The sprint-relative period resolved no sprin
  * the period's days cut off at [derivedCoverage], with a note when no sprint resolved (`teamId=0` gets its own wording)
  * or when some connections in scope have never derived. With [startAtBackfill] (the WIP report, decision C) the series
  * also starts no earlier than the LATEST `backfill_from` among the derived connections in scope ([backfillStart]), and a
- * period that begins earlier says why in the note.
+ * period that begins earlier says why in the note. The history horizon ([ReportFilter.historyHorizon]) cuts the series the same way
+ * for EVERY snapshot report, startAtBackfill or not.
  */
 internal suspend fun planSnapshotDays(
     scope: ReportScope,
@@ -157,10 +164,21 @@ internal suspend fun planSnapshotDays(
     val notes = snapshotNotes(scope, filter, coverage).toMutableList()
     val start = if (startAtBackfill) backfillStart(scope.connectionIds - coverage.notDerived.toSet()) else null
     val window = scope.window
-    if (start != null && window != null && window.second > window.first && calendar.dayOf(window.first).isBefore(start.date)) {
-        notes += backfillNote(start)
-    }
-    return SnapshotPlan(snapshotDays(window, calendar, coveredThrough, start?.date), notes.joinToString(". ").ifEmpty { null })
+    val windowStart = window?.takeIf { it.second > it.first }?.let { calendar.dayOf(it.first) }
+    if (start != null && windowStart != null && windowStart.isBefore(start.date)) notes += backfillNote(start)
+    // The horizon cuts a day-anchored series at its first day whatever the report (a sprint window may begin before it; a from/to one
+    // was clamped by the parser already), where the backfill start only applies to the reports that ask for it.
+    horizonNoteOf(filter, window, calendar)?.let { notes += it }
+    val notBefore = listOfNotNull(start?.date, filter.historyHorizon?.from).maxOrNull()
+    return SnapshotPlan(snapshotDays(window, calendar, coveredThrough, notBefore), notes.joinToString(". ").ifEmpty { null })
+}
+
+/** The note of a day-anchored series whose [window] begins before [filter]'s history horizon (which cuts it), else `null`. */
+internal fun horizonNoteOf(filter: ReportFilter, window: Pair<Long, Long>?, calendar: WorkingCalendar): String? {
+    val horizon = filter.historyHorizon ?: return null
+    val windowStart = window?.takeIf { it.second > it.first }?.let { calendar.dayOf(it.first) } ?: return null
+    if (!windowStart.isBefore(horizon.from)) return null
+    return "Before ${horizon.from} history is hidden (history horizon: ${horizon.months} months)"
 }
 
 /** The first day a WIP series may list: the LATEST `backfill_from` [date] of the [connections] in scope. */
@@ -196,7 +214,7 @@ private fun backfillNote(start: BackfillStart): String =
 internal fun snapshotNotes(scope: ReportScope, filter: ReportFilter, coverage: DerivedCoverage): List<String> {
     if (coverage.day == null) return listOf(NOT_DERIVED_NOTE)
     return buildList {
-        if (scope.window == null) add(if (filter.teamId == UNASSIGNED_TEAM_ID) UNASSIGNED_SPRINTS_NOTE else NO_SPRINT_NOTE)
+        if (scope.window == null) add(if (filter.teamId == UNASSIGNED_TEAM_ID) UNASSIGNED_SPRINTS_NOTE else noSprintNote(filter))
         if (coverage.notDerived.isNotEmpty()) {
             val ids = coverage.notDerived.joinToString()
             add("Connection(s) $ids have no successful DERIVE run yet and are ignored for the last-derived-day cut-off")

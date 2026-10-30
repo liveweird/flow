@@ -164,7 +164,7 @@ fun Application.configureReportRoutes() {
                 get<ReportFiltersRoute> {
                     call.caller()
                     val scope = reportService.stampScope(StampClock.FIVE_MINUTES)
-                    call.respondRevalidated(reportService.etagFor(call, scope)) { reportService.filters(scope.nowMs) }
+                    call.respondRevalidated(reportService.etagFor(call, scope)) { reportService.filters(scope) }
                 }
                 deliveryRoutes(reportService)
                 flowRoutes(reportService)
@@ -201,7 +201,9 @@ internal inline fun <reified R : Any> Route.reportGet(
         call.caller()
         val stamp = reportService.stampScope(clock)
         val params = call.request.queryParameters
-        val filter = params.parseReportFilter(stamp.calendar, stamp.nowMs, defaultView, multipleAccounts, scope = scope)
+        val filter = params.parseReportFilter(
+            stamp.calendar, stamp.nowMs, defaultView, stamp.historyHorizon, multipleAccounts, scope = scope,
+        )
         val produce = prepare(filter, params, stamp.nowMs)
         call.respondRevalidated(reportService.etagFor(call, stamp), produce)
     }
@@ -333,8 +335,8 @@ internal fun Parameters.optionalSingleLine(name: String): String? =
 private fun Route.deepDiveRoutes(reportService: ReportService) {
     get<ReportDeepDiveRoute> {
         call.caller()
-        val request = call.request.queryParameters.parseDeepDive()
         val scope = reportService.stampScope(StampClock.DAY)
+        val request = call.request.queryParameters.parseDeepDive(scope.historyHorizon)
         call.respondRevalidated(reportService.etagFor(call, scope)) { reportService.deepDive(request, scope.nowMs) }
     }
     get<ReportDeepDiveSprintsRoute> {
@@ -345,7 +347,10 @@ private fun Route.deepDiveRoutes(reportService: ReportService) {
         val connectionId = params.optionalUInt("connectionId")
         val q = params.optionalSingleLine("q")
         val scope = reportService.stampScope(StampClock.DAY)
-        call.respondRevalidated(reportService.etagFor(call, scope)) { reportService.deepDiveSprints(domain, connectionId, q, paging) }
+        val fromMs = scope.historyFromMs()
+        call.respondRevalidated(reportService.etagFor(call, scope)) {
+            reportService.deepDiveSprints(domain, connectionId, q, paging, fromMs)
+        }
     }
     get<ReportDeepDiveEpicsRoute> {
         call.caller()
@@ -355,6 +360,7 @@ private fun Route.deepDiveRoutes(reportService: ReportService) {
         val connectionId = params.optionalUInt("connectionId")
         val q = params.optionalSingleLine("q")
         val scope = reportService.stampScope(StampClock.DAY)
-        call.respondRevalidated(reportService.etagFor(call, scope)) { reportService.deepDiveEpics(domain, connectionId, q, paging) }
+        val fromMs = scope.historyFromMs()
+        call.respondRevalidated(reportService.etagFor(call, scope)) { reportService.deepDiveEpics(domain, connectionId, q, paging, fromMs) }
     }
 }

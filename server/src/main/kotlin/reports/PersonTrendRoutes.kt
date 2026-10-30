@@ -30,7 +30,7 @@ internal fun Route.personTrendRoutes(reportService: ReportService) {
     get<ReportPersonTrendRoute> {
         call.caller()
         val scope = reportService.stampScope(StampClock.DAY)
-        val filter = call.request.queryParameters.parsePersonTrend(scope.calendar, scope.nowMs)
+        val filter = call.request.queryParameters.parsePersonTrend(scope.calendar, scope.nowMs, scope.historyHorizon)
         // The stamp is read ONCE, before the report transaction: it is both the ETag's and the peer-cell cache's generation.
         val ticket = reportService.peerCells.nextTicket()
         val stamp = reportService.dataStamp(scope.settings, scope.calendar, scope.clock, scope.nowMs)
@@ -44,7 +44,7 @@ internal fun Route.personTrendRoutes(reportService: ReportService) {
         call.caller()
         val params = call.request.queryParameters
         val scope = reportService.stampScope(StampClock.DAY)
-        val filter = params.parsePersonTrend(scope.calendar, scope.nowMs)
+        val filter = params.parsePersonTrend(scope.calendar, scope.nowMs, scope.historyHorizon)
         val view = params.requireEnum<CompareDrillView>("view")
         if (view !in TREND_DRILL_VIEWS) {
             throw BadRequestException("view must be one of the trend rows' drills (${TREND_DRILL_VIEWS.joinToString { it.name }})")
@@ -61,7 +61,8 @@ internal fun Route.personTrendRoutes(reportService: ReportService) {
 
 /**
  * [this] with its period narrowed to the window of the grid point [pointEnd] (REQUIRED; an ISO date that is one of the request's
- * [pointEnds], else `400`), bounded by the very arithmetic the report's own points use ([trendWindowOf]).
+ * [pointEnds], else `400`), bounded by the very arithmetic the report's own points use ([trendWindowOf]) and, like them, not before the
+ * history horizon.
  */
 internal fun ReportFilter.atPoint(pointEnd: String?, calendar: WorkingCalendar): ReportFilter {
     val raw = pointEnd ?: throw BadRequestException("pointEnd is required: the day a point of the trend ends on")
@@ -71,5 +72,7 @@ internal fun ReportFilter.atPoint(pointEnd: String?, calendar: WorkingCalendar):
         throw BadRequestException("pointEnd must be one of the trend's point days (every $TREND_STEP_DAYS days back from to)")
     }
     val window = trendWindowOf(end, calendar)
-    return copy(period = ReportPeriod.DateRange(window.from, window.end, window.bounds.first, window.bounds.second))
+    // A window beginning before the history horizon (A48) is Compare people over the part inside it, as its point reads it.
+    val from = listOfNotNull(window.from, historyHorizon?.from).max()
+    return copy(period = ReportPeriod.DateRange(from, window.end, calendar.dayBoundsMs(from).first, window.bounds.second))
 }

@@ -1,5 +1,6 @@
 package ch.nokillswit.reports
 
+import ch.nokillswit.metrics.HistoryHorizon
 import kotlinx.serialization.Serializable
 
 /**
@@ -23,7 +24,8 @@ data class ResolvedSprintGroup(val teamId: UInt, val sprintIds: List<Long>)
  * `null` with [derivedAt] before any DERIVE. It is NOT the live `metrics.settings.config_revision`, which
  * runs ahead of the data between a configuration change and its DERIVE. [minSampleSize] is carried
  * alongside so a client never has to make its own separate `/reports/filters` round trip just to
- * label a [Distribution]'s `hidden` state.
+ * label a [Distribution]'s `hidden` state. [historyHorizon] is the A48 horizon the request was read under (`null` = off): nothing
+ * anchored before its `from` is in the figures.
  */
 @Serializable
 data class ReportMeta(
@@ -35,7 +37,14 @@ data class ReportMeta(
     val domainView: DomainView,
     val resolvedSprints: List<ResolvedSprintGroup>,
     val minSampleSize: Int,
+    val historyHorizon: HistoryHorizonWire?,
 )
+
+/** `meta.historyHorizon` / `filters.historyHorizon` on the wire: the configured [months] and [from], the first day that counts (ISO). */
+@Serializable
+data class HistoryHorizonWire(val months: Int, val from: String)
+
+internal fun HistoryHorizon.toWire(): HistoryHorizonWire = HistoryHorizonWire(months, from.toString())
 
 /**
  * Assembles [ReportMeta] from an already-parsed [ReportFilter] plus the figures a report's own
@@ -63,5 +72,6 @@ fun ReportFilter.toMeta(
         domainView = domainView,
         resolvedSprints = resolvedSprints,
         minSampleSize = minSampleSize,
+        historyHorizon = historyHorizon?.toWire(),
     )
 }

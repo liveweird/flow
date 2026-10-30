@@ -113,6 +113,87 @@ test("admin adjusts metrics settings", async ({ page }) => {
   await api.dispose();
 });
 
+/** The calendar day `iso` shifted back `months` months, with `java.time.LocalDate.minusMonths`'s rule: a day past the target month's end is cut to it. */
+function minusMonths(iso: string, months: number): string {
+  const [year, month, day] = iso.split("-").map(Number);
+  const target = new Date(Date.UTC(year, month - 1 - months, 1));
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), Math.min(day, lastDay))).toISOString().slice(0, 10);
+}
+
+/** The aria-label of a calendar day button (the date picker's English format, `30 April 2026`). */
+const dayLabel = (iso: string): string =>
+  new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+
+test("admin limits the history horizon and the reports say since when", async ({ page }) => {
+  await login(page);
+
+  // The settings singleton is GLOBAL: capture it first and put it back in the finally below, whatever happens.
+  const { api } = await apiAsAdmin();
+  const originalRes = await api.get("/api/v1/metrics-settings");
+  expect(originalRes.ok(), await originalRes.text()).toBeTruthy();
+  const original = await originalRes.json();
+  try {
+    // The report below is read for a throwaway team, so it answers whatever the stack has derived.
+    const teamName = uniqueText("e2e-metrics-team");
+    const createdTeam = await api.post("/api/v1/teams", { data: { name: teamName } });
+    expect(createdTeam.ok(), await createdTeam.text()).toBeTruthy();
+    const teamId = (await createdTeam.json()).id as number;
+    teardown.push(`/api/v1/teams/${teamId}`);
+
+    // Six months, through the form.
+    await page.goto("/metrics-settings");
+    await expect(page.getByRole("heading", { name: "Metrics settings" })).toBeVisible();
+    const limit = page.getByRole("switch", { name: /^Limit history/ });
+    if (!(await limit.isChecked())) await page.getByText("Limit history", { exact: true }).click();
+    await page.getByLabel("History horizon (months)").fill("6");
+    await Promise.all([
+      page.waitForResponse((r) => r.url().endsWith("/api/v1/metrics-settings") && r.request().method() === "PUT" && r.ok()),
+      page.getByRole("button", { name: "Save", exact: true }).click(),
+    ]);
+    await expect(page.getByText("Saved — reports re-derive shortly")).toBeVisible();
+
+    // The cutoff: today in the metrics time zone minus six months (the server's rule, end-of-month clamp included).
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: original.timeZone }).format(new Date());
+    const cutoff = minusMonths(today, 6);
+    await expect(page.getByText(`Saved: work since ${cutoff} counts.`)).toBeVisible();
+
+    // Throughput says since when, and its longest preset starts on the cutoff instead of a year back.
+    await page.goto(`/reports/throughput?teamId=${teamId}`);
+    await expect(page.getByRole("heading", { level: 2, name: "Throughput", exact: true })).toBeVisible();
+    await expect(page.getByText(`Reports show work since ${cutoff} (history horizon: 6 months)`)).toBeVisible();
+    await openFilters(page);
+    await page.getByRole("combobox", { name: "Period", exact: true }).click();
+    await page.getByRole("option", { name: "Last 365 days", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`from=${cutoff}`));
+
+    // The custom range picker starts on the cutoff month and offers no earlier day: its first enabled day is the cutoff.
+    await page.getByRole("combobox", { name: "Period", exact: true }).click();
+    await page.getByRole("option", { name: "Custom range", exact: true }).click();
+    await page.getByRole("button", { name: "Date range", exact: true }).click();
+    await expect(page.locator(".mantine-DatePickerInput-month button:enabled").first()).toHaveAttribute("aria-label", dayLabel(cutoff));
+  } finally {
+    // Restore the shared global settings to their pre-test values.
+    const restore = await api.put("/api/v1/metrics-settings", {
+      data: {
+        hoursPerDay: original.hoursPerDay,
+        timeZone: original.timeZone,
+        weekendDays: original.weekendDays,
+        commitmentGraceMinutes: original.commitmentGraceMinutes,
+        minSampleSize: original.minSampleSize,
+        agingWindowItems: original.agingWindowItems,
+        agingPercentiles: original.agingPercentiles,
+        backlogWindowSprints: original.backlogWindowSprints,
+        epicDriftDays: original.epicDriftDays,
+        epicEstimateGapTolerancePercent: original.epicEstimateGapTolerancePercent,
+        historyHorizonMonths: original.historyHorizonMonths,
+      },
+    });
+    expect(restore.ok(), await restore.text()).toBeTruthy();
+    await api.dispose();
+  }
+});
+
 test("admin configures a data source's metrics", async ({ page }) => {
   test.setTimeout(300_000);
   await login(page);

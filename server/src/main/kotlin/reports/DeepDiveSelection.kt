@@ -5,7 +5,9 @@ import ch.nokillswit.infra.paging.repeatedLongs
 import ch.nokillswit.infra.paging.repeatedStrings
 import ch.nokillswit.infra.paging.singleValue
 import ch.nokillswit.infra.validation.sanitizeSingleLine
+import ch.nokillswit.metrics.HistoryHorizon
 import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.metrics.WorkingCalendar
 import io.ktor.http.Parameters
 import io.ktor.server.plugins.BadRequestException
 import java.time.LocalDate
@@ -47,11 +49,20 @@ internal sealed interface DeepDiveSelection {
     }
 }
 
-/** A parsed request: the [selection], the optional [connectionId] and the optional `from`/`to` clip (inclusive, configured zone). */
-internal class DeepDiveRequest(val selection: DeepDiveSelection, val connectionId: UInt?, val from: LocalDate?, val to: LocalDate?)
+/**
+ * A parsed request: the [selection], the optional [connectionId], the optional `from`/`to` clip (inclusive, configured zone) and the
+ * request's A48 [historyHorizon] (`null` = off), which the range, the `sprintId` check and `meta` read.
+ */
+internal class DeepDiveRequest(
+    val selection: DeepDiveSelection,
+    val connectionId: UInt?,
+    val from: LocalDate?,
+    val to: LocalDate?,
+    val historyHorizon: HistoryHorizon?,
+)
 
-/** Parses the query into a [DeepDiveRequest]; every `400` that needs no data is thrown here. */
-internal fun Parameters.parseDeepDive(): DeepDiveRequest {
+/** Parses the query into a [DeepDiveRequest] under [historyHorizon]; every `400` that needs no data is thrown here. */
+internal fun Parameters.parseDeepDive(historyHorizon: HistoryHorizon?): DeepDiveRequest {
     val sprintIds = repeatedLongs("sprintId", maxCount = DEEP_DIVE_MAX_SPRINTS, minValue = 1)
     val epicKeys = repeatedStrings("epicId", maxCount = DEEP_DIVE_MAX_EPICS).map { sanitizeSingleLine(it, "epicId") }
     val domain = optionalSingleLine("domain")
@@ -67,12 +78,17 @@ internal fun Parameters.parseDeepDive(): DeepDiveRequest {
     val from = singleValue("from")?.takeIf { it.isNotBlank() }?.let { parseIsoDate(it.trim(), "from") }
     val to = singleValue("to")?.takeIf { it.isNotBlank() }?.let { parseIsoDate(it.trim(), "to") }
     if (from != null && to != null) requireRange(from, to)
-    return DeepDiveRequest(selection, optionalUInt("connectionId"), from, to)
+    // A `to` (alone or with `from`) before the horizon names a period lying entirely before it: the shared report parser's `400`.
+    if (historyHorizon != null && to != null && to.isBefore(historyHorizon.from)) {
+        throw BadRequestException("from/to lies entirely before the history horizon (${historyHorizon.from})")
+    }
+    return DeepDiveRequest(selection, optionalUInt("connectionId"), from, to, historyHorizon)
 }
 
 /**
  * `400` for a GIVEN range (both `from` and `to`) that ends before it starts or spans more than [DEEP_DIVE_MAX_RANGE_DAYS] days (inclusive
- * of both ends). A lone bound, or an implied range, never fails: it clips or is clamped (`DeepDiveReport.kt`).
+ * of both ends: the REQUESTED span, before any clamp). A lone bound, or an implied range, never fails on that: it clips or is clamped
+ * (`DeepDiveReport.kt`, [clampRangeToHorizon]).
  */
 internal fun requireRange(from: LocalDate, to: LocalDate) {
     if (to.isBefore(from)) throw BadRequestException("to must not be before from")
@@ -96,9 +112,13 @@ internal class DeepDiveTargets(
  * shared by two connections is ambiguous only when both hold the domain; the one ambiguity left is a domain that spans connections,
  * resolved with `connectionId`.
  */
-internal suspend fun resolveDeepDiveTargets(request: DeepDiveRequest, connectionIds: List<UInt>): DeepDiveTargets =
+internal suspend fun resolveDeepDiveTargets(
+    request: DeepDiveRequest,
+    connectionIds: List<UInt>,
+    calendar: WorkingCalendar,
+): DeepDiveTargets =
     when (val selection = request.selection) {
-        is DeepDiveSelection.Sprints -> resolveSprints(selection, connectionIds)
+        is DeepDiveSelection.Sprints -> resolveSprints(selection, connectionIds, request.historyHorizon, calendar)
         is DeepDiveSelection.Epics -> {
             val epics = requireEpicsByKey(selection.epicKeys, connectionIds)
             val connectionId = epics.first().connectionId
@@ -106,13 +126,20 @@ internal suspend fun resolveDeepDiveTargets(request: DeepDiveRequest, connection
         }
     }
 
-private suspend fun resolveSprints(selection: DeepDiveSelection.Sprints, connectionIds: List<UInt>): DeepDiveTargets {
+private suspend fun resolveSprints(
+    selection: DeepDiveSelection.Sprints,
+    connectionIds: List<UInt>,
+    horizon: HistoryHorizon?,
+    calendar: WorkingCalendar,
+): DeepDiveTargets {
     val s = MetricsTables.DimSprint
     val inDomain = connectionsWithDomain(selection.domain, connectionIds)
-    val rows = s.select(s.connectionId, s.sprintId)
+    val found = s.select(s.connectionId, s.sprintId, s.completeAt)
         .where { (s.connectionId inList inDomain) and (s.sprintId inList selection.sprintIds) }
-        .toList().groupBy({ it[s.sprintId] }, { it[s.connectionId].value })
+        .toList()
+    val rows = found.groupBy({ it[s.sprintId] }, { it[s.connectionId].value })
     val connectionId = singleConnection("sprintId", selection.sprintIds, rows)
+    requireSprintsInHorizon(found.groupBy({ it[s.sprintId] }, { it[s.completeAt] }), horizon, calendar)
 
     val scope = MetricsTables.FactSprintScope
     val task = MetricsTables.FactTaskDelivery
@@ -143,4 +170,15 @@ private suspend fun epicTaskIds(connectionId: UInt, epicIssueIds: List<Long>): L
 private fun requireTaskCap(ids: List<Long>): List<Long> {
     if (ids.size > DEEP_DIVE_MAX_TASKS) throw BadRequestException("The selection resolves to more than $DEEP_DIVE_MAX_TASKS tasks")
     return ids
+}
+
+/**
+ * `400` for a sprint closed before the [horizon] (A48): the shared `sprintId` rule of the other reports (`SprintPeriods.kt`) -- every
+ * stored copy of the id completed before the cutoff; an open sprint (`complete_at` null) is current work and never cut.
+ */
+private fun requireSprintsInHorizon(completeAtById: Map<Long, List<Long?>>, horizon: HistoryHorizon?, calendar: WorkingCalendar) {
+    val cutoffMs = horizon?.let { calendar.dayBoundsMs(it.from).first } ?: return
+    completeAtById.entries.firstOrNull { (_, closes) -> closes.all { it != null && it < cutoffMs } }?.let { (id, _) ->
+        throw BadRequestException("sprintId $id closed before the history horizon (${horizon.from})")
+    }
 }

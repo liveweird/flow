@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import type { ReportFilters } from "../api/reports";
 import ReportFilterBar, { type ReportControls } from "./ReportFilterBar";
 import { useReportFilter } from "../hooks/useReportFilter";
+import { addDays, todayIsoDate } from "../utils/isoDate";
 import { FILTERS } from "../test/reportFixtures";
 import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor } from "../test/render";
@@ -50,6 +51,16 @@ describe("ReportFilterBar", () => {
     expect(params.get("from")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(params.get("to")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect((screen.getByRole("combobox", { name: "Period" }) as HTMLInputElement).value).toBe("Last 30 days");
+  });
+
+  test("under a history horizon a longer preset starts on the horizon's first day and still reads as that preset", async () => {
+    const user = userEvent.setup();
+    const from = addDays(todayIsoDate("Europe/Warsaw"), -200);
+    const filters = { ...FILTERS, historyHorizon: { months: 6, from } };
+    await renderOpen(<Harness filters={filters} />, { route: "/reports/commitments" });
+    await pick(user, "Period", "Last 365 days");
+    expect(search().get("from")).toBe(from);
+    expect((screen.getByRole("combobox", { name: "Period" }) as HTMLInputElement).value).toBe("Last 365 days");
   });
 
   test("last N sprints replaces the date range", async () => {

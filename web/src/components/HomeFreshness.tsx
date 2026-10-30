@@ -6,7 +6,7 @@ import { formatDateTime } from "../utils/formatDate";
 /**
  * Section 0 — how fresh the numbers are, as one dimmed line on top: each active connection's last successful sync and last
  * derive (read in the configured zone; "never" where a connection has not completed one), and the two windows every figure on the
- * page is read over (the trailing 90 days and the 90 before, which the trend arrows compare with).
+ * page is read over (the trailing 90 days and the 90 before, which the trend arrows compare with), plus, while a history horizon is set, since when the reports show work.
  */
 export default function HomeFreshness({ overview }: { overview: HomeOverview }) {
   const { t } = useTranslation();
@@ -30,6 +30,11 @@ export default function HomeFreshness({ overview }: { overview: HomeOverview }) 
           zone: overview.timeZone,
         })}
       </Text>
+      {overview.meta.historyHorizon !== null && (
+        <Text size="xs" c="dimmed">
+          {t("reports.meta.historyHorizon", { from: overview.meta.historyHorizon.from, count: overview.meta.historyHorizon.months })}
+        </Text>
+      )}
     </Stack>
   );
 }

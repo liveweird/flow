@@ -22,7 +22,8 @@ export interface PrintFilterLine {
 
 function periodText(filter: ReportFilterState, filters: ReportFilters, t: TFunction): string {
   const today = todayIsoDate(filters.timeZone);
-  const choice = activePeriodChoice(filter, today);
+  const horizonFrom = filters.historyHorizon?.from;
+  const choice = activePeriodChoice(filter, today, horizonFrom);
   if (choice === "sprint") {
     const sprint = filters.teams.flatMap((team) => team.sprints).find((candidate) => candidate.sprintId === filter.sprintId);
     return sprint === undefined ? `#${filter.sprintId}` : sprintLabel(sprint, filters.timeZone);
@@ -30,7 +31,7 @@ function periodText(filter: ReportFilterState, filters: ReportFilters, t: TFunct
   if (choice.startsWith("lastSprints:")) return t("reports.filters.lastSprints", { count: filter.lastSprints });
   if (choice === "custom") return `${filter.from ?? "…"} → ${filter.to ?? today}`;
   const preset = choice as DatePreset;
-  const range = presetRange(preset, today);
+  const range = presetRange(preset, today, horizonFrom);
   return `${t(`reports.filters.preset.${preset}`)} (${range.from} → ${range.to})`;
 }
 

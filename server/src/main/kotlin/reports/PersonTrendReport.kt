@@ -34,7 +34,9 @@ internal suspend fun ReportService.personTrend(
     val range = windows.first().bounds.first to windows.last().bounds.second
     val coverage = derivedCoverage(scope.connectionIds, calendar)
     val derived = scope.connectionIds.filter { it !in coverage.notDerived }
-    val backfill = backfillStart(derived)?.date
+    // The history horizon (A48) is a backfill start of its own for the labels: a window beginning before it is PARTIAL.
+    val horizonFrom = filter.historyHorizon?.from
+    val backfill = listOfNotNull(backfillStart(derived)?.date, horizonFrom).maxOrNull()
     val references = readReferenceTeams(person, windows, calendar)
     val peersByWindow = references.map { it?.peers.orEmpty() }
     val ends = windows.map { it.end }
@@ -46,7 +48,9 @@ internal suspend fun ReportService.personTrend(
     val plan = generation.plan(person, slice, ends, peersByWindow)
     generation.report(plan)
     val wip = readTrendWip(scope.copy(window = range), filter, windows, derived, plan.fetch)
-    val populations = fetchTrendPopulations(filter.copy(accountIds = plan.fetch), scope.connectionIds, range)
+    // Nothing anchored before the horizon is read, whatever a window's own start: the slice of an early window is its part inside it.
+    val factRange = maxOf(range.first, horizonFrom?.let { calendar.dayBoundsMs(it).first } ?: range.first) to range.second
+    val populations = fetchTrendPopulations(filter.copy(accountIds = plan.fetch), scope.connectionIds, factRange)
 
     val fetched = plan.fetch.toSet()
     val results = windows.mapIndexed { i, window ->

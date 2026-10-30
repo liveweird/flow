@@ -5,6 +5,7 @@ import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.infra.paging.optionalUInt
 import ch.nokillswit.infra.paging.repeatedStrings
 import ch.nokillswit.infra.paging.singleValue
+import ch.nokillswit.metrics.HistoryHorizon
 import ch.nokillswit.metrics.WorkingCalendar
 import io.ktor.http.Parameters
 import io.ktor.server.plugins.BadRequestException
@@ -105,6 +106,12 @@ data class ReportFilter(
      * distribution ignores it.
      */
     val tailPercent: Int = DEFAULT_TAIL_PERCENT,
+    /**
+     * The history horizon this request was parsed under (domain-model A48): `null` = off. A `from`/`to` period was already clamped to it
+     * and a period wholly before it refused; the sprint-relative periods and the day-anchored series read it from here, and
+     * `meta.historyHorizon` echoes it.
+     */
+    val historyHorizon: HistoryHorizon? = null,
 ) {
     /** The first picked account — the single `accountId` every single-account report reads; `null` when none is picked. */
     val accountId: String? get() = accountIds.firstOrNull()
@@ -119,7 +126,9 @@ data class ReportFilter(
  * only has the zone at hand. [nowMs] anchors the default 90-day window and is always caller-supplied
  * (never `System.currentTimeMillis()`) so both routes and tests can pin it. [defaultDomainView] is
  * per-report (plan §7: "EPIC for PV/EV/AC-shaped measures … TASK elsewhere") — the caller's own
- * default, never guessed here. [multipleAccounts] is the per-route opt-in:
+ * default, never guessed here. [historyHorizon] is the request's A48 horizon (`null` = off), with NO default so a new caller cannot
+ * forget it: it clamps a `from`/`to` period (the default one too) and refuses one lying wholly before it. [multipleAccounts] is the
+ * per-route opt-in:
  * `accountId` repeats (`?accountId=a&accountId=b`, at most [MAX_PICKED_ACCOUNTS] distinct values, a `400` above) instead of being strictly
  * single-valued like on every other report. [teamless] lifts the `accountId requires teamId` rule so a USER-level filter may carry NO team:
  * ONLY `parseComparePeople` (report 18) and `parsePersonTrend` (report 20) set it, and the filter it yields must never reach a function
@@ -133,12 +142,13 @@ fun Parameters.parseReportFilter(
     calendar: WorkingCalendar,
     nowMs: Long,
     defaultDomainView: DomainView,
+    historyHorizon: HistoryHorizon?,
     multipleAccounts: Boolean = false,
     teamless: Boolean = false,
     defaultPeriodDays: Int = DEFAULT_PERIOD_DAYS,
     scope: ReportScopeRule = ReportScopeRule.TEAM_OR_DOMAIN,
 ): ReportFilter {
-    val period = parsePeriod(calendar, nowMs, defaultPeriodDays)
+    val period = parsePeriod(calendar, nowMs, defaultPeriodDays, historyHorizon)
 
     val teamId = optionalUInt("teamId")
     val accountIds =
@@ -166,6 +176,7 @@ fun Parameters.parseReportFilter(
         workCategory = optionalString("workCategory"),
         connectionId = optionalUInt("connectionId"),
         tailPercent = parseTailPercent(optionalString("tailPercent")),
+        historyHorizon = historyHorizon,
     )
 }
 
@@ -185,7 +196,12 @@ private fun parseTailPercent(raw: String?): Int {
     return percent
 }
 
-private fun Parameters.parsePeriod(calendar: WorkingCalendar, nowMs: Long, defaultPeriodDays: Int): ReportPeriod {
+private fun Parameters.parsePeriod(
+    calendar: WorkingCalendar,
+    nowMs: Long,
+    defaultPeriodDays: Int,
+    horizon: HistoryHorizon?,
+): ReportPeriod {
     val fromRaw = optionalString("from")
     val toRaw = optionalString("to")
     val lastSprintsRaw = optionalString("lastSprints")
@@ -199,7 +215,7 @@ private fun Parameters.parsePeriod(calendar: WorkingCalendar, nowMs: Long, defau
     return when {
         lastSprintsRaw != null -> ReportPeriod.LastSprints(parseLastSprints(lastSprintsRaw))
         sprintIdRaw != null -> ReportPeriod.BySprintId(parseSprintId(sprintIdRaw))
-        else -> parseDateRange(fromRaw, toRaw, calendar, nowMs, defaultPeriodDays)
+        else -> parseDateRange(fromRaw, toRaw, calendar, nowMs, defaultPeriodDays, horizon)
     }
 }
 
@@ -224,6 +240,7 @@ private fun parseDateRange(
     calendar: WorkingCalendar,
     nowMs: Long,
     defaultPeriodDays: Int,
+    horizon: HistoryHorizon?,
 ): ReportPeriod.DateRange {
     val toDate = toRaw?.let { parseIsoDate(it, "to") } ?: calendar.dayOf(nowMs)
     val fromDate = fromRaw?.let { parseIsoDate(it, "from") } ?: toDate.minusDays((defaultPeriodDays - 1).toLong())
@@ -234,9 +251,14 @@ private fun parseDateRange(
     if (spanDays > MAX_PERIOD_SPAN_DAYS) {
         throw BadRequestException("from/to span must not exceed $MAX_PERIOD_SPAN_DAYS days")
     }
-    val fromMs = calendar.dayBoundsMs(fromDate).first
+    // The structural checks above judge the REQUESTED dates; only then does the horizon refuse a period wholly before it or clamp `from`.
+    if (horizon != null && toDate.isBefore(horizon.from)) {
+        throw BadRequestException("from/to lies entirely before the history horizon (${horizon.from})")
+    }
+    val clampedFrom = if (horizon != null && fromDate.isBefore(horizon.from)) horizon.from else fromDate
+    val fromMs = calendar.dayBoundsMs(clampedFrom).first
     val toMs = calendar.dayBoundsMs(toDate).second
-    return ReportPeriod.DateRange(fromDate, toDate, fromMs, toMs)
+    return ReportPeriod.DateRange(clampedFrom, toDate, fromMs, toMs)
 }
 
 internal fun parseIsoDate(raw: String, paramName: String): LocalDate = try {

@@ -2047,7 +2047,9 @@ export interface paths {
          *     shows: CUMULATIVE points include everything before the period, PERIOD points are rebased to start near 0.
          *     `period`'s and the rows' `spi` / `cpi` are `null` while ΔPV / ΔAC is under 1 man-day (EV arrives in lumps, so a
          *     ratio over a sliver is noise). `trend` is SPI and CPI per week end (Monday-start weeks, the last one cut at
-         *     `asOf.day`) over the trailing `trendWindowDays`, null under the same minimum. Select the scope with EXACTLY ONE of `epicId` (an epic's issue key, level EPIC),
+         *     `asOf.day`) over the trailing `trendWindowDays`, null under the same minimum. The listed days never start before the history horizon's
+         *     first day (`meta.historyHorizon`, A48; a sprint window straddling it starts there and `note` says so): `period` and the rebase start there,
+         *     the cumulative baselines stay whole-life. Select the scope with EXACTLY ONE of `epicId` (an epic's issue key, level EPIC),
          *     `domain` (level DOMAIN — epic-attributed work only), `teamId` (level TEAM, sprint and author based, A20;
          *     `0` = UNASSIGNED) — none is the whole unit, which is refused. `400` for none of them, for more than
          *     one of them, for a blank `epicId`, for `accountId` (no user-level EVM), for an explicit `domainView=TASK` (EVM is always the EPIC
@@ -2229,8 +2231,10 @@ export interface paths {
          *     `range`: mode (a) the envelope of the selected sprints' plan windows; (b) the envelope of every mark (plan, in-progress, done
          *     and cost days, the epics' planned windows and own cost); `from`/`to` clip it (clipped data stays in each task's `totals`; a lone
          *     bound outside the envelope yields a single empty day). An implied range over 1100 days keeps its last 1100 days and `note` starts
-         *     `RANGE_CLAMPED`; a GIVEN range over 1100 days is `400`. `range.asOfDay` is the day of the selected connection's last DERIVE clock,
-         *     where an open in-progress interval stops. Every series entry's `d` is a day offset from `range.from`; `nonWorkingDays` are the
+         *     `RANGE_CLAMPED`; a GIVEN range over 1100 days is `400`. Under the history horizon (`meta.historyHorizon`, domain-model A48) the range never
+         *     starts before the horizon's first day, and the envelope of an old selection (all its marks before that day) is the single empty day on that
+         *     first day with a `HISTORY_HORIZON` note (totals stay whole-life); a `to` (alone or with `from`) before the horizon's first day is `400`.
+         *     `range.asOfDay` is the day of the selected connection's last DERIVE clock, where an open in-progress interval stops. Every series entry's `d` is a day offset from `range.from`; `nonWorkingDays` are the
          *     offsets that are not working days.
          *
          *     Per task, `pv` spreads `planBasisMd` (the `estimate_at_commitment_md` of the task's earliest sprint, else its first later one —
@@ -2247,8 +2251,8 @@ export interface paths {
          *
          *     Nothing in scope derived yet answers `200` with empty `tasks`/`epics`/`authors`, `range.asOfDay` null and `note` set — never a
          *     range of zeros. `400` (never 404): no or mixed selections, `domain` without `sprintId`, too
-         *     many values, more than 500 tasks, a given range over 1100 days or `from` after `to` (both given), an unknown sprint, epic, domain or
-         *     connection, a key in several connections without `connectionId`, a malformed date or id, a repeated
+         *     many values, more than 500 tasks, a given range over 1100 days, `from` after `to` (both given), a `to` before the history horizon, a
+         *     sprint completed before the history horizon, an unknown sprint, epic, domain or connection, a key in several connections without `connectionId`, a malformed date or id, a repeated
          *     scalar parameter, control characters.
          */
         get: operations["getReportDeepDive"];
@@ -2272,7 +2276,8 @@ export interface paths {
          * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 17". The sprints in which at least one level-0
          *     task of `domain` (the task's OWN domain, as the report's sprint mode selects) was `in_scope_at_close` (A17), each with
          *     `taskCount`, the number of those tasks. `domain` is required: a missing or unknown one (no such domain on an active
-         *     connection in scope) is `400`. Active connections only; `connectionId` narrows to one.
+         *     connection in scope) is `400`. Active connections only; `connectionId` narrows to one. A sprint completed before the history horizon
+         *     (`meta.historyHorizon` of the reports, A48) is not listed; an open one is.
          *
          *     - Sortable fields: `id` (the Jira sprint id), `name`, `startAt`, `completeAt`. Default sort is `-id` (the most recent sprints
          *       first); `id` ascending is appended as the tiebreaker when `id` is not already sorted on, then the connection id.
@@ -2298,7 +2303,7 @@ export interface paths {
          * Report 17 — the deep dive's epic picker
          * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 17". Every epic (`metrics.dim_epic`) of an active
          *     connection in scope, optionally narrowed to the epic's own `domain` (an unknown domain answers an empty page). `connectionId`
-         *     narrows to one connection.
+         *     narrows to one connection. An epic finished (`fact_epic_delivery.done_at`) before the history horizon is not listed; an open one is.
          *
          *     - Sortable fields: `id` (the epic's issue id), `key`, `summary`, `domain`. Default sort is `key` ascending; `id` ascending is
          *       appended as the tiebreaker, then the connection id.
@@ -2326,7 +2331,9 @@ export interface paths {
          *     distinct Jira account ids; one, three, or two that collapse to one are 400) over a `from`/`to` period (default the trailing 90
          *     days; `teamId`, `lastSprints` and `sprintId` are not accepted — 400) are read ACROSS every team they belonged to: a task is
          *     a person's by its assignee at done, a worklog by its author, whatever the team. `domain`/`domainView`/`activityType`/
-         *     `workCategory`/`connectionId` slice both people alike (the WIP rows ignore the slices, like report 9). Every row of `rows` is a
+         *     `workCategory`/`connectionId` slice both people alike (the WIP rows ignore the slices, like report 9). A `from` before the history
+         *     horizon's first day (`meta.historyHorizon`, A48) is raised to it - the window is read from that day, `meta.from` says so - and a
+         *     period wholly before it is `400`. Every row of `rows` is a
          *     figure another report defines (`key`, in table order): delivered MD and items (report 2), the median task size (the estimate at
          *     start in MD, report 19's value; an unestimated or never-started task is excluded, never 0; lower is better), the share of
          *     done tasks reopened at least once (`reopenedShare`; lower is better), cycle time p50/p90 in working and
@@ -2424,8 +2431,9 @@ export interface paths {
          *     `wipAtEndMedianAgeWd`, `blockedItemsShare`, `worklogCoverage`, `lateLoggingShare`, `noEstimateShare`, `reopenedShare` and
          *     `taskSizeP50`, in that order; no capacity row (A39) is ever present. `domain`/`domainView`/`activityType`/`workCategory`/
          *     `connectionId` slice every window alike (the WIP rows ignore the slices, like report 9). `windows[].coverage` says how much data
-         *     backs a window: `FULL`; `PARTIAL` when it starts before the latest `backfillFrom` of the connections in scope or ends after the
-         *     last derived day; `NONE` when nothing is derived or the window lies wholly outside that span (its cells are still Compare
+         *     backs a window: `FULL`; `PARTIAL` when it starts before the latest `backfillFrom` of the connections in scope or before the history
+         *     horizon's first day (`meta.historyHorizon`, A48: the figures read from that day, and the points of a `from` before it start at it) or
+         *     ends after the last derived day; `NONE` when nothing is derived or the window lies wholly outside that span (its cells are still Compare
          *     people's figures over it — typically empty — and a client draws a gap). `rows[].trend` is the CUE: the first against the last
          *     point whose window is `FULL` and whose cell has a value (`fromEnd`/`toEnd` name them; absent with fewer than two), with the
          *     `difference` (last minus first) and a `verdict` (`BETTER`/`WORSE` by the row's `direction`, Compare people's rule: sample-gated,
@@ -3955,6 +3963,18 @@ export interface components {
             /** @description Each team's resolved sprints for a lastSprints/sprintId period; empty for a from/to period, except on the Home overview, whose from/to window still lists each team's last closed sprint. */
             resolvedSprints: components["schemas"]["ResolvedSprintGroup"][];
             minSampleSize: number;
+            /** @description The history horizon the report was read under (null = off); nothing anchored before its `from` is in the figures. */
+            historyHorizon: components["schemas"]["HistoryHorizon"] | null;
+        };
+        /** @description The reporting history horizon (domain-model A48) as of the request - read time only, no derived row depends on it. */
+        HistoryHorizon: {
+            /** @description The configured number of months (`metrics.settings.history_horizon_months`). */
+            months: number;
+            /**
+             * Format: date
+             * @description The first day that still counts: today in the configured zone minus `months`.
+             */
+            from: string;
         };
         ReportFilterSprint: {
             /** Format: int64 */
@@ -3999,6 +4019,7 @@ export interface components {
             siteUrl: string;
         };
         ReportFilters: {
+            /** @description Each team's `sprints` list holds the open sprints and those completed on or after the history horizon's first day. */
             teams: components["schemas"]["ReportFilterTeam"][];
             domains: components["schemas"]["ReportFilterDomain"][];
             activityTypes: string[];
@@ -4014,6 +4035,8 @@ export interface components {
             minSampleSize: number;
             /** @description The configured IANA time zone (`metrics.settings.time_zone`) that `from`/`to` are read in — a client renders report dates and computes period presets in it. */
             timeZone: string;
+            /** @description The history horizon the data was read under (null = off); the same object every report carries in `meta.historyHorizon`. */
+            historyHorizon: components["schemas"]["HistoryHorizon"] | null;
         };
         /** @description The four figures a commitments row carries, live or frozen. */
         CommitmentsSnapshot: {
@@ -6257,7 +6280,7 @@ export interface components {
             /** @description By issue key. */
             tasks: components["schemas"]["DeepDiveTask"][];
             quality: components["schemas"]["DeepDiveQuality"];
-            /** @description The not-derived-yet message when nothing in scope has derived; a message starting `RANGE_CLAMPED` when an implied range was cut to its last 1100 days; null otherwise. */
+            /** @description The not-derived-yet message when nothing in scope has derived; a message starting `RANGE_CLAMPED` when an implied range was cut to its last 1100 days and/or one containing `HISTORY_HORIZON` when the history horizon emptied it to a single day; null otherwise. */
             note: string | null;
         };
         DeepDiveSprintOption: {
@@ -6875,13 +6898,13 @@ export interface components {
         Sort: string;
         /** @description Free-text substring filter (case- and accent-insensitive) — API-LIST-005. */
         Q: string;
-        /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+        /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
         ReportFrom: string;
-        /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+        /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
         ReportTo: string;
-        /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+        /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
         ReportLastSprints: number;
-        /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+        /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
         ReportSprintId: number;
         /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
         ReportTeamId: number;
@@ -8802,13 +8825,13 @@ export interface operations {
     getReportCommitments: {
         parameters: {
             query: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description The team (required: this report carries no domain slice, so a request without `teamId` is `400`). Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId: components["parameters"]["ReportTeamIdRequired"];
@@ -8849,13 +8872,13 @@ export interface operations {
     getReportThroughput: {
         parameters: {
             query?: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
@@ -8904,13 +8927,13 @@ export interface operations {
     getReportThroughputItems: {
         parameters: {
             query?: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
@@ -8959,13 +8982,13 @@ export interface operations {
     getReportSprintConsistency: {
         parameters: {
             query: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description The team (required: this report carries no domain slice, so a request without `teamId` is `400`). Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId: components["parameters"]["ReportTeamIdRequired"];
@@ -9010,13 +9033,13 @@ export interface operations {
     getReportSprintConsistencyItems: {
         parameters: {
             query: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description The team (required: this report carries no domain slice, so a request without `teamId` is `400`). Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId: components["parameters"]["ReportTeamIdRequired"];
@@ -9059,13 +9082,13 @@ export interface operations {
     getReportTaskEstimationAccuracy: {
         parameters: {
             query?: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
@@ -9114,13 +9137,13 @@ export interface operations {
     getReportTaskEstimationAccuracyItems: {
         parameters: {
             query: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
@@ -9165,13 +9188,13 @@ export interface operations {
     getReportTaskEstimates: {
         parameters: {
             query?: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
@@ -9220,13 +9243,13 @@ export interface operations {
     getReportTaskEstimatesItems: {
         parameters: {
             query: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
@@ -9271,13 +9294,13 @@ export interface operations {
     getReportEpicEstimationAccuracy: {
         parameters: {
             query?: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
@@ -9324,13 +9347,13 @@ export interface operations {
     getReportEpicEstimationAccuracyItems: {
         parameters: {
             query: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
@@ -9371,13 +9394,13 @@ export interface operations {
     getReportEstimateAdjustments: {
         parameters: {
             query?: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
@@ -9426,13 +9449,13 @@ export interface operations {
     getReportEstimateAdjustmentsItems: {
         parameters: {
             query: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
@@ -9477,13 +9500,13 @@ export interface operations {
     getReportCycleTime: {
         parameters: {
             query?: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
@@ -9534,13 +9557,13 @@ export interface operations {
     getReportCycleTimeItems: {
         parameters: {
             query: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
@@ -9587,13 +9610,13 @@ export interface operations {
     getReportWip: {
         parameters: {
             query?: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
@@ -9644,13 +9667,13 @@ export interface operations {
     getReportBacklog: {
         parameters: {
             query?: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
@@ -9699,13 +9722,13 @@ export interface operations {
     getReportAgingWip: {
         parameters: {
             query?: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
@@ -9752,13 +9775,13 @@ export interface operations {
     getReportBlockedTime: {
         parameters: {
             query?: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
@@ -9809,13 +9832,13 @@ export interface operations {
     getReportBlockedTimeItems: {
         parameters: {
             query: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
@@ -9860,13 +9883,13 @@ export interface operations {
     getReportEpicProgress: {
         parameters: {
             query?: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description One epic's issue key (as `issueKey` lists it, e.g. `FLO-33`) — selects epic progress at level EPIC. Mutually exclusive with `domain` and `teamId`; one of the three is required on epic progress. */
                 epicId?: components["parameters"]["ReportEpicId"];
@@ -9919,13 +9942,13 @@ export interface operations {
     getReportDataQuality: {
         parameters: {
             query?: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
@@ -9974,13 +9997,13 @@ export interface operations {
     getReportCosts: {
         parameters: {
             query?: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
@@ -10027,13 +10050,13 @@ export interface operations {
     getReportCostsItems: {
         parameters: {
             query?: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
@@ -10086,9 +10109,9 @@ export interface operations {
                 epicId?: string[];
                 /** @description The ONE connection the selection reads (an active one, else `400`). Without it the keys resolve across every active connection and a key present in several is ambiguous (`400`); selection (a) first narrows to the connections that hold `domain`, so a sprint id shared by two connections is ambiguous only when both hold the domain. */
                 connectionId?: number;
-                /** @description ISO date (YYYY-MM-DD), inclusive, in the configured zone: clips the range's start (the envelope's by default). Alone, a `from` after the envelope's end gives a single empty day at `from` (totals unchanged), never a `400`. With `to`, `from` after `to` or a span over 1100 days is `400`. */
+                /** @description ISO date (YYYY-MM-DD), inclusive, in the configured zone: clips the range's start (the envelope's by default). Alone, a `from` after the envelope's end gives a single empty day at `from` (totals unchanged), never a `400`. With `to`, `from` after `to`, a span over 1100 days is `400`; a `from` before the history horizon's first day is raised to it. */
                 from?: string;
-                /** @description ISO date (YYYY-MM-DD), inclusive, in the configured zone: clips the range's end (the envelope's by default). Alone, a `to` before the envelope's start gives a single empty day at `to`. When the range is NOT fully given and would span over 1100 days, its last 1100 days are kept (a given bound is honoured, the other end follows it) and `note` says `RANGE_CLAMPED`. */
+                /** @description ISO date (YYYY-MM-DD), inclusive, in the configured zone: clips the range's end (the envelope's by default). Alone, a `to` before the envelope's start gives a single empty day at `to`; a `to` before the history horizon's first day is `400` (the period lies entirely before it). When the range is NOT fully given and would span over 1100 days, its last 1100 days are kept (a given bound is honoured, the other end follows it) and `note` says `RANGE_CLAMPED`. */
                 to?: string;
             };
             header?: {
@@ -10217,9 +10240,9 @@ export interface operations {
     getReportComparePeople: {
         parameters: {
             query: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
                 /** @description Repeated — exactly two distinct Jira account ids (the first is side A, the second side B; on the drill, the same two as on the parent report). Duplicates collapse before the count, so `a, a` is one person (400), and `a, b, a` is two. */
                 accountId: components["parameters"]["ReportComparePeopleAccountIds"];
@@ -10266,9 +10289,9 @@ export interface operations {
     getReportComparePeopleItems: {
         parameters: {
             query: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
                 /** @description Repeated — exactly two distinct Jira account ids (the first is side A, the second side B; on the drill, the same two as on the parent report). Duplicates collapse before the count, so `a, a` is one person (400), and `a, b, a` is two. */
                 accountId: components["parameters"]["ReportComparePeopleAccountIds"];
@@ -10323,7 +10346,7 @@ export interface operations {
             query: {
                 /** @description Range start, inclusive, in the configured zone: the oldest day a point may sit on (the first window reaches 89 days before it). Defaults to 364 days before `to` (a 365-day range, 27 points). `to` minus `from` must not exceed 1099 days (a span of 1100 days counting both ends, 79 points). Person trend takes no `lastSprints` or `sprintId`. */
                 from?: components["parameters"]["ReportPersonTrendFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
                 /** @description One Jira account id — the person whose trend it is. Repeating the key is a 400; there is no `teamId`. */
                 accountId: components["parameters"]["ReportPersonTrendAccountId"];
@@ -10370,7 +10393,7 @@ export interface operations {
             query: {
                 /** @description Range start, inclusive, in the configured zone: the oldest day a point may sit on (the first window reaches 89 days before it). Defaults to 364 days before `to` (a 365-day range, 27 points). `to` minus `from` must not exceed 1099 days (a span of 1100 days counting both ends, 79 points). Person trend takes no `lastSprints` or `sprintId`. */
                 from?: components["parameters"]["ReportPersonTrendFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
                 /** @description One Jira account id — the person whose trend it is. Repeating the key is a 400; there is no `teamId`. */
                 accountId: components["parameters"]["ReportPersonTrendAccountId"];
@@ -10419,13 +10442,13 @@ export interface operations {
     getReportReportedTimeRatio: {
         parameters: {
             query?: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];
@@ -10474,13 +10497,13 @@ export interface operations {
     getReportReportedTimeRatioItems: {
         parameters: {
             query: {
-                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
                 from?: components["parameters"]["ReportFrom"];
-                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
                 lastSprints?: components["parameters"]["ReportLastSprints"];
-                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
                 teamId?: components["parameters"]["ReportTeamId"];

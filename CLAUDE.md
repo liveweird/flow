@@ -13,7 +13,7 @@ outlier detection, and input for continuous improvement. The name refers to the 
 where work waits, not who is busy.
 
 **Roadmap:** v0.1.0 foundation, v0.2.0 Jira ingestion, v0.3.0 the domain model, metrics and reports, v0.4.0 the Deep dive (report 17), and
-**1.x (current, 1.30.0) — this codebase**: twenty reports on nineteen pages; **Home** (`/`) is the overview of up to three picked teams (default: the ones you manage,
+**1.x (current, 1.31.0) — this codebase**: twenty reports on nineteen pages; **Home** (`/`) is the overview of up to three picked teams (default: the ones you manage,
 then the rest by name) — one request (`GET /api/v1/reports/home?teamId=…`), seven sections over the trailing 90 days with a trend against the 90 days before, every bar and
 count drillable; Compare people, Person trend, Task estimates, by-epic sprint splits, reports read per team or domain (never the whole
 unit), one Jira site per data source, and the Costs revamp with per-team work-category targets. Next: `BACKLOG.md`. The per-version scope:

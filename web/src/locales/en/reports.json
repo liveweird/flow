@@ -31,7 +31,9 @@
   },
   "meta": {
     "derived": "Derived {{date}} · configuration revision {{revision}}",
-    "notDerived": "No data has been derived yet."
+    "notDerived": "No data has been derived yet.",
+    "historyHorizon_one": "Reports show work since {{from}} (history horizon: {{count}} month)",
+    "historyHorizon_other": "Reports show work since {{from}} (history horizon: {{count}} months)"
   },
   "print": {
     "button": "Print / save as PDF",
@@ -1438,6 +1440,7 @@
     "description": "One person's figures over rolling 90-day windows, a point every 14 days, across every team they belonged to: is this person getting better? Pick a person and read each chart as a line. The mark under a title compares the first and last full window of the range. Open dots are windows that only partly lie in the derived data; gaps are windows with no figure, never a zero.",
     "pickOne": "Pick a person to see how their figures changed.",
     "windowsHint": "Each point is the {{days}} days ending on it, one point every {{step}} days.",
+    "horizonHint": "Windows that start before {{from}} (the history horizon) are only partly covered: they are read from that day on.",
     "picker": {
       "group": "Person to follow",
       "team": "Team",
@@ -1547,6 +1550,8 @@
     "note": {
       "retiredTasks": "This link picked single tasks of an epic, a view that no longer exists. The whole epic is shown instead.",
       "rangeClamped": "The selection spans more than 1100 days, so only its last 1100 days are drawn. The totals still cover the whole life of each task. Set a from and to date to choose another range.",
+      "historyHorizon_one": "The selection lies before {{from}} (history horizon: {{count}} month), so only that day is shown. The totals still cover the whole life of each task.",
+      "historyHorizon_other": "The selection lies before {{from}} (history horizon: {{count}} months), so only that day is shown. The totals still cover the whole life of each task.",
       "notDerived": "Nothing in this selection has been derived yet, so there are no figures to show. They appear after the connection's next derive."
     },
     "explainer": {

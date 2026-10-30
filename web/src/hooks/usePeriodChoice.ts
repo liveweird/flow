@@ -17,17 +17,20 @@ import {
 export function usePeriodChoice({
   filter,
   today,
+  horizonFrom,
   sprints,
   onChange,
 }: {
   filter: ReportFilterState;
   today: string;
+  /** The history horizon's first day, if one is set: the presets start no earlier. */
+  horizonFrom?: string | null;
   /** The picked team's sprints, newest first — "one sprint" starts on the newest completed one. */
   sprints: ReadonlyArray<ReportFilterTeam["sprints"][number]>;
   onChange: (next: ReportFilterState) => void;
 }): { choice: PeriodChoice; changePeriod: (value: string | null) => void } {
   const [customPicked, setCustomPicked] = useState(false);
-  const derivedChoice = activePeriodChoice(filter, today);
+  const derivedChoice = activePeriodChoice(filter, today, horizonFrom);
   const choice: PeriodChoice =
     customPicked && derivedChoice !== "sprint" && !derivedChoice.startsWith("lastSprints:") ? "custom" : derivedChoice;
 
@@ -36,7 +39,7 @@ export function usePeriodChoice({
     const picked = value as PeriodChoice;
     setCustomPicked(picked === "custom");
     if (picked === "custom") {
-      const range = filter.from === undefined && filter.to === undefined ? presetRange("last90", today) : filter;
+      const range = filter.from === undefined && filter.to === undefined ? presetRange("last90", today, horizonFrom) : filter;
       onChange(withPeriod(filter, { from: range.from, to: range.to }));
     } else if (picked === "sprint") {
       // The newest sprint that has actually completed; an open one only when none has.
@@ -45,7 +48,7 @@ export function usePeriodChoice({
     } else if (picked.startsWith("lastSprints:")) {
       onChange(withPeriod(filter, { lastSprints: Number(picked.slice("lastSprints:".length)) }));
     } else {
-      onChange(withPeriod(filter, presetRange(picked as (typeof DATE_PRESETS)[number], today)));
+      onChange(withPeriod(filter, presetRange(picked as (typeof DATE_PRESETS)[number], today, horizonFrom)));
     }
   };
 

@@ -37,7 +37,8 @@ class MetricsSettingsRoutesTest {
         backlogWindowSprints = 3,
         epicDriftDays = 14,
         epicEstimateGapTolerancePercent = 25,
-        historyHorizonMonths = 24,
+        // The suite's baseline (`PostgresTestSupport` switches the horizon off after migrating): restoring it must not re-arm a horizon.
+        historyHorizonMonths = null,
     )
 
     private suspend fun restoreDefaults(client: io.ktor.client.HttpClient) {

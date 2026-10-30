@@ -4,6 +4,7 @@ import ch.nokillswit.metrics.MetricsTables
 import java.math.BigDecimal
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
+import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
@@ -95,7 +96,10 @@ suspend fun ReportService.backlog(filter: ReportFilter, touchedWithinDays: Int?,
     val (mean, used) = if (asOfEndMs == null) {
         null to 0
     } else {
-        meanDelivered(snapshotScope, scope.connectionIds, scope.settings.backlogWindowSprints, asOfEndMs)
+        meanDelivered(
+            snapshotScope, scope.connectionIds, scope.settings.backlogWindowSprints, asOfEndMs,
+            filter.historyHorizon?.let { calendar.dayBoundsMs(it.from).first },
+        )
     }
     val current = BacklogCurrent(
         asOfDay = last?.day,
@@ -132,15 +136,23 @@ private suspend fun fetchBacklog(
 /**
  * The mean `delivered_md` of the last [window] closed sprints of the team [scope] names, as of [asOfEndMs] (a sprint counts once its
  * `complete_at` is before it), and the number of sprints averaged. `(null, 0)` when no closed sprint exists — and always for a scope with
- * no velocity of its own (a domain slice, the UNOWNED backlog).
+ * no velocity of its own (a domain slice, the UNOWNED backlog). A sprint completed before [historyFromMs] (the history horizon,
+ * A48; `null` = off) is not averaged.
  */
-private suspend fun meanDelivered(scope: SnapshotScope, connectionIds: List<UInt>, window: Int, asOfEndMs: Long): Pair<Double?, Int> {
+private suspend fun meanDelivered(
+    scope: SnapshotScope,
+    connectionIds: List<UInt>,
+    window: Int,
+    asOfEndMs: Long,
+    historyFromMs: Long?,
+): Pair<Double?, Int> {
     if (scope !is SnapshotScope.Team || connectionIds.isEmpty()) return null to 0
     val s = MetricsTables.FactSprint
     val delivered = s.select(s.deliveredMd)
         .where {
             (s.connectionId inList connectionIds) and (s.teamId eq scope.teamId) and
-                s.completeAt.isNotNull() and (s.completeAt less asOfEndMs)
+                s.completeAt.isNotNull() and (s.completeAt less asOfEndMs) and
+                (historyFromMs?.let { s.completeAt greaterEq it } ?: Op.TRUE)
         }
         .orderBy(s.completeAt to SortOrder.DESC)
         .toList()

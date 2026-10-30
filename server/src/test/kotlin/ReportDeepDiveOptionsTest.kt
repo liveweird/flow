@@ -276,6 +276,26 @@ class ReportDeepDiveOptionsTest {
         }
     }
 
+    @Test
+    fun `hand-built rows - under a history horizon an epic with no delivery row is still offered`() = testApplication {
+        usePostgresTestcontainer()
+        val store = MetricsStore(sharedDatabaseForTests())
+        val tag = SyncedStubFixture.unique("ddh").uppercase()
+        val conn = SyncedStubFixture.createConnection(namePrefix = "dd-options-h", enabled = false)
+        suspendTransaction(sharedDatabaseForTests()) {
+            store.insertEpics(conn, listOf(DimEpicRow(1, "$tag-1", "No delivery row $tag", "AAA", null, "IN_PROGRESS", null, null)), 1L)
+        }
+        try {
+            val client = seededClient("reports-dd-hand-h")
+            withMetricsSettings(DerivedStubFixture.metricsSettings(), { it.copy(historyHorizonMonths = 6) }) {
+                // The LEFT JOIN keeps it: no `fact_epic_delivery` row means no `done_at`, an epic still open as far as the facts say.
+                assertEquals(listOf("$tag-1"), client.epics("connectionId=$conn&q=${enc(tag)}").items.map { it.key })
+            }
+        } finally {
+            suspendTransaction(sharedDatabaseForTests()) { store.deleteDims(conn) }
+        }
+    }
+
     /** A minimal valid level-0 `fact_task_delivery` row: only the key, the domain and the epic matter to the option lists. */
     private fun taskRow(issueId: Long, key: String, domain: String?, epicId: Long? = null) = FactTaskDeliveryRow(
         issueId = issueId, issueKey = key, createdAt = 0, startedAt = null, doneAt = null, reopenCount = 0, estimateAtStartMd = null,

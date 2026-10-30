@@ -81,8 +81,14 @@ class ReportService(
             block()
         }
 
-    suspend fun filters(nowMs: Long): ReportFilters = reportTransaction {
-        val settings = metricsSettings.read()
+    /**
+     * `GET /reports/filters`: the picker reference data as of [scope] (its settings, `now` and history horizon, A48). A team's sprint
+     * list holds the open sprints and those completed on or after the horizon's first day, matching what `lastSprints`/`sprintId` accept.
+     */
+    internal suspend fun filters(scope: StampScope): ReportFilters = reportTransaction {
+        val settings = scope.settings
+        val nowMs = scope.nowMs
+        val historyFromMs = scope.historyHorizon?.let { scope.calendar.dayBoundsMs(it.from).first }
 
         val teamRows = TeamService.Teams.selectAll().where { TeamService.Teams.active() }
             .orderBy(TeamService.Teams.name)
@@ -107,6 +113,10 @@ class ReportService(
         val teams = teamRows.map { row ->
             val id = row[TeamService.Teams.id].value
             val sprints = sprintsByTeam[id].orEmpty()
+                .filter { row ->
+                    val completeAt = row[MetricsTables.DimSprint.completeAt]
+                    historyFromMs == null || completeAt == null || completeAt >= historyFromMs
+                }
                 .map { it.toSprint() }
                 .sortedByDescending { it.startAt ?: Long.MIN_VALUE }
             val members = membersByTeam[id].orEmpty().sorted()
@@ -172,6 +182,7 @@ class ReportService(
             configRevision = stamp.configRevision,
             minSampleSize = settings.minSampleSize,
             timeZone = settings.timeZone,
+            historyHorizon = scope.historyHorizon?.toWire(),
         )
     }
 

@@ -78,6 +78,7 @@ export default function ReportPersonTrend() {
                 <Text size="xs" c="dimmed">
                   {t("reports.personTrend.windowsHint", { days: report.windowDays, step: report.stepDays })}
                   {reportHasReference(report) && ` ${t("reports.personTrend.reference.hint")}`}
+                  {report.meta.historyHorizon !== null && ` ${t("reports.personTrend.horizonHint", { from: report.meta.historyHorizon.from })}`}
                 </Text>
               )}
               {query.isPending && <LoadingBlock />}

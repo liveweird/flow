@@ -31,7 +31,11 @@
   },
   "meta": {
     "derived": "Wyliczono {{date}} · wersja konfiguracji {{revision}}",
-    "notDerived": "Nie wyliczyliśmy jeszcze żadnych danych."
+    "notDerived": "Nie wyliczyliśmy jeszcze żadnych danych.",
+    "historyHorizon_one": "Raporty pokazują pracę od {{from}} (horyzont historii: {{count}} miesiąc)",
+    "historyHorizon_few": "Raporty pokazują pracę od {{from}} (horyzont historii: {{count}} miesiące)",
+    "historyHorizon_many": "Raporty pokazują pracę od {{from}} (horyzont historii: {{count}} miesięcy)",
+    "historyHorizon_other": "Raporty pokazują pracę od {{from}} (horyzont historii: {{count}} miesiąca)"
   },
   "print": {
     "button": "Drukuj / zapisz jako PDF",
@@ -1482,6 +1486,7 @@
     "description": "Liczby jednej osoby w kroczących 90-dniowych oknach, punkt co 14 dni, we wszystkich zespołach, do których należała: czy ta osoba radzi sobie coraz lepiej? Wskaż osobę i czytaj każdy wykres jak linię. Znacznik pod tytułem porównuje pierwsze i ostatnie pełne okno zakresu. Puste kółka to okna tylko częściowo objęte wyliczonymi danymi, a przerwy to okna bez liczby — nigdy zero.",
     "pickOne": "Wskaż osobę, aby zobaczyć, jak zmieniały się jej liczby.",
     "windowsHint": "Każdy punkt to {{days}} dni kończące się w tym dniu, punkty co {{step}} dni.",
+    "horizonHint": "Okna zaczynające się przed {{from}} (horyzont historii) są pokryte tylko częściowo: liczymy je od tego dnia.",
     "picker": {
       "group": "Osoba do śledzenia",
       "team": "Zespół",
@@ -1592,6 +1597,10 @@
     },
     "note": {
       "retiredTasks": "Ten link wskazywał pojedyncze zadania epika — widok, którego już nie ma. Zamiast tego pokazujemy cały epik.",
+      "historyHorizon_one": "Wybór leży przed {{from}} (horyzont historii: {{count}} miesiąc), więc pokazujemy tylko ten jeden dzień. Sumy nadal obejmują cały okres życia każdego zadania.",
+      "historyHorizon_few": "Wybór leży przed {{from}} (horyzont historii: {{count}} miesiące), więc pokazujemy tylko ten jeden dzień. Sumy nadal obejmują cały okres życia każdego zadania.",
+      "historyHorizon_many": "Wybór leży przed {{from}} (horyzont historii: {{count}} miesięcy), więc pokazujemy tylko ten jeden dzień. Sumy nadal obejmują cały okres życia każdego zadania.",
+      "historyHorizon_other": "Wybór leży przed {{from}} (horyzont historii: {{count}} miesiąca), więc pokazujemy tylko ten jeden dzień. Sumy nadal obejmują cały okres życia każdego zadania.",
       "rangeClamped": "Wybór obejmuje ponad 1100 dni, więc rysujemy tylko jego ostatnie 1100 dni. Sumy nadal obejmują cały okres życia każdego zadania. Ustaw daty od i do, aby wybrać inny zakres.",
       "notDerived": "Nie wyliczyliśmy jeszcze nic z tego wyboru, więc nie ma liczb do pokazania. Pojawią się po następnym wyliczeniu danych połączenia."
     },

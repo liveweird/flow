@@ -22,7 +22,7 @@ class ComparePeopleSelectionTest {
     private val calendar = WorkingCalendar(ZoneId.of("UTC"), weekendDays = emptySet(), holidays = emptySet())
     private val now = LocalDate.of(2026, 6, 15).atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli()
 
-    private fun parse(vararg pairs: Pair<String, List<String>>) = parametersOf(*pairs).parseComparePeople(calendar, now)
+    private fun parse(vararg pairs: Pair<String, List<String>>) = parametersOf(*pairs).parseComparePeople(calendar, now, null)
 
     @Test
     fun `two distinct people with no team parse to a team-less USER filter on the default 90 days`() {

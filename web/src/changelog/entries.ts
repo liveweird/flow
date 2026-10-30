@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.31.0",
+    date: "2026-10-30",
+    en: `**Reports: work since the history horizon.**
+
+- Every report now shows only work since the history horizon set in the metrics settings. A period that starts before it is shortened to the horizon, and a period that lies entirely before it is refused.
+- The period pickers and presets start at the horizon, and each report says since when it counts. The deep dive, Compare people and Person trend follow the same rule, with a note when the horizon cut the range.
+- Nothing is deleted: raising the horizon or turning it off brings older work back.`,
+    pl: `**Raporty: praca od horyzontu historii.**
+
+- Każdy raport pokazuje teraz tylko pracę od horyzontu historii ustawionego w ustawieniach metryk. Okres zaczynający się wcześniej jest skracany do horyzontu, a okres w całości sprzed niego jest odrzucany.
+- Wybór okresu i gotowe zakresy zaczynają się od horyzontu, a każdy raport mówi, od kiedy liczy. Analiza szczegółowa, Porównanie osób i Trend osoby stosują tę samą zasadę, z notatką, gdy horyzont przyciął zakres.
+- Nic nie jest usuwane: wydłużenie horyzontu albo jego wyłączenie przywraca starszą pracę.`,
+  },
+  {
     version: "1.30.0",
     date: "2026-10-30",
     en: `**Data sources: the history horizon is also the earliest backfill date.**

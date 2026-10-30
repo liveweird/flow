@@ -83,6 +83,7 @@ export const PERSON_TREND: PersonTrendReport = {
     domainView: "TASK",
     resolvedSprints: [],
     minSampleSize: 5,
+    historyHorizon: null,
   },
   person: { accountId: "acc-ann", label: "Ann Author" },
   windowDays: 90,

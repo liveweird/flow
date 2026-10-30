@@ -137,9 +137,11 @@ internal class ProgressContext(
     val calendar: WorkingCalendar,
     val asOfDay: LocalDate,
     val nowMs: Long,
+    /** The history horizon's first day (A48; `null` = off): the series never starts before it, a sprint window straddling it included. */
+    val notBefore: LocalDate? = null,
 ) {
-    /** Every calendar day of the period up to [asOfDay] — empty when the period lies after it. */
-    val days: List<LocalDate> by lazy { snapshotDays(scope.window, calendar, asOfDay) }
+    /** Every calendar day of the period up to [asOfDay] (and not before [notBefore]) — empty when the period lies after it. */
+    val days: List<LocalDate> by lazy { snapshotDays(scope.window, calendar, asOfDay, notBefore) }
 
     /** The period's first listed day (A37), `null` for an empty period. */
     val firstDay: LocalDate? get() = days.firstOrNull()
@@ -163,6 +165,7 @@ internal suspend fun ReportService.epicProgress(
         val calendar = scope.calendar
         val coverage = derivedCoverage(scope.connectionIds, calendar)
         val notes = snapshotNotes(scope, filter, coverage).toMutableList()
+        horizonNoteOf(filter, scope.window, calendar)?.let { notes += it }
         val coveredThrough = coverage.day
         val window = scope.window
         // Nothing derived: an epic/domain cannot be checked against dimensions that do not exist yet, so the answer is empty + the note.
@@ -172,7 +175,7 @@ internal suspend fun ReportService.epicProgress(
         }
         // asOf = min(end of period, now), and never beyond the last derived day (EV and AC are unknown past it, PV alone is not a triple).
         val asOfDay = minOf(coveredThrough, calendar.dayOf(nowMs), calendar.dayOf(window.second - 1))
-        val ctx = ProgressContext(scope, calendar, asOfDay, nowMs)
+        val ctx = ProgressContext(scope, calendar, asOfDay, nowMs, filter.historyHorizon?.from)
         progressOf(ctx, resolved, options, notes)
     }
 
