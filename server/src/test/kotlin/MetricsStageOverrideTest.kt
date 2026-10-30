@@ -175,7 +175,7 @@ class MetricsStageOverrideTest {
     }
 
     @Test
-    fun `a task that moved projects reads its whole history through its CURRENT domain, and an unmapped project key is a domain`() =
+    fun `a task that moved projects reads its stages through its CURRENT domain, and a non-ingested origin is attributed to it`() =
         runBlocking {
             val connId = SyncedStubFixture.createConnection(namePrefix = "jira-stage-override-moved", enabled = false)
             SyncedStubFixture.workItems().replaceStatuses(
@@ -191,6 +191,11 @@ class MetricsStageOverrideTest {
             seedTask(connId, inA, "AAA-1", "AAA", "7", "In review")
             seedTask(connId, inB, "BBB-1", "BBB", "7", "In review")
             seedTask(connId, inC, "CCC-1", "CCC", "7", "In review")
+            // Two more movers into BBB: one from the unmapped (but ingested) CCC, one from OUT, a project the connection never ingests.
+            val fromUnmapped = 910_105L
+            val fromOut = 910_106L
+            seedTask(connId, fromUnmapped, "BBB-8", "BBB", "8", "Testing", earlier = listOf("7" to "In review"), movedFromKey = "CCC-8")
+            seedTask(connId, fromOut, "BBB-7", "BBB", "8", "Testing", earlier = listOf("7" to "In review"), movedFromKey = "OUT-7")
 
             val current = config().effectiveConfig(connId)
             assertEquals(setOf("AAA", "BBB", "CCC"), current.domains.map { it.domainKey }.toSet())
@@ -218,14 +223,17 @@ class MetricsStageOverrideTest {
             assertEquals(listOf("7" to "NOT_STARTED"), stagesOf(connId, inB))
             assertEquals(listOf("7" to "DONE"), stagesOf(connId, inC), "the unmapped project key CCC is its own domain")
 
-            // Attribution stays as-was: the mover's task_domain history still names AAA, then BBB.
-            val history = suspendTransaction(sharedDatabaseForTests()) {
+            // Attribution (A47): a move BETWEEN the connection's own domains stays as-was (AAA, then BBB; the unmapped CCC is a domain of
+            // its own), but a row for a project the connection does not ingest carries the item's CURRENT domain, never the raw key.
+            suspend fun historyOf(issueId: Long) = suspendTransaction(sharedDatabaseForTests()) {
                 MetricsTables.TaskDomain.selectAll()
-                    .where { (MetricsTables.TaskDomain.connectionId eq connId) and (MetricsTables.TaskDomain.issueId eq mover) }
+                    .where { (MetricsTables.TaskDomain.connectionId eq connId) and (MetricsTables.TaskDomain.issueId eq issueId) }
                     .orderBy(MetricsTables.TaskDomain.validFrom to SortOrder.ASC)
                     .toList().map { it[MetricsTables.TaskDomain.domainKey] }
             }
-            assertEquals(listOf("AAA", "BBB"), history)
+            assertEquals(listOf("AAA", "BBB"), historyOf(mover))
+            assertEquals(listOf("CCC", "BBB"), historyOf(fromUnmapped), "an unmapped project the connection ingests is its own domain")
+            assertEquals(listOf("BBB", "BBB"), historyOf(fromOut), "OUT is not ingested: its row reads the current domain, not `OUT`")
         }
 
     @Test

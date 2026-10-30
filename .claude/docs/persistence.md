@@ -228,6 +228,9 @@ place:
 - `metrics/DeriveContextBuilder.activeTeamIds` (v0.3.0 M3 commit 9d) reads `teams/TeamService.Teams`
   (active teams) once per DERIVE, inside the rebuild transaction — the A22 rule that now-evaluated
   team columns and the domain owner never name a soft-deleted team.
+- `metrics/MetricsConfigService.configuredProjectKeys` (A47, DERIVE's `task_domain` scope) reads the connection's configured `settings.projectKeys` ONLY through the owner's
+  `ingest/DataSourceService.read` (the active connection's public response, `jira.projectKeys`) - no `source_connections` table access from `metrics/`, so this adds no table read to the
+  list; `metrics/` importing `ingest/` is the allowed direction (`PackageBoundaryTest`).
 - `reports/ReportService.filters` (v0.3.0 M4 commit 10a, `GET /api/v1/reports/filters`) reads
   `teams/TeamService.Teams` (active teams), `norm/WorkItemStore.People` (display names for a
   team's current D1 Jira members) and `ingest/DataSourceService.Connections` (id+name for active
@@ -642,8 +645,8 @@ the page write aborts the whole page transaction; `JiraProcessStream` then retri
 issue (each in its own transaction, via `replaceWorkItem`/`markProcessed`), so one bad row never
 blocks its page (ingestion.md "PROCESS batching, failure isolation and progress").
 
-**`PROCESSING_VERSION`** (`norm/Normalization.kt`, currently `2` — bumped from `1` by V14, "The
-normalized layer gaps (V14)" below) — bump it on ANY change to the tiling/write-shape rules.
+**`PROCESSING_VERSION`** (`norm/Normalization.kt`, currently `3` — bumped from `1` to `2` by V14, "The
+normalized layer gaps (V14)" below, and to `3` by A47's name-only issue-key change item) — bump it on ANY change to the tiling/write-shape rules.
 `JiraRawStore.issuesToProcess` claims a raw issue whose `processing_version IS DISTINCT FROM` the
 current constant (or is `NULL`, or `needs_processing` is flagged), so a version bump reprocesses
 every issue automatically on the next PROCESS pass — proven by `NormalizationPipelineTest`'s "a
@@ -779,7 +782,8 @@ model") adds `sync_jobs.kind`'s `DERIVE` value (a dropped-and-recreated CHECK co
 exception to "never edit an applied migration": this is a NEW file, not a retroactive edit of V9)
 and every `metrics.*` star table: `dim_date`/`dim_domain`/`dim_task`/`dim_epic`/`dim_sprint`,
 `task_epic`/`task_domain`/`task_assignee`/`task_sprint`/`item_estimate`/`item_stage`/`item_blocked`
-(the effective-dated bridges), `fact_task_delivery`/`fact_epic_delivery` (accumulating snapshots),
+(the effective-dated bridges; `task_domain` holds the EPICS' `issuekey` history too since A47 — it has no foreign key to `dim_task`, the
+name stays; an epic's first row starts at instant 0 rather than at its `created_at`, and a row for a project the data source does not read carries the item's current domain, A47; no migration: a connection gets its epic rows at its next DERIVE; a reader that joins it to an item picks the side by the item's own table), `fact_task_delivery`/`fact_epic_delivery` (accumulating snapshots),
 `fact_sprint_scope`/`fact_sprint`/`fact_sprint_snapshot`/`fact_worklog`/`fact_epic_plan` and
 `agg_daily_wip`/`agg_daily_flow` (their table objects land in this commit; commits 8/9 add the
 writers). Interval storage mirrors `metrics.team_membership`'s own precedent (V15): half-open

@@ -9,9 +9,10 @@ import org.jetbrains.exposed.v1.core.TextColumnType
  *
  * **Which rules are read, which are restated.** The attribution that needs a kernel is READ from what the kernels already wrote,
  * never re-implemented: the as-of domain is `metrics.task_domain` ([taskDomainHistory], the `issuekey` timeline), the as-of epic
- * is `metrics.task_epic` ([taskEpicHistory]), the current domain/epic/activity type/own work category are `dim_task`'s and
- * `dim_epic`'s ([buildTaskRow], [buildEpicRow]), the owner team is `dim_domain`'s. What the statement restates is the part
- * that is arithmetic or an interval lookup, each pinned against the Kotlin kernel by `FactWorklogSqlTest`:
+ * is `metrics.task_epic` ([taskEpicHistory]), the epic's domain as of `started_at` is its own `metrics.task_domain` row (A47: epics
+ * are tiled like tasks), the current domain/epic/activity type/own work category are `dim_task`'s and `dim_epic`'s ([buildTaskRow],
+ * [buildEpicRow]), the owner team is `dim_domain`'s (looked up for the epic's AS-OF domain, A22/A47). What the statement restates
+ * is the part that is arithmetic or an interval lookup, each pinned against the Kotlin kernel by `FactWorklogSqlTest`:
  * - the `[from, to)` covering lookup ([valueAt], [domainRowAt], [epicRowAt], [teamAt]) — first covering row by `seq`/`id`,
  *   the order the kernels scan in (`team_membership` cannot overlap per account: `excl_metrics_team_membership_overlap`);
  * - [isForeignWork] ([FOREIGN_WORK_SQL]);
@@ -89,7 +90,7 @@ internal fun worklogFactSql(
             LEFT JOIN activity_map am ON am.issue_type = wi.issue_type
             LEFT JOIN LATERAL (
                 SELECT td.domain_key FROM metrics.task_domain td
-                WHERE t.issue_id IS NOT NULL AND td.connection_id = wl.connection_id AND td.issue_id = wl.issue_id
+                WHERE td.connection_id = wl.connection_id AND td.issue_id = wl.issue_id
                   AND ${coversInstant("td", "valid_from", "valid_to", "wl.started_at")}
                 ORDER BY td.id LIMIT 1
             ) cd ON TRUE
@@ -121,7 +122,7 @@ internal fun worklogFactSql(
         SELECT $c, l.worklog_id, l.issue_id, l.author_account_id, author.team_id, l.started_at, l.created_at,
                CASE WHEN l.created_at IS NULL THEN NULL ELSE GREATEST(0, l.created_at - l.started_at) END,
                ${worklogMdSql("l.time_spent_seconds", hoursPerDay)},
-               COALESCE(l.covering_domain, l.current_domain), l.epic_id, ep.domain_key, l.activity_type,
+               COALESCE(l.covering_domain, l.current_domain), l.epic_id, $EPIC_DOMAIN_AT_STARTED, l.activity_type,
                COALESCE(l.own_category, ep.work_category), l.sprint_id, st.team_id,
                ${foreignWorkSql("author.team_id", "CASE WHEN l.is_epic THEN NULL ELSE st.team_id END", FALLBACK_TEAM)},
                l.assignee_account_id, assignee.team_id, $configRevision
@@ -131,15 +132,33 @@ internal fun worklogFactSql(
         LEFT JOIN metrics.team_membership assignee ON assignee.account_id = l.assignee_account_id
             AND ${coversInstant("assignee", "valid_from", "valid_to", "l.started_at")}
         LEFT JOIN metrics.dim_epic ep ON ep.connection_id = $c AND ep.issue_id = l.epic_id
-        LEFT JOIN metrics.dim_domain dom ON dom.connection_id = $c AND dom.domain_key = l.current_domain
+        ${epicDomainAtStartedLateral(connectionId)}
+        LEFT JOIN metrics.dim_domain dom ON dom.connection_id = $c AND dom.domain_key = $EPIC_DOMAIN_AT_STARTED
         LEFT JOIN sprint_team st ON st.sprint_id = l.sprint_id
     """.trimIndent()
     return WorklogFactSql(sql, arguments)
 }
 
+/**
+ * The epic's domain AS OF the worklog's `started_at` (A47): the epic's own `metrics.task_domain` row covering it (epics are tiled
+ * from their `issuekey` changes like tasks), keyed on `l.epic_id` — for an epic-logged worklog that is the item itself. [EPIC_DOMAIN_AT_STARTED]
+ * falls back to the epic's current domain when no row covers (before its `created_at`) or the covering key is `NULL`, the task rule.
+ */
+private fun epicDomainAtStartedLateral(connectionId: UInt): String = """
+    LEFT JOIN LATERAL (
+        SELECT x.domain_key FROM metrics.task_domain x
+        WHERE x.connection_id = $connectionId AND x.issue_id = l.epic_id
+          AND ${coversInstant("x", "valid_from", "valid_to", "l.started_at")}
+        ORDER BY x.id LIMIT 1
+    ) ed ON TRUE
+""".trimIndent()
+
 /** [worklogMd] in SQL: the same doubles in the same order, then through their shortest text like `Double.toBigDecimal`. */
 internal fun worklogMdSql(seconds: String, hoursPerDay: Double): String =
     "(($seconds::float8 / $SECONDS_PER_HOUR::float8) / $hoursPerDay::float8)::text::numeric"
+
+/** `epic_domain_key`, and the key the A22 owner lookup reads: the as-of covering domain, else the epic's current one. */
+private const val EPIC_DOMAIN_AT_STARTED = "COALESCE(ed.domain_key, ep.domain_key)"
 
 /** An epic-logged worklog (A22) falls back to its domain's owner team, a task-logged one to its assignee's team at `started_at`. */
 private const val FALLBACK_TEAM = "CASE WHEN l.is_epic THEN dom.owner_team_id ELSE assignee.team_id END"

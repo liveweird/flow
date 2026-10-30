@@ -18,8 +18,13 @@ import kotlinx.serialization.Serializable
  * `dueAt` current values, `field_id` on every `work_item_field_changes` row, worklog
  * `created`/`updated` timestamps, sprint `completeDate` — every existing issue reprocesses
  * automatically on the next PROCESS pass.
+ *
+ * `3` (A47): the issue-key change item (a move to another project) is kept when real Jira sends it
+ * NAME-ONLY (`field: "Key"`, no `fieldId`) and stored with `field_id = 'issuekey'` — before, only
+ * the stub's `fieldId: "issuekey"` spelling survived, so on real data the metrics layer's domain
+ * history never saw a move. Every existing issue reprocesses automatically on the next PROCESS pass.
  */
-const val PROCESSING_VERSION = 2
+const val PROCESSING_VERSION = 3
 
 /** Mirrors `raw.jira_issues`' own tombstone columns onto `norm.work_items` (plan §8: "keep the row, flagged", never deleted). */
 enum class TombstoneKind { NONE, DELETED, MOVED_OUT }
