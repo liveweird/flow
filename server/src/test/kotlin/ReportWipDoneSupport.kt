@@ -17,7 +17,8 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
  * `d` (`valid_from < day_end AND (valid_to IS NULL OR valid_to >= day_end)`); its status is that interval's; a task's team is
  * `credit_team_id` (null -> UNASSIGNED), its domain the `task_domain` row with `from <= done_at < to` (DERIVE's `domainRowAt`, which
  * stores it in `fact_task_delivery.domain_key`; else the current domain); an
- * epic's team is its domain's owner (null -> UNOWNED), its domain its own.
+ * epic's domain is the one DERIVE stored in `fact_epic_delivery.domain_key` (its domain AS-WAS at `done_at`, A49; else the
+ * dimension's `dim_epic.domain_key` when no fact row exists) and its team that domain's `dim_domain` owner (null -> UNOWNED).
  */
 
 /** `agg_daily_wip`-shaped rows (`stage = DONE`) of [connId]'s DONE band over [firstDay]..[lastDay], all four scopes/kinds. */
@@ -38,6 +39,8 @@ internal suspend fun independentDoneRows(connId: UInt, firstDay: String, lastDay
         val domainRows = td.selectAll().where { td.connectionId eq connId }.toList().groupBy { it[td.issueId] }
         val e = MetricsTables.DimEpic
         val epics = e.selectAll().where { e.connectionId eq connId }.toList().associate { it[e.issueId] to it[e.domainKey] }
+        val fe = MetricsTables.FactEpicDelivery
+        val epicFactDomains = fe.selectAll().where { fe.connectionId eq connId }.toList().associate { it[fe.issueId] to it[fe.domainKey] }
         val d = MetricsTables.DimDomain
         val ownerOfDomain = d.selectAll().where { d.connectionId eq connId }.toList()
             .associate { it[d.domainKey] to it[d.ownerTeamId]?.value }
@@ -63,7 +66,8 @@ internal suspend fun independentDoneRows(connId: UInt, firstDay: String, lastDay
                     rows += WipRow("TEAM", team, day, "TASK", interval.statusId, "DONE", 1)
                     if (domain != null) rows += WipRow("DOMAIN", domain, day, "TASK", interval.statusId, "DONE", 1)
                 } else if (interval.issueId in epics && accountIds == null) {
-                    val domain = epics[interval.issueId]
+                    // A49: the fact's as-of domain; the dimension's current one only when the epic has no fact row.
+                    val domain = if (interval.issueId in epicFactDomains) epicFactDomains[interval.issueId] else epics[interval.issueId]
                     val owner = domain?.let { ownerOfDomain[it] }?.toString() ?: "UNOWNED"
                     rows += WipRow("TEAM", owner, day, "EPIC", interval.statusId, "DONE", 1)
                     if (domain != null) rows += WipRow("DOMAIN", domain, day, "EPIC", interval.statusId, "DONE", 1)

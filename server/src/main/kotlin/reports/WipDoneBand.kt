@@ -22,15 +22,18 @@ import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
  *   (`(from, to]`), so only ONE DONE interval covers a given day end — even when `Done -> Closed` happens exactly at that
  *   end — which is why the item keys to one status and is counted once.
  * - **TEAM scope** — a task belongs to `fact_task_delivery.credit_team_id` (A25's done-time team: the sprint team, else the
- *   assignee's team, at `done_at`; null -> `UNASSIGNED`), an epic to its domain's owner team (`dim_domain.owner_team_id`, as-is
- *   like the WIP step, else `UNOWNED`).
+ *   assignee's team, at `done_at`; null -> `UNASSIGNED`), an epic to the owner team (`dim_domain.owner_team_id`, as-is like the
+ *   WIP step, else `UNOWNED`) of the domain it had at `done_at` (A49, below).
  * - **DOMAIN scope** — a task to `fact_task_delivery.domain_key` (the `task_domain` row DERIVE resolved at `done_at` with its
  *   `[from, to)` rule, `domainRowAt` — one rule, so a move and a Done in the same changelog entry counts under the NEW domain;
- *   else the current `dim_task.domain_key`, the WIP step's `COALESCE`), an epic to its own domain.
+ *   else the current `dim_task.domain_key`, the WIP step's `COALESCE`), an epic to the domain it had at `done_at`
+ *   (`fact_epic_delivery.domain_key`, A49: the same rule over the epic's own `task_domain` history, `[from, to)`; else the current
+ *   `dim_epic.domain_key`).
  *
  * A task that is NOT currently done (a reopened one) has a null `done_at` and so a null `credit_team_id`: its earlier DONE
  * days are attributed `UNASSIGNED` (TEAM) and to its current domain (DOMAIN), because the fact stores the done-time
- * attribution of the CURRENT done run only (`startedDoneAt`).
+ * attribution of the CURRENT done run only (`startedDoneAt`). The same gap holds for a reopened epic (no `done_at`: its fact is
+ * read at "now", the current domain).
  */
 
 /** One DONE-band cell: [count] items sat in the DONE-stage status [statusId] at the end of [day]. */
@@ -115,7 +118,8 @@ private fun epicPart(request: WipDoneRequest, connections: String, arguments: Mu
         is SnapshotScope.Team -> where += "dom.owner_team_id = ${scope.teamId}"
         SnapshotScope.Unassigned -> where += "dom.owner_team_id IS NULL"
         is SnapshotScope.Domain -> {
-            where += "e.domain_key = ?"
+            // The domain DERIVE resolved AT DONE (A49, like the task part); an epic with no fact row falls back to its current domain.
+            where += "COALESCE(fe.domain_key, e.domain_key) = ?"
             arguments += scope.key
         }
     }
@@ -123,7 +127,8 @@ private fun epicPart(request: WipDoneRequest, connections: String, arguments: Mu
         SELECT d.day AS day, s.status_id AS status_id, COUNT(*) AS item_count
         ${doneIntervals(connections).trimStart()}
         JOIN metrics.dim_epic e ON e.connection_id = s.connection_id AND e.issue_id = s.issue_id
-        LEFT JOIN metrics.dim_domain dom ON dom.connection_id = e.connection_id AND dom.domain_key = e.domain_key
+        LEFT JOIN metrics.fact_epic_delivery fe ON fe.connection_id = s.connection_id AND fe.issue_id = s.issue_id
+        LEFT JOIN metrics.dim_domain dom ON dom.connection_id = e.connection_id AND dom.domain_key = COALESCE(fe.domain_key, e.domain_key)
         ${whereClause(where)}
         GROUP BY d.day, s.status_id""".trimIndent()
 }

@@ -375,8 +375,9 @@ once. The fix has two parts:
     `derivedById` (no fresh raw reads needed there), and inserts them. `factTasksByIssueId` (small
     fact rows, not raw data) accumulates across every batch for pass 3's epic roll-up.
   - **Pass 3** (EPIC items only, `hierarchyBucket(level) == EPIC`): no per-batch raw reads at all — an epic's own facts come entirely
-    from `derivedById`/`factTasksByIssueId`/config, already in memory; builds and inserts
-    `dim_epic`/`fact_epic_delivery` per batch.
+    from `derivedById`/`factTasksByIssueId`/config and the epic-domain pass's `epicDomainHistoryById`, already in memory; builds and inserts
+    `dim_epic`/`fact_epic_delivery` per batch. `dim_epic.domain_key` is the domain now; the fact's `domain_key` and `owner_team_id` are as-of
+    `done_at` (`epicDomainKeyAt`, A49; an open epic keeps its current domain) and that domain's owner.
   - **Worklogs are a connection-wide AGGREGATE, not per-issue rows**: `WorkItemStore
     .worklogSecondsByIssue` returns a plain `Map<Long, Long>` (summed `time_spent_seconds` per
     issue) via one query — this commit's algorithm only ever SUMS worklog seconds (a task's own
@@ -932,7 +933,7 @@ A18/A19/A21 describe. This commit closes all five, backed by the additive V17 co
   the scope): a bulk move out of a foreign project re-attributes nothing, a move between two of the data source's own projects
   is as-was, and a project that is read but left out of `domain_map` is a domain by its project key (never `null`, which means "no
   epic"). `cross_domain` follows. The epic's OWN columns
-  (`dim_epic.domain_key`, `fact_epic_delivery.domain_key`/`owner_team_id`) stay current (A47). The worklog statement reads the epic's domain as of `started_at` the same way (see `fact_worklog` below).
+  (`dim_epic.domain_key`, the dimension) stays current; `fact_epic_delivery.domain_key`/`owner_team_id` are as-of `done_at` (A49; an open epic keeps its current domain). The worklog statement reads the epic's domain as of `started_at` the same way (see `fact_worklog` below).
 - **Epic-logged worklogs get the epic's own domain, never `null` (A21, strengthening invariant 6).**
   The worklog step's `task_domain_key` used to read `null` for a worklog logged directly on an
   epic; it now reads the epic's own domain AS OF `started_at` (A47), same as `epic_domain_key` — every
@@ -1076,12 +1077,12 @@ never "now"):
   (`excl_metrics_team_membership_overlap`), and `coveringAt` reads an interval as `(from, to]` — a strict lower
   bound — so two adjacent intervals never both cover one day-end instant. Changing that convention would
   double-count silently, where the old `LIMIT 1` hid it.
-- **TEAM/EPIC** — `dim_domain.owner_team_id` of the epic's domain (as-is, A19), else `UNOWNED`.
+- **TEAM/EPIC** — `dim_domain.owner_team_id` (as-is, A19) of the epic's domain AT THE END OF THE DAY (A49): the epic's covering `metrics.task_domain` row, else the current `dim_epic.domain_key` (the same `LEFT JOIN … coveringAt("ed")` + `COALESCE` as the task rows), else `UNOWNED`.
 - **DOMAIN/TASK** — the covering `metrics.task_domain` row's `domain_key`; a `LEFT JOIN` reads NULL
   alike for "no covering row" and "a covering row whose own value is null", so `COALESCE` folds
   either case onto the task's current `dim_task.domain_key` (in practice never null, since a
   domain-map miss already falls back to the project key itself at DERIVE time).
-- **DOMAIN/EPIC** — the epic's own (current) domain, `dim_epic.domain_key`; the epic's own domain columns stay current (A47 makes only the task-side `epic_domain_key` and PV DOMAIN as-of).
+- **DOMAIN/EPIC** — the epic's domain at the end of the day (A49), as TEAM/EPIC: the covering `metrics.task_domain` row of the epic, else `dim_epic.domain_key`; `(from, to]`, so an epic moved exactly at a day's end is still in the OLD domain that day, one moved at noon reads the new domain on its move day. `dim_epic.domain_key` stays the domain now (the fallback).
 - **EPIC** — TASKS ONLY, via the covering `metrics.task_epic` row's `epic_id`; a task resolving to
   no epic (no covering row, or one whose own value is null) writes no EPIC-scope row at all — unlike
   DOMAIN, there is no "fall back to current" here (`.claude/docs/measures.md`'s own row text).
@@ -1091,6 +1092,8 @@ when at least one item landed in it), so no explicit zero-filter is needed anywh
 Sub-tasks are excluded throughout (D2): every scope's SQL joins `metrics.dim_task` filtered to
 `is_subtask = false` BEFORE joining `item_stage`, so a sub-task's own `item_stage` row (pass 1
 writes one for every item, sub-tasks included) never reaches any `agg_daily_wip` row.
+
+The epic rows add one indexed `LEFT JOIN task_domain` (`idx_metrics_task_domain_issue`); `WipPlanShapeTest` pins all four statements free of `SubPlan`, and `MetricsWipEpicDomainAsOfTest` hand-builds an epic moved at noon and one moved exactly at a day's end, grading every stored TEAM/EPIC and DOMAIN/EPIC figure per day against an independent oracle (the stub has no moved epic, so the digests do not move).
 
 Tests: `MetricsDerivationTest`'s three `agg_daily_wip -` cases — an independent per-stage TASK-count
 oracle (`item_stage` + `dim_task`, end-of-day predicate, the DONE stage excluded: it is not stored) that TEAM (including `UNASSIGNED`) and

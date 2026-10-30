@@ -6,7 +6,7 @@ reports it serves, its invariants, and how known data imperfections are handled.
 contract the metrics layer and every dashboard are built against. **Status: agreed 2026-09-27
 (D1–D16), validated against the target reports; amended 2026-09-28 (A17–A21, see "Amendments"
 below); implemented in v0.3.0** (the configuration, DERIVE and the star: `.claude/docs/metrics.md`;
-the twenty reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below, and its execution layer is Approximate EV, A40; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; the BLOCKED stage is A36; an estimate entered after an item is done is a backfill, not an adjustment, A35; report 15 reads a period view, period indices and a weekly trend, A37; the estimated backlog can be narrowed to recently touched items, A38; the cost matrix's per-person capacity column and week / sprint split were removed (report 16 is Costs) and only the capacity kernel remains, A39; two people are compared head to head across teams, report 18, A41; a day belongs to at most one sprint per team in capacity, A42; Costs shows each of the team's sprints with its actual cost, split by epic, and the sprint capacity to every viewer, A44; Costs sets the team's work-category targets beside its actual time and draws the weekly cumulative category share, A45; one person's Compare-people figures are drawn over rolling 90-day windows, report 20, A46; an epic's domain is read as of the anchor of the row that carries it, A47; work older than a configurable history horizon is left out of the reports and floors the backfill, A48). The per-measure operational contract — each
+the twenty reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below, and its execution layer is Approximate EV, A40; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; the BLOCKED stage is A36; an estimate entered after an item is done is a backfill, not an adjustment, A35; report 15 reads a period view, period indices and a weekly trend, A37; the estimated backlog can be narrowed to recently touched items, A38; the cost matrix's per-person capacity column and week / sprint split were removed (report 16 is Costs) and only the capacity kernel remains, A39; two people are compared head to head across teams, report 18, A41; a day belongs to at most one sprint per team in capacity, A42; Costs shows each of the team's sprints with its actual cost, split by epic, and the sprint capacity to every viewer, A44; Costs sets the team's work-category targets beside its actual time and draws the weekly cumulative category share, A45; one person's Compare-people figures are drawn over rolling 90-day windows, report 20, A46; an epic's domain is read as of the anchor of the row that carries it, A47; a finished epic's own facts, the WIP epic bands follow the domain the epic was in (report 15's per-domain epic rows are the next release, not built yet), A49; work older than a configurable history horizon is left out of the reports and floors the backfill, A48). The per-measure operational contract — each
 report number's grain, time anchor, attribution, estimate snapshot, missing-data rule,
 frozen/live source and the test that pins it — is `.claude/docs/measures.md`.
 
@@ -186,7 +186,7 @@ counts and sums only.
   `work_category_field`, `work_category_map`, `team_work_category_targets` (A43, per team, read at query time), `report_windows`,
   `config_revision`.
 - **Dimensions:** `dim_org` (unit → team → user, effective-dated through `team_membership`),
-  `dim_domain`, `dim_team`, `dim_user`, `dim_epic` (SCD2 on dates and domain), `dim_task` (key,
+  `dim_domain`, `dim_team`, `dim_user`, `dim_epic` (one row per epic: its dates and its domain NOW, like `dim_task`; the history is `task_domain`), `dim_task` (key,
   type, activity type, work category, `is_subtask`, parent task), `dim_sprint` (board → team,
   planned start/end, completed at, state), `dim_date` (working-day flag).
 - **Effective-dated bridges:**
@@ -267,7 +267,7 @@ user, and slices by domain, activity type and work category.
 | 6.3 | **Added scope** | `fact_sprint` | SP added after sprint start (and removed) |
 | 7 | **Cycle time** | `fact_task_delivery` | per task; elapsed and working days; distribution |
 | 8 | **Reported time ÷ cycle time** | `fact_task_delivery` | `actual_md ÷ cycle time in working days` — how much of the elapsed working time was logged; distinct from the status-based flow efficiency (active ÷ total time in stages) |
-| 9 | **WIP** | `agg_daily_*` over `item_status`/`item_stage` | items in parallel per status (or stage, or board column) over time — tasks and epics; by stage, IN_PROGRESS, WAITING and BLOCKED are separate bands and work in progress is their sum (A30, A36); the DONE band is computed at query time and attributed as at done (A34) |
+| 9 | **WIP** | `agg_daily_*` over `item_status`/`item_stage` | items in parallel per status (or stage, or board column) over time — tasks and epics; by stage, IN_PROGRESS, WAITING and BLOCKED are separate bands and work in progress is their sum (A30, A36); the DONE band is computed at query time and attributed as at done (A34); an epic's band follows the domain it was in at each day's end, a done epic the domain at done (A49) |
 | 10 | **Estimated backlog depth** | `agg_daily_*` | count and SP of estimated tasks ready for planning (D9), now and as a trend; owned by the owner team of the task's domain (A19), `(unowned)` otherwise |
 | 11 | **Aging WIP** | `item_stage` + `fact_task_delivery` | the current age of every IN_PROGRESS, WAITING or BLOCKED task and epic (A30, A36; waiting and blocked ones marked) against the team's cycle-time p50/p85/p95 over its last N done items; items past p85 highlighted |
 | 12 | **Blocked time** | `fact_task_delivery`, `fact_epic_delivery` | blocked time per item, as a share of cycle time, and as a distribution |
@@ -575,11 +575,11 @@ carries the per-measure detail).
   predicate). The band's attribution **changes the measure**: the stored bands (NOT_STARTED, IN_PROGRESS, WAITING, BLOCKED, UNMAPPED) still
   follow the as-was D5 team / domain of each day (D5, A22), but a DONE item is frozen from its done time on.
   - **TEAM scope.** A task belongs to `fact_task_delivery.credit_team_id` (D5's delivery credit: the sprint's team, else the assignee's
-    team, at `done_at`; null -> `UNASSIGNED`), an epic to its domain's owner team (A19, as before; no owner -> `UNOWNED`). A team change
+    team, at `done_at`; null -> `UNASSIGNED`), an epic to the owner team (A19; no owner -> `UNOWNED`) of the domain it had at `done_at` (A49). A team change
     after done no longer moves the item between teams.
   - **DOMAIN scope.** A task belongs to `fact_task_delivery.domain_key` — the `task_domain` row DERIVE resolved at `done_at` (`domainRowAt`,
     `[from, to)`, so a move and a Done in the same changelog entry counts under the NEW domain; else the current domain, the WIP step's
-    `COALESCE`), an epic to its own domain. A domain change after done no longer moves the item.
+    `COALESCE`), an epic to its domain at `done_at` (`fact_epic_delivery.domain_key`, A49; else the current domain). A domain change after done no longer moves the item.
   - **Counting and keying.** An item is in the band on day `d` when a DONE-stage `item_stage` interval covers the END of `d` (the WIP
     covering rule, `(from, to]`); its status / column key is that interval's, so Done -> Closed still moves it between status keys,
     and a reopened item leaves the band while it is reopened. The band honours decision C's start (no day before the backfill window).
@@ -929,8 +929,8 @@ carries the per-measure detail).
   - **Epic-logged worklogs.** A worklog logged on the epic itself takes the epic's domain as of `started_at` for BOTH `task_domain_key` and `epic_domain_key` (they stay equal, invariant 6), and
     A22's owner-team fallback for foreign work keys on that as-of domain (its owner is the team looked up, not the current domain's).
   - **Sub-tasks (D2)** are orthogonal: a sub-task resolves its epic through its parent's CURRENT epic; whichever epic that is, it is read at the anchor through that epic's own history.
-  - **What stays current** (decided 2026-10-29, a `[new]` backlog item): the epic's OWN domain columns (`dim_epic.domain_key`, `fact_epic_delivery.domain_key`/`owner_team_id`), the WIP epic band, A34's
-    done band and report 15's per-domain epic list. They describe the epic as it is now; making them as-of is a separate piece of work.
+  - **What stays current:** `dim_epic.domain_key` (the dimension and the `COALESCE` fallback, like `dim_task.domain_key`), the deep-dive epic picker and data quality's unowned-domain epic counts
+    (the epic as it is now). The epic's OWN facts and bands were first left current here (decided 2026-10-29); A49 makes them as-of.
   - Operational detail: `.claude/docs/metrics.md` "Domain" and the DERIVE passes, `.claude/docs/measures.md` "Domain codes (D3)".
 - **A48 — A history horizon: work older than N months is hidden from the reports and is never fetched** (agreed with the user 2026-10-30): work from
   long ago belongs to a different organisation and is noise in every trend and comparison, so ONE ADMIN-level number applies to every data source.
@@ -956,7 +956,26 @@ carries the per-measure detail).
     update that leaves the stored date alone is not re-checked (an older stored date stays legal), a blank date defaults to today minus 24 months, raised to the horizon's first day when that is later (the horizon only floors, it never widens the default), and the streams and cursors are untouched. `ingest/` reads the
     floor through `JobHandlerRegistry`'s `BackfillFloorSource`, which `metrics/` registers. Operational detail: `.claude/docs/ingestion.md` "Data sources".
   - Operational detail: `.claude/docs/persistence.md` "History horizon (V39)", `.claude/docs/metrics.md` "Configuration model".
-
+- **A49 — An epic's own facts and its WIP bands follow the domain the epic was in (report 15's per-domain epic rows follow in the next release)** (agreed with the user 2026-10-30; completes A47, which made only the rows that CARRY an
+  epic's domain as-of): a finished epic is attributed, like a finished task (A21), to the domain it had when it finished. An epic that moved projects therefore stays in the old domain's
+  cycle time and accuracy history, and its work in progress before the move stays in the old domain's bands. `dim_epic.domain_key` stays the domain NOW, as `dim_task.domain_key`
+  does, and is the `COALESCE` fallback of every as-of read below.
+  - **The history and the kernels** are A47's: the epic's `issuekey` changes in `metrics.task_domain` (the first row from instant 0), `epicDomainKeyAt`, the unread-project rule and the
+    fallbacks. No migration and no `PROCESSING_VERSION` bump: the next DERIVE writes the new values.
+  - **The fact.** `fact_epic_delivery.domain_key` is the epic's domain at `done_at`, half-open `[from, to)` (an epic done exactly at its move is in the NEW domain), and
+    `owner_team_id` is the owner of THAT domain (`dim_domain.owner_team_id` has no history, so the owner is the as-of domain's owner NOW, A19/A22). An open epic (no `done_at`) keeps its current domain directly, so
+    every open-item surface (aging WIP, open items, estimate gap) is unchanged. Every reader of the fact follows (cycle time, epic accuracy, estimate adjustments,
+    blocked time, data quality's done epics, the Home drills), by domain and by team.
+  - **The WIP epic band** (`agg_daily_wip` TEAM/EPIC and DOMAIN/EPIC) reads the epic's domain at the END of each day, `(from, to]` like PV (A47): a move exactly at a day's end leaves that day in the OLD
+    domain; TEAM/EPIC follows the as-of domain's owner.
+  - **A34's DONE band, epic part**, reads the epic's domain from the fact (`done_at`), the owner through the as-of domain; a reopened open epic has no `done_at` and stays in its current domain (the
+    known A34 gap).
+  - **Report 15 (the EPIC rows of a DOMAIN drill; agreed, built in the next release)** lists a moved epic once per domain it was in, each row holding that domain's share only (PV by the day's end, EV by each child's `done_at`, AC by each
+    worklog's `started_at` -- A47's anchors), so the rows of a domain add up to the domain's totals; the EPIC level still shows the whole epic. A plan baseline stays with the epic's domain at the end of the as-of day.
+  - **Where it applies.** Built: the fact (`fact_epic_delivery`), the WIP epic band (`DeriveWipStep.kt`, the epic's `task_domain` row covering each day's end) and A34's DONE band, epic part
+    (`reports/WipDoneBand.kt`, `COALESCE(fact_epic_delivery.domain_key, dim_epic.domain_key)`, the owner through `dim_domain` keyed on that domain). Not built yet: report 15's rows (the next release), which
+    still read the epic's CURRENT domain.
+  - Operational detail: `.claude/docs/measures.md` "Domain codes (D3)", `.claude/docs/metrics.md` "DERIVE run algorithm".
 
 ## Gaps in `norm` (closed in v0.3.0)
 
