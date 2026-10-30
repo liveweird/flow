@@ -364,6 +364,11 @@ once. The fix has two parts:
     batch's `item_stage`/`item_blocked`/`item_estimate` rows. `derivedById` (the computed RESULTS,
     not raw intervals — far smaller) accumulates across every batch, since later passes need it for
     epic/sub-task cross-references.
+  - **Epic-domain pass** (EPIC items only, between pass 1 and pass 2; A47): reads the `issuekey` field changes of each epic
+    batch, tiles them with the task rule (`taskDomainHistory`, then the first row stretched to instant 0, `coverFromTheStart`, so
+    every anchor before the epic's creation is covered), inserts the rows into `task_domain` and keeps them in
+    `DeriveContext.epicDomainHistoryById` (connection-wide and small: one short list per epic, the exception to the batch-scoped
+    rule, like `worklogSecondsByIssue`) so pass 2 reads each task's `epic_domain_key` as-of its anchor.
   - **Pass 2** (TASK items only, i.e. `hierarchyBucket(level) == TASK`): reads ASSIGNEE + SPRINT + PARENT
     intervals and `issuekey` field changes for the batch, builds `task_epic`/`task_domain`/
     `task_assignee` history and `dim_task`/`fact_task_delivery` rows from the ALREADY-computed
@@ -558,7 +563,7 @@ timelines, PV baselines/curve/horizon, `dimDateRange`); the tests stay in `Deriv
   per-sprint set-valued membership intervals (a carry-over move never loses the FROM sprint's own
   interval, unlike `norm`'s own last-id-only field-interval tiling).
 - **`projectKeyTimeline`** replays the `issuekey` changelog field (never `project` itself, which
-  carries no key) into `task_domain`'s effective-dated history.
+  carries no key) into `task_domain`'s effective-dated history, for tasks and for epics (A47).
 - **`epicDriftFlags`** compares an epic's OWN stage against its children's delivery state — D11's
   three codes, flagged, never re-dating the epic.
 
@@ -726,8 +731,9 @@ the JVM for them; the worklogs of an item ABOVE the epic level (no `dim_*` row t
 **The statement reads what the kernels wrote and restates only arithmetic.** The as-of domain is `metrics.task_domain` (the `issuekey`
 timeline kernel, `taskDomainHistory`), the as-of epic `metrics.task_epic` (`taskEpicHistory`; a covering row with a null `epic_id` is
 trusted, no covering row falls back to `dim_task.epic_id`, a sub-task has no history and keeps it), the current domain, activity type and
-OWN work category are `dim_task`'s (an epic: `dim_epic`'s domain, its activity type is the issue-type map else the type itself), the epic's
-domain and category are `dim_epic`'s, the owner team is `dim_domain`'s. Restated in SQL, each pinned against its Kotlin kernel by
+OWN work category are `dim_task`'s (an epic: its activity type is the issue-type map else the type itself), the epic's category is
+`dim_epic`'s, the epic's domain AS OF `started_at` is the epic's own covering `metrics.task_domain` row (A47: epics are tiled like tasks;
+no covering row or a `NULL` key falls back to `dim_epic.domain_key`), the owner team is `dim_domain`'s. Restated in SQL, each pinned against its Kotlin kernel by
 `FactWorklogSqlTest`: the `[from, to)` covering lookup (first row by `seq`/`id`, the order the kernels scan in; `team_membership` cannot
 overlap per account), `isForeignWork` (`foreignWorkSql`, a 27-case grid against the kernel) and `md` (`worklogMdSql`: `seconds / 3600 /
 hoursPerDay` in IEEE doubles in the kernel's order, then through the double's shortest text exactly like Kotlin's `Double.toBigDecimal`, so
@@ -747,9 +753,11 @@ NOT `dim_sprint`, which the sprint step does not write while the Sprint field is
   early in a task's life is attributed to whichever domain/epic the task belonged to AT THAT TIME,
   not its current one. A sub-task has no `task_epic` bridge history of its own (the same documented
   gap `taskEpicHistory` already carries), so its worklogs use its CURRENT epic (`epicIdOf`) instead
-  of an as-of value — the one place this step falls back to "current" rather than "as-of". A
-  worklog logged directly on an EPIC (rare, but not filtered out) reports `task_domain_key = null`,
-  `epic_id` = the epic's own id, and `epic_domain_key` = the epic's own (current) domain. A worklog logged on an issue ABOVE
+  of an as-of value — the one place this step falls back to "current" rather than "as-of" (that epic's DOMAIN is still read at
+  `started_at`). **`epic_domain_key` is the epic's own domain as of `started_at` (A47)**: the covering row of the epic's `task_domain`
+  history, else the epic's current domain (`dim_epic.domain_key`); the A22 owner-team fallback keys on that same as-of domain. A
+  worklog logged directly on an EPIC (rare, but not filtered out) reports `epic_id` = the epic's own id and
+  `task_domain_key = epic_domain_key` = the epic's domain as of `started_at`, never `null`. A worklog logged on an issue ABOVE
   the epic level (A31) has `task_domain_key` = the item's own (current) domain and `epic_id`, `epic_domain_key`,
   `sprint_id_at_started` and `sprint_team_id_at_started` all `null`; its `work_category` is the item's own (no epic to fall back to).
 - **`activity_type`/`work_category`** — the SAME issue-type map and OWN-else-epic's-category
@@ -913,11 +921,21 @@ A18/A19/A21 describe. This commit closes all five, backed by the additive V17 co
   `fact_task_delivery.domain_key`/`epic_id`/`epic_domain_key`/`cross_domain` all move onto this
   as-was read. A sub-task still has no `task_epic` history of its own (D2, the documented gap), so
   it keeps the one-indirection CURRENT epic fallback the worklog statement uses too.
-  `epic_domain_key` itself is always the epic's CURRENT domain (no epic-domain history table exists,
-  unlike `task_domain`) — a known, deliberate limitation, not a bug.
+  **`epic_domain_key` is read AS-OF the same instant (A47)**: `epicDomainKeyAt` takes the covering
+  `task_domain` row of the EPIC (its own `issuekey` history, `DeriveContext.epicDomainHistoryById`, filled by the epic-domain pass),
+  half-open `[from, to)`; an epic's first row starts at instant 0 (the epic pass), so an anchor before its creation reads the domain it
+  had at creation; a covering row without a key (a malformed issue key) falls back to the epic's CURRENT domain (`domain_map`, else its
+  project key). **A history row (task or epic) whose project the data source does not read carries the item's CURRENT domain, not the
+  raw project key** (`DomainScope.historyDomainKey`; the scope is the data source's CONFIGURED project keys
+  (`source_connections.settings.projectKeys`, read through `MetricsConfigService.configuredProjectKeys` = `DataSourceService.read`) plus the
+  live items' project keys and the domain map's keys, so a project whose issues all moved to another of the data source's projects stays in
+  the scope): a bulk move out of a foreign project re-attributes nothing, a move between two of the data source's own projects
+  is as-was, and a project that is read but left out of `domain_map` is a domain by its project key (never `null`, which means "no
+  epic"). `cross_domain` follows. The epic's OWN columns
+  (`dim_epic.domain_key`, `fact_epic_delivery.domain_key`/`owner_team_id`) stay current (A47). The worklog statement reads the epic's domain as of `started_at` the same way (see `fact_worklog` below).
 - **Epic-logged worklogs get the epic's own domain, never `null` (A21, strengthening invariant 6).**
   The worklog step's `task_domain_key` used to read `null` for a worklog logged directly on an
-  epic; it now reads the epic's own (current) domain, same as `epicDomainKey` — every
+  epic; it now reads the epic's own domain AS OF `started_at` (A47), same as `epic_domain_key` — every
   `fact_worklog` row now carries a non-null `task_domain_key`. The SAME covering-row-vs-no-row
   distinction above applies to a TASK-logged worklog's own as-was domain/epic read here.
 - **Foreign work (A21, A22).** `isForeignWork(authorTeamId, sprintTeamId, fallbackTeamId)`
@@ -1063,7 +1081,7 @@ never "now"):
   alike for "no covering row" and "a covering row whose own value is null", so `COALESCE` folds
   either case onto the task's current `dim_task.domain_key` (in practice never null, since a
   domain-map miss already falls back to the project key itself at DERIVE time).
-- **DOMAIN/EPIC** — the epic's own (current) domain, `dim_epic.domain_key`.
+- **DOMAIN/EPIC** — the epic's own (current) domain, `dim_epic.domain_key`; the epic's own domain columns stay current (A47 makes only the task-side `epic_domain_key` and PV DOMAIN as-of).
 - **EPIC** — TASKS ONLY, via the covering `metrics.task_epic` row's `epic_id`; a task resolving to
   no epic (no covering row, or one whose own value is null) writes no EPIC-scope row at all — unlike
   DOMAIN, there is no "fall back to current" here (`.claude/docs/measures.md`'s own row text).
@@ -1144,8 +1162,11 @@ statement (`pvTeamFlowSql`, `pvEpicDomainFlowSql`, `evTeamFlowSql`, `evEpicDomai
   `dim_date` row with that key and `is_working_day`; no working day → no rows. The increments are
   cumulative-rounded (`round(budget*i/n, 2) - round(budget*(i-1)/n, 2)`), so they sum to the budget
   EXACTLY at scale 2 while the running sum stays within 0.005 of `pvCurve`'s cumulative. EPIC =
-  the epic's issue id; DOMAIN = `dim_epic.domain_key` (the epic's own current domain, none → no row),
-  summed from the same rounded increments, so it equals the sum of its EPIC rows exactly. Superseded
+  the epic's issue id; DOMAIN = the epic's domain AS OF THE END of each planned day (A47: the epic's covering `task_domain` row,
+  `coveringAt` at `dim_date.day_end_ms`, the aggregates' `(from, to]` end-of-day rule: a move exactly at a day's end instant leaves
+  that day in the OLD domain; an epic's first row starts at instant 0, so a plan day before its creation reads the domain at creation;
+  no covering row, or one without a key, falls back to `dim_epic.domain_key`, the epic's current domain; none at all → no row), summed from the same rounded increments, so it equals
+  the sum of its EPIC rows exactly and a baseline spanning a project move splits its budget between the two domains by day. Superseded
   baselines are not written — the report redraws them from `fact_epic_plan`.
 - **PV horizon (A23).** An epic's current baseline gets a PV curve only if BOTH its start and due lie
   within `[now - 10 years, now + 10 years]` (UTC dates, `PV_HORIZON_YEARS`, `inPvHorizon`);
@@ -1168,7 +1189,7 @@ statement (`pvTeamFlowSql`, `pvEpicDomainFlowSql`, `evTeamFlowSql`, `evEpicDomai
   summing TEAM EV across teams can exceed throughput.
 - **EV, EPIC / DOMAIN:** level-0 `fact_task_delivery` rows with `done_at` and an `epic_id`, at
   `COALESCE(estimate_at_done_md, 0)` on the done day; EPIC = `epic_id`, DOMAIN = `epic_domain_key`
-  (null → no row). Epic-less tasks are left out (A23).
+  (null → no row; as-of the task's `done_at`, A47). Epic-less tasks are left out (A23).
 - **AC:** `fact_worklog.md` on the day of `started_at`. TEAM = `COALESCE(author_team_id, 'UNASSIGNED')`
   — never dropped, so Σ TEAM `ac_md` equals Σ `fact_worklog.md` (to numeric(10,2) rounding per row);
   EPIC = `epic_id` (an epic-logged worklog carries the epic's own id), DOMAIN = `epic_domain_key`
@@ -1181,7 +1202,7 @@ placement check; an independent bridge re-derivation of DOMAIN/TEAM/EPIC backlog
 invariant-9 sweep against `agg_daily_wip`; team PV/EV against `fact_sprint` (totals and per-day
 placement); epic PV against `pvCurve` day by day (scopes = exactly the in-horizon epics); DOMAIN = Σ
 EPIC plus the fact-derived oracle for EV/AC; team AC against `fact_worklog` (no worklog dropped).
-`DeriveKernelsTest` pins `dimDateRange` and `inPvHorizon`. `DerivedStubFixture`'s digest folds the
+`DeriveKernelsTest` pins `dimDateRange`, `inPvHorizon`, `epicDomainKeyAt`, `domainHistoryRows` (the out-of-scope = current rule, the real name-only key-change shape with null `from`/`to`) and `coverFromTheStart`; `MetricsStageOverrideTest` pins the same rule through DERIVE on a task that moved in from a project the data source does not read; `MetricsEpicDomainAsOfTest` pins the as-of epic domain (A47) on a hand-built epic that moved project: the epic's `task_domain` history, `epic_domain_key`/`cross_domain` before, after, at and without the move, the EV DOMAIN rows and the PV DOMAIN split, and (second test) a child's and the epic's own worklogs before/after the move with the AC DOMAIN split, and (third test) PV DOMAIN for plan days before the epic's creation, for a move exactly at a day's end instant and for an epic moved in from a project the data source does not read (its pre-move days stay in its current domain, no `OUT` domain exists), and (fourth test) an origin the data source is configured to read although no item of it is left (its history stays as-was); the first and fourth tests feed the key change in the shape real Jira sends, null `from`/`to` with the keys in the texts; `FactWorklogSqlTest` pins the same read on its hand-built epic 14/task 15 (incl. the A22 owner fallback on the as-of domain). `DerivedStubFixture`'s digest folds the
 table in (`scope_kind, scope_id, day` order).
 
 ## Performance (scale 20)

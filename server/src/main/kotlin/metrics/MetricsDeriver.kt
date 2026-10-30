@@ -188,6 +188,7 @@ class MetricsDeriver(
 
         val context = buildContext(
             workItemStore, teamMembership, domainOwners, connectionId, workItems, config, calendar, now, hoursPerDay, epicDriftDays,
+            metricsConfig.configuredProjectKeys(connectionId),
         )
         metricsStore.insertDomains(connectionId, domainDims(context), configRevision)
 
@@ -195,6 +196,7 @@ class MetricsDeriver(
         val blockedByIssue = mutableMapOf<Long, Pair<Long, Double>>()
         val estimateCount = runPass1(workItemStore, metricsStore, connectionId, modelItems, context, config, derivedById, blockedByIssue)
 
+        runEpicDomainPass(workItemStore, metricsStore, connectionId, modelItems, context)
         val factTasksByIssueId = mutableMapOf<Long, FactTaskDeliveryRow>()
         val factEpicsByIssueId = mutableMapOf<Long, FactEpicDeliveryRow>()
         val taskCount = runPass2(

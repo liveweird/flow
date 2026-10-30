@@ -1,5 +1,6 @@
 package ch.nokillswit.metrics
 
+import ch.nokillswit.norm.FieldChangeRow
 import ch.nokillswit.norm.NormalizedFieldInterval
 import ch.nokillswit.norm.WorkItemStore
 
@@ -34,15 +35,70 @@ internal fun taskEpicHistory(item: WorkItemStore.DerivationWorkItemRow, context:
     }
 }
 
-/** `task_domain`'s effective-dated history (review round 2a fix) — see [projectKeyTimeline]. */
-internal fun taskDomainHistory(item: WorkItemStore.DerivationWorkItemRow, context: DeriveContext): List<TaskDomainRow> {
-    val issueKeyChanges = context.issueKeyChangesByIssue[item.issueId].orEmpty()
-    val timeline = projectKeyTimeline(item.createdAt, issueKeyChanges, item.issueKey)
+/**
+ * The projects this DATA SOURCE reads, for `task_domain`'s history (A47): [readProjectKeys] is every project key the data source is
+ * CONFIGURED to read (`source_connections.settings.projectKeys`) plus every project key a live work item of the connection carries now
+ * (a no-op once the connection has synced, but it keeps the scope total for a row stored under a key since removed from the
+ * configuration), and the scope adds every key the domain map names. The configured keys are what keeps a project whose issues all
+ * moved to another of the connection's projects IN the scope: the scope never shrinks because a project emptied, so that project's
+ * history stays as-was. A project outside it is one this data source does not read (a bulk migration out of a foreign project, say).
+ * The domain a key stands for is `domainByProject[key] ?: key` (the rule DERIVE reads a live item's domain by).
+ */
+internal class DomainScope(val domainByProject: Map<String, String>, readProjectKeys: Set<String>) {
+    private val read: Set<String> = readProjectKeys + domainByProject.keys
+
+    /** The domain an item of [projectKey] has NOW: its `domain_map` entry, else the project key itself. */
+    fun domainOf(projectKey: String): String = domainByProject[projectKey] ?: projectKey
+
+    /**
+     * The domain a `task_domain` row for [historyProjectKey] carries on an item whose project is [currentProjectKey] now (A47): the
+     * history project's domain when this data source reads that project (a move BETWEEN its own projects is attributed as-was),
+     * else the item's CURRENT domain (a move IN from a project this data source does not read re-attributes nothing). The
+     * `currentProjectKey !in read` arm (keep the raw rule, there being no "current domain" to prefer) is a defensive total, not an
+     * observed case: every live item's own project is in [read] by construction, so DERIVE never reaches it.
+     */
+    fun historyDomainKey(historyProjectKey: String, currentProjectKey: String): String =
+        if (historyProjectKey in read || currentProjectKey !in read) domainOf(historyProjectKey) else domainOf(currentProjectKey)
+}
+
+/**
+ * `task_domain`'s effective-dated history (review round 2a fix) — see [projectKeyTimeline]. Built for TASKS and for EPICS alike
+ * (A47: an epic's history is what a task's `epic_domain_key` and the PV DOMAIN scope read as-of); the key of each row follows
+ * [DomainScope.historyDomainKey]. Adjacent rows that end up with the same key (a move out of a project the data source does not read,
+ * or between two projects mapped to one domain) are left as the changelog tiled them: every reader is a covering lookup, none counts rows.
+ */
+internal fun taskDomainHistory(item: WorkItemStore.DerivationWorkItemRow, context: DeriveContext): List<TaskDomainRow> =
+    domainHistoryRows(
+        item.issueId, item.createdAt, item.issueKey, item.projectKey, context.issueKeyChangesByIssue[item.issueId].orEmpty(),
+        context.domainScope,
+    )
+
+/** [taskDomainHistory]'s pure body: the item's identifiers instead of its row, so a kernel test needs no work-item row. */
+internal fun domainHistoryRows(
+    issueId: Long,
+    createdAtMs: Long,
+    currentIssueKey: String,
+    currentProjectKey: String,
+    issueKeyChanges: List<FieldChangeRow>,
+    scope: DomainScope,
+): List<TaskDomainRow> {
+    val timeline = projectKeyTimeline(createdAtMs, issueKeyChanges, currentIssueKey)
     return timeline.mapIndexed { index, point ->
         val to = timeline.getOrNull(index + 1)?.atMs
-        val domainKey = point.projectKey?.let { context.domainByProject[it] ?: it }
-        TaskDomainRow(item.issueId, domainKey, point.atMs, to)
+        TaskDomainRow(issueId, point.projectKey?.let { scope.historyDomainKey(it, currentProjectKey) }, point.atMs, to)
     }
+}
+
+/**
+ * An EPIC's `task_domain` history (A47): [rows] ([taskDomainHistory]) with its first row stretched back to instant 0, so every anchor
+ * is covered — a worklog, a plan day or a task done BEFORE the epic's `created_at` (a backdated plan start, an early child) reads the
+ * domain the epic had when it was created, never a fallback that flips to the current domain and back. An empty row (an `issuekey`
+ * change clamped to the creation instant covers nothing) is dropped first, so the stretched row is the first one that covers.
+ * Tasks keep their rows as tiled: their own anchors (`done_at`, `started_at`) never precede their creation.
+ */
+internal fun coverFromTheStart(rows: List<TaskDomainRow>): List<TaskDomainRow> {
+    val covering = rows.filter { it.toAtMs == null || it.toAtMs > it.fromAtMs }
+    return covering.mapIndexed { index, row -> if (index == 0) row.copy(fromAtMs = 0L) else row }
 }
 
 internal fun valueAt(intervals: List<NormalizedFieldInterval>, atMs: Long): String? =
@@ -132,6 +188,21 @@ internal fun asWasAttribution(
         val coveringEpic = epicRowAt(taskEpicRows, atMs)
         if (coveringEpic != null) coveringEpic.epicId else currentEpicId
     }
-    val epicDomainKey = epicId?.let { context.itemsById[it] }?.let { context.domainByProject[it.projectKey] ?: it.projectKey }
+    // A47: the epic's domain AS-WAS at the same anchor, through the epic's own `issuekey` history; no covering row, or one whose
+    // key failed to parse, falls back to the epic's CURRENT domain (the same rule as the task's own domain above).
+    val epicDomainKey = epicId?.let { id ->
+        val epic = context.itemsById[id]
+        val currentEpicDomainKey = epic?.let { context.domainScope.domainOf(it.projectKey) }
+        epicDomainKeyAt(context.epicDomainHistoryById[id].orEmpty(), atMs, currentEpicDomainKey)
+    }
     return AsWasAttribution(domainKey, epicId, epicDomainKey)
 }
+
+/**
+ * A47: an epic's domain at [atMs] — the covering `task_domain` row of the EPIC (half-open `[from, to)`, [domainRowAt]) wins; no
+ * covering row (an epic with no history; the epic pass stretches the first row to 0, [coverFromTheStart]) or a covering row whose key
+ * failed to parse falls back to [currentDomainKey], the epic's domain now. A history row's key is already the epic's current domain
+ * when the row's project is not read by the data source ([DomainScope]).
+ */
+internal fun epicDomainKeyAt(history: List<TaskDomainRow>, atMs: Long, currentDomainKey: String?): String? =
+    domainRowAt(history, atMs)?.domainKey ?: currentDomainKey

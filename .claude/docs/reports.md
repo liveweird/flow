@@ -919,8 +919,9 @@ Throughput is what is delivered over any time unit by any group of people, in MD
   `deliveredItems` = count (an unestimated task is an item worth 0 MD). Team = `credit_team_id` (D5;
   `null` = UNASSIGNED, selected by `teamId=0`), user = `assignee_account_id_at_done`. Honours
   `domain` (TASK view, the default and what `meta.domainView` echoes: the task's own `domain_key`;
-  EPIC view: `COALESCE(epic_domain_key, domain_key)`, A21 -- the fallback keys on
-  `epic_domain_key IS NULL`, so it also covers an epic outside the ingested scope), `activityType` and `workCategory`
+  EPIC view: `COALESCE(epic_domain_key, domain_key)`, A21 -- `epic_domain_key` is the epic's domain as of `done_at`, A47; the fallback keys on
+  `epic_domain_key IS NULL`: the task has no epic, or its epic is not an ingested item -- an epic that moved in from a project the data source
+  does not read is not null, its earlier rows read its current domain, A47), `activityType` and `workCategory`
   (`UNCATEGORIZED` = no category -- so a real category literally named that cannot be selected).
 - **Bucket rule.** `bucket=WEEK` weeks start Monday, `MONTH` starts on the 1st, both cut in the
   configured zone (`metrics.settings.time_zone`, never UTC -- a task done Monday 00:30 local belongs
@@ -1146,8 +1147,8 @@ no sprint, so with a sprint-relative period it reads nothing.
 
 **Tasks vs epics.** Task reads are level-0 tasks only (`is_subtask = false`, D2 -- a sub-task's worklogs and
 estimates are already rolled into its parent); team = the D5 **credit** team (`teamId=0` = no credit team,
-UNASSIGNED), user = assignee at done, domain per `domainView` (default `TASK`; `EPIC` = the epic's domain with
-the A21 fallback, as in throughput). Epic reads use the epic's OWN estimate columns; team = the domain's
+UNASSIGNED), user = assignee at done, domain per `domainView` (default `TASK`; `EPIC` = the epic's domain
+as of `done_at` with the A21 fallback, as in throughput). Epic reads use the epic's OWN estimate columns; team = the domain's
 **owner** team (A19, `teamId=0` = UNOWNED), domain = the epic's own space (identical under either
 `domainView`, which is only echoed in `meta` -- the epic accuracy default is `EPIC`, the PV/EV/AC-shaped
 default of plan section 7), `workCategory` slices; `activityType` is not an epic attribute and is ignored.
@@ -1805,7 +1806,7 @@ empty but the open ones remain.
   DERIVE clock -- its newest SUCCEEDED `derive_runs.started_at`, else the request clock -- `inPvHorizon`: no PV curve,
   A23; a half-dated epic is "without dates" only).
 - **`outsideSprint`** (D10) -- DONE tasks with no sprint at done, `md` = their estimate at done. A task done inside a sprint of an
-  unmapped board is not here: it is counted under `unmappedBoards[].doneTasks`. **`crossDomain`** -- DONE tasks whose epic is in another
+  unmapped board is not here: it is counted under `unmappedBoards[].doneTasks`. **`crossDomain`** -- DONE tasks whose epic's domain as of `done_at` (A47) is not the task's own
   domain. **`epicDrift`** (D11) -- epics with a drift flag, `flags` naming them.
 - **`epicEstimateGap`** -- epics with BOTH an own estimate (`fact_epic_delivery.own_estimate_current_md` > 0) and estimated tasks
   (`child_sum_estimate_md` > 0) whose two figures differ by MORE than the configured tolerance of the own estimate: `|child − own| > own × tolerance`
@@ -2030,9 +2031,9 @@ CostsReport {
 }
 ```
 
-- **Slices and levels.** `domain` (with `domainView`: `EPIC`, the DEFAULT -- a worklog-cost measure is PV/EV/AC-shaped, D3 -- matches `epic_domain_key`, an
+- **Slices and levels.** `domain` (with `domainView`: `EPIC`, the DEFAULT -- a worklog-cost measure is PV/EV/AC-shaped, D3 -- matches `epic_domain_key` (the epic's domain as of `started_at`, A47), an
   epic-less task falling back to its own `task_domain_key`; `TASK` matches `task_domain_key`; a worklog logged ON an epic, or on an issue ABOVE the epic
-  level (A31), carries one domain in both columns and is the same in both views), `activityType`, `workCategory` (`UNCATEGORIZED` = none) and
+  level (A31), carries one domain in both columns (for an epic-logged worklog the epic's domain as of `started_at`) and is the same in both views), `activityType`, `workCategory` (`UNCATEGORIZED` = none) and
   `connectionId` (else every active connection, summed) restrict the worklogs. The level narrows them by the AUTHOR's team as of `started_at`
   (`author_team_id`; null = UNASSIGNED): UNIT (default) every worklog; `teamId` the worklogs authored by that team's members (`teamId=0`: the authors in
   no team); `teamId` + `accountId` that one person's. With a sprint-relative period the UNIT read uses the unit's UNION envelope (`periodWindow` over every

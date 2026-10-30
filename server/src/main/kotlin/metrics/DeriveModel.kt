@@ -41,6 +41,8 @@ internal data class ConfigMaps(
     val epicDriftDays: Int,
     val epicStartFieldId: String?,
     val epicDueFieldId: String?,
+    /** The project keys the data source is CONFIGURED to read (`settings.projectKeys`), part of [DeriveContext.domainScope] (A47). */
+    val configuredProjectKeys: Set<String>,
 )
 
 /**
@@ -92,12 +94,28 @@ internal class DeriveContext(
     var parentIntervalsByIssue: Map<Long, List<NormalizedFieldInterval>> = emptyMap()
     var issueKeyChangesByIssue: Map<Long, List<FieldChangeRow>> = emptyMap()
 
+    /**
+     * A47: every EPIC's effective-dated domain history ([taskDomainHistory], also stored in `metrics.task_domain`), keyed by the
+     * epic's issue id. Unlike the batch-scoped interval maps above this one is connection-wide, filled once by
+     * [runEpicDomainPass] before pass 2: a task's `epic_domain_key` is read through it at the task's own anchor, whichever
+     * batch the task lands in. It stays small (one short list per epic, like [worklogSecondsByIssue]'s per-issue entries).
+     */
+    var epicDomainHistoryById: Map<Long, List<TaskDomainRow>> = emptyMap()
+
     val stageMap get() = configMaps.stageMap
 
     /** The status → stage map for items of [domainKey]: its overrides over the every-domain rows, else the every-domain map itself. */
     fun stageMapFor(domainKey: String): Map<String, ItemStage> = configMaps.stageMapByDomain[domainKey] ?: stageMap
 
     val domainByProject get() = configMaps.domainByProject
+
+    /**
+     * The projects this data source reads, for `task_domain` rows (A47): the CONFIGURED project keys plus the live items' and the domain
+     * map's. Configured keys keep an emptied project (all its issues moved to another of the data source's projects) in the scope.
+     */
+    val domainScope: DomainScope by lazy {
+        DomainScope(domainByProject, itemsById.values.mapTo(HashSet(configMaps.configuredProjectKeys)) { it.projectKey })
+    }
     val activityTypeByIssueType get() = configMaps.activityTypeByIssueType
     val workCategoryMap get() = configMaps.workCategoryMap
     val boardTeamByBoardId get() = configMaps.boardTeamByBoardId

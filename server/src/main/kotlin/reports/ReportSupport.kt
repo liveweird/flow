@@ -324,7 +324,7 @@ internal fun periodWindow(period: ReportPeriod, sprintRows: List<SprintRow>, now
  * no credit team; user = assignee at done (`IN` the picked accounts) — and, with [openAttribution] (A25), an OPEN task is
  * attributed to `current_team_id`/`current_assignee_account_id` instead, branching on `done_at`, never
  * `COALESCE`, since a DONE task with no credit team is legitimately UNASSIGNED) and the `domain` (TASK view: the task's own domain; EPIC
- * view: the epic's domain, an epic-less task — or one whose epic is outside the ingested scope —
+ * view: the epic's domain, an epic-less task — or one whose epic is not an ingested item —
  * falling back to its own, A21), `activityType` and `workCategory` (`UNCATEGORIZED` = none) slices.
  */
 internal fun taskFactSlice(filter: ReportFilter, connectionIds: List<UInt>, openAttribution: Boolean = false): Op<Boolean> {

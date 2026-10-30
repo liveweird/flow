@@ -231,8 +231,8 @@ object DerivedStubFixture {
 
     /**
      * MD5 over every persisted `fact_task_delivery` row PLUS every TASK bridge row (`task_epic`/
-     * `task_domain`/`task_assignee`) — the reprocess-digest pattern (`.claude/docs/testing.md` "The
-     * reprocess digest"), moved here from `MetricsDerivationTest` so both this fixture's own
+     * `task_domain`/`task_assignee`; `task_domain` carries the epics' rows too, A47) — the reprocess-digest pattern
+     * (`.claude/docs/testing.md` "The reprocess digest"), moved here from `MetricsDerivationTest` so both this fixture's own
      * tripwire digest and the test's own "a second DERIVE writes identical rows" case
      * (`invariant 12-lite`) share one implementation. Ordered by issue id (bridges additionally by
      * their own `valid_from`, preserving each issue's own history order); the surrogate `id` column

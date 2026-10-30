@@ -147,7 +147,7 @@ data class DataQualityReport(
     val missing: MissingData,
     /** DONE tasks with no sprint at done (D10) — `md` is their estimate at done. */
     val outsideSprint: TaskFinding,
-    /** DONE tasks whose epic lives in another domain (`cross_domain`). */
+    /** DONE tasks whose epic's domain as of `done_at` (A47) is not their own (`cross_domain`). */
     val crossDomain: TaskFinding,
     /** Epics with a D11 drift flag; `flags` names them. */
     val epicDrift: QualityList<EpicRef>,
