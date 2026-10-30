@@ -52,8 +52,8 @@ endpoint (`requireAdmin` server-side).
   current token" on edit — blank travels as an omitted `apiToken`, which the server keeps), a
   `TagsInput` for project keys (force-uppercased in `onChange`, after `form.getInputProps`, so the
   wire value always matches `PROJECT_KEY_PATTERN`), a plain backfill-date `TextInput`
-  (`YYYY-MM-DD`, blank omits the field so the server computes its default - the history horizon's
-  first day, 24 months back when the horizon is off - no `@mantine/dates`), sync interval / reconcile hour `NumberInput`s, an auth-scheme `Select`
+  (`YYYY-MM-DD`, blank omits the field so the server computes its default - 24 months back, raised to the
+  history horizon's first day when that is later - no `@mantine/dates`), sync interval / reconcile hour `NumberInput`s, an auth-scheme `Select`
   (Basic/Bearer), and an enabled `Switch`. **`utils/dataSourceForm.ts`** mirrors
   `ingest/DataSource.kt`'s validation exactly (name/site-URL/email/token length caps, the Jira
   site-URL and project-key regexes plus the Atlassian-reserved-label rejection, the

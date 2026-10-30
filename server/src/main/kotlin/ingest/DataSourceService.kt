@@ -121,13 +121,14 @@ class DataSourceService(
     /**
      * Creates the connection; `settings` starts from the request, `cloudId` fills in on the first successful probe/sync.
      * Under [ScopeRules.ENFORCED] the scope lock is taken first and the request must name the same Jira site as, and no
-     * project key of, any other active data source (a [DataSourceScopeConflictException], 409).
+     * project key of, any other active data source (a [DataSourceScopeConflictException], 409). The route passes the [policy] it already
+     * read for the blank default, so one request uses one policy; null (a direct caller) reads it here.
      */
-    suspend fun create(request: DataSourceRequest): UInt {
-        val policy = backfillPolicy()
+    suspend fun create(request: DataSourceRequest, policy: BackfillPolicy? = null): UInt {
+        val floorPolicy = policy ?: backfillPolicy()
         return suspendTransaction(database) {
             validateDataSource(request, apiTokenRequired = true) // re-checked service-side so direct callers stay guarded
-            requireBackfillNotBefore(request, policy)
+            requireBackfillNotBefore(request, floorPolicy)
             takeDataSourceScopeLock(scopeRules)
             enforceDataSourceScope(scopeRules, request, excludeId = null)
             val stamp = nowMillis()
@@ -159,10 +160,10 @@ class DataSourceService(
      * A full-replace PUT. `siteUrl` is the connection's identity (like Toadie's `baseUrl`) — a
      * changed value is a 409, not silently accepted; create a new connection instead. Omitting
      * `apiToken` keeps the current secret; a present value rotates it. Returns null when the row
-     * is missing/deleted (→ 404 at the route).
+     * is missing/deleted (→ 404 at the route). [policy] as on [create].
      */
-    suspend fun update(id: UInt, request: DataSourceRequest): DataSourceUpdateResult? {
-        val policy = backfillPolicy()
+    suspend fun update(id: UInt, request: DataSourceRequest, policy: BackfillPolicy? = null): DataSourceUpdateResult? {
+        val floorPolicy = policy ?: backfillPolicy()
         return suspendTransaction(database) {
             validateDataSource(request, apiTokenRequired = false)
             takeDataSourceScopeLock(scopeRules) // before the row lock: every scope-checked writer queues here first, one order, no deadlock
@@ -174,7 +175,7 @@ class DataSourceService(
                 throw ConflictException("siteUrl is the data source identity; create a new connection to change it")
             }
             // The history-horizon floor binds only a date that MOVES: an older stored one stays legal, or every edit would 400 (A48).
-            if (request.backfillFrom != current[Connections.backfillFrom]) requireBackfillNotBefore(request, policy)
+            if (request.backfillFrom != current[Connections.backfillFrom]) requireBackfillNotBefore(request, floorPolicy)
             enforceDataSourceScope(scopeRules, request, excludeId = id)
             val tokenRotated = request.jira.apiToken != null
             val secretValue = request.jira.apiToken?.let(cipher::encrypt) ?: current[Connections.secret]

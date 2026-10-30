@@ -1416,12 +1416,16 @@ horizon (`metrics.settings.history_horizon_months`, `.claude/docs/metrics.md` "C
 a sliding window, because the stored date is a running backfill's identity (`runsCurrentScope`, `freshRun`) and an "effective" date
 moving daily would discard every interrupted run at midnight. `ingest/DataSource.kt`'s `BackfillPolicy(defaultFrom, floor)`:
 `floor` = the later of the horizon's first day and the legacy structural floor (10 years back, never before 2000-01-01);
-`defaultFrom` = the horizon's first day, or today minus 24 months (`DEFAULT_BACKFILL_MONTHS`) when the horizon is off, never below the
-floor. `validateDataSource` keeps only the structural rules (ISO shape, not in the future, the legacy floor); `DataSourceService`
+`defaultFrom` = today minus 24 months (`DEFAULT_BACKFILL_MONTHS`) RAISED to the floor when the floor is later (a 9-month horizon: the
+horizon's first day; a 36- or 120-month horizon or none: 24 months back) - the horizon only floors, it never widens the default, so a
+blank date on a new source or a full-replace PUT cannot silently start a multi-year backfill. `validateDataSource` keeps only the structural rules (ISO shape, not in the future, the legacy floor); `DataSourceService`
 enforces the horizon floor because it reads another feature's setting and, on update, the stored date: **create** refuses a date before
 the floor (`400`, "backfillFrom must not be before <floor> (the history horizon)"), **update** checks it ONLY when the date changes
 (an unchanged stored date older than the floor stays legal, otherwise every edit of a source older than one day would 400 - the stored
-default is yesterday's today-minus-24-months), and a blank date becomes `defaultFrom` in the route's `sanitizedDataSourceRequest`.
+default is yesterday's today-minus-24-months), and a blank date becomes `defaultFrom` in the route's `sanitizedDataSourceRequest` (a blank on a PUT therefore RESETS the date to
+the default, which always passes the floor). The route reads `backfillPolicy()` ONCE per request and passes that policy to
+`create`/`update`, so the default and the floor cannot come from two horizons across a midnight (a direct service caller omits it and
+the service reads it).
 The floor reaches `ingest/` through the registry seam (`ingest/JobHandlers.kt`'s `BackfillFloorSource`, read by
 `DataSourceService.backfillPolicy()`; `metrics/MetricsJobHandlers.kt` registers it from `readWithCalendar()`, today taken in the metrics
 time zone) - `ingest/` never imports `metrics/`. A `DataSourceService` built without a registry (`registry` defaults to an empty one;

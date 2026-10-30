@@ -21,11 +21,11 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     date: "2026-10-30",
     en: `**Data sources: the history horizon is also the earliest backfill date.**
 
-- When a history horizon is set in the metrics settings, a data source can no longer be set to fetch Jira history from before it. A blank date now means the horizon's first day.
+- When a history horizon is set in the metrics settings, a data source can no longer be set to fetch Jira history from before it. A blank date still means 24 months back, or the horizon's first day when that is later.
 - An existing data source keeps its saved date; only moving the date earlier than the horizon is refused. Syncs that are already running are not affected.`,
     pl: `**Źródła danych: horyzont historii jest też najwcześniejszą datą pobierania.**
 
-- Gdy w ustawieniach metryk jest ustawiony horyzont historii, źródła danych nie można już ustawić tak, by pobierało historię z Jiry sprzed niego. Puste pole oznacza teraz pierwszy dzień horyzontu.
+- Gdy w ustawieniach metryk jest ustawiony horyzont historii, źródła danych nie można już ustawić tak, by pobierało historię z Jiry sprzed niego. Puste pole nadal oznacza 24 miesiące wstecz albo pierwszy dzień horyzontu, jeśli jest późniejszy.
 - Istniejące źródło danych zachowuje zapisaną datę; odrzucane jest tylko przesunięcie daty przed horyzont. Trwające synchronizacje nie są zmieniane.`,
   },
   {

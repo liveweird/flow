@@ -1202,7 +1202,7 @@ paths:
         and, for the overlap, the shared keys in `detail`, and carry that data source's path
         (`/api/v1/data-sources/{id}`) as `instance`; a soft-deleted source holds nothing. A
         `backfillFrom` before the history horizon's first day (`historyHorizonFrom` on the metrics
-        settings) is `400`; a blank one becomes that day.
+        settings) is `400`; a blank one becomes today minus 24 months, or that day when it is later.
       requestBody:
         required: true
         content:
@@ -1318,8 +1318,8 @@ paths:
         pauses (SYNC's `status.pausedAt` and RECONCILE's `status.reconcilePausedAt`) with their trip counts,
         each audited as `data_source.resumed`. A `backfillFrom` that MOVES to a day before the
         history horizon's first day (`historyHorizonFrom` on the metrics settings) is `400`; the
-        stored date unchanged is accepted however old it is, and a blank one becomes the horizon's
-        first day.
+        stored date unchanged is accepted however old it is, and a blank one becomes today minus 24
+        months, or the horizon's first day when that is later.
       requestBody:
         required: true
         content:
@@ -4577,7 +4577,8 @@ components:
             ISO date (YYYY-MM-DD), not in the future and not more than 10 years back (nor before
             2000-01-01), and not before the history horizon's first day (`historyHorizonFrom` on
             the metrics settings; an update that leaves the stored date unchanged is exempt).
-            Omitted or blank takes that first day, or today minus 24 months when the horizon is off.
+            Omitted or null takes today minus 24 months, or that first day when it is later (the horizon
+            only floors the default, it never widens it).
         reconcileHourUtc: { type: integer, minimum: 0, maximum: 23, default: 3 }
         jira:
           $ref: '#/components/schemas/JiraConnectionRequest'

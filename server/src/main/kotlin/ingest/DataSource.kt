@@ -177,11 +177,12 @@ data class BackfillPolicy(val defaultFrom: LocalDate, val floor: LocalDate)
 
 /**
  * The policy for the history horizon's first day [horizonFrom] (null = the horizon is off): the floor is the later of the horizon and
- * the legacy 10-year floor, and the default is the horizon's first day (today minus [DEFAULT_BACKFILL_MONTHS] when it is off).
+ * the legacy 10-year floor, and the default is today minus [DEFAULT_BACKFILL_MONTHS] raised to that floor when the floor is later --
+ * the horizon only ever RAISES the default, so a long horizon never silently widens a blank date into a longer backfill.
  */
 fun backfillPolicyFor(horizonFrom: LocalDate?): BackfillPolicy {
     val floor = maxOf(backfillFloor(), horizonFrom ?: backfillFloor())
-    val defaultFrom = horizonFrom ?: LocalDate.now(ZoneOffset.UTC).minusMonths(DEFAULT_BACKFILL_MONTHS)
+    val defaultFrom = LocalDate.now(ZoneOffset.UTC).minusMonths(DEFAULT_BACKFILL_MONTHS)
     return BackfillPolicy(defaultFrom = maxOf(defaultFrom, floor), floor = floor)
 }
 

@@ -43,8 +43,8 @@ the two never run at the same time, whatever the dispatch order.
 
 1. The admin signs in and opens **New data source**.
    - *Expected*: the **Backfill from** hint names the history horizon's first day ("The history
-     horizon allows dates from YYYY-MM-DD on; blank means that day.") - 24 months back on a fresh
-     stack.
+     horizon allows dates from YYYY-MM-DD on; blank means 24 months back, or that day when it is
+     later.") - 24 months back on a fresh stack.
 2. They fill a unique name, the site URL `https://flow-e2e.atlassian.net`, a service-account email,
    an API token and one project key, then type a **Backfill from** date three years back and click
    **Create**.

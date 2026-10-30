@@ -28,4 +28,4 @@ connector registry, the job queue and the read-only views differ in shape and gu
 (3) `DataSourceService` enforces the history-horizon floor on `backfillFrom` (`requireBackfillNotBefore`, A48) itself, beside the scope
 rules (`enforceDataSourceScope`), rather than in `validateDataSource`: it reads another feature's setting (through the
 `BackfillFloorSource` registry seam) and, on update, the stored date (only a MOVED date is checked). The route computes only the blank
-default (`backfillPolicy().defaultFrom`) and keeps `requireAdmin` before `receive()`.
+default (`backfillPolicy().defaultFrom`, read once and passed on to `create`/`update`) and keeps `requireAdmin` before `receive()`.

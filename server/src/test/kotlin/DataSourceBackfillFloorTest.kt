@@ -13,6 +13,7 @@ import ch.nokillswit.ingest.backfillPolicyFor
 import ch.nokillswit.ingest.jobHandlerRegistry
 import ch.nokillswit.flowusers.FlowUserRole
 import ch.nokillswit.plugins.ProblemDetail
+import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.statement.HttpResponse
@@ -76,6 +77,9 @@ class DataSourceBackfillFloorTest {
                 HttpStatusCode.BadRequest,
                 admin.postJson("/api/v1/data-sources", request(today().minusMonths(24).toString())).status,
             )
+            val onTheFloor = admin.postJson("/api/v1/data-sources", request(floor.toString()))
+            assertEquals(HttpStatusCode.Created, onTheFloor.status, "the floor day itself is allowed")
+            assertEquals(floor.toString(), onTheFloor.body<DataSourceResponse>().backfillFrom)
             val inside = admin.postJson("/api/v1/data-sources", request(floor.plusDays(1).toString()))
             assertEquals(HttpStatusCode.Created, inside.status)
             assertEquals(floor.plusDays(1).toString(), inside.body<DataSourceResponse>().backfillFrom)
@@ -106,21 +110,26 @@ class DataSourceBackfillFloorTest {
         }
     }
 
+    /** Creates with a blank date and returns the stored one; [expected] is read before and after so a midnight roll cannot flake it. */
+    private suspend fun HttpClient.createBlankAndCheck(expected: suspend () -> LocalDate) {
+        val before = expected()
+        val created = postJson("/api/v1/data-sources", request(null)).body<DataSourceResponse>()
+        val after = expected()
+        assertTrue(created.backfillFrom in setOf(before.toString(), after.toString()), created.backfillFrom)
+    }
+
     @Test
-    fun `a blank backfillFrom defaults to the horizon day, or today minus 24 months when the horizon is off`() = testApplication {
+    fun `a blank backfillFrom defaults to 24 months back, raised to the horizon day when that is later`() = testApplication {
         usePostgresTestcontainer()
         val admin = seededClient("floordefault", FlowUserRole.ADMIN)
-        withMetricsSettings(settings, { it.copy(historyHorizonMonths = 9) }) {
-            val before = horizonFrom()
-            val created = admin.postJson("/api/v1/data-sources", request(null)).body<DataSourceResponse>()
-            val after = horizonFrom()
-            assertTrue(created.backfillFrom in setOf(before.toString(), after.toString()), created.backfillFrom)
+        // 9 months: the floor is later than 24 months back, so the horizon day wins.
+        withMetricsSettings(settings, { it.copy(historyHorizonMonths = 9) }) { admin.createBlankAndCheck { horizonFrom() } }
+        // 36 months: the horizon only floors, the default does not widen to it.
+        withMetricsSettings(settings, { it.copy(historyHorizonMonths = 36) }) {
+            admin.createBlankAndCheck { today().minusMonths(24) }
         }
         withMetricsSettings(settings, { it.copy(historyHorizonMonths = null) }) {
-            val before = today().minusMonths(24)
-            val created = admin.postJson("/api/v1/data-sources", request(null)).body<DataSourceResponse>()
-            val after = today().minusMonths(24)
-            assertTrue(created.backfillFrom in setOf(before.toString(), after.toString()), created.backfillFrom)
+            admin.createBlankAndCheck { today().minusMonths(24) }
             // Off: only the legacy 10-year floor binds, so an old date is legal again.
             val old = admin.postJson("/api/v1/data-sources", request(today().minusYears(5).toString()))
             assertEquals(HttpStatusCode.Created, old.status)
@@ -128,20 +137,52 @@ class DataSourceBackfillFloorTest {
     }
 
     @Test
-    fun `the floor is the later of the horizon and the legacy floor, and the default never undercuts it`() {
+    fun `a blank backfillFrom on PUT stores the default even when the stored date is older than the horizon`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("floorblankput", FlowUserRole.ADMIN)
+        val keys = uniqueProjectKeys(1)
+        val stored = today().minusMonths(30).toString()
+        val id = withMetricsSettings(settings, { it.copy(historyHorizonMonths = null) }) {
+            admin.postJson("/api/v1/data-sources", request(stored, keys = keys)).body<DataSourceResponse>().id
+        }
+        withMetricsSettings(settings, { it.copy(historyHorizonMonths = 12) }) {
+            val floor = horizonFrom()
+            assertTrue(LocalDate.parse(stored).isBefore(floor), "the stored date is older than the horizon")
+            val put = admin.putJson("/api/v1/data-sources/$id", request(null, name = "blank-$id", keys = keys, apiToken = null))
+            assertEquals(HttpStatusCode.NoContent, put.status, "a blank date resets to the default, which passes the floor")
+            // 24 months back raised to the 12-month floor = the floor.
+            val storedNow = admin.get("/api/v1/data-sources/$id").body<DataSourceResponse>().backfillFrom
+            assertTrue(storedNow in setOf(floor.toString(), horizonFrom().toString()), storedNow)
+        }
+        withMetricsSettings(settings, { it.copy(historyHorizonMonths = 60) }) {
+            val before = today().minusMonths(24)
+            val put = admin.putJson("/api/v1/data-sources/$id", request(null, name = "blank2-$id", keys = keys, apiToken = null))
+            assertEquals(HttpStatusCode.NoContent, put.status)
+            // A long horizon does not widen the default to the horizon: still 24 months back.
+            val storedNow = admin.get("/api/v1/data-sources/$id").body<DataSourceResponse>().backfillFrom
+            assertTrue(storedNow in setOf(before.toString(), today().minusMonths(24).toString()), storedNow)
+        }
+    }
+
+    @Test
+    fun `the floor is the later of the horizon and the legacy floor, and the default is 24 months back raised to it`() {
         val legacyFloor = backfillPolicyFor(null).floor
         assertEquals(today().minusYears(10).let { maxOf(LocalDate.of(2000, 1, 1), it) }, legacyFloor)
         assertEquals(today().minusMonths(24), backfillPolicyFor(null).defaultFrom, "off: today's 24-month default")
 
         val sixMonths = today().minusMonths(6)
         assertEquals(backfillPolicyFor(sixMonths).floor, sixMonths)
-        assertEquals(sixMonths, backfillPolicyFor(sixMonths).defaultFrom)
+        assertEquals(sixMonths, backfillPolicyFor(sixMonths).defaultFrom, "a floor later than 24 months back raises the default")
 
-        // A 120-month horizon computed in a zone a day ahead of UTC lands before the UTC-based legacy floor: the legacy floor wins.
+        val threeYears = today().minusMonths(36)
+        assertEquals(threeYears, backfillPolicyFor(threeYears).floor)
+        assertEquals(today().minusMonths(24), backfillPolicyFor(threeYears).defaultFrom, "a horizon never widens the default")
+
+        // A 120-month horizon computed in a zone BEHIND UTC lands a day earlier than the UTC-based legacy floor: the legacy floor wins.
         val tooFar = today().minusYears(10).minusDays(1)
         val policy = backfillPolicyFor(tooFar)
         assertEquals(legacyFloor, policy.floor)
-        assertEquals(legacyFloor, policy.defaultFrom, "a blank backfillFrom must still pass the structural floor")
+        assertEquals(today().minusMonths(24), policy.defaultFrom, "a blank backfillFrom is 24 months back, inside the floor")
     }
 
     @Test
