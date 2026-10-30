@@ -50,7 +50,7 @@ class MetricsEpicDomainAsOfTest {
     @Test
     fun `a task reads its epic's domain as of its done instant, and the PV DOMAIN scope as of each planned day's end`() = runBlocking {
         val connId = SyncedStubFixture.createConnection(namePrefix = "jira-epic-domain-asof", enabled = false)
-        val (estimateField, startField, dueField) = cloneProfileFields(connId)
+        val (estimateField, startField, dueField) = cloneProfileFields(connId, SyncedStubFixture.connectionId())
         SyncedStubFixture.workItems().replaceStatuses(
             connId,
             listOf(
@@ -135,7 +135,7 @@ class MetricsEpicDomainAsOfTest {
     fun `PV DOMAIN covers days before creation, a move at a day's end instant, and a project the connection does not ingest`() =
         runBlocking {
             val connId = SyncedStubFixture.createConnection(namePrefix = "jira-epic-domain-asof-pv", enabled = false)
-            val (estimateField, startField, dueField) = cloneProfileFields(connId)
+            val (estimateField, startField, dueField) = cloneProfileFields(connId, SyncedStubFixture.connectionId())
             SyncedStubFixture.workItems().replaceStatuses(
                 connId,
                 listOf(StatusRef("7", "In progress", StatusCategory.IN_PROGRESS), StatusRef("9", "Done", StatusCategory.DONE)),
@@ -224,7 +224,7 @@ class MetricsEpicDomainAsOfTest {
             val connId = SyncedStubFixture.createConnection(
                 projectKeys = SyncedStubFixture.IN_SCOPE_PROJECT_KEYS + "CFG", namePrefix = "jira-epic-domain-asof-cfg", enabled = false,
             )
-            val (estimateField, _, _) = cloneProfileFields(connId)
+            val (estimateField, _, _) = cloneProfileFields(connId, SyncedStubFixture.connectionId())
             SyncedStubFixture.workItems().replaceStatuses(
                 connId,
                 listOf(StatusRef("7", "In progress", StatusCategory.IN_PROGRESS), StatusRef("9", "Done", StatusCategory.DONE)),
