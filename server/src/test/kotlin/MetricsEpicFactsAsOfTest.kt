@@ -17,7 +17,8 @@ import kotlin.test.assertEquals
 
 /**
  * An epic's OWN fact is read as of its done instant (amendment A49, `.claude/docs/domain-model.md`): `fact_epic_delivery.domain_key`
- * and `owner_team_id` are the domain the epic had at `done_at ?: now` (the task rule, A21) and that domain's owner, while
+ * and `owner_team_id` are the domain the epic had at `done_at` (the task rule, A21; an open epic keeps its current domain) and
+ * that domain's owner, while
  * `dim_epic.domain_key` stays the domain NOW. One hand-built world on a private DISABLED connection (`.claude/docs/testing.md` "The
  * derived fixture"): four epics live in `BBB` now and started in `AAA`, moved at [MOVE]; one was done before the move (AAA, its team),
  * one after it (BBB), one is still open (BBB, read now) and one was done exactly AT the move (half-open `[from, to)`, so the NEW
