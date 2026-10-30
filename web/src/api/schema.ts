@@ -766,7 +766,9 @@ export interface paths {
          *     project key sits in two active data sources (a key already in another one answers
          *     `urn:flow:problem:data-source-project-overlap`). Both name the conflicting data source
          *     and, for the overlap, the shared keys in `detail`, and carry that data source's path
-         *     (`/api/v1/data-sources/{id}`) as `instance`; a soft-deleted source holds nothing.
+         *     (`/api/v1/data-sources/{id}`) as `instance`; a soft-deleted source holds nothing. A
+         *     `backfillFrom` before the history horizon's first day (`historyHorizonFrom` on the metrics
+         *     settings) is `400`; a blank one becomes today minus 24 months, or that day when it is later.
          */
         post: operations["createDataSource"];
         delete?: never;
@@ -849,7 +851,10 @@ export interface paths {
          *     shared keys, `instance` is its path `/api/v1/data-sources/{id}`); the site never changes
          *     on update, so the one-Jira-site rule cannot fire here. A save also lifts the ceiling-trip
          *     pauses (SYNC's `status.pausedAt` and RECONCILE's `status.reconcilePausedAt`) with their trip counts,
-         *     each audited as `data_source.resumed`.
+         *     each audited as `data_source.resumed`. A `backfillFrom` that MOVES to a day before the
+         *     history horizon's first day (`historyHorizonFrom` on the metrics settings) is `400`; the
+         *     stored date unchanged is accepted however old it is, and a blank one becomes today minus 24
+         *     months, or the horizon's first day when that is later.
          */
         put: operations["updateDataSource"];
         post?: never;
@@ -2867,7 +2872,7 @@ export interface components {
             syncIntervalMinutes: number;
             /**
              * Format: date
-             * @description ISO date (YYYY-MM-DD), not in the future and not more than 10 years back (nor before 2000-01-01). Omitted computes today minus 24 months.
+             * @description ISO date (YYYY-MM-DD), not in the future and not more than 10 years back (nor before 2000-01-01), and not before the history horizon's first day (`historyHorizonFrom` on the metrics settings; an update that leaves the stored date unchanged is exempt). Omitted or null takes today minus 24 months, or that first day when it is later (the horizon only floors the default, it never widens it).
              */
             backfillFrom?: string | null;
             /** @default 3 */

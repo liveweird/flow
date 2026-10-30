@@ -52,12 +52,18 @@ endpoint (`requireAdmin` server-side).
   current token" on edit — blank travels as an omitted `apiToken`, which the server keeps), a
   `TagsInput` for project keys (force-uppercased in `onChange`, after `form.getInputProps`, so the
   wire value always matches `PROJECT_KEY_PATTERN`), a plain backfill-date `TextInput`
-  (`YYYY-MM-DD`, blank omits the field so the server computes its 24-months-back default — no
-  `@mantine/dates`), sync interval / reconcile hour `NumberInput`s, an auth-scheme `Select`
+  (`YYYY-MM-DD`, blank omits the field so the server computes its default - 24 months back, raised to the
+  history horizon's first day when that is later - no `@mantine/dates`), sync interval / reconcile hour `NumberInput`s, an auth-scheme `Select`
   (Basic/Bearer), and an enabled `Switch`. **`utils/dataSourceForm.ts`** mirrors
   `ingest/DataSource.kt`'s validation exactly (name/site-URL/email/token length caps, the Jira
   site-URL and project-key regexes plus the Atlassian-reserved-label rejection, the
-  backfill-date range) — keep the two in sync.
+  backfill-date range) — keep the two in sync. **The history-horizon floor (A48):** the modal reads
+  the metrics settings (`getMetricsSettings`, query key `["metrics-settings"]`, ADMIN-only like the page) for `historyHorizonFrom`;
+  `backfillFloorIso(horizonFrom)` is the later of the legacy 10-year floor and that day, the `backfillFrom` rule refuses an earlier
+  date (`dataSources.validation.backfillFromBeforeHorizon`) UNLESS editing and the value equals the stored one (the server checks only
+  a moved date; the legacy floor still applies to it), and the field's description appends the hint
+  `backfillFromHorizonHint` with the floor. A failed or pending settings read means no hint and no client check - the server's `400`
+  still lands in the save-error alert.
 - **Test connection**: the same button drives both the ad-hoc probe (`POST /data-sources/test`,
   the form's current values — required whenever creating or rotating the token) and the stored
   probe (`POST /data-sources/{id}/test`, no body) when editing with a blank token field; it
@@ -128,7 +134,7 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   aging-percentiles-must-include-85 rule and the all-weekend rejection; there is NO holidays field any more — the holiday list is the
   Public holidays dictionary below, and the form shows a one-line note with an "Open Public holidays" link where the field used to be) and holds the form's own
   string-array reshaping: `weekendDays`/`agingPercentiles` travel as `Chip.Group`/`TagsInput`
-  string values client-side, mapped to `number[]` only in `toMetricsSettingsRequest`. The last field is the **epic estimate gap tolerance** (`epicEstimateGapTolerancePercent`, a whole percent 0..100, default 25): how far an epic's own estimate may differ from its tasks' total before Data quality's gap card and Home's epic gap chart flag it; it is read at query time, and changing it bumps the config revision like every setting. After it come the **history horizon** controls (A48): a `Switch` "Limit history" (on = `historyHorizonEnabled`) and a `NumberInput` "History horizon (months)" (`min 6`, `max 120`, `allowDecimal={false}`, disabled while the switch is off; the input clamps typed numbers to the range on blur, so the rule `historyHorizonMonths` mainly catches a cleared field). Off sends `historyHorizonMonths: null` and keeps the number in the form (default 24 when the stored value is null); the description under the number prints the SAVED `historyHorizonFrom` the server computed ("Saved: work since {date} counts." / "Saved: no limit."), so the form never does month arithmetic. The bounds mirror `metrics/HistoryHorizon.kt`; this release adds the setting only, the reports and the backfill floor follow. The zone
+  string values client-side, mapped to `number[]` only in `toMetricsSettingsRequest`. The last field is the **epic estimate gap tolerance** (`epicEstimateGapTolerancePercent`, a whole percent 0..100, default 25): how far an epic's own estimate may differ from its tasks' total before Data quality's gap card and Home's epic gap chart flag it; it is read at query time, and changing it bumps the config revision like every setting. After it come the **history horizon** controls (A48): a `Switch` "Limit history" (on = `historyHorizonEnabled`) and a `NumberInput` "History horizon (months)" (`min 6`, `max 120`, `allowDecimal={false}`, disabled while the switch is off; the input clamps typed numbers to the range on blur, so the rule `historyHorizonMonths` mainly catches a cleared field). Off sends `historyHorizonMonths: null` and keeps the number in the form (default 24 when the stored value is null); the description under the number prints the SAVED `historyHorizonFrom` the server computed ("Saved: work since {date} counts." / "Saved: no limit."), so the form never does month arithmetic. The bounds mirror `metrics/HistoryHorizon.kt`; the data-source editor's backfill floor reads `historyHorizonFrom` ("Data sources" above); the reports follow. The zone
   picker is a searchable `Select` over `Intl.supportedValuesOf("timeZone")`
   (`utils/metricsForm.ts`'s `supportedTimeZones`, cached). The success toast reads "Saved — reports
   re-derive shortly" — accurate once M3's DERIVE job lands, so the wording needs no follow-up

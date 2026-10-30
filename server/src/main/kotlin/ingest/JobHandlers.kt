@@ -3,6 +3,7 @@ package ch.nokillswit.ingest
 import io.ktor.server.application.Application
 import io.ktor.util.AttributeKey
 import java.util.concurrent.ConcurrentHashMap
+import java.time.LocalDate
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
@@ -29,9 +30,18 @@ fun interface ConfigRevisionSource {
 }
 
 /**
+ * The first day a data source's `backfillFrom` may name, as the reporting history horizon (domain-model A48) sets it today, or
+ * `null` when the horizon is off. Read at WRITE time by `DataSourceService` (create, and an update that moves the date) -- never
+ * by a stream: the stored date is a running backfill's identity, so the floor must not slide with the clock.
+ */
+fun interface BackfillFloorSource {
+    suspend fun floor(): LocalDate?
+}
+
+/**
  * Job-kind handlers, extra PURGE steps (the connector-owned [PurgeStep] shape from `Connector.kt`, in
  * registration order — `IngestWorker` runs them after the connector's own `purgeSteps`) and the
- * revision source for the post-run staleness check. Filled
+ * revision source for the post-run staleness check, plus the [BackfillFloorSource] the data-source writes consult. Filled
  * during boot (module order: `configureMetrics` before `configureIngestWorker`), read by the worker
  * once it starts, so the collections are concurrent only defensively.
  */
@@ -58,6 +68,16 @@ class JobHandlerRegistry {
     fun registerConfigRevisionSource(source: ConfigRevisionSource) {
         check(configRevisionSource == null) { "A config revision source is already registered" }
         configRevisionSource = source
+    }
+
+    /** `null` until `metrics/` registers one (a registry nobody filled, as in a direct test construction, imposes no horizon). */
+    @Volatile
+    var backfillFloorSource: BackfillFloorSource? = null
+        private set
+
+    fun registerBackfillFloorSource(source: BackfillFloorSource) {
+        check(backfillFloorSource == null) { "A backfill floor source is already registered" }
+        backfillFloorSource = source
     }
 }
 

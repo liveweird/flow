@@ -80,9 +80,10 @@ fun Application.configureDataSourceRoutes() {
             post<DataSourcesRoute> {
                 val caller = call.caller()
                 requireAdmin(caller)
-                val request = sanitizedDataSourceRequest(call.receive())
+                val policy = service.backfillPolicy() // read ONCE: the blank default and the floor must come from the same horizon
+                val request = sanitizedDataSourceRequest(call.receive(), policy.defaultFrom)
                 validateDataSource(request, apiTokenRequired = true)
-                val id = auditingScopeRejection(caller.userId, dataSourceId = null) { service.create(request) }
+                val id = auditingScopeRejection(caller.userId, dataSourceId = null) { service.create(request, policy) }
                 audit(
                     "data_source.created",
                     "byUserId" to caller.userId.toLong(),
@@ -103,9 +104,10 @@ fun Application.configureDataSourceRoutes() {
             put<DataSourcesRoute.Id> { route ->
                 val caller = call.caller()
                 requireAdmin(caller)
-                val request = sanitizedDataSourceRequest(call.receive())
+                val policy = service.backfillPolicy() // read ONCE, as on create
+                val request = sanitizedDataSourceRequest(call.receive(), policy.defaultFrom)
                 validateDataSource(request, apiTokenRequired = false)
-                val outcome = auditingScopeRejection(caller.userId, dataSourceId = route.id) { service.update(route.id, request) }
+                val outcome = auditingScopeRejection(caller.userId, dataSourceId = route.id) { service.update(route.id, request, policy) }
                     .orNotFound("Data source")
                 audit(
                     "data_source.updated",

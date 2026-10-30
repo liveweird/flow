@@ -1409,7 +1409,30 @@ already stored (nothing is ever deleted; the raw/norm rows stay until a PURGE):
   ISSUES stream re-reads the whole retained range from the new date once (bulk, paged; already-stored
   issues come back unchanged and are cheap, only the missing history is new), and RECONCILE's
   index-gap phase is skipped until that run completes. Clearing the field on edit resets it to the
-  24-month default, which may therefore re-read as well.
+  default (below), which may therefore re-read as well.
+
+**The backfill default and floor (A48, `.claude/docs/domain-model.md`).** `backfillFrom` is bounded below by the reporting history
+horizon (`metrics.settings.history_horizon_months`, `.claude/docs/metrics.md` "Configuration model"), applied at WRITE time only - never
+a sliding window, because the stored date is a running backfill's identity (`runsCurrentScope`, `freshRun`) and an "effective" date
+moving daily would discard every interrupted run at midnight. `ingest/DataSource.kt`'s `BackfillPolicy(defaultFrom, floor)`:
+`floor` = the later of the horizon's first day and the legacy structural floor (10 years back, never before 2000-01-01);
+`defaultFrom` = today minus 24 months (`DEFAULT_BACKFILL_MONTHS`) RAISED to the floor when the floor is later (a 9-month horizon: the
+horizon's first day; a 36- or 120-month horizon or none: 24 months back) - the horizon only floors, it never widens the default, so a
+blank date on a new source or a full-replace PUT cannot silently start a multi-year backfill. `validateDataSource` keeps only the structural rules (ISO shape, not in the future, the legacy floor); `DataSourceService`
+enforces the horizon floor because it reads another feature's setting and, on update, the stored date: **create** refuses a date before
+the floor (`400`, "backfillFrom must not be before <floor> (the history horizon)"), **update** checks it ONLY when the date changes
+(an unchanged stored date older than the floor stays legal, otherwise every edit of a source older than one day would 400 - the stored
+default is yesterday's today-minus-24-months), and a blank date becomes `defaultFrom` in the route's `sanitizedDataSourceRequest` (a blank on a PUT therefore RESETS the date to
+the default, which always passes the floor). The route reads `backfillPolicy()` ONCE per request and passes that policy to
+`create`/`update`, so the default and the floor cannot come from two horizons across a midnight (a direct service caller omits it and
+the service reads it).
+The floor reaches `ingest/` through the registry seam (`ingest/JobHandlers.kt`'s `BackfillFloorSource`, read by
+`DataSourceService.backfillPolicy()`; `metrics/MetricsJobHandlers.kt` registers it from `readWithCalendar()`, today taken in the metrics
+time zone) - `ingest/` never imports `metrics/`. A `DataSourceService` built without a registry (`registry` defaults to an empty one;
+`SyncedStubFixture.dataSources()` and every direct test construction) has no floor source and keeps the 24-month default and the
+10-year floor. A horizon that SHRINKS changes nothing for an existing source (its stored window still rules SYNC/RECONCILE; the
+reports hide the old rows); one that GROWS changes nothing automatically - the admin may then move `backfillFrom` earlier, which takes
+the widened-backfill path above. The streams, `JiraIssuesCursor` and RECONCILE are untouched.
 
 **`infra/db/Jsonb.kt` + `infra/json/CanonicalJson.kt`** (this commit's supporting infra, detailed
 in `.claude/docs/persistence.md` "Data sources (V8)"): the repo-local `jsonb` column binding

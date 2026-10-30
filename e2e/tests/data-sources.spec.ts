@@ -125,6 +125,35 @@ test("admin connects the Jira stub, syncs it, and inspects the result", async ({
   await expect(page.getByRole("link", { name: `Open ${name}` })).toHaveCount(0);
 });
 
+test("admin cannot move a backfill date before the history horizon", async ({ page }) => {
+  await login(page);
+  await page.goto("/data-sources");
+  await page.getByRole("button", { name: "New data source" }).click();
+  const dialog = page.getByRole("dialog");
+  // The hint names the horizon's first day (24 months back on a fresh stack) once the settings have loaded.
+  await expect(dialog.getByText(/The history horizon allows dates from \d{4}-\d{2}-\d{2} on/)).toBeVisible();
+
+  // Three years back is before the 24-month horizon: refused in the form, nothing is sent.
+  const threeYearsBack = new Date();
+  threeYearsBack.setUTCFullYear(threeYearsBack.getUTCFullYear() - 3);
+  let posted = false;
+  page.on("request", (r) => {
+    if (r.method() === "POST" && r.url().endsWith("/api/v1/data-sources")) posted = true;
+  });
+  await dialog.getByLabel("Name").fill(uniqueText("e2e-horizon"));
+  await dialog.getByLabel("Site URL").fill("https://flow-e2e.atlassian.net");
+  await dialog.getByLabel("Service-account email").fill("svc-account@flow-e2e.example.com");
+  await dialog.getByLabel("API token").fill("e2e-fake-api-token");
+  const projectKeys = dialog.getByRole("combobox", { name: "Project keys" });
+  await projectKeys.click();
+  await projectKeys.pressSequentially("HZN");
+  await projectKeys.press("Enter");
+  await dialog.getByLabel("Backfill from").fill(threeYearsBack.toISOString().slice(0, 10));
+  await dialog.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(dialog.getByText(/Backfill date must not be before \d{4}-\d{2}-\d{2} \(the history horizon\)/)).toBeVisible();
+  expect(posted).toBe(false);
+});
+
 test("a regular user sees no Data sources surface", async ({ page }) => {
   await login(page);
   const user = await createUserViaUi(page, "E2E DataSource Reader");
