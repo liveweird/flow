@@ -43,6 +43,7 @@ export default function ReportFilterBar({
   const activeFilterCount = activeReportFilterCount(filter, controls, {
     today: todayIsoDate(filters.timeZone),
     connectionCount: filters.connections.length,
+    horizonFrom: filters.historyHorizon?.from,
   });
   return (
     <DatesProvider settings={{ locale: i18n.resolvedLanguage ?? "en", firstDayOfWeek: 1 }}>
@@ -53,6 +54,7 @@ export default function ReportFilterBar({
               <ReportPeriodControls
                 filter={filter}
                 timeZone={filters.timeZone}
+                horizonFrom={filters.historyHorizon?.from}
                 teams={filters.teams}
                 datesOnly={controls.peopleOnly}
                 onChange={onChange}

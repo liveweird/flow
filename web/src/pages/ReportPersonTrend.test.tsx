@@ -183,6 +183,14 @@ describe("ReportPersonTrend page", () => {
       expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Window ending", "Team", "Delivered (items)", "Team median (peers)", "n", "Window"]);
     });
 
+    test("under a history horizon the page says since when and that earlier windows are only partly covered", async () => {
+      serve(mockFetch, { ...PERSON_TREND, meta: { ...PERSON_TREND.meta, historyHorizon: { months: 6, from: "2026-04-30" } } });
+      renderPage(ANN);
+      await waitFor(() => expect(lineCharts()).toHaveLength(13));
+      expect(screen.getByText("Reports show work since 2026-04-30 (history horizon: 6 months)")).toBeInTheDocument();
+      expect(screen.getByText(/Windows that start before 2026-04-30 \(the history horizon\) are only partly covered/)).toBeInTheDocument();
+    });
+
     test("a team that never had enough active peers draws no line and the hint stays away (the tooltip and the table still say why)", async () => {
       const noMedian = {
         ...PERSON_TREND_TEAM,

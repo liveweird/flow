@@ -116,7 +116,7 @@ describe("empty and annotated reports", () => {
     const matrix = buildDeepDiveMatrix(report, grainColumns(report, "month"));
     expect(matrix.derived).toBe(false);
     const kind: DeepDiveNoteKind = "NOT_DERIVED";
-    expect(matrix.note).toEqual({ kind, text: report.note });
+    expect(matrix.note).toEqual({ kind, text: report.note, historyHorizon: false });
     expect(matrix.epics).toEqual([]);
     expect(matrix.columns).toHaveLength(1);
     expect(matrix.scale).toEqual({ mdMax: 0 });
@@ -139,6 +139,7 @@ describe("empty and annotated reports", () => {
     expect(matrix.note).toEqual({
       kind: "NOT_DERIVED",
       text: "any wording the server uses for it",
+      historyHorizon: false,
     });
     // A derived selection with an unrelated note is OTHER, whatever the wording.
     const other = deepDiveReport({ note: "Not derived yet, says the text" });

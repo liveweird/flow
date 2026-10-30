@@ -489,8 +489,16 @@ export const LAST_SPRINT_COUNTS: readonly number[] = [1, 3, 6, 12];
 /** What the period `Select` shows: a preset, a custom range, N sprints, or one sprint. */
 export type PeriodChoice = DatePreset | "custom" | "sprint" | `lastSprints:${number}`;
 
-/** A preset's inclusive `[from, to]` as of `today` (UTC calendar, like every date here). */
-export function presetRange(preset: DatePreset, today: string): { from: string; to: string } {
+/**
+ * A preset's inclusive `[from, to]` as of `today` (UTC calendar, like every date here). With a history horizon (`horizonFrom`, the first day the
+ * reports still show) a `from` before it is raised to it, as the server does with a longer period (`meta.from` says so).
+ */
+export function presetRange(preset: DatePreset, today: string, horizonFrom?: string | null): { from: string; to: string } {
+  const range = unclampedPresetRange(preset, today);
+  return horizonFrom != null && range.from < horizonFrom ? { ...range, from: horizonFrom } : range;
+}
+
+function unclampedPresetRange(preset: DatePreset, today: string): { from: string; to: string } {
   const [year, month] = today.split("-").map(Number);
   const first = (y: number, m: number) => epochMillisToIsoDate(Date.UTC(y, m - 1, 1));
   switch (preset) {
@@ -510,13 +518,13 @@ export function presetRange(preset: DatePreset, today: string): { from: string; 
 }
 
 /** The choice a filter currently corresponds to. No period params = the server's 90-day default. */
-export function activePeriodChoice(filter: ReportFilterState, today: string): PeriodChoice {
+export function activePeriodChoice(filter: ReportFilterState, today: string, horizonFrom?: string | null): PeriodChoice {
   if (filter.sprintId !== undefined) return "sprint";
   if (filter.lastSprints !== undefined) return `lastSprints:${filter.lastSprints}`;
   if (filter.from === undefined && filter.to === undefined) return "last90";
   const to = filter.to ?? today;
   const match = DATE_PRESETS.find((preset) => {
-    const range = presetRange(preset, today);
+    const range = presetRange(preset, today, horizonFrom);
     return range.from === filter.from && range.to === to;
   });
   return match ?? "custom";

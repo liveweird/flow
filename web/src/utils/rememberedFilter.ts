@@ -27,9 +27,9 @@ import {
 const PRESET_KEY = "preset";
 
 /** The relative preset the filter's explicit dates correspond to as of `today`, if any (the default period has no dates and is nothing to remember). */
-export function presetOf(filter: ReportFilterState, today: string): DatePreset | undefined {
+export function presetOf(filter: ReportFilterState, today: string, horizonFrom?: string | null): DatePreset | undefined {
   if (filter.from === undefined && filter.to === undefined) return undefined;
-  const choice = activePeriodChoice(filter, today);
+  const choice = activePeriodChoice(filter, today, horizonFrom);
   return DATE_PRESETS.find((preset) => preset === choice);
 }
 
@@ -56,14 +56,20 @@ export interface RememberedFilter {
 
 /**
  * Parses a remembered query like a link would be, keeping only what the page at `path` reads and its one valid value per page-local switch.
- * With `today` (the configured zone's date) a recorded relative preset is re-resolved to today's range; without it the dates stay as written.
+ * With `today` (the configured zone's date) a recorded relative preset is re-resolved to today's range (cut at the history horizon's first day, `horizonFrom`); without it the dates stay as written.
  */
-export function readRememberedFilter(stored: string, path: string, options: ReportFilterParseOptions, today?: string): RememberedFilter {
+export function readRememberedFilter(
+  stored: string,
+  path: string,
+  options: ReportFilterParseOptions,
+  today?: string,
+  horizonFrom?: string | null,
+): RememberedFilter {
   const params = new URLSearchParams(stored);
   let filter = dropReportSpecific(parseReportFilter(params, options), reportSpecificKeep(path));
   delete filter.epicId;
   const preset = DATE_PRESETS.find((candidate) => candidate === params.get(PRESET_KEY));
-  if (preset !== undefined && today !== undefined && filter.from !== undefined) filter = withPeriod(filter, presetRange(preset, today));
+  if (preset !== undefined && today !== undefined && filter.from !== undefined) filter = withPeriod(filter, presetRange(preset, today, horizonFrom));
   const page = pageParamsOf(path).flatMap(({ key, value }) => (params.get(key) === value ? [[key, value] as const] : []));
   return { filter, page };
 }

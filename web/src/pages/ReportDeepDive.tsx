@@ -116,6 +116,13 @@ export default function ReportDeepDive() {
             {t("reports.deepDive.note.rangeClamped")}
           </Alert>
         )}
+        {note?.historyHorizon && (
+          <Alert color="orange" variant="light" role="note" icon={<IconInfoCircle size={16} />}>
+            {report.meta.historyHorizon
+              ? t("reports.deepDive.note.historyHorizon", { from: report.meta.historyHorizon.from, count: report.meta.historyHorizon.months })
+              : note.text}
+          </Alert>
+        )}
         {note?.kind === "OTHER" && (
           <Alert color="gray" variant="light" role="note" icon={<IconInfoCircle size={16} />} title={t("reports.note.title")}>
             {note.text}

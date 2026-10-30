@@ -189,7 +189,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
 - [`metrics-config.spec.ts`](scenarios/metrics-config.md) — the v0.3.0 metrics CONFIGURATION
   surfaces (the reports are `reports.spec.ts`): the global Metrics settings form (a save of the aging window and the epic estimate gap tolerance
   persists, an all-weekend-days value is refused inline) restored to its pre-test values through
-  the API; a synced Jira-stub connection's per-connection Metrics configuration (preselected
+  the API; a six-month history horizon set in that form (Throughput says since when, its longest preset starts on the cutoff and the custom range picker offers no earlier day); a synced Jira-stub connection's per-connection Metrics configuration (preselected
   stages, a per-domain stage override saved with the rest and still there after a reload, a board → team mapping, a second board mapped to the same team marked `409`); D1's
   dated Jira-user team membership on a throwaway team, its person picker reading the shared fixture's synced connection (an overlapping second membership refused
   inline) and a regular user's read-only view of it, with no Metrics settings nav access; and seeding a throwaway team's Jira

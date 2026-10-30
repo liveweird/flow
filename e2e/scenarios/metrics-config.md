@@ -34,6 +34,21 @@ second test keeps a live synced connection), which `reports.spec.ts` also holds:
    edits a value every admin shares, so a real admin's own configuration is never left disturbed
    by a test run).
 
+## Scenario: admin limits the history horizon and the reports say since when
+
+1. The admin opens **Metrics settings**, turns **Limit history** on if it is off, sets **History horizon (months)** to 6 and saves.
+   - *Expected*: the "Saved — reports re-derive shortly" confirmation, and the field's hint reads "Saved: work since
+     <date> counts." where `<date>` is today in the metrics time zone minus six months (the test computes it with the
+     server's end-of-month rule).
+2. They open **Throughput** for a throwaway team.
+   - *Expected*: the dimmed line under the filter bar reads "Reports show work since <date> (history horizon: 6 months)".
+3. They pick the **Last 365 days** period.
+   - *Expected*: the address's `from` is the horizon's first day, not a year back.
+4. They switch the period to **Custom range** and open the **Date range** picker.
+   - *Expected*: the first enabled day of the calendar is the horizon's first day; no earlier day is offered.
+5. The test restores the settings singleton to its pre-test values through the API (a `finally`, so a failing step
+   still puts the shared setting back) and deletes the throwaway team.
+
 ## Scenario: admin configures a data source's metrics
 
 1. The admin creates a throwaway Jira-stub data source through the New data source modal (the

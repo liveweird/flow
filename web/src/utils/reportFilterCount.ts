@@ -14,10 +14,10 @@ import { activePeriodChoice, wipColumnAvailable, type ReportControls, type Repor
 export function activeReportFilterCount(
   filter: ReportFilterState,
   controls: ReportControls,
-  context: { today: string; connectionCount: number },
+  context: { today: string; connectionCount: number; horizonFrom?: string | null },
 ): number {
   const differs: boolean[] = [
-    !controls.noPeriod && activePeriodChoice(filter, context.today) !== (controls.defaultPeriod ?? "last90"),
+    !controls.noPeriod && activePeriodChoice(filter, context.today, context.horizonFrom) !== (controls.defaultPeriod ?? "last90"),
     // A required team is always set and the bar offers no "whole unit" to compare it with: it narrows nothing visible.
     !controls.teamRequired && !controls.peopleOnly && filter.teamId !== undefined,
     // Compare people's two people are what the page IS about (picked beside the bar), not a narrowing of it.

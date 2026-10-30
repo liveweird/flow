@@ -6,6 +6,7 @@ import { MONTH_CROSSING, deepDiveEpic, deepDiveReport, deepDiveTask } from "../t
 import { headingOutline } from "../test/headings";
 import { jsonResponse } from "../test/http";
 import { FILTERS } from "../test/reportFixtures";
+import i18n from "../i18n";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 import ReportDeepDive from "./ReportDeepDive";
 
@@ -204,6 +205,39 @@ describe("ReportDeepDive page", () => {
     expect(note.closest('[role="note"]')).toHaveClass("mantine-Alert-root");
     expect(screen.getByRole("grid")).toBeInTheDocument();
     expect(screen.queryByText(/RANGE_CLAMPED/)).not.toBeInTheDocument();
+  });
+
+  const HORIZON_NOTE =
+    "HISTORY_HORIZON: the selection lies before 2026-04-30 (history horizon: 6 months), so only that day is shown; totals are whole-life";
+  const HORIZON_META = { ...deepDiveReport().meta, historyHorizon: { months: 6, from: "2026-04-30" } };
+
+  test("a history-horizon note is said in words with the horizon's first day, not as the server wrote it", async () => {
+    serve(mockFetch, sampleReport({ note: HORIZON_NOTE, meta: HORIZON_META }));
+    renderPage(SPRINT_LINK);
+    const note = await screen.findByText(/The selection lies before 2026-04-30 \(history horizon: 6 months\)/);
+    expect(note.closest('[role="note"]')).toHaveClass("mantine-Alert-root");
+    expect(screen.queryByText(/HISTORY_HORIZON/)).not.toBeInTheDocument();
+  });
+
+  test("a span clamp and the history horizon are both said, one note each", async () => {
+    const note = `RANGE_CLAMPED: the implied range spans 2000 days; the last 1100 are shown. ${HORIZON_NOTE}`;
+    serve(mockFetch, sampleReport({ note, meta: HORIZON_META }));
+    renderPage(SPRINT_LINK);
+    expect(await screen.findByText(/only its last 1100 days are drawn/)).toBeInTheDocument();
+    expect(screen.getByText(/The selection lies before 2026-04-30/)).toBeInTheDocument();
+    expect(screen.queryByText(/RANGE_CLAMPED|HISTORY_HORIZON/)).not.toBeInTheDocument();
+  });
+
+  test("in Polish the history-horizon note is Polish too", async () => {
+    await i18n.changeLanguage("pl");
+    try {
+      serve(mockFetch, sampleReport({ note: HORIZON_NOTE, meta: HORIZON_META }));
+      renderPage(SPRINT_LINK);
+      expect(await screen.findByText(/Wybór leży przed 2026-04-30 \(horyzont historii: 6 miesięcy\)/)).toBeInTheDocument();
+      expect(screen.queryByText(/HISTORY_HORIZON/)).not.toBeInTheDocument();
+    } finally {
+      await i18n.changeLanguage("en");
+    }
   });
 
   test("any other server note is shown as written", async () => {

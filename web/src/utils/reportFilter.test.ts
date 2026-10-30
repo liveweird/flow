@@ -216,6 +216,19 @@ describe("period presets", () => {
     expect(activePeriodChoice({ sprintId: 9 }, today)).toBe("sprint");
   });
 
+  test("a history horizon raises a preset's from to its first day and leaves shorter presets alone", () => {
+    expect(presetRange("last365", today, "2026-03-29")).toEqual({ from: "2026-03-29", to: today });
+    expect(presetRange("last365", today, null)).toEqual({ from: "2025-09-30", to: today });
+    expect(presetRange("last90", today, "2026-03-29")).toEqual({ from: "2026-07-02", to: today });
+    expect(presetRange("lastMonth", today, "2026-03-29")).toEqual({ from: "2026-08-01", to: "2026-08-31" });
+  });
+
+  test("activePeriodChoice recognises a preset that the horizon cut", () => {
+    const cut = presetRange("last365", today, "2026-03-29");
+    expect(activePeriodChoice(cut, today, "2026-03-29")).toBe("last365");
+    expect(activePeriodChoice(cut, today)).toBe("custom");
+  });
+
   test("withPeriod swaps only the period", () => {
     expect(withPeriod({ teamId: 2, sprintId: 9 }, { from: "2026-01-01", to: "2026-02-01" })).toEqual({
       teamId: 2,

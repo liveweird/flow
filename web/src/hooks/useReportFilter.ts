@@ -105,11 +105,12 @@ export function useReportFilter(
   // A bare visit (no filter param at all) restores the screen's own memory, validated against the reference data once it is loaded.
   const bare = !hasReportFilterParams(params);
   const stored = readRememberedQuery(storageKey);
+  const horizonFrom = filters?.historyHorizon?.from;
   const seed = useMemo(() => {
     if (!bare || stored === null || filters === undefined) return undefined;
-    const remembered = readRememberedFilter(stored, pathname, parseOptions, todayIsoDate(filters.timeZone));
+    const remembered = readRememberedFilter(stored, pathname, parseOptions, todayIsoDate(filters.timeZone), horizonFrom);
     return { filter: dropStaleReferences(remembered.filter, filters, teamless), page: remembered.page };
-  }, [bare, stored, filters, pathname, parseOptions, teamless]);
+  }, [bare, stored, filters, pathname, parseOptions, teamless, horizonFrom]);
   const base = seed?.filter ?? parsed;
 
   const rememberedListed =
@@ -129,8 +130,8 @@ export function useReportFilter(
     const normalized = normalize(requested);
     // A report whose own period is not the server's 90 days (Person trend: a year) states it in the URL once the zone is known, so a link means what the page shows.
     const periodless = normalized.from === undefined && normalized.to === undefined && normalized.lastSprints === undefined && normalized.sprintId === undefined;
-    return defaultPeriod !== undefined && timeZone !== undefined && periodless ? withPeriod(normalized, presetRange(defaultPeriod, todayIsoDate(timeZone))) : normalized;
-  }, [normalize, requested, defaultPeriod, timeZone]);
+    return defaultPeriod !== undefined && timeZone !== undefined && periodless ? withPeriod(normalized, presetRange(defaultPeriod, todayIsoDate(timeZone), horizonFrom)) : normalized;
+  }, [normalize, requested, defaultPeriod, timeZone, horizonFrom]);
 
   // What the page shows differs from what the URL says (a restore, a required team, a normalised link): say so, by replace.
   const seedPage = useMemo(() => (seed === undefined ? [] : seed.page.filter(([key]) => !params.has(key))), [seed, params]);
@@ -152,8 +153,8 @@ export function useReportFilter(
   /** The memory for a settled filter: its query plus the relative preset the period was chosen through, as of today in the configured zone. */
   const rememberedFor = useCallback(
     (settled: ReportFilterState, from: URLSearchParams) =>
-      rememberedQuery(settled, from, pathname, filters === undefined ? undefined : presetOf(settled, todayIsoDate(filters.timeZone))),
-    [filters, pathname],
+      rememberedQuery(settled, from, pathname, filters === undefined ? undefined : presetOf(settled, todayIsoDate(filters.timeZone), horizonFrom)),
+    [filters, pathname, horizonFrom],
   );
   // Only a push that CHANGED the settled filter is a narrowing: opening a drill (`drill=…`) or flipping a page-local switch pushes onto the
   // same page with the same filter, and must not store the filter a link carried.

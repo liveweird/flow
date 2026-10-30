@@ -12,10 +12,12 @@ import { sprintLabel } from "../utils/sprintLabel";
 function CustomRange({
   filter,
   timeZone,
+  horizonFrom,
   onChange,
 }: {
   filter: ReportFilterState;
   timeZone: string;
+  horizonFrom?: string | null;
   onChange: (next: ReportFilterState) => void;
 }) {
   const { t } = useTranslation();
@@ -34,6 +36,7 @@ function CustomRange({
         if (from && to) onChange(withPeriod(filter, { from, to }));
       }}
       w={230}
+      minDate={horizonFrom ?? undefined}
       maxDate={todayIsoDate(timeZone)}
     />
   );
@@ -48,12 +51,15 @@ function CustomRange({
 export default function ReportPeriodControls({
   filter,
   timeZone,
+  horizonFrom,
   teams,
   datesOnly = false,
   onChange,
 }: {
   filter: ReportFilterState;
   timeZone: string;
+  /** The history horizon's first day (`filters.historyHorizon?.from`), if one is set: no earlier day is offered, and a preset starts no earlier. */
+  horizonFrom?: string | null;
   teams: ReadonlyArray<ReportFilterTeam>;
   /** Offer the date presets and the custom range only — no sprint periods (Compare people reads two people across teams, and a sprint is one team's). */
   datesOnly?: boolean;
@@ -61,7 +67,7 @@ export default function ReportPeriodControls({
 }) {
   const { t } = useTranslation();
   const sprints = pickerSprints(teams, filter);
-  const { choice, changePeriod } = usePeriodChoice({ filter, today: todayIsoDate(timeZone), sprints, onChange });
+  const { choice, changePeriod } = usePeriodChoice({ filter, today: todayIsoDate(timeZone), horizonFrom, sprints, onChange });
 
   const periodData = [
     {
@@ -99,7 +105,7 @@ export default function ReportPeriodControls({
       />
       {choice === "custom" && (
         // Keyed by the URL's range so Back/forward resyncs the picker's local half-choice.
-        <CustomRange key={`${filter.from}|${filter.to}`} filter={filter} timeZone={timeZone} onChange={onChange} />
+        <CustomRange key={`${filter.from}|${filter.to}`} filter={filter} timeZone={timeZone} horizonFrom={horizonFrom} onChange={onChange} />
       )}
       {choice === "sprint" && (
         <Select
