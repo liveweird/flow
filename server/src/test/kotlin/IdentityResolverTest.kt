@@ -20,7 +20,7 @@ class IdentityResolverTest {
     private val store = CodeIdentityLinkStore(sharedDatabaseForTests())
     private val resolver = IdentityResolver(store)
 
-    private fun uniqueHost() = "test-${UUID.randomUUID().toString().take(8)}.example:443"
+    private fun uniqueHost() = "test-${UUID.randomUUID().toString().take(8)}.example"
 
     private fun link(host: String, userId: Long, key: String, decision: CodeIdentityDecision, account: String? = null) =
         IdentityLink(host, key, decision, account, userId, 1L)

@@ -1097,8 +1097,9 @@ export interface paths {
          *     computed at read time, `.claude/docs/gitlab-integration.md` "Identity". **The page carries the GitLab addresses**
          *     (`emails`), to ADMIN only, so an admin can judge a match. A `status` is never stored: `LINKED` (decided and linked),
          *     `IGNORED_OR_BOT` (decided ignored or bot), `PROPOSED` (no decision, but an address matches exactly one Jira person, or the
-         *     identity is a bot) and `UNMAPPED` (neither). A decision whose identity row is gone (`seen: false`) is listed on its decided
-         *     status, with no name, username or address. Sortable fields are `displayName` (the default), `username` and `id`, where `id`
+         *     identity is a bot) and `UNMAPPED` (neither). A decision whose identity no active GitLab data source on the instance still has
+         *     (`seen: false`) is listed on its decided status, with no name, username or address; a key only another source of the instance has is not
+         *     listed here. Sortable fields are `displayName` (the default), `username` and `id`, where `id`
          *     is the identity key; an absent name or username sorts last. `q` is a case- and accent-insensitive substring over the
          *     display name, username and addresses (at most 100 characters, else `400`; an unseen decision never matches). Filtered, sorted and paged in memory over one
          *     connection's identities (`list-endpoints.md`). A data source that is not a GitLab connection is `409` with `type`
@@ -3826,7 +3827,7 @@ export interface components {
             /** @description The identity's canonical addresses (lower-case). ADMIN only. */
             emails: string[];
             status: components["schemas"]["CodeIdentityStatus"];
-            /** @description False for an orphaned decision: one stored for this instance whose key has no identity row in this data source (carries no name, username or address, `userId` null). */
+            /** @description False for an orphaned decision: one stored for this instance whose key has no identity row in any active GitLab data source of the instance (carries no name, username or address, `userId` null). */
             seen: boolean;
             /** @description Computed at read time; present on decided rows too, while one would still be made. Null for an orphan. */
             proposal?: components["schemas"]["CodeIdentityProposal"] | null;

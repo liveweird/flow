@@ -13,6 +13,7 @@ import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.max
@@ -136,6 +137,16 @@ internal class CodeActivityReads(private val database: R2dbcDatabase) {
     suspend fun identityRows(connectionId: UInt): List<NormCodeIdentity> = suspendTransaction(database) {
         CodeIdentities.selectAll().where { CodeIdentities.connectionId eq connectionId }.orderBy(CodeIdentities.identityKey).toList()
             .map(::identityOf)
+    }
+
+    /** The distinct identity keys of all of [connectionIds] (the orphan rule across one instance's sources); no statement for none. */
+    suspend fun identityKeysOf(connectionIds: Collection<UInt>): Set<String> {
+        if (connectionIds.isEmpty()) return emptySet()
+        return suspendTransaction(database) {
+            CodeIdentities.select(CodeIdentities.identityKey).withDistinct()
+                .where { CodeIdentities.connectionId inList connectionIds.distinct() }
+                .toList().mapTo(HashSet()) { it[CodeIdentities.identityKey] }
+        }
     }
 
     /** One identity by its primary key, or null. */

@@ -31,10 +31,10 @@ class IdentityResolver(private val links: CodeIdentityLinkStore) {
 }
 
 /**
- * The instance a decision belongs to: the canonical base URL's authority, lower-cased - `gitlab.example.com`, or `gitlab.example.com:8443`
- * when the URL names a non-default port. The scheme carries no identity, and the stored base URL is already canonical
- * (`gitlab/GitLabBaseUrl.kt`), so the result is stable across edits that re-save the same origin. The malformed-URL message never
- * carries the URL.
+ * The instance a decision belongs to. [baseUrl] is the CANONICAL origin (`gitlab/GitLabBaseUrl.kt`: scheme and authority, the scheme's
+ * default port already dropped, no path), never raw user input. The result is the authority, lower-cased - `gitlab.example.com`, or
+ * `gitlab.example.com:8443` when the URL names a non-default port. The scheme carries no identity, so the result is stable across edits
+ * that re-save the same origin. The malformed-URL message never carries the URL.
  */
 fun sourceHostOf(baseUrl: String): String {
     val uri = try {

@@ -3,6 +3,9 @@ package ch.nokillswit.identities
 import ch.nokillswit.authz.ConflictException
 import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.infra.paging.PageRequest
+import ch.nokillswit.infra.paging.SortField
+import ch.nokillswit.ingest.DataSourceListFilter
+import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.norm.CodeActivityStore
 import ch.nokillswit.norm.NormCodeIdentity
 import ch.nokillswit.norm.ProposalMatch
@@ -40,16 +43,22 @@ class CodeIdentityService(
     private val links: CodeIdentityLinkStore,
     private val codeStore: CodeActivityStore,
     private val workItems: WorkItemStore,
+    private val dataSources: DataSourceService,
 ) {
 
     /**
      * The connection's identities with the host's decisions and the proposals, filtered, sorted and paged IN MEMORY (`list-endpoints.md`:
-     * `status` is a read-time join over one bounded set). ORPHANED decisions - a stored decision whose key has no identity row in this
-     * connection - are listed too, with `seen = false`, on their decided status.
+     * `status` is a read-time join over one bounded set). ORPHANED decisions are listed too, with `seen = false`, on their decided
+     * status. An orphan is per INSTANCE, not per connection: a decision whose key has no identity row in this connection is an orphan
+     * here only when no OTHER active GitLab data source on the [host] has one either; a key another active source still has belongs to
+     * that source's page and is not listed on this one.
      */
     suspend fun list(connectionId: UInt, host: String, filter: CodeIdentityFilter, paging: PageRequest): CodeIdentityListResult =
         suspendTransaction(database) {
-            val rows = assemble(codeStore.identityRows(connectionId), links.forHost(host), codeStore.proposalMatches(connectionId))
+            val otherKeys = codeStore.identityKeysOf(peerConnections(connectionId, host))
+            val rows = assemble(
+                codeStore.identityRows(connectionId), links.forHost(host), codeStore.proposalMatches(connectionId), otherKeys,
+            )
             val (page, total) = selectPage(rows, filter.status, filter.q, paging) { it.searchable() }
             val names = workItems.displayNames(page.mapNotNull { it.link?.jiraAccountId })
             CodeIdentityListResult(page.map { it.toResponse(names) }, total)
@@ -114,13 +123,32 @@ class CodeIdentityService(
     suspend fun confirmProposals(connectionId: UInt, host: String, byUserId: Long, now: Long): List<IdentityLink> =
         suspendTransaction(database) {
             val rows = assemble(codeStore.identityRows(connectionId), links.forHost(host), codeStore.proposalMatches(connectionId))
+            // Rows with an identity and no decision only: an orphan never reaches the insert.
             val candidates = rows.filter { it.identity != null && it.link == null }.mapNotNull { row ->
                 row.proposal?.let { IdentityLink(host, row.key, it.decision, it.jiraAccountId, byUserId, now) }
             }
+            // The insert order follows `identityRows`' ORDER BY identity_key, so two concurrent confirms take their row locks in the same
+            // order and cannot deadlock (a `40P01` would be a 500).
             val inserted = links.insertIgnoringConflicts(candidates)
             candidates.filter { it.key in inserted }
         }
+
+    /** The ids of the OTHER active (not deleted, enabled or not) GitLab data sources on [host]: the instance the orphan rule spans. */
+    private suspend fun peerConnections(connectionId: UInt, host: String): List<UInt> {
+        val peers = ArrayList<UInt>()
+        var page = 1
+        while (true) {
+            val batch = dataSources.list(DataSourceListFilter(), PageRequest(page, PEER_PAGE_SIZE, listOf(SortField("id", false)))).items
+            batch.filter { it.id != connectionId && it.gitlab?.let { gitlab -> sourceHostOf(gitlab.baseUrl) } == host }
+                .mapTo(peers) { it.id }
+            if (batch.size < PEER_PAGE_SIZE) return peers
+            page++
+        }
+    }
 }
+
+/** The page size [CodeIdentityService.peerConnections] reads the data sources in (the list's own maximum). */
+private const val PEER_PAGE_SIZE = 100
 
 /** The link now stored, the one it replaced (if any) and whether the PUT wrote anything. */
 private data class Written(val stored: IdentityLink, val previous: IdentityLink?, val changed: Boolean)
@@ -144,9 +172,15 @@ private class Row(
 
 /**
  * The three reads joined: a row per identity (its decision and proposal, ambiguity and bot rules in [proposalFor]) plus one per ORPHANED
- * decision (a stored key that no identity row of the connection carries).
+ * decision (a stored key that no identity row of the connection carries and that is not in [otherInstanceKeys], the identity keys of the
+ * host's other active GitLab sources: those decisions belong to their page).
  */
-private fun assemble(identities: List<NormCodeIdentity>, stored: List<IdentityLink>, matches: List<ProposalMatch>): List<Row> {
+private fun assemble(
+    identities: List<NormCodeIdentity>,
+    stored: List<IdentityLink>,
+    matches: List<ProposalMatch>,
+    otherInstanceKeys: Set<String> = emptySet(),
+): List<Row> {
     val byKey = stored.associateBy { it.key }
     val matchesByKey = matches.groupBy { it.identityKey }
     val rows = identities.map { identity ->
@@ -156,5 +190,5 @@ private fun assemble(identities: List<NormCodeIdentity>, stored: List<IdentityLi
         Row(identity.key, identity, byKey[identity.key], proposal, name)
     }
     val seen = identities.mapTo(HashSet()) { it.key }
-    return rows + stored.filter { it.key !in seen }.map { Row(it.key, null, it, null, null) }
+    return rows + stored.filter { it.key !in seen && it.key !in otherInstanceKeys }.map { Row(it.key, null, it, null, null) }
 }

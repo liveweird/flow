@@ -17,7 +17,10 @@ import ch.nokillswit.norm.PersonRef
 import ch.nokillswit.norm.WorkItemStore
 import io.ktor.server.plugins.BadRequestException
 import java.util.UUID
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -29,8 +32,9 @@ import kotlin.test.assertTrue
 /**
  * `identities/CodeIdentityService.kt` on direct rows (identities through `CodeActivityStore`, people through `WorkItemStore`, decisions
  * through the link store), no routes and no SYNC: the PUT pattern's outcomes, the idempotent re-PUT, the unknown-account rule and its
- * exemption, the bulk confirmation counting only what it wrote, and the orphaned decisions. Every address and account id carries a
- * per-test token (the people of every ACTIVE connection are proposal candidates), every host is unique and emptied afterwards.
+ * exemption, the bulk confirmation counting only what it wrote, the two insert races (pinned deterministically: a raw transaction holds
+ * a decision INSERT uncommitted until the service waits on it, then commits), and the orphaned decisions. Every address and account id
+ * carries a per-test token (the people of every ACTIVE connection are proposal candidates), every host is unique and emptied afterwards.
  */
 class CodeIdentityServiceTest {
     private val database = sharedDatabaseForTests()
@@ -38,9 +42,9 @@ class CodeIdentityServiceTest {
     private val code = CodeActivityStore(database)
     private val workItems = WorkItemStore(database)
     private val dataSources = SyncedStubFixture.dataSources()
-    private val service = CodeIdentityService(database, store, code, workItems)
+    private val service = CodeIdentityService(database, store, code, workItems, dataSources)
     private val token = UUID.randomUUID().toString().take(8)
-    private val host = "test-$token.example:443"
+    private val host = "test-$token.example"
     private val everything = PageRequest(1, 100, listOf(SortField("id", false)))
 
     private fun address(local: String) = "$local-$token@flow-sample.example"
@@ -209,5 +213,79 @@ class CodeIdentityServiceTest {
             assertNotNull(service.remove(host, "u77"))
             assertFailsWith<NotFoundException> { service.decide(w.identities, host, "u77", linked("a"), w.userId, 3L) }
         }
+    }
+
+    /**
+     * Holds an INSERT of a decision for ([host], [key]) uncommitted on a raw connection, runs [action] (which must block on that row),
+     * waits until it does, commits, and answers what [action] returned. The rollback in the `finally` releases the row when an
+     * assertion fails first. Timeouts fail a hang fast instead of leaving it to the stall watchdog.
+     */
+    private suspend fun <T> withRawInsertCommittedMidway(
+        key: String,
+        decision: CodeIdentityDecision,
+        userId: Long,
+        action: suspend () -> T,
+    ): T =
+        PostgresTestSupport.connect().use { raw ->
+            raw.autoCommit = false
+            raw.prepareStatement(
+                "INSERT INTO code_identity_links (source_host, identity_key, decision, jira_account_id, decided_by_user_id, decided_at) " +
+                    "VALUES (?, ?, ?, NULL, ?, 7)",
+            ).use { insert ->
+                insert.setString(1, host)
+                insert.setString(2, key)
+                insert.setString(3, decision.name)
+                insert.setLong(4, userId)
+                insert.executeUpdate()
+            }
+            try {
+                withTimeout(RACE_TIMEOUT_MS) {
+                    coroutineScope {
+                        val running = async { action() }
+                        awaitLockWait("code_identity_links")
+                        raw.commit()
+                        running.await()
+                    }
+                }
+            } finally {
+                raw.rollback()
+            }
+        }
+
+    @Test
+    fun `confirmProposals loses a race to a concurrent decision silently and does not report that key`() = runBlocking {
+        val people = listOf(person("a", address("a")), person("b", address("b")))
+        world(people, listOf(identity("u1", address("a")), identity("u2", address("b")))) { w ->
+            // u1's decision commits while confirm is blocked on its speculative insert: it must not be counted or audited as confirm's.
+            val written = withRawInsertCommittedMidway("u1", CodeIdentityDecision.IGNORED, w.userId) {
+                service.confirmProposals(w.identities, host, w.userId, 50L)
+            }
+            assertEquals(listOf("u2"), written.map { it.key }, "only the key confirm really inserted")
+            val raw = assertNotNull(store.find(host, "u1"))
+            assertEquals(CodeIdentityDecision.IGNORED, raw.decision, "the concurrent decision won")
+            assertEquals(7L, raw.decidedAt)
+            assertEquals(CodeIdentityDecision.LINKED, store.find(host, "u2")?.decision)
+        }
+    }
+
+    @Test
+    fun `decide loses the insert race, then overwrites the winner and reports it as the previous decision`() = runBlocking {
+        world(listOf(person("a")), listOf(identity("u1"))) { w ->
+            val outcome = withRawInsertCommittedMidway("u1", CodeIdentityDecision.IGNORED, w.userId) {
+                service.decide(w.identities, host, "u1", linked("a"), w.userId, 50L)
+            }
+            assertTrue(outcome.changed)
+            val previous = assertNotNull(outcome.previous, "the audit's decisionFrom is the raw row, not an absent decision")
+            assertEquals(CodeIdentityDecision.IGNORED, previous.decision)
+            assertEquals(7L, previous.decidedAt)
+            val stored = assertNotNull(store.find(host, "u1"))
+            assertEquals(CodeIdentityDecision.LINKED, stored.decision)
+            assertEquals(account("a"), stored.jiraAccountId)
+            assertEquals(50L, stored.decidedAt)
+        }
+    }
+
+    private companion object {
+        const val RACE_TIMEOUT_MS = 60_000L
     }
 }

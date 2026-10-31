@@ -70,7 +70,11 @@ class CodeIdentityRoutesTest {
         startApplication()
         val email = uniqueEmail("ci-admin")
         val adminId = TestUsers.seed(email, "pw-ci-admin-1")
-        block(authedClient(email, "pw-ci-admin-1"), adminId)
+        try {
+            block(authedClient(email, "pw-ci-admin-1"), adminId)
+        } finally {
+            TestUsers.softDelete(adminId)
+        }
     }
 
     private fun json(text: String) = Json.parseToJsonElement(text).jsonObject
@@ -83,6 +87,12 @@ class CodeIdentityRoutesTest {
 
     private suspend fun HttpClient.decide(key: String, decision: CodeIdentityDecision, account: String? = null, path: String = base) =
         putJson("$path/$key", CodeIdentityDecisionRequest(decision, account))
+
+    /** A PUT whose body is not JSON: a 400 wherever the body is read, so any other answer proves what was checked first. */
+    private suspend fun HttpClient.putBroken(path: String) = put(path) {
+        contentType(ContentType.Application.Json)
+        setBody("{broken")
+    }
 
     private suspend fun HttpResponse.problem(status: HttpStatusCode): ProblemDetail {
         assertEquals(status, this.status)
@@ -137,13 +147,18 @@ class CodeIdentityRoutesTest {
             admin.decide("u1", CodeIdentityDecision.IGNORED, path = root).problem(HttpStatusCode.NotFound)
             admin.delete("$root/u1").problem(HttpStatusCode.NotFound)
             admin.post("$root/confirm-proposals").problem(HttpStatusCode.NotFound)
+            // The source is looked up before the query and the body are read: a bad query or a broken body is still the 404.
+            admin.get(root) { parameter("status", "bogus") }.problem(HttpStatusCode.NotFound)
+            admin.putBroken("$root/u1").problem(HttpStatusCode.NotFound)
         }
         // The kind check comes before the key, the query and the body: a malformed key on a Jira source is 409, not 400.
         val root = "/api/v1/data-sources/$jira/code-identities"
         val refusals = listOf(
             admin.get(root),
+            admin.get(root) { parameter("status", "bogus") },
             admin.decide("u1", CodeIdentityDecision.IGNORED, path = root),
             admin.decide("not-a-key", CodeIdentityDecision.IGNORED, path = root),
+            admin.putBroken("$root/u1"),
             admin.delete("$root/u1"),
             admin.post("$root/confirm-proposals"),
         )
@@ -158,11 +173,7 @@ class CodeIdentityRoutesTest {
         admin.decide("U1", CodeIdentityDecision.IGNORED).problem(HttpStatusCode.BadRequest)
         admin.decide("e${"A".repeat(32)}", CodeIdentityDecision.IGNORED).problem(HttpStatusCode.BadRequest)
         admin.delete("$base/not-a-key").problem(HttpStatusCode.BadRequest)
-        val broken = admin.put("$base/u1") {
-            contentType(ContentType.Application.Json)
-            setBody("{broken")
-        }
-        broken.problem(HttpStatusCode.BadRequest)
+        admin.putBroken("$base/u1").problem(HttpStatusCode.BadRequest)
         // A malformed body shape is a 400 before any identity or account is looked at.
         admin.decide("u999999", CodeIdentityDecision.LINKED).problem(HttpStatusCode.BadRequest)
         admin.decide("u999999", CodeIdentityDecision.IGNORED).problem(HttpStatusCode.NotFound)
@@ -348,6 +359,42 @@ class CodeIdentityRoutesTest {
         admin.decide("u777777", CodeIdentityDecision.IGNORED).problem(HttpStatusCode.NotFound)
     }
 
+    @Test
+    fun `an orphan is per instance - a key another active source still has is not listed here, one nobody has is listed on both`() =
+        app { admin, adminId ->
+            val onlyB = "u888888"
+            val nobody = "u999999"
+            // B: a second active source on the same instance (the stub host), a clone of A with one more identity.
+            val b = newOwnConnection(groupPaths = listOf("flow-sample-peer"))
+            try {
+                val code = GitLabFixtures.codeStore()
+                val extra = code.identityRows(b).first().copy(key = onlyB, userId = 888_888L, username = "peer-only", emails = emptyList())
+                code.replaceIdentities(b, code.identityRows(b) + extra)
+                for (key in listOf(onlyB, nobody)) {
+                    links.insertIfAbsent(IdentityLink(host, key, CodeIdentityDecision.IGNORED, null, adminId.toLong(), nowMillis()))
+                }
+                val rootB = "/api/v1/data-sources/$b/code-identities"
+
+                val onA = admin.page(mapOf("status" to "IGNORED_OR_BOT")).items.associateBy { it.identityKey }
+                assertEquals(setOf(nobody), onA.keys, "B's key belongs to B's page")
+                assertFalse(onA.getValue(nobody).seen)
+                assertEquals(10L, admin.page().total, "A's nine identities and the one orphan")
+
+                val onB = admin.page(mapOf("status" to "IGNORED_OR_BOT"), rootB).items.associateBy { it.identityKey }
+                assertEquals(setOf(onlyB, nobody), onB.keys)
+                assertTrue(onB.getValue(onlyB).seen, "on B the key is a normal row")
+                assertFalse(onB.getValue(nobody).seen)
+
+                // Once B is gone, A is the only active source: B's key has no identity row anywhere and is A's orphan too.
+                removeConnection(b)
+                val afterB = admin.page(mapOf("status" to "IGNORED_OR_BOT")).items.associateBy { it.identityKey }
+                assertEquals(setOf(onlyB, nobody), afterB.keys)
+                assertTrue(afterB.values.none { it.seen })
+            } finally {
+                if (b in ownConnections) removeConnection(b)
+            }
+        }
+
     // ---- DELETE ----------------------------------------------------------------------------------------------------------------
 
     @Test
@@ -437,8 +484,12 @@ class CodeIdentityRoutesTest {
         /** The connection the tests read: ACTIVE (the routes only skip soft-deleted rows), DISABLED (no worker syncs it). */
         private var ownId: UInt = 0u
 
-        private suspend fun newOwnConnection(): UInt {
-            val id = GitLabFixtures.createConnection(dataSources, namePrefix = "code-identities")
+        private suspend fun newOwnConnection(groupPaths: List<String>? = null): UInt {
+            val id = if (groupPaths == null) {
+                GitLabFixtures.createConnection(dataSources, namePrefix = "code-identities")
+            } else {
+                GitLabFixtures.createConnection(dataSources, groupPaths = groupPaths, namePrefix = "code-identities")
+            }
             SyncedGitLabFixture.cloneProcessedData(SyncedGitLabFixture.connectionId(), id)
             synchronized(ownConnections) { ownConnections.add(id) }
             return id

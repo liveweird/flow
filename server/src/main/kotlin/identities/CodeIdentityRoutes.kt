@@ -66,17 +66,18 @@ private const val VIA_CONFIRM = "CONFIRM_PROPOSALS"
  * The four routes are ADMIN only, and `requireAdmin` is the FIRST statement of every handler: the data source, the key, the query and the
  * body are all read after it, so a non-admin gets one uniform `403` (`authorization.md`). Then 404 (data source) -> 409 (not a GitLab
  * source) -> 400 (key, query, body) -> 404 (identity / decision) -> 400 (unknown Jira account). The list carries the GitLab addresses, to
- * ADMIN only; every `/api/` answer is `no-store`. Audits carry ids, keys, the host and decisions, never an address or a name.
+ * ADMIN only; every `/api/` answer is `no-store`. The server never places a stored address in a URL; `q` is search text an admin typed,
+ * which may contain one (as flow-users' `q` already may). Audits carry ids, keys, the host and decisions, never an address or a name.
  */
 fun Application.configureCodeIdentities() {
     val database = attributes[R2dbcDatabaseKey]
     val links = CodeIdentityLinkStore(database)
     attributes.put(IdentityResolverKey, IdentityResolver(links))
-    val service = CodeIdentityService(database, links, attributes[CodeActivityStoreKey], attributes[WorkItemStoreKey])
+    val dataSources = attributes[DataSourceServiceKey]
+    val service = CodeIdentityService(database, links, attributes[CodeActivityStoreKey], attributes[WorkItemStoreKey], dataSources)
     attributes.put(CodeIdentityServiceKey, service)
     if (!servesApi()) return
 
-    val dataSources = attributes[DataSourceServiceKey]
     routing {
         authenticate {
             codeIdentityList(dataSources, service)

@@ -152,6 +152,9 @@ class CodeActivityStore(database: R2dbcDatabase) {
     /** Every identity of the connection in key order (the Identities page's row set). */
     suspend fun identityRows(connectionId: UInt): List<NormCodeIdentity> = reads.identityRows(connectionId)
 
+    /** The distinct identity keys of [connectionIds] together (empty input = no statement): which keys another source still has. */
+    suspend fun identityKeysOf(connectionIds: Collection<UInt>): Set<String> = reads.identityKeysOf(connectionIds)
+
     /** One identity by key (a primary-key read), or null. */
     suspend fun identityRow(connectionId: UInt, key: String): NormCodeIdentity? = reads.identityRow(connectionId, key)
 

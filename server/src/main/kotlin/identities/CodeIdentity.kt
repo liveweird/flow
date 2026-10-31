@@ -73,7 +73,8 @@ data class CodeIdentityDecisionView(
 
 /**
  * One row of the Identities page. [seen] is false for an ORPHANED decision: one stored for this data source's host whose key has no
- * identity row in THIS connection (the user left every fact, or the source was re-created and not yet processed). It carries the key, the
+ * identity row in ANY active GitLab data source of the instance (the user left every fact, or the sources were re-created and not yet
+ * processed). It carries the key, the
  * kind the key's shape implies and the decision only: no name, username or address.
  */
 @Serializable

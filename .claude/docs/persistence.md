@@ -1457,7 +1457,8 @@ unknown-account check skips an account the stored link already names).
 - **Host-keyed, no connection column, undated.** `norm.code_identities` is rebuilt wholesale per PROCESS run and drained by PURGE, and a data source can be
   deleted and created again for the same instance; a link points at the HOST, never at a row or a connection, so it **survives PURGE, a data-source
   delete and a re-created source** and applies again as soon as the identity rows are back. No purge step is registered (`JobHandlerRegistry` untouched).
-  A decision whose identity is gone stays listed (as not seen) on the decided tabs of any active data source on the same host and is removable there; with no
+  A decision whose identity no active data source on the host still has stays listed (as not seen) on the decided tabs of those sources and is removable there
+  (an orphan is per INSTANCE: a key another active source on the host still has belongs to that source's page and is not listed on this one); with no
   active source on the host it waits, inert, until one is created. Proposals (an address matching a Jira person) are
   computed at read time and never stored; only decisions are rows, and only a LINKED decision attributes anything.
 - **Readers and writers.** `identities/` only: `CodeIdentityLinkStore` is the single place that touches the table (`Links` is a query-only Exposed

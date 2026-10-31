@@ -8,8 +8,8 @@
 -- instance's authority (lowercase host, plus ":port" when it is not the scheme's default), taken from the data source's canonical base URL.
 -- norm.code_identities is rebuilt wholesale on every PROCESS run and drained by PURGE, and a data source can be deleted and created again
 -- for the same instance: a decision must outlive all three, so it points at the instance, never at a row or a connection. A decision whose
--- identity is gone stays listed (as not seen) on the decided tabs of any active data source on the same host and is removable there; with no
--- active source on the host it waits, inert, until one is created.
+-- identity no active data source on the host still has stays listed (as not seen) on the decided tabs of those sources and is removable
+-- there; with no active source on the host it waits, inert, until one is created.
 --
 -- Why HARD delete. The deletable action is "this decision was wrong"; there is no history the table must keep (the audit trail carries
 -- who decided and who removed what), and a removed decision is simply an identity with no decision again - the metrics.team_membership
