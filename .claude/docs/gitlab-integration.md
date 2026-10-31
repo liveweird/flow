@@ -117,8 +117,9 @@ A per-data-source glob list, `gitlab.pathExclusions` in the settings JSONB, edit
 `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `go.sum`, `Cargo.lock`, `Gemfile.lock`, `poetry.lock`, `composer.lock`,
 `*.min.js`, `*.min.css`, `**/vendor/**`, `**/node_modules/**`, `**/dist/**`, `**/generated/**`. Applied at PROCESS, never at
 fetch, so a change is a code-layer REPROCESS without refetching. Each `norm` commit row carries `files_counted`,
-`additions_counted` and `deletions_counted` beside the raw totals; for a `too_large` file the counted lines fall back to the
-commit's `stats` minus its other files' counted lines. MR line counts (GraphQL totals) are not exclusion-aware.
+`additions_counted` and `deletions_counted` beside the raw totals; for a `too_large` file its lines are the commit's `stats`
+minus the RAW lines of its other files (excluded ones included, so a lock file beside it is not credited to it), and the
+file then counts unless it is itself excluded (the stub's `special.tooLarge` pins both figures). MR line counts (GraphQL totals) are not exclusion-aware.
 
 ## Identity
 
@@ -150,15 +151,39 @@ commit's `stats` minus its other files' counted lines. MR line counts (GraphQL t
 Each lands with its `MigrationChecksumTest` pin and its `persistence.md` section; new cross-feature reads go on that doc's
 permission list.
 
-## Stub
+## Stub (as built, PR 5)
 
-`sample-data/gitlab/generate.mjs` (seeded, neutral names, `example.com` emails aligned with the Jira stub's people) →
-`sample-data/gitlab-stub/`, served by the in-JVM `GitLabStubServer` and the compose `gitlab-stub` (WireMock, 127.0.0.1:8095).
-The world: 2 groups (one with a subgroup), 4 projects in scope, 1 archived, 1 out of scope; 6 users (a bot, a secondary
-email, an admin, an unmatched personal email); ~300 commits incl. merges; ~60 MRs with notes, diff notes, approvals and
-reviewer states. A `gitlab-day2` scenario: a force-push, `master`→`main`, a deleted MR, a project moved out, a new project.
-`--scale users,projects,months` builds the performance world. `SyncedGitLabFixture` is one SYNC per fork, warmed like the
-Jira fixtures.
+`sample-data/gitlab/generate.mjs` (zero dependencies, seeded, byte-identical; `--users/--projects/--months/--out`) writes
+`sample-data/gitlab-stub/{mappings,__files}` (727 mappings, ~9 MiB) and `sample-data/gitlab/expected.json`. It is served by the
+compose `gitlab-stub` (WireMock, `127.0.0.1:8095`, read-only mount, nothing points the app at it until PR 6) and the in-JVM
+`GitLabStubServer` (`server/src/test/kotlin/`, `JiraStubServer`'s twin); `GitLabStubServerTest` pins the contract over plain HTTP and
+`node --test sample-data/gitlab/generate.test.mjs` (in `scripts/gates.sh e2e` and the CI `e2e-static` job) guards the generator.
+The full contract (every endpoint and its match rule, auth, pagination headers, 404 shapes, the day-2 deltas, the scale flags) is
+`sample-data/README.md` "GitLab stub"; the figures tests assert are in `expected.json`.
+
+The world: host `gitlab.flow-sample.example`, GitLab `19.3.1`; groups `platform` (7) with subgroup `platform/tooling` (8), `apps` (9),
+and an out-of-scope `sandbox` (12); 4 in-scope projects (`gateway`, `build-kit`, `storefront`, `ledger` with default branch `master`),
+1 archived, 1 out of scope; the configured groups are 7 and 9. 8 users: an admin (the token's owner), 6 humans whose emails are the
+Jira stub's `user<n>@flow-sample.example` (one through a confirmed secondary email, one deactivated, two also committing with a
+GitLab noreply address), and a project bot (`bot: true`); one commit author matches no user. 300 default-branch commits (19 merge
+commits, rebased and clock-skewed dates, `stats`, lock/vendored/generated/minified/binary/renamed files, one 1,040-file commit, one
+`too_large` and one `collapsed` file), 60 merge requests (34 merged, 16 opened, 8 closed, 2 locked) with notes, `DiffNote`s, system
+notes, approvals and reviewer states. The `gitlab-day2` scenario: a force-push, `master` to `main`, a deleted MR, a project moved
+out, a new project, new commits and MR updates.
+
+Shapes the real-instance smoke run (PR 12) must confirm, because the stub models them from knowledge of the API, not from a capture:
+`too_large`/`collapsed`/`generated_file` on commit diff entries (the stub emits the first two only where they apply); the GraphQL
+`iid` as a string and the shape of a partial-failure `errors` entry; `ref_name=<unknown>` on the commit list (the stub 404s, a real
+server may answer `[]`); `X-Total` on every list; commit dates printed with the committer's own offset (`+02:00`, `+00:00` for
+UTC); the legacy `/approvals` object; reviewer `state` values; the `Link` header carrying route params (`id`, `sha`).
+
+**A note for the COMMIT FILES design.** The `too_large` fallback ("the commit's `stats` minus its other files' counted lines") also
+absorbs the lines of the commit's *excluded* files (a lock file changed beside the too-large file is not "counted"), so it
+over-attributes; `expected.json` `special.tooLarge` records both that figure and the true one (commit `stats` minus the other
+files' *raw* lines). The stub's too-large commit changes a lock file on purpose, so PR 7 sees the difference.
+
+`SyncedGitLabFixture` (one SYNC per fork, warmed in `@BeforeClass` like the Jira fixtures) lands with the COMMITS PR (7), when a
+sync exists to run.
 
 ## PR sequence
 
