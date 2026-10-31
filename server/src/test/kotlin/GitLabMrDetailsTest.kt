@@ -508,15 +508,70 @@ class GitLabMrDetailsTest {
     }
 
     @Test
-    fun `when the oversized merge request is the one that trips the skip budget the run fails LIMIT_EXCEEDED`() = runBlocking<Unit> {
-        val connId = connection(12)
-        val client = FakeClient().apply {
-            scriptAll()
-            // Ten failed reads (iids 12..3), then the oversized 11th trips the budget.
-            notesOf = { _, iid, _ -> throw failure(if (iid >= 3) "UPSTREAM_UNAVAILABLE" else "LIMIT_EXCEEDED") }
+    fun `the budget trip takes its code from the majority of the deferred - failed reads win ties, oversized ones win otherwise`() =
+        runBlocking<Unit> {
+            // Ten failed reads (iids 12..3), then the oversized 11th trips the budget: reads are the majority.
+            val reads = connection(12)
+            val readsFirst = FakeClient().apply {
+                scriptAll()
+                notesOf = { _, iid, _ -> throw failure(if (iid >= 3) "UPSTREAM_UNAVAILABLE" else "LIMIT_EXCEEDED") }
+            }
+            assertEquals("UPSTREAM_UNAVAILABLE", assertFailsWith<FetchException> { details(readsFirst, reads) }.code)
+            assertEquals(12L, store.countStaleMergeRequests(reads))
+
+            // Ten oversized, then one failed read trips it: oversized ones are the majority.
+            val oversized = connection(12)
+            val oversizedFirst = FakeClient().apply {
+                scriptAll()
+                notesOf = { _, iid, _ -> throw failure(if (iid >= 3) "LIMIT_EXCEEDED" else "UPSTREAM_UNAVAILABLE") }
+            }
+            assertEquals("LIMIT_EXCEEDED", assertFailsWith<FetchException> { details(oversizedFirst, oversized) }.code)
+            assertEquals(12L, store.countStaleMergeRequests(oversized))
         }
-        assertEquals("LIMIT_EXCEEDED", assertFailsWith<FetchException> { details(client, connId) }.code)
-        assertEquals(12L, store.countStaleMergeRequests(connId))
+
+    @Test
+    fun `on an abnormal end only the oversized stamps are written - a failed read stays stale for the next run`() = runBlocking<Unit> {
+        // iid 3 oversized, iid 2 a failed read, then iid 1 ends the run: a rate limit, or the wall clock.
+        val limited = connection(3)
+        val rateLimited = FakeClient().apply {
+            scriptAll()
+            notesOf = { _, iid, _ ->
+                when (iid) {
+                    3L -> throw failure("LIMIT_EXCEEDED")
+                    2L -> throw failure("TIMEOUT")
+                    else -> throw failure("RATE_LIMITED")
+                }
+            }
+        }
+        assertEquals("RATE_LIMITED", assertFailsWith<FetchException> { details(rateLimited, limited) }.code)
+        assertEquals(DETAILS_ERROR_LIMIT_EXCEEDED, rowOf(limited, 3)[MergeRequests.detailsError])
+        assertNull(rowOf(limited, 2)[MergeRequests.detailsError], "the failed read is not stamped")
+        assertEquals(2L, store.countStaleMergeRequests(limited))
+
+        val timed = connection(3)
+        var now = 10_000_000L
+        val clock = FakeClient().apply {
+            scriptAll()
+            notesOf = { _, iid, _ ->
+                when (iid) {
+                    3L -> throw failure("LIMIT_EXCEEDED")
+                    2L -> throw failure("UPSTREAM_UNAVAILABLE")
+                    else -> {
+                        now += 1_000_000 // iid 1 takes "a long time": the deadline passes while it is read
+                        GitLabNotePage(listOf(note(iid)), null)
+                    }
+                }
+            }
+        }
+        val context = StreamContext(
+            timed, 1u, sharedDatabaseForTests(), cursors, jobHeartbeat = { _, _ -> true }, clock = { now }, maxRunMillis = 500_000,
+        )
+        assertFailsWith<CeilingTripException> { details(clock, timed, context = context) }
+        assertEquals(DETAILS_ERROR_LIMIT_EXCEEDED, rowOf(timed, 3)[MergeRequests.detailsError], "the oversized one is kept")
+        assertNull(rowOf(timed, 2)[MergeRequests.detailsError], "the failed read is not stamped FETCH_FAILED for good")
+        assertNull(rowOf(timed, 2)[MergeRequests.detailsSyncedAt])
+        assertNotNull(rowOf(timed, 1)[MergeRequests.detailsSyncedAt])
+        assertEquals(1L, store.countStaleMergeRequests(timed))
     }
 
     @Test

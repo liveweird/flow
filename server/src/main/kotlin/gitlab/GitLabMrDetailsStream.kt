@@ -54,10 +54,11 @@ private val MR_READ_FAILURE_CODES = setOf("UPSTREAM_UNAVAILABLE", "INVALID_RESPO
  *    `mrDetailsOversized`; one of the three failing `UPSTREAM_UNAVAILABLE`, `TIMEOUT` or `INVALID_RESPONSE` after the transport's
  *    retries: `details_error = FETCH_FAILED`, `mrDetailsFailed` (a merge request that fails every time must not block the backlog behind
  *    it). Both are stamped at the END of the run through ONE [SkipBudget]: more than `max(10, 10 %)` of them fail the run and NONE is
- *    stamped (the cap is too small, or the instance is down, not isolated outliers). The run fails `LIMIT_EXCEEDED` when the tripping
- *    merge request was oversized, and with the read failure's OWN code when it was a failed read, so an outage backs off like an outage
- *    and is never counted as a ceiling trip. Until then they wait in memory and are
- *    excluded from this run's re-claims, which would otherwise return them forever; a change of the merge request re-reads it;
+ *    stamped (the cap is too small, or the instance is down, not isolated outliers). The run fails with the LAST failed read's OWN code
+ *    when failed reads are at least as many as oversized ones (an outage backs off like an outage and is never a ceiling trip), else
+ *    `LIMIT_EXCEEDED`. Until then they wait in memory and are excluded from this run's re-claims, which would otherwise return them
+ *    forever; a change of the merge request re-reads it. On an ABNORMAL end (a failure, the wall clock) only the oversized ones are
+ *    stamped: the failed reads stay stale and are read again next run;
  *  - the GraphQL call answers errors, lacks the project or a merge request, or fails with a per-answer code ([GRAPHQL_GAP_CODES]): a NULL
  *    GAP for those merge requests (`mrDiffStatsGaps`, counted when the merge request is stamped; one WARN per run with the count and the
  *    first code), stamped complete and NOT asked again until the merge request changes;
@@ -78,7 +79,7 @@ internal class GitLabMrDetailsStream(
     override val name: String = "mr_details"
 
     /** A merge request whose read ended in a terminal [error] and waits for the end of the run to be stamped. */
-    private class Deferred(val mr: StaleMergeRequest, val error: String)
+    private class Deferred(val mr: StaleMergeRequest, val error: String, val cause: FetchException)
 
     /** Everything one run keeps: the calls spent, the merge requests waiting for their terminal stamp, and the GraphQL trouble seen. */
     private class Session(val context: StreamContext) {
@@ -110,7 +111,7 @@ internal class GitLabMrDetailsStream(
             } catch (cause: FetchException) {
                 keepDeferred(session, cause)
             } catch (cause: CeilingTripException) {
-                keepDeferred(session, cause) // the wall clock stopped the run: what was read is stored, the oversized ones stamped
+                keepDeferred(session, cause) // the wall clock stopped the run: oversized ones stamped, failed reads stay stale
             }
             stampDeferred(session)
             val pending = rawStore.countStaleMergeRequests(context.connectionId)
@@ -246,19 +247,22 @@ internal class GitLabMrDetailsStream(
 
     /**
      * [mr]'s read ended in a terminal [error] ([counter] counts it) because of [cause]: it waits for the END of the run's stamp; too many
-     * (a mis-set cap, an instance that is down) fail the run and stamp none - `LIMIT_EXCEEDED` when this one was oversized, [cause] itself
-     * (the instance's own code) when it was a failed read.
+     * (a mis-set cap, an instance that is down) fail the run and stamp none. The code is decided from the whole deferred list: the LAST
+     * read failure's own code when failed reads are at least as many as oversized ones (an outage backs off like an outage), else
+     * `LIMIT_EXCEEDED`.
      */
     private fun defer(session: Session, mr: StaleMergeRequest, error: String, counter: String, cause: FetchException): Boolean {
         log.warn("GitLab merge-request details not readable ({}), data source {}", error, session.context.connectionId)
-        session.deferred += Deferred(mr, error)
+        session.deferred += Deferred(mr, error, cause)
         session.context.incrementProgress(counter)
         try {
             session.skips.skip()
         } catch (trip: FetchException) {
+            val reads = session.deferred.filter { it.error == DETAILS_ERROR_FETCH_FAILED }
+            val oversized = session.deferred.size - reads.size
             session.deferred.clear() // a mis-set cap or an outage: leave every deferred merge request stale for after the fix
-            if (error == DETAILS_ERROR_LIMIT_EXCEEDED) throw trip
-            throw cause.also { it.addSuppressed(trip) }
+            if (reads.isEmpty() || reads.size < oversized) throw trip
+            throw reads.last().cause.also { it.addSuppressed(trip) }
         }
         return false // nothing is stored until the end of the run
     }
@@ -274,26 +278,37 @@ internal class GitLabMrDetailsStream(
         return stamped
     }
 
-    /** Stamps what was deferred before [cause] ended the run, then rethrows it; a failing stamp must not hide [cause]. */
+    /**
+     * Stamps what was deferred before [cause] ended the run, then rethrows it; a failing stamp must not hide [cause]. Only the OVERSIZED
+     * ones are stamped on this abnormal end: a failed read (`FETCH_FAILED`) stays stale and is read again next run - a hanging GitLab
+     * late in a long run would otherwise let the wall clock trip first and stamp the ones it met for good.
+     */
     private suspend fun keepDeferred(session: Session, cause: Exception): Nothing {
-        val stampFailure = catchingFailures<Exception?>(block = { stampDeferred(session); null }, onFailure = { it })
+        val stampFailure = catchingFailures<Exception?>(
+            block = { stampDeferred(session, includeFailedReads = false); null },
+            onFailure = { it },
+        )
         // The clock's trip was typed before the stamps; rebuilt after them, it knows they were stored (progress).
         if (cause is CeilingTripException && stampFailure == null) throw session.context.ceilingTrip(cause.code, cause.underlying)
         stampFailure?.let(cause::addSuppressed)
         throw cause
     }
 
-    /** Stamps every deferred merge request with its terminal error in ONE transaction (events and stats stay as they were), then clears. */
-    private suspend fun stampDeferred(session: Session) {
-        if (session.deferred.isEmpty()) return
+    /**
+     * Stamps the deferred merge requests with their terminal error in ONE transaction (events and stats stay as they were), then clears;
+     * the failed reads only when [includeFailedReads] (a normal end of the run).
+     */
+    private suspend fun stampDeferred(session: Session, includeFailedReads: Boolean = true) {
+        val stamps = session.deferred.filter { includeFailedReads || it.error != DETAILS_ERROR_FETCH_FAILED }
+        session.deferred.clear()
+        if (stamps.isEmpty()) return
         val context = session.context
         context.transaction {
             val now = context.clock()
-            session.deferred.forEach {
+            stamps.forEach {
                 rawStore.settleMrDetails(context.connectionId, it.mr.mrId, emptyList(), now, MrDetailsOutcome(error = it.error))
             }
         }
-        session.deferred.clear()
         context.heartbeat(changed = true)
     }
 
