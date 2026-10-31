@@ -900,7 +900,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V41`:
+Current migrations are `V1`–`V42`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -1085,6 +1085,7 @@ Current migrations are `V1`–`V41`:
   before the GitLab data-source release, so an old pod never reads one. `MigrationChecksumTest` pins it. No cross-feature read or write
   is added: the list above is unchanged.
 - `V41__gitlab_raw_store` - see "The GitLab raw store (V41)" below: `raw.gitlab_projects` and `raw.gitlab_users`.
+- `V42__gitlab_commits_raw_store` - see "The GitLab commits raw store (V42)" below: `raw.gitlab_commits` and `raw.gitlab_commit_files`, and `raw.gitlab_projects.commits_head_sha` widened to `VARCHAR(64)`.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
@@ -1283,8 +1284,8 @@ carry `first_seen_at` / `last_seen_at` / `changed_at` epoch millis.
 
 - **`raw.gitlab_projects`**: `project_id`, `path_with_namespace` (≤1024), `group_path` / `group_id` (the CONFIGURED group the project was listed
   under, not its own subgroup), `default_branch`, `archived`, `moved_out_at` (not seen under any configured group in a COMPLETED pass; cleared when
-  seen again), `deleted_at` (RECONCILE's, PR 9; unused until then) and the COMMITS stream's `commits_head_sha CHAR(40)` / `relist_requested`
-  (PR 7; null/false until then).
+  seen again), `deleted_at` (RECONCILE's, PR 9; unused until then) and the COMMITS stream's `commits_head_sha` (CHAR(40) in V41, widened to
+  VARCHAR(64) by V42) / `relist_requested` (PR 7; null/false until then).
 - **`raw.gitlab_users`**: `user_id`, `username`, `name`, `state`, `bot`, `emails JSONB` (the sorted, distinct, lowercased union of the user's
   `email`/`commit_email`/`public_email` and the confirmed secondary emails - also inside the payload, so ONE hash covers both), `deleted_at` (not seen
   in a completed `/users` pass).
@@ -1296,6 +1297,39 @@ carry `first_seen_at` / `last_seen_at` / `changed_at` epoch millis.
 - **PURGE**: `GitLabRawPurge` deletes 500-row batches of each table per connection (`GitLabRawStore.purgeAll`, the connector's `PurgeStep`).
 - Indexes `(connection_id, last_seen_at)` on both tables serve the sweeps and the users-freshness read (`oldestLiveUserSeenAt`). The telemetry size
   estimate picks both tables up by their `connection_id` column automatically. Purely additive: an old pod never reads them.
+  `MigrationChecksumTest` pins it.
+
+### The GitLab commits raw store (V42)
+
+`V42__gitlab_commits_raw_store.sql` (`gitlab/GitLabCommitWrites.kt`, `GitLabCommitFileWrites.kt`, `GitLabCommitReads.kt`, the tables on `GitLabRawStore`;
+design `gitlab-integration.md` "Streams") adds the default-branch commits of the live projects and the per-file line counts of each non-merge commit.
+Privacy: no message body, committer, diff text or payload is stored - a commit's `title` (GitLab's first line, ≤255), author name/email (≤255, as sent;
+canonicalised later), `authored_at`/`committed_at`, `parent_count`, `additions`/`deletions` from `stats`, and per file only the path, its lines and flags.
+
+- **`raw.gitlab_commits`**: PK `(connection_id, project_id, sha)`, `sha VARCHAR(64)` (SHA-1 or SHA-256 repositories). **No payload and no hash**: a commit is
+  immutable by SHA, so a re-listing only touches `last_seen_at` (`UNCHANGED`) and clears a tombstone (`RESURRECTED`, which sets `needs_processing` again);
+  there is no `CHANGED` outcome. No FK to `raw.gitlab_projects` (as `raw.jira_issues` has none to its project).
+- **The files-backlog states** (one column set, three states): `files_fetched_at` NULL = the `/diff` has not been read (the COMMIT FILES backlog; a merge
+  commit, `parent_count > 1`, and a tombstoned one never enter it); set with `files_error` NULL = the file rows are complete (`files_changed` = the rows
+  stored, `files_capped` = the 1,000-file cap cut them, in which case `files_changed` is 1,000 and PR 10 reads the flag, never a total); set with
+  `files_error` (`LIMIT_EXCEEDED`: a diff page over `gitlab.maxResponseBytes`; `NOT_FOUND`: the commit is gone) = terminal, `files_changed` stays NULL and
+  the commit's `stats` are all PROCESS has. `idx_raw_gitlab_commits_files_backlog` is the partial index of exactly the pending predicate, newest first.
+- **`raw.gitlab_commit_files`**: PK `(connection_id, project_id, sha, path)`, `path` = GitLab's `new_path` (≤1024), `old_path` for a rename only,
+  `additions`/`deletions` NULL when GitLab sent the file `too_large` or `collapsed` (a binary file counts 0/0), the new/deleted/renamed flags and
+  `generated_file` (GitLab's own `linguist-generated` detection, free at fetch time and not recoverable at PROCESS without a refetch). The composite FK to
+  `raw.gitlab_commits` is `ON DELETE CASCADE`; the `connection_id` column alone has no FK, the commit's already pins it. A flush
+  (`flushCommitFiles`) inserts the files `ON CONFLICT DO NOTHING` and stamps their commits in ONE transaction, so a commit is never stamped without its files.
+- **The tombstone sweep** (`tombstoneCommitsNotSeenSince`): at the end of a force-push re-list, the project's live commits with `committed_at >= since`
+  (the oldest live commit when the re-list began, NOT the moving backfill floor) and `last_seen_at < passStartedAt` get `deleted_at = now` and
+  `needs_processing = true`. A tombstone deletes nothing: the files stay until PURGE. RECONCILE (PR 9) sets `deleted_at` the same way.
+- **`needs_processing` / `processed_at` / `processing_version`** are PROCESS's (PR 10), the `raw.jira_issues` shape; a files flush and a tombstone set
+  `needs_processing` again. `idx_raw_gitlab_commits_needs_processing` serves its claim scan; `idx_raw_gitlab_commits_project_live` the per-project reads
+  (`oldestLiveCommittedAt`, the sweep).
+- **`raw.gitlab_projects.commits_head_sha`** is widened from `CHAR(40)` (V41, never written before this migration) to `VARCHAR(64)`: a SHA-256
+  repository would otherwise truncate the head silently. `recordCommitsHead` writes the head and the `relist_requested` flag in one `UPDATE`.
+- **PURGE**: `GitLabRawPurge.purgeCommitsBatch` deletes 500-row batches of commits per connection (a delete per project, so a SHA shared by two projects -
+  a fork - stays exact) and the files go through the cascade; `GitLabRawStore.purgeAll` drains commits, then users, then projects. The telemetry size
+  estimate picks both tables up by their `connection_id` column. Purely additive but for the widened column: an old pod never reads them.
   `MigrationChecksumTest` pins it.
 
 ### Telemetry (V36)

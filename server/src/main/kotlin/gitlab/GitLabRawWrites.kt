@@ -22,7 +22,7 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
 
 /** The most keys one `IN (...)` list carries (one bind parameter each); a page is 100, so one chunk in practice. */
-private const val KEY_CHUNK = 1_000
+internal const val KEY_CHUNK = 1_000
 
 /** The column widths of V41: a longer value is cut, never a failing insert (GitLab caps these far below). */
 private const val MAX_NAME = 255
