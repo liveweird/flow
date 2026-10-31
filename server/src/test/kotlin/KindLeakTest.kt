@@ -206,6 +206,7 @@ class KindLeakTest {
         assertEquals("https://gitlab.example.com", gitlab.baseUrl)
         assertEquals(listOf("acme/platform"), gitlab.groupPaths)
         assertFalse(gitlab.hasToken, "the fixture row stores no secret")
+        assertEquals(ch.nokillswit.ingest.DEFAULT_PATH_EXCLUSIONS, gitlab.pathExclusions, "a row without the key follows the defaults")
         val read = admin.get("/api/v1/data-sources/$gitlabId")
         assertEquals(HttpStatusCode.OK, read.status)
         assertEquals(listed.copy(status = listed.status.copy(runningJobId = null)), read.body<DataSourceResponse>())

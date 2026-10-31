@@ -242,7 +242,16 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
 
 ## Path exclusions
 
-A per-data-source glob list, `gitlab.pathExclusions` in the settings JSONB, edited on the data source. Defaults:
+A per-data-source glob list, `gitlab.pathExclusions` in the settings JSONB, edited on the data source (on the wire since PR 7, **applied only
+from PR 10**: until then it is stored and echoed, nothing reads it). **Wire and storage:** the request's `pathExclusions` is nullable;
+omitted on create stores null = "follow the built-in defaults" (so an untouched source follows a release that changes the list), omitted on
+update keeps the stored value, a list replaces it (an empty list = exclude nothing, not the defaults). The response always carries the
+EFFECTIVE list (`effectivePathExclusions`), and `GET /api/v1/data-sources/kinds` carries `defaultPathExclusions` per kind (GitLab: the 14
+below in this order, Jira: empty) for the editor's prefill and "Reset to defaults". **Validation** (a `400`, after the ADMIN guard): at most
+100 patterns, each 1-255 characters after `sanitizeSingleLine`, de-duplicated with the order kept, never lowercased (git paths are
+case-sensitive), each compiling with `infra/validation/PathGlob`. **Glob semantics** (`PathGlob`): gitignore-like - a pattern without `/`
+matches the file name at any depth, one with `/` the whole path; `**` crosses `/`, `*` and `?` stay inside a segment, `[...]` is a class. The edit
+rides `data_source.updated` (host only; the patterns are never logged). Defaults:
 `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `go.sum`, `Cargo.lock`, `Gemfile.lock`, `poetry.lock`, `composer.lock`,
 `*.min.js`, `*.min.css`, `**/vendor/**`, `**/node_modules/**`, `**/dist/**`, `**/generated/**`. Applied at PROCESS, never at
 fetch, so a change is a code-layer REPROCESS without refetching. Each `norm` commit row carries `files_counted`,

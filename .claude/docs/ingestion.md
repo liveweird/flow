@@ -1397,7 +1397,8 @@ out of every Jira-only path (V40 + `ingest/`, pinned by `ConnectorSeamTest` and 
   apiToken, projectKeys, authScheme)` and `GitLab(baseUrl, token, groupPaths)`; both mask the secret in `toString`. A connector answers
   its own case only (`JiraConnector` `check`s: an internal error, never reachable from a route).
 - **Settings by kind** (`DataSourceSettings.kt`): `ConnectionSettings` is a sealed interface with `JiraConnectionSettings` (stored JSON
-  unchanged since V8, no discriminator) and `GitLabConnectionSettings(baseUrl, groupPaths, pathExclusions?)`.
+  unchanged since V8, no discriminator) and `GitLabConnectionSettings(baseUrl, groupPaths, pathExclusions?)` (null = follow `DEFAULT_PATH_EXCLUSIONS`; `effectivePathExclusions(stored)` is the one read rule).
+  `GET /api/v1/data-sources/kinds` carries `defaultPathExclusions` per kind (GitLab: the 14 built-ins, Jira: empty).
   `decodeSettings(kind, raw)` picks the shape from the row's `kind`; `ResultRow.jiraSettings()` is the Jira-only read and throws for any
   other kind, so a missed gate fails loudly instead of reading GitLab JSON as Jira.
 - **Kind-leak guards** (a non-metrics / non-Jira row never reaches these): the scope rules (`DataSourceScope.kt`) read Jira rows only;
@@ -1422,7 +1423,7 @@ out of every Jira-only path (V40 + `ingest/`, pinned by `ConnectorSeamTest` and 
 `source_connections` (V8, `ingest/DataSourceService.kt`) is the generic connector registry: `kind`
 (`JIRA_CLOUD`, `GITLAB` since V40 - "Connector kinds"), typed common columns (schedule, sync status, `config_revision`) and a
 `settings` jsonb holding the per-kind shape (Jira's: `siteUrl`, `email`, `projectKeys`, `authScheme`,
-`cloudId`; GitLab's: `baseUrl`, `groupPaths`, `pathExclusions?` - null and unused until PR 7) — the GitLab connector reuses this table, its
+`cloudId`; GitLab's: `baseUrl`, `groupPaths`, `pathExclusions?` - null = the built-in defaults, on the wire since PR 7, applied by PROCESS in PR 10) — the GitLab connector reuses this table, its
 queue and its worker outright. The per-kind half of a write (which block a body carries, the settings it stores, the PUT merge with the
 identity/kind 409s, the ad-hoc test target) is `DataSourceKindWrites.kt`; the GitLab wire and validation is `GitLabDataSource.kt`. The service keeps the
 table, the CRUD and the PUT/scope locking; the rest sits beside it as verbatim moves taking an explicit `database`/`cipher`, the service

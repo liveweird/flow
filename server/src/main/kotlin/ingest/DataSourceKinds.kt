@@ -51,7 +51,13 @@ suspend fun DataSourceService.requireJiraConnection(id: UInt, what: String) =
  * be created on this server, and the origins an operator allows. A bounded, admin-curated set, so the plain `{items}` wrapper.
  */
 @Serializable
-data class DataSourceKindInfo(val kind: DataSourceKind, val enabled: Boolean, val allowedOrigins: List<String>)
+data class DataSourceKindInfo(
+    val kind: DataSourceKind,
+    val enabled: Boolean,
+    val allowedOrigins: List<String>,
+    /** The path-exclusion globs a source of the kind follows until it sets its own (GitLab's built-ins; empty for Jira). */
+    val defaultPathExclusions: List<String>,
+)
 
 @Serializable
 data class DataSourceKindsResponse(val items: List<DataSourceKindInfo>)
@@ -64,11 +70,17 @@ data class DataSourceKindsResponse(val items: List<DataSourceKindInfo>)
 fun dataSourceKinds(gitlab: GitLabSettings): DataSourceKindsResponse = DataSourceKindsResponse(
     DataSourceKind.entries.map { kind ->
         when (kind) {
-            DataSourceKind.JIRA_CLOUD -> DataSourceKindInfo(kind, enabled = true, allowedOrigins = emptyList())
+            DataSourceKind.JIRA_CLOUD -> DataSourceKindInfo(
+                kind,
+                enabled = true,
+                allowedOrigins = emptyList(),
+                defaultPathExclusions = emptyList(),
+            )
             DataSourceKind.GITLAB -> DataSourceKindInfo(
                 kind,
                 enabled = gitlab.enabled,
                 allowedOrigins = if (gitlab.enabled) gitlab.hosts.origins() + listOfNotNull(gitlab.devStub?.origin()) else emptyList(),
+                defaultPathExclusions = DEFAULT_PATH_EXCLUSIONS,
             )
         }
     },

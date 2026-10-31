@@ -207,11 +207,12 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     `data_source.token_rotated`); no response or audit event ever carries it, only
     `jira.hasApiToken`. **The GitLab kind (1.34.0)** rides the same routes with a `gitlab` block instead of `jira` (exactly one, else `400`;
     the block sets the kind, which is fixed: the other block on a PUT, or a different canonical `gitlab.baseUrl`, is `409`; `gitlab.token`
-    is write-only like the Jira token, only `gitlab.hasToken` is echoed). Its own scope `409`s are
+    is write-only like the Jira token, only `gitlab.hasToken` is echoed; `gitlab.pathExclusions` is validated after the guard - more than 100 patterns, one outside 1-255 characters
+    (after `sanitizeSingleLine`, whose control-character refusal is a `400` too) or one that is not a valid glob is a `400`; the audit events never carry the patterns). Its own scope `409`s are
     `urn:flow:problem:data-source-other-instance` / `…-group-overlap`; a base URL off the operator's `GITLAB_ALLOWED_HOSTS`, or any GitLab
     write while the kind is off, is a `400` carrying `gitlab-host-not-allowed` / `gitlab-disabled`; the stored Test connection of a GitLab row
     while the kind is off is `409 data-source-kind-unsupported`. **`GET /api/v1/data-sources/kinds`** (ADMIN, `requireAdmin` first; `{items}` of
-    `{kind, enabled, allowedOrigins}`) tells the editor which kinds can be created: nothing in it is a secret (the operator's own host list), but
+    `{kind, enabled, allowedOrigins, defaultPathExclusions}`) tells the editor which kinds can be created: nothing in it is a secret (the operator's own host list), but
     like the rest of the surface it is not an any-authenticated read. Delete is soft (disables the connection; the raw/normalized rows purge
     later per the v0.2.0 plan's grace-period amendment). Mutations audit
     `data_source.created`/`.updated`/`.token_rotated`/`.deleted` (the first two and `.tested`/`.scope_rejected` carry `kind` and `host`).

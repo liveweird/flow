@@ -8,6 +8,7 @@ import ch.nokillswit.gitlab.RawGitLabCommitFile
 import ch.nokillswit.gitlab.purgeAll
 import ch.nokillswit.ingest.ConnectionTestResult
 import ch.nokillswit.ingest.DATA_SOURCE_KIND_UNSUPPORTED
+import ch.nokillswit.ingest.DEFAULT_PATH_EXCLUSIONS
 import ch.nokillswit.ingest.DataSourceKind
 import ch.nokillswit.ingest.DataSourcePageResponse
 import ch.nokillswit.ingest.DataSourceRequest
@@ -63,7 +64,8 @@ class GitLabDataSourceRoutesTest {
         baseUrl: String = GitLabStubServer.baseUrl,
         token: String? = "glpat-${UUID.randomUUID()}",
         groups: List<String> = listOf(group()),
-    ) = GitLabConnectionRequest(baseUrl, token, groups)
+        pathExclusions: List<String>? = null,
+    ) = GitLabConnectionRequest(baseUrl, token, groups, pathExclusions)
 
     private fun request(name: String, gitlab: GitLabConnectionRequest? = gitlab(),
         jira: ch.nokillswit.ingest.JiraConnectionRequest? = null) =
@@ -277,6 +279,60 @@ class GitLabDataSourceRoutesTest {
     }
 
     @Test
+    fun `path exclusions follow the defaults until set, a list replaces them, omitted keeps them, empty excludes nothing`() =
+        testApplication {
+            configureApp("gitlab.stubBaseUrl" to GitLabStubServer.start())
+            startApplication()
+            val admin = seededClient("glpathex", FlowUserRole.ADMIN)
+            val groups = listOf(group())
+            val created = admin.create(gitlab = gitlab(groups = groups))
+            assertEquals(DEFAULT_PATH_EXCLUSIONS, created.gitlab!!.pathExclusions, "omitted on create = the built-in defaults")
+
+            suspend fun put(pathExclusions: List<String>?) = admin.putJson(
+                "/api/v1/data-sources/${created.id}",
+                request(created.name, gitlab(token = null, groups = groups, pathExclusions = pathExclusions)),
+            )
+            suspend fun effective() = admin.get("/api/v1/data-sources/${created.id}").body<DataSourceResponse>().gitlab!!.pathExclusions
+
+            assertEquals(HttpStatusCode.NoContent, put(listOf("*.lock", " docs/** ", "*.lock")).status)
+            assertEquals(listOf("*.lock", "docs/**"), effective(), "trimmed, de-duplicated, order kept")
+            assertEquals(HttpStatusCode.NoContent, put(null).status)
+            assertEquals(listOf("*.lock", "docs/**"), effective(), "omitted on update keeps the stored list")
+            assertEquals(HttpStatusCode.NoContent, put(emptyList()).status)
+            assertEquals(emptyList(), effective(), "an empty list excludes nothing and is not the defaults")
+            assertEquals(HttpStatusCode.NoContent, put(null).status)
+            assertEquals(emptyList(), effective())
+
+            val withList = admin.create(gitlab = gitlab(pathExclusions = listOf("Case.LOCK")))
+            assertEquals(listOf("Case.LOCK"), withList.gitlab!!.pathExclusions, "case-sensitive, never lowercased")
+        }
+
+    @Test
+    fun `an invalid path exclusion list is a 400 on create and update`() = testApplication {
+        configureApp("gitlab.stubBaseUrl" to GitLabStubServer.start())
+        startApplication()
+        val admin = seededClient("glpathbad", FlowUserRole.ADMIN)
+        val created = admin.create()
+        suspend fun refused(patterns: List<String>): ProblemDetail = admin.problem(
+            admin.postJson("/api/v1/data-sources", request(unique("bad"), gitlab(pathExclusions = patterns))), HttpStatusCode.BadRequest,
+        )
+
+        assertTrue("at most 100" in refused(List(101) { "p$it.lock" }).detail!!)
+        assertTrue("Invalid path exclusion: [" in refused(listOf("[")).detail!!)
+        assertTrue("1-255" in refused(listOf("   ")).detail!!)
+        assertTrue("1-255" in refused(listOf("x".repeat(256))).detail!!)
+        refused(listOf("bad\u0007pattern"))
+        refused(listOf("a//b"))
+        // Exactly the bounds are fine, and the same rules guard an update.
+        assertEquals(100, admin.create(gitlab = gitlab(pathExclusions = List(100) { "p$it.lock" })).gitlab!!.pathExclusions.size)
+        val update = admin.putJson(
+            "/api/v1/data-sources/${created.id}",
+            request(created.name, gitlab(token = null, groups = created.gitlab!!.groupPaths, pathExclusions = listOf("["))),
+        )
+        assertTrue("Invalid path exclusion" in admin.problem(update, HttpStatusCode.BadRequest).detail!!)
+    }
+
+    @Test
     fun `GET kinds lists both kinds for an ADMIN and is 403 for a USER`() = testApplication {
         configureApp("gitlab.stubBaseUrl" to GitLabStubServer.start())
         startApplication()
@@ -290,6 +346,9 @@ class GitLabDataSourceRoutesTest {
         val gitlab = kinds.items.last()
         assertTrue(gitlab.enabled)
         assertEquals(listOf(GitLabStubServer.baseUrl), gitlab.allowedOrigins, "the development stub's origin")
+        assertEquals(DEFAULT_PATH_EXCLUSIONS, gitlab.defaultPathExclusions)
+        assertEquals(14, gitlab.defaultPathExclusions.size)
+        assertEquals(emptyList(), jira.defaultPathExclusions)
 
         assertEquals(HttpStatusCode.Forbidden, user.get("/api/v1/data-sources/kinds").status)
     }

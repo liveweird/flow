@@ -1,6 +1,7 @@
 package ch.nokillswit.ingest
 
 import ch.nokillswit.infra.maskedSecret
+import ch.nokillswit.infra.validation.PathGlob
 import ch.nokillswit.infra.validation.sanitizeSingleLine
 import io.ktor.server.plugins.BadRequestException
 import kotlinx.serialization.Serializable
@@ -15,6 +16,20 @@ const val MAX_GITLAB_TOKEN_LENGTH = 1000
 const val MIN_GROUP_PATHS = 1
 const val MAX_GROUP_PATHS = 10
 const val MAX_GROUP_PATH_LENGTH = 255
+const val MAX_PATH_EXCLUSIONS = 100
+const val MAX_PATH_EXCLUSION_LENGTH = 255
+
+/**
+ * The built-in path exclusions (`gitlab-integration.md` "Path exclusions"): lock files, minified bundles and generated or vendored
+ * trees. A source whose stored list is null FOLLOWS this list, so a release that changes it changes every untouched source.
+ */
+val DEFAULT_PATH_EXCLUSIONS: List<String> = listOf(
+    "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "go.sum", "Cargo.lock", "Gemfile.lock", "poetry.lock", "composer.lock",
+    "*.min.js", "*.min.css", "**/vendor/**", "**/node_modules/**", "**/dist/**", "**/generated/**",
+)
+
+/** The list a source EFFECTIVELY uses: its stored one, or the defaults when it never set one (null). An empty list excludes nothing. */
+fun effectivePathExclusions(stored: List<String>?): List<String> = stored ?: DEFAULT_PATH_EXCLUSIONS
 
 /** One segment of a GitLab group path: lowercase letters, digits, `_`, `.` and `-`, not starting with a dot or a hyphen. */
 val GROUP_SEGMENT_PATTERN: Regex = Regex("^[a-z0-9_][a-z0-9_.-]*$")
@@ -25,6 +40,11 @@ data class GitLabConnectionRequest(
     /** Required on create; omitted or blank on update keeps the current token, present rotates it. */
     val token: String? = null,
     val groupPaths: List<String>,
+    /**
+     * Gitignore-like globs of files whose lines a commit does not count (applied when commits are processed, a later release; never at
+     * fetch). Null on create = the built-in defaults, null on update = unchanged, an empty list = exclude nothing.
+     */
+    val pathExclusions: List<String>? = null,
 ) {
     /** A default data-class `toString()` would print the token in plain text into any log line. */
     override fun toString(): String = "GitLabConnectionRequest(baseUrl=$baseUrl, token=${maskedSecret(token)}, groupPaths=$groupPaths)"
@@ -36,6 +56,8 @@ data class GitLabConnectionResponse(
     /** The token is write-only - never returned in any response or audit line. */
     val hasToken: Boolean,
     val groupPaths: List<String>,
+    /** The EFFECTIVE list: the stored one, or the built-in defaults while the source never set its own. */
+    val pathExclusions: List<String>,
 )
 
 /**
@@ -54,6 +76,8 @@ fun sanitizedGitLabConnectionRequest(gitlab: GitLabConnectionRequest): GitLabCon
     // Blank is the SPA's "unchanged" signal for a masked password-style field (same as an omitted/null token).
     token = gitlab.token?.let { sanitizeSingleLine(it, "Token") }?.takeIf { it.isNotBlank() },
     groupPaths = normalizeGroupPaths(gitlab.groupPaths.map { sanitizeSingleLine(it, "Group path") }),
+    // Order is kept (it is the admin's); never lowercased - git paths are case-sensitive.
+    pathExclusions = gitlab.pathExclusions?.map { sanitizeSingleLine(it, "Path exclusion") }?.distinct(),
 )
 
 /** Trim, strip leading/trailing `/`, lowercase, fold duplicates (GitLab paths are case-insensitive). */
@@ -84,6 +108,21 @@ fun validateGitLabConnection(gitlab: GitLabConnectionRequest, tokenRequired: Boo
             throw BadRequestException("groupPaths must not repeat or nest: $path")
         }
     }
+    gitlab.pathExclusions?.let(::validatePathExclusions)
     if (policy == null) throw BadRequestException("GitLab data sources are disabled on this server (gitlab-disabled)")
     policy.canonicalOrigin(gitlab.baseUrl)
+}
+
+private fun validatePathExclusions(patterns: List<String>) {
+    if (patterns.size > MAX_PATH_EXCLUSIONS) throw BadRequestException("pathExclusions must contain at most $MAX_PATH_EXCLUSIONS patterns")
+    patterns.forEach { pattern ->
+        if (pattern.isEmpty() || pattern.length > MAX_PATH_EXCLUSION_LENGTH) {
+            throw BadRequestException("pathExclusions entries must be 1-$MAX_PATH_EXCLUSION_LENGTH characters")
+        }
+        try {
+            PathGlob.compile(pattern)
+        } catch (_: IllegalArgumentException) {
+            throw BadRequestException("Invalid path exclusion: $pattern")
+        }
+    }
 }

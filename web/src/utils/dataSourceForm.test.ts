@@ -400,7 +400,7 @@ describe("the GitLab kind", () => {
     reconcileHourUtc: 4,
     configRevision: 1,
     jira: null,
-    gitlab: { baseUrl: "https://gitlab.acme.com", hasToken: true, groupPaths: ["platform", "apps/web"] },
+    gitlab: { baseUrl: "https://gitlab.acme.com", hasToken: true, groupPaths: ["platform", "apps/web"], pathExclusions: [] },
     status: {
       state: "NEVER_SYNCED",
       consecutiveFailures: 0,
