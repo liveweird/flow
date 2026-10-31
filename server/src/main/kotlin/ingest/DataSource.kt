@@ -5,7 +5,7 @@ import ch.nokillswit.infra.outbound.ATLASSIAN_RESERVED_SITE_LABELS
 import ch.nokillswit.infra.outbound.JIRA_SITE_URL_PATTERN
 import ch.nokillswit.infra.paging.PageResponse
 import ch.nokillswit.infra.validation.sanitizeSingleLine
-import ch.nokillswit.flowusers.canonicalEmail
+import ch.nokillswit.infra.validation.canonicalEmail
 import io.ktor.server.plugins.BadRequestException
 import kotlinx.serialization.Serializable
 import java.time.LocalDate

@@ -24,3 +24,11 @@ fun requireNameAndDescription(name: String, description: String?, maxName: Int, 
         throw BadRequestException("Description must be at most $maxDescription characters")
     }
 }
+
+/**
+ * The ONE canonical form of an email address (trimmed, lower-cased): Flow-user logins, the Jira connection's account, and GitLab identities
+ * (`norm/CodeNormalization.kt` hashes it into an identity key; PR 11's identity proposals compare it). Applied at EVERY entry point so one
+ * mailbox is one account (`ADMIN@x` cannot create a second account beside `admin@x`, and a padded/case-variant login matches). A pure fold
+ * that never throws: login must stay a uniform 401 on garbage.
+ */
+fun canonicalEmail(raw: String): String = raw.trim().lowercase()
