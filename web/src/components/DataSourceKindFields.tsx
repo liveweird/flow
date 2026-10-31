@@ -1,8 +1,14 @@
 import { useTranslation } from "react-i18next";
-import { Input, PasswordInput, SegmentedControl, Select, TagsInput, TextInput } from "@mantine/core";
+import { Button, Input, PasswordInput, SegmentedControl, Select, TagsInput, TextInput } from "@mantine/core";
 import type { UseFormReturnType } from "@mantine/form";
 import type { DataSourceKind } from "../api/dataSources";
-import { MAX_API_TOKEN_LENGTH, MAX_GROUP_PATHS, MAX_PROJECT_KEYS, type DataSourceFormValues } from "../utils/dataSourceForm";
+import {
+  MAX_API_TOKEN_LENGTH,
+  MAX_GROUP_PATHS,
+  MAX_PATH_EXCLUSIONS,
+  MAX_PROJECT_KEYS,
+  type DataSourceFormValues,
+} from "../utils/dataSourceForm";
 
 type DataSourceForm = UseFormReturnType<DataSourceFormValues>;
 
@@ -94,17 +100,23 @@ export function JiraConnectionFields({ form, isEdit }: { form: DataSourceForm; i
   );
 }
 
-/** The GitLab connection block: instance origin (fixed once created), read-only token and the group paths to read. */
+/** The GitLab connection block: instance origin (fixed once created), read-only token, the group paths to read and the excluded paths. */
 export function GitLabConnectionFields({
   form,
   isEdit,
   allowedOrigins,
+  defaultPathExclusions,
 }: {
   form: DataSourceForm;
   isEdit: boolean;
   allowedOrigins: string[];
+  /** The server's built-in excluded-path list (`GET /data-sources/kinds`), what "Reset to defaults" restores. */
+  defaultPathExclusions: string[];
 }) {
   const { t } = useTranslation();
+  const atDefaults =
+    form.values.pathExclusions.length === defaultPathExclusions.length &&
+    form.values.pathExclusions.every((pattern, index) => pattern === defaultPathExclusions[index]);
   return (
     <>
       <TextInput
@@ -132,6 +144,25 @@ export function GitLabConnectionFields({
         {...form.getInputProps("groupPaths")}
         onChange={(values) => form.setFieldValue("groupPaths", values.map((value) => value.toLowerCase()))}
       />
+      <div>
+        <TagsInput
+          label={t("dataSources.field.pathExclusions")}
+          description={t("dataSources.field.pathExclusionsHint")}
+          maxTags={MAX_PATH_EXCLUSIONS}
+          splitChars={[",", " "]}
+          {...form.getInputProps("pathExclusions")}
+        />
+        <Button
+          type="button"
+          variant="subtle"
+          size="compact-xs"
+          mt={4}
+          disabled={atDefaults}
+          onClick={() => form.setFieldValue("pathExclusions", [...defaultPathExclusions])}
+        >
+          {t("dataSources.field.pathExclusionsReset")}
+        </Button>
+      </div>
     </>
   );
 }

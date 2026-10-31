@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.35.0",
+    date: "2026-10-31",
+    en: `**GitLab: commits are read, with per-file line counts.**
+
+- A sync now reads each project's default-branch commits (within the backfill window), then the files each commit changed with their added and deleted lines; merge commits are flagged and left out of the counts. Later syncs read only what is new, and a force-pushed branch is listed again so the commits that vanished are marked.
+- A GitLab data source has an "Excluded paths" list (glob patterns, prefilled with lock files, minified bundles, vendored and generated directories) that the upcoming code-activity reports will leave out of the line counts.
+- The data source details show the commit counts and how many commits still wait for their file details.`,
+    pl: `**GitLab: odczyt commitów z liczbą linii na plik.**
+
+- Synchronizacja odczytuje teraz commity domyślnej gałęzi każdego projektu (w oknie historii), a potem pliki zmienione w każdym commicie z liczbą dodanych i usuniętych linii; commity scalające są oznaczane i pomijane w zliczeniach. Kolejne synchronizacje odczytują tylko nowe commity, a gałąź po force-pushu jest odczytywana ponownie, by oznaczyć commity, które zniknęły.
+- Źródło danych GitLab ma listę „Wykluczone ścieżki” (wzorce glob, wstępnie wypełnioną plikami lock, zminifikowanymi paczkami oraz katalogami vendor i generowanymi), których nadchodzące raporty aktywności w kodzie nie uwzględnią w liczbie linii.
+- Szczegóły źródła danych pokazują liczbę commitów i to, ile commitów czeka jeszcze na szczegóły plików.`,
+  },
+  {
     version: "1.34.0",
     date: "2026-10-31",
     en: `**Data sources: a GitLab instance can be connected.**
