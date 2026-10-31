@@ -112,11 +112,11 @@ object SyncedStubFixture {
                 backfillFrom = backfillFrom,
                 reconcileHourUtc = current.reconcileHourUtc,
                 jira = JiraConnectionRequest(
-                    siteUrl = current.jira.siteUrl,
-                    email = current.jira.email,
+                    siteUrl = current.jira!!.siteUrl,
+                    email = current.jira!!.email,
                     apiToken = null,
-                    projectKeys = current.jira.projectKeys,
-                    authScheme = current.jira.authScheme,
+                    projectKeys = current.jira!!.projectKeys,
+                    authScheme = current.jira!!.authScheme,
                 ),
             ),
         )

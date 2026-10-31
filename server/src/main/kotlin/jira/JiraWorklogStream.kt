@@ -7,6 +7,7 @@ import ch.nokillswit.fetch.halvedBatchSize
 import ch.nokillswit.fetch.isOversized
 import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.ingest.CeilingTripException
+import ch.nokillswit.ingest.RawUpsertOutcome
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
 import kotlinx.serialization.Serializable

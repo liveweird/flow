@@ -281,7 +281,7 @@ class ReconcilePauseTest {
             name = assertNotNull(ds().read(connId)).name, enabled = false, syncIntervalMinutes = 60, backfillFrom = defaultBackfillFrom(),
             reconcileHourUtc = 3,
             jira = JiraConnectionRequest(
-                TEST_JIRA_SITE_URL, assertNotNull(ds().read(connId)).jira.email, null, listOf("ENG"), JiraAuthScheme.BASIC,
+                TEST_JIRA_SITE_URL, assertNotNull(ds().read(connId)).jira!!.email, null, listOf("ENG"), JiraAuthScheme.BASIC,
             ),
         )
         assertNotNull(ds().update(connId, put))
@@ -392,7 +392,8 @@ class ReconcilePauseTest {
                 "/api/v1/data-sources/${created.id}",
                 DataSourceRequest(
                     created.name, true, 60, created.backfillFrom, 3,
-                    JiraConnectionRequest(created.jira.siteUrl, created.jira.email, null, created.jira.projectKeys, JiraAuthScheme.BASIC),
+                    JiraConnectionRequest(created.jira!!.siteUrl, created.jira!!.email, null, created.jira!!.projectKeys,
+                        JiraAuthScheme.BASIC),
                 ),
             )
             assertEquals(HttpStatusCode.NoContent, put.status)

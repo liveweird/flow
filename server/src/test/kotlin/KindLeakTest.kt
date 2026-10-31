@@ -20,6 +20,7 @@ import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobListFilter
 import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.ingest.SyncJobStatus
+import ch.nokillswit.ingest.SyncStatusResponse
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.metrics.DataSourceMetricsConfigRequest
 import ch.nokillswit.metrics.MetricsSettingsService
@@ -187,18 +188,27 @@ class KindLeakTest {
     // ---------------------------------------------------------------- the data-source API
 
     @Test
-    fun `the data-source API serves Jira rows only until the GitLab wire exists - a GITLAB row is absent, never a 500`() = testApplication {
+    fun `the data-source API serves a GITLAB row with its gitlab block and no jira block, never a 500`() = testApplication {
         usePostgresTestcontainer()
         val admin = seededClient("kindleak-ds", FlowUserRole.ADMIN)
         val (gitlabId, jiraId) = runBlocking { gitlab() to jira() }
-        val name = nameOf(gitlabId)
 
         // By name, not by page: the shared table holds every other class's rows too.
         val jiraPage = admin.get("/api/v1/data-sources?name=${nameOf(jiraId)}").body<DataSourcePageResponse>()
         assertEquals(listOf(jiraId), jiraPage.items.map { it.id }, "the control: the Jira row is listed")
-        val gitlabPage = admin.get("/api/v1/data-sources?name=$name").body<DataSourcePageResponse>()
-        assertEquals(0L, gitlabPage.total, "the GITLAB row is not")
-        assertEquals(HttpStatusCode.NotFound, admin.get("/api/v1/data-sources/$gitlabId").status)
+        assertNull(jiraPage.items.single().gitlab, "a Jira row has no gitlab block")
+        val gitlabPage = admin.get("/api/v1/data-sources?name=${nameOf(gitlabId)}").body<DataSourcePageResponse>()
+        val listed = gitlabPage.items.single()
+        assertEquals(gitlabId, listed.id)
+        assertEquals(DataSourceKind.GITLAB, listed.kind)
+        assertNull(listed.jira, "a GITLAB row has no jira block")
+        val gitlab = assertNotNull(listed.gitlab)
+        assertEquals("https://gitlab.example.com", gitlab.baseUrl)
+        assertEquals(listOf("acme/platform"), gitlab.groupPaths)
+        assertFalse(gitlab.hasToken, "the fixture row stores no secret")
+        val read = admin.get("/api/v1/data-sources/$gitlabId")
+        assertEquals(HttpStatusCode.OK, read.status)
+        assertEquals(listed.copy(status = listed.status.copy(runningJobId = null)), read.body<DataSourceResponse>())
         assertEquals(HttpStatusCode.OK, admin.get("/api/v1/data-sources/$jiraId").status)
     }
 
@@ -275,13 +285,20 @@ class KindLeakTest {
     }
 
     @Test
-    fun `the sync-job routes and the stored Test connection treat a GITLAB row as absent, not as Jira`() = testApplication {
+    fun `the sync-job and status routes serve a GITLAB row and the stored Test connection is 409 while GitLab is off`() = testApplication {
         usePostgresTestcontainer()
         val admin = seededClient("kindleak-jobs", FlowUserRole.ADMIN)
         val gitlabId = runBlocking { gitlab() }
 
-        assertEquals(HttpStatusCode.NotFound, admin.get("/api/v1/data-sources/$gitlabId/sync-jobs").status)
-        assertEquals(HttpStatusCode.NotFound, admin.get("/api/v1/data-sources/$gitlabId/status").status)
-        assertEquals(HttpStatusCode.NotFound, admin.post("/api/v1/data-sources/$gitlabId/test").status)
+        assertEquals(HttpStatusCode.OK, admin.get("/api/v1/data-sources/$gitlabId/sync-jobs").status)
+        val status = admin.get("/api/v1/data-sources/$gitlabId/status")
+        assertEquals(HttpStatusCode.OK, status.status)
+        val counts = status.body<SyncStatusResponse>().counts
+        assertEquals(0L, counts.rawIssues, "a GITLAB row has no Jira raw rows")
+        assertNull(counts.gitlab, "no GitLab store exists while GitLab is off in this process")
+        // No connector is registered for the kind (the default test app has no GitLab host or stub): typed 409, not a Jira probe.
+        val test = admin.post("/api/v1/data-sources/$gitlabId/test")
+        assertEquals(HttpStatusCode.Conflict, test.status)
+        assertEquals(DATA_SOURCE_KIND_UNSUPPORTED, test.body<ProblemDetail>().type)
     }
 }

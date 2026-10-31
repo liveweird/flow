@@ -51,6 +51,16 @@ reference each other. Still in `jira/` (lifted when a second connector needs the
 (`JiraHeapFit.kt`, `JiraHeapShare.kt`), `JiraStoredCeilings.kt`, `JiraFetchAhead.kt`, `SkipBudget` (`JiraOversized.kt`) and every
 Jira endpoint constant and entity map (`JiraPagingCeilings.kt`).
 
+Three additions for the GitLab connector (PR 6), none changing what Jira sends or reads. (1) `FetchSource.authHeaderName` (default
+`Authorization`) names the request header the call's `authHeader` value travels in; GitLab's is `PRIVATE-TOKEN`, with the raw personal access
+token as the value. (2) `SourceHttp.requestAsWithHeaders(..., transform: (JsonElement, Headers) -> T)`: `requestAs` is a thin wrapper over
+the same private `execute`, whose `PendingCall.transform` now takes the response `Headers` too (GitLab pages by `X-Next-Page` and `X-Total`).
+The transform must COPY what it needs: the response is released when the call's `execute` returns, so no `Headers` object may escape it.
+(3) `OutboundPermits(count)` (`fetch/OutboundPermits.kt`, published on `attributes` as `OutboundPermitsKey` by `configureJira`) is the
+in-flight permit pool: `SourceHttp(..., permits = ...)` draws on it instead of making its own `Semaphore(maxConcurrentRequests)`, so Jira's
+transport and GitLab's share ONE pool and the worker heap fit (`jira.maxConcurrentRequests x jira.maxResponseBytes` of in-flight bodies)
+stays exact with GitLab enabled; `SourceHttpHeadersTest` pins all three.
+
 Two diagnostic strings changed with the move and nothing else: the exception class in `sync_jobs.error_detail` reads `FetchException: Jira fetch failed: ...`
 (was `JiraFetchException: ...`), and the transport logs as `ch.nokillswit.fetch.SourceHttp` (was `ch.nokillswit.jira.JiraHttp`).
 

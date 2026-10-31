@@ -26,7 +26,7 @@ checks**:
   production; in **any** mode a malformed `gitlab.allowedHosts` entry (wildcard, IP literal, scheme/path/credentials), a malformed or
   too-wide `gitlab.allowedCidrs` entry (`/0`, IPv4 wider than /8, IPv6 wider than /32, anything overlapping loopback, link-local, any-local,
   multicast, 6to4, Teredo, mapped or NAT64), CIDRs or a `gitlab.caBundle` without hosts, an unreadable or certificate-less CA bundle, an
-  out-of-range `gitlab.requestTimeoutSeconds`/`gitlab.maxResponseBytes`, or an explicit `gitlab.maxResponseBytes` above
+  out-of-range `gitlab.requestTimeoutSeconds`/`gitlab.maxRetries`/`gitlab.requestDeadlineSeconds`/`gitlab.usersRefreshHours`/`gitlab.maxResponseBytes`, or an explicit `gitlab.maxResponseBytes` above
   `jira.maxResponseBytes` refuse startup. See "Outbound HTTP calls" below; covered by `GitLabBootTest`.
 - **Mail transport** (`infra/mail/Mail.kt`): `mail.transport=log` writes outbound email (including
   password-reset links and MFA codes) into the application log — permitted with a warning in development,
@@ -480,8 +480,9 @@ it for that one connector. Nothing a user or an admin types can widen them: a da
 - Kept from the Jira client: no redirects (OkHttp and Ktor), no proxy, no connection-failure retry. `gitlab.stubBaseUrl` (`GITLAB_STUB_BASE_URL`)
   is development-only and production refuses a non-blank value. `gitlab.maxResponseBytes` defaults to `min(8 MiB, jira.maxResponseBytes)` and an
   explicit value may not exceed `jira.maxResponseBytes`. That keeps a GitLab response tree inside the per-slot tree `JiraHeapFit` sizes
-  from the Jira ceiling; it does NOT put in-flight GitLab bodies into the fit, which counts `jira.maxConcurrentRequests x
-  jira.maxResponseBytes` of Jira requests only (PR 6 requirement in `gitlab-integration.md` "Outbound calls"). In k8s the egress NetworkPolicy still excludes the private ranges: a private GitLab needs its own
+  from the Jira ceiling. In-flight GitLab bodies need no term of their own: GitLab's `SourceHttp` draws on the SAME permit pool as Jira's
+  (`fetch/OutboundPermits.kt`, published by `configureJira`), so the fit's `jira.maxConcurrentRequests x jira.maxResponseBytes` term already
+  covers them (`gitlab-integration.md` "Outbound calls"). In k8s the egress NetworkPolicy still excludes the private ranges: a private GitLab needs its own
   additional egress rule (the policy is the second layer; the guard is the first).
 - Pinned by `SelfManagedHostsTest` (parsing, every boot refusal, the address matrix), `GitLabOutboundGuardTest` (rebinding, mixed answers,
   redirect, unlisted host audit, IP literal, port, proxy, Host header), `GitLabBaseUrlTest`, `GitLabCaBundleTest`, `GitLabBootTest` and the
@@ -667,7 +668,11 @@ API token is the first consumer, landed**: `source_connections.secret` (V8,
 `ingest/DataSourceService.kt` implements `EncryptedAtRest`, registered in
 `infra/db/Bootstrap.kt`'s `encryptedAtRestServices()`) — write-only end to end: `POST`/`PUT
 /api/v1/data-sources` accept `jira.apiToken` but no response, and no audit event, ever returns it;
-every response instead carries `jira.hasApiToken`. Tests: `FieldCipherTest` (roundtrip, fresh
+every response instead carries `jira.hasApiToken`. **The GitLab personal access token is the second consumer** (PR 6, the same
+`secret` column and the same service, no new registration): `gitlab.token` is write-only the same way (`gitlab.hasToken` in responses, never in
+an audit line, masked in `GitLabConnectionRequest`/`StoredGitLabConnection`/`ConnectionTarget.GitLab` `toString`, pinned by
+`SecretToStringTest`), decrypted only for the connector and sent as the `PRIVATE-TOKEN` header; a token that could write (`api`, `sudo`,
+`write_*`) is refused at Test connection and at every SYNC (`TOKEN_SCOPE_TOO_BROAD`). Tests: `FieldCipherTest` (roundtrip, fresh
 nonces, legacy passthrough, tamper, wrong key, rotation, malformed keys), `CryptoBootTest`,
 `EncryptedAtRestBootTest` (seeds a connection, boots again with a rotated key, the token still
 decrypts under the new key alone).
@@ -691,7 +696,7 @@ uniform `403`; the worker role serves no API at all):
 - **Data-source names and health:** every not-yet-purged connection's id, name (including soft-deleted ones awaiting their PURGE), enabled flag,
   size estimate, issue count, last-sync freshness and error code, queue depth, Jira 429 / back-off figures and DERIVE timings - read through
   `DataSourceService.connectionHealth()`, which selects those columns ONLY (never the site URL, email, project keys, token or profile).
-  `last_sync_error_code` is a closed vocabulary (`RUN_FAILED`, `RETRIES_EXHAUSTED`, `CONNECTOR_UNAVAILABLE`, and the ceiling-trip codes `LIMIT_EXCEEDED`, `TIME_EXCEEDED`; anything else is stored as `RUN_FAILED`), never free text; so is `pause_reason` (the two trip codes, a CHECK), which the panel shows with `pausedAt`.
+  `last_sync_error_code` is a closed vocabulary (`RUN_FAILED`, `RETRIES_EXHAUSTED`, `CONNECTOR_UNAVAILABLE`, `TOKEN_SCOPE_TOO_BROAD`, and the ceiling-trip codes `LIMIT_EXCEEDED`, `TIME_EXCEEDED`; anything else is stored as `RUN_FAILED`), never free text; so is `pause_reason` (the two trip codes, a CHECK), which the panel shows with `pausedAt`.
 - **Route usage:** the normalised report routes (`/api/v1/reports/...`, path parameters as written, never an identifier) with their request counts,
   latencies and 5xx / 429 counts. The telemetry routes themselves and the probes are excluded.
 

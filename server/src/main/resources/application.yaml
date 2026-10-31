@@ -42,9 +42,9 @@ ktor:
       # The guarded Jira HTTP stack (outbound guard + Test-connection service + the Connector
       # registry) — before the data-sources/sync-job routes, which read it off attributes.
       - ch.nokillswit.jira.JiraKt.configureJira
-      # The GitLab outbound side (gitlab/GitLab.kt; `.claude/docs/gitlab-integration.md`): validates `gitlab.*` and builds the ONE
-      # guarded client for a self-managed host. No GitLab call, route or connector yet. After configureJira: its response ceiling may
-      # not exceed jira.maxResponseBytes (the worker heap fit counts that one). Runs in every role.
+      # The GitLab connector (gitlab/GitLab.kt; `.claude/docs/gitlab-integration.md`): validates `gitlab.*`, builds the ONE guarded client
+      # for a self-managed host, registers the base-URL policy and (when GitLab is enabled) the GITLAB connector. After configureJira:
+      # its response ceiling may not exceed jira.maxResponseBytes and its calls share Jira's request permits. Runs in every role.
       - ch.nokillswit.gitlab.GitLabKt.configureGitLab
       # The metrics layer's composition root (v0.3.0 M1 commit 3, `.claude/docs/domain-model.md`
       # "Configuration"; `.claude/docs/metrics.md` is its own guide):
@@ -366,11 +366,17 @@ gitlab:
   requestTimeoutSeconds: "$GITLAB_REQUEST_TIMEOUT_SECONDS:30"
   # The bounded-read ceiling on one GitLab response body (1 KiB..128 MiB). BLANK (the default) = min(8 MiB, jira.maxResponseBytes), so
   # lowering only the Jira ceiling just works. An explicit value may not exceed jira.maxResponseBytes (startup refuses otherwise, even
-  # while GitLab is disabled). The worker's heap fit (jira/JiraHeapFit.kt) sizes its per-slot response tree from the Jira ceiling, so a
-  # GitLab ceiling at or below it stays inside that figure; the fit does NOT count in-flight GitLab bodies (it counts
-  # jira.maxConcurrentRequests x jira.maxResponseBytes of Jira requests), so GitLab requests must share Jira's request semaphore or be
-  # added to the fit when the first GitLab stream lands (`.claude/docs/gitlab-integration.md`).
+  # while GitLab is disabled). GitLab's calls SHARE Jira's request permits (fetch/OutboundPermits.kt, published by configureJira), so
+  # the worker's heap fit (jira/JiraHeapFit.kt: jira.maxConcurrentRequests x jira.maxResponseBytes in flight, a response tree per
+  # slot sized from the Jira ceiling) already covers GitLab's bodies (`.claude/docs/gitlab-integration.md` "Outbound calls").
   maxResponseBytes: "$GITLAB_MAX_RESPONSE_BYTES:"
+  # Retries (0..10) on 429/5xx/IOException before a GitLab call fails terminally, like jira.maxRetries.
+  maxRetries: "$GITLAB_MAX_RETRIES:4"
+  # The TOTAL budget (1..1800 s) of one logical GitLab call across every attempt and backoff, like jira.requestDeadlineSeconds.
+  requestDeadlineSeconds: "$GITLAB_REQUEST_DEADLINE_SECONDS:180"
+  # How old (hours, 0..168) a data source's GitLab users may get before a SYNC fetches them again (`/users`, plus one `/users/:id/emails`
+  # call per user for an admin token). "Sync now" always refreshes. 0 = every SYNC.
+  usersRefreshHours: "$GITLAB_USERS_REFRESH_HOURS:24"
 
 ingest:
   # The sync-job queue and worker scheduler (v0.2.0 plan §5/§9, ingest/IngestWorker.kt,

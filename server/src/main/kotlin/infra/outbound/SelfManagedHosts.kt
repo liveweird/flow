@@ -23,6 +23,10 @@ class SelfManagedHosts private constructor(
     /** False when no host is listed: the feature is off (a development stub aside). */
     val enabled: Boolean get() = entries.isNotEmpty()
 
+    /** The listed origins as `https://host[:port]` (port omitted when 443), sorted: what the data-source kinds endpoint shows an admin. */
+    fun origins(): List<String> =
+        entries.map { if (it.port == DEFAULT_HTTPS_PORT) "https://${it.host}" else "https://${it.host}:${it.port}" }.sorted()
+
     /** DNS-level check: Dns.lookup sees a hostname, never a port, so any entry for [host] admits the name. */
     fun hostListed(host: String): Boolean = entries.any { it.host == host.lowercase() }
 

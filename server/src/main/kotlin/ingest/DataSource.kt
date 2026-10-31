@@ -12,13 +12,12 @@ import java.time.LocalDate
 import java.time.ZoneOffset
 
 /**
- * Data sources (v0.2.0 plan §3/§4/§9): an ADMIN-managed connection to an external issue tracker —
- * Jira Cloud today (`kind = JIRA_CLOUD`), GitLab later reusing the same table, queue and worker.
- * The Jira-specific fields (site, service-account email, scoped API token, project scope, auth
- * scheme) travel under `jira` in the wire shape and the `settings` jsonb in storage
- * (`ingest/DataSourceService.kt`) — one request/response shape serves create AND update, like
- * Covenant's `ToadieConnectionRequest` (`toadie/ToadieRoutes.kt`), since a data source's identity
- * (`siteUrl`) is fixed at create and every other field is a full-replace PUT.
+ * Data sources (v0.2.0 plan §3/§4/§9): an ADMIN-managed connection to an external system — Jira Cloud
+ * (`kind = JIRA_CLOUD`) or a self-managed GitLab (`kind = GITLAB`, `GitLabDataSource.kt`), one table, queue and worker.
+ * The kind-specific fields travel under `jira` or `gitlab` in the wire shape (exactly one, which sets the kind) and the
+ * `settings` jsonb in storage (`ingest/DataSourceService.kt`) — one request/response shape serves create AND update, like
+ * Covenant's `ToadieConnectionRequest` (`toadie/ToadieRoutes.kt`), since a data source's identity (Jira's `siteUrl`, GitLab's
+ * `baseUrl`) is fixed at create and every other field is a full-replace PUT.
  */
 
 const val MAX_DATA_SOURCE_NAME_LENGTH = 100
@@ -74,7 +73,9 @@ data class DataSourceRequest(
     /** ISO date (YYYY-MM-DD); null computes today minus 24 months. */
     val backfillFrom: String? = null,
     val reconcileHourUtc: Int = DEFAULT_RECONCILE_HOUR_UTC,
-    val jira: JiraConnectionRequest,
+    /** Exactly one of [jira] and [gitlab] is present; the block sets the kind, which never changes after create. */
+    val jira: JiraConnectionRequest? = null,
+    val gitlab: GitLabConnectionRequest? = null,
 )
 
 @Serializable
@@ -121,7 +122,10 @@ data class DataSourceResponse(
     val backfillFrom: String,
     val reconcileHourUtc: Int,
     val configRevision: Long,
-    val jira: JiraConnectionResponse,
+    /** Present exactly for a [DataSourceKind.JIRA_CLOUD] source. */
+    val jira: JiraConnectionResponse? = null,
+    /** Present exactly for a [DataSourceKind.GITLAB] source. */
+    val gitlab: GitLabConnectionResponse? = null,
     val status: DataSourceStatus,
     val createdAt: Long,
     val updatedAt: Long,
@@ -129,9 +133,9 @@ data class DataSourceResponse(
 
 typealias DataSourcePageResponse = PageResponse<DataSourceResponse>
 
-/** The ad-hoc Test-connection request body (`POST /api/v1/data-sources/test`) — `jira` alone, incl. the token. */
+/** The ad-hoc Test-connection request body (`POST /api/v1/data-sources/test`) — exactly one connection block, incl. the token. */
 @Serializable
-data class DataSourceTestRequest(val jira: JiraConnectionRequest)
+data class DataSourceTestRequest(val jira: JiraConnectionRequest? = null, val gitlab: GitLabConnectionRequest? = null)
 
 /** One probed endpoint's outcome (v0.2.0 plan §6 `JiraConnector.testConnection`). Never carries the token. */
 @Serializable
@@ -211,7 +215,8 @@ fun requireBackfillNotBefore(request: DataSourceRequest, policy: BackfillPolicy)
 fun sanitizedDataSourceRequest(request: DataSourceRequest, defaultFrom: LocalDate): DataSourceRequest = request.copy(
     name = sanitizeSingleLine(request.name, "Name"),
     backfillFrom = sanitizeSingleLine(request.backfillFrom ?: defaultFrom.toString(), "Backfill date"),
-    jira = sanitizedJiraConnectionRequest(request.jira),
+    jira = request.jira?.let(::sanitizedJiraConnectionRequest),
+    gitlab = request.gitlab?.let(::sanitizedGitLabConnectionRequest),
 )
 
 /**
@@ -233,7 +238,7 @@ fun sanitizedJiraConnectionRequest(jira: JiraConnectionRequest): JiraConnectionR
  * both take an already-sanitized request. `backfillFrom` gets only the structural bounds here; the history-horizon floor
  * ([BackfillPolicy.floor]) reads another feature's setting and, on update, the stored date, so `DataSourceService` enforces it.
  */
-fun validateDataSource(request: DataSourceRequest, apiTokenRequired: Boolean) {
+fun validateDataSource(request: DataSourceRequest, apiTokenRequired: Boolean, gitLabPolicy: GitLabBaseUrlPolicy? = null) {
     if (request.name.isBlank() || request.name.length > MAX_DATA_SOURCE_NAME_LENGTH) {
         throw BadRequestException("Name must be 1-$MAX_DATA_SOURCE_NAME_LENGTH characters")
     }
@@ -256,7 +261,10 @@ fun validateDataSource(request: DataSourceRequest, apiTokenRequired: Boolean) {
     if (parsedBackfillFrom.isBefore(backfillFloor())) {
         throw BadRequestException("backfillFrom must not be before ${backfillFloor()}")
     }
-    validateJira(request.jira, apiTokenRequired)
+    when (request.kindOrBadRequest()) {
+        DataSourceKind.JIRA_CLOUD -> validateJira(checkNotNull(request.jira), apiTokenRequired)
+        DataSourceKind.GITLAB -> validateGitLabConnection(checkNotNull(request.gitlab), apiTokenRequired, gitLabPolicy)
+    }
 }
 
 /** `internal`, not `private`: the Test-connection routes (`DataSourceRoutes.kt`) validate an ad-hoc `jira` block directly. */

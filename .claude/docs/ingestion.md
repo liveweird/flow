@@ -362,7 +362,7 @@ due for a moment), never lose the success or the back-off reset.
 also cancels the connection's open jobs `CONFIG_CHANGED`) clears an existing failure back-off in the same UPDATE
 (`clearBackoff`): `consecutive_failures` → 0 and `next_sync_at` → null for SYNC, `reconcile_failures` → 0 and
 `next_reconcile_at` → null for RECONCILE — so the operator's fix (a rotated token, a corrected scope) is retried on the
-next scheduler tick instead of after up to 6 h. `last_sync_error_code` stays as history; it is a closed vocabulary (`RUN_FAILED`, `RETRIES_EXHAUSTED`, `CONNECTOR_UNAVAILABLE` and the ceiling-trip codes `LIMIT_EXCEEDED`, `TIME_EXCEEDED`, "Ceiling trips and the pause"; `closedErrorCode` stores anything else as `RUN_FAILED`), since the telemetry panel and the status view show it to ADMINs. A connection with no
+next scheduler tick instead of after up to 6 h. `last_sync_error_code` stays as history; it is a closed vocabulary (`RUN_FAILED`, `RETRIES_EXHAUSTED`, `CONNECTOR_UNAVAILABLE`, `TOKEN_SCOPE_TOO_BROAD` (a GitLab job refused for a token that could write, or is inactive: `JobRefusedException`, `JobRunExceptions.kt`) and the ceiling-trip codes `LIMIT_EXCEEDED`, `TIME_EXCEEDED`, "Ceiling trips and the pause"; `closedErrorCode` stores anything else as `RUN_FAILED`), since the telemetry panel and the status view show it to ADMINs. A connection with no
 back-off keeps its schedule (a rename triggers no extra sync). Soft delete and the metrics-config PUTs do not touch the back-off.
 
 **Idle heap give-back.** `claimAvailable` counts the jobs it launches in a `BusyTracker` (`ingest/IdleHeapGiveBack.kt`); when
@@ -569,8 +569,17 @@ progress-counter API described in "Progress counters" below) — PROCESS and PRO
 streams that never call the cursor read/write half of that contract (see "Sync cursors (V9)"
 above).
 
+**The GitLab connector's SYNC** (`gitlab/GitLabConnector.kt`; `gitlab-integration.md` "Streams") runs **PROJECTS → USERS** inside the same
+`ConnectorRun.withTally` scaffolding as Jira (the `CallTally` around the streams, the carried counters of a retry, the typed ceiling trip,
+the hard stop; `ingest/ConnectorRun.kt`, which also holds `ceilingTripOf`). It first re-probes `/personal_access_tokens/self` and refuses
+a token that could write or is inactive with `JobRefusedException(TOKEN_SCOPE_TOO_BROAD)` before anything is stored. RECONCILE and
+REPROCESS are accepted no-ops until PR 9/10, PURGE drains `raw.gitlab_*`.
+
 **Cursor shapes.**
 
+- **`projects`** / **`users`** (`gitlab/GitLabCursor.kt`): `{passStartedAt, groupIndex, page}` and `{passStartedAt, page}`, written with each
+  page's rows in one transaction and cleared at the end of a completed pass (the sweep's reference instant survives a resume); a cursor with
+  `groupIndex == groups` means only the sweep is left.
 - **`reference`** (`jira/JiraReferenceStream.kt`'s `ReferenceCursor`): `passStartedAt` (fixed for
   the whole pass, preserved across a resume), `step` (a `JiraEntityKind` — doubles as
   `raw.jira_entities.kind`, in the FIXED order the enum declares: `FIELD`, `STATUS`,
@@ -1299,6 +1308,10 @@ in a batch — see "Normalized layer" above), `referenceRowsSkipped` (PROCESS, o
 "Reference-row robustness"), `profileComputed` (PROFILE, always `1` — a single
 recompute pass, not a per-row counter, see "Data profile" below).
 
+GitLab's (`gitlab/`): `pages` and `projects`/`projectsSkipped` (PROJECTS: archived or outside-the-group projects the defensive filters left out),
+`pages`/`users`/`usersEmailsSkipped` (USERS: users whose secondary emails were not fetched - not an admin token, or a 403/404 on the emails
+call)/`usersSkipped` (the whole stream skipped: every live user was seen within `gitlab.usersRefreshHours`; "Sync now" never skips).
+
 **Counters the connector adds (not a stream's):** `StreamContext(extraProgress = …)` is a `() -> Map<String, Long>` merged into every heartbeat's progress JSON (and
 into `progressSnapshot()`). `JiraConnector` passes the job's `CallTally` (`jiraRateLimited`, `jiraBackoffMs`, `jiraTenantPausedMs`, `jiraNearLimitPauses`; definitions
 in `jira-integration.md` "Rate limits and backoff"), only the NON-ZERO keys, so an unthrottled job carries none. **`backfill`** (value 1, set by the ISSUES stream at the
@@ -1334,7 +1347,9 @@ source of truth:
   and by the ISSUES stream's out-of-scope step), `changelogs`/`worklogs`
   (worklogs excludes tombstoned rows — "live" worklogs), `entitiesByKind` (per `JiraEntityKind`,
   `raw.jira_entities` grouped by `kind`), `needsProcessing` (the PROCESS backlog RECONCILE and the
-  CHANGELOGS/WORKLOGS streams all flag into).
+  CHANGELOGS/WORKLOGS streams all flag into). For a GITLAB connection these Jira integers are 0 and
+  **`counts.gitlab`** (`GitLabSyncCounts`, read from `GitLabRawStore`, V41) carries `projects` (live), `projectsMovedOut`,
+  `projectsDeleted`, `users` (live) and `usersDeleted`; it is null when this process has no GitLab store (GitLab off here).
 - **`lastJobs`** — the most recently REQUESTED job of each `SyncJobKind`, keyed by name
   (`SyncJobsService.lastJobsByKind`) — terminal or not, and a kind never requested is simply absent
   from the map (not present with a null value).
@@ -1354,7 +1369,8 @@ out of every Jira-only path (V40 + `ingest/`, pinned by `ConnectorSeamTest` and 
   the V40 CHECK (`source_connections_kind_check`, V8's unnamed inline CHECK) admits both kinds.
 - **The connector registry** (`ConnectorRegistry.kt`): `Application.connectorRegistry()` creates it on first use (the
   `jobHandlerRegistry()` shape); each connector module calls `register(connector)` from its `configureXxx` (`configureJira` registers
-  `JIRA_CLOUD`; the GitLab module follows it in `application.yaml`). Additive: registering a kind twice is a boot error, nothing is
+  `JIRA_CLOUD`; `configureGitLab` follows it in `application.yaml` and registers `GITLAB` only when GitLab is enabled: a host listed, or the
+  development stub). Additive: registering a kind twice is a boot error, nothing is
   replaced. `connectorFor(kind)` / `connectors()` (a snapshot) read it; `configureIngestWorker` builds the worker from `connectors()` at
   `ApplicationStarted` (the `IngestConnectorOverrideKey` test seam wins). **A kind with no registered connector** (GitLab switched off, not
   built here) fails its job with `ConnectorUnavailableException` -> job error code `CONNECTOR_UNAVAILABLE`, one of the closed
@@ -1378,23 +1394,23 @@ out of every Jira-only path (V40 + `ingest/`, pinned by `ConnectorSeamTest` and 
   `409 data-source-kind-unsupported` (`DataSourceKindUnsupportedException`, type `urn:flow:problem:data-source-kind-unsupported`) after
   the admin guard, and so does the raw-issue inspector (`requireMetricsConnection` / `requireJiraConnection`). The data profile route
   decodes no settings and serves a GITLAB row's stored (empty) profile: it becomes per-kind with the code layer.
-- **The data-source API serves Jira rows only until the GitLab release adds its wire block**: `list`/`read`/`update`/`readForTest`/
-  `persistCloudId` filter on `isJira()`, so a GITLAB row is absent (list, `404` by id) rather than a `500` from a `DataSourceResponse`
-  that cannot carry it. `delete`, the scheduler scans (`dueForSync`/`dueForReconcile`/`dueForPurge`) and `connectionHealth` are
-  kind-agnostic on purpose: every kind syncs, reconciles and purges through its own connector. The backfill floor (history horizon) is
-  applied at write time by `DataSourceService`; whether GitLab sources take it is decided with its data-source release.
-- **Interim inconsistency until PR 6** (a GITLAB row can only exist by direct insert today): the row is `404` on read, PUT, status,
-  sync-jobs and the stored Test connection, but `204` on DELETE (kind-agnostic soft delete), `200` on the profile route (it decodes
-  nothing) and `409 data-source-kind-unsupported` on metrics-config and the raw-issue inspector. `uq_source_connections_name_active`
-  spans kinds, so a Jira POST reusing a hidden GITLAB row's name is a `409` for a row the admin cannot see. PR 6's `gitlab` wire block
-  removes all of this.
+- **The data-source API serves both kinds** (PR 6): `DataSourceResponse` carries `jira` or `gitlab` (the other null) and `list`/`read`/
+  `update`/`readForTest` are kind-agnostic (`active()` only, branching on the row's kind); `persistCloudId` and `readForSync` stay
+  Jira-only (`readGitLabForSync` is GitLab's). `delete`, the scheduler scans (`dueForSync`/`dueForReconcile`/`dueForPurge`) and
+  `connectionHealth` are kind-agnostic on purpose: every kind syncs, reconciles and purges through its own connector. The backfill floor
+  (history horizon) applies to GitLab sources too (it is the COMMITS stream's first-run floor, PR 7). The sync-job and status routes are
+  kind-agnostic (a GitLab source accepts REPROCESS and RECONCILE requests, which are no-op successes until PR 9/10; the SPA does not offer
+  them). `uq_source_connections_name_active` spans kinds. With GitLab switched off after sources exist, list/read/delete keep working,
+  a PUT is `400 gitlab-disabled`, the stored Test connection `409 data-source-kind-unsupported`, and scheduled jobs are skipped (above).
 
 ## Data sources
 
 `source_connections` (V8, `ingest/DataSourceService.kt`) is the generic connector registry: `kind`
 (`JIRA_CLOUD`, `GITLAB` since V40 - "Connector kinds"), typed common columns (schedule, sync status, `config_revision`) and a
 `settings` jsonb holding the per-kind shape (Jira's: `siteUrl`, `email`, `projectKeys`, `authScheme`,
-`cloudId`) — the GitLab connector reuses this table, its queue and its worker outright. The service keeps the
+`cloudId`; GitLab's: `baseUrl`, `groupPaths`, `pathExclusions?` - null and unused until PR 7) — the GitLab connector reuses this table, its
+queue and its worker outright. The per-kind half of a write (which block a body carries, the settings it stores, the PUT merge with the
+identity/kind 409s, the ad-hoc test target) is `DataSourceKindWrites.kt`; the GitLab wire and validation is `GitLabDataSource.kt`. The service keeps the
 table, the CRUD and the PUT/scope locking; the rest sits beside it as verbatim moves taking an explicit `database`/`cipher`, the service
 delegating by the same public names: `DataSourceReads.kt` (row -> response/status/decrypted `StoredJiraConnection`), `DataSourceSchedule.kt`
 (the due scans), `DataSourceOutcomes.kt` (the job-outcome writes); already beside it: `DataSourceScope.kt` (the scope rules), `ScheduleBackoff.kt` (the back-off). It
@@ -1418,7 +1434,17 @@ active data source has the same `jira.siteUrl`** (a create naming another site i
 update whose `projectKeys` overlap another active source is `409`, `urn:flow:problem:data-source-project-overlap`).
 Both problems carry the conflicting source's path as `instance` and name it (and the shared keys) in `detail`; the
 lowest-id conflict is reported; an update checks keys only, the site being the immutable identity. A soft-deleted
-source holds nothing (its site and keys are free). `create` and `update` take the transaction-scoped advisory lock
+source holds nothing (its site and keys are free). **GitLab sources have rules of their own** (`GitLabScope.kt`, GitLab rows only, never
+mixed with Jira's): **every active GitLab source has the same canonical `gitlab.baseUrl`** (a create naming another origin is `409`
+`urn:flow:problem:data-source-other-instance`) and **no group path equals, sits under or contains another active GitLab source's**
+(`urn:flow:problem:data-source-group-overlap`, create and update; `detail` names the source and the clashing paths). Within one request a
+path equal to or nested in another is a `400`. The request body carries exactly one of `jira`/`gitlab` (else `400`), which sets the kind
+(immutable: the other block on a PUT is `409`, as is a different canonical `baseUrl`). `gitlab.baseUrl` is canonicalised and checked by the
+operator's allow-list through the `GitLabBaseUrlPolicy` seam (`JobHandlers.kt`; `configureGitLab` registers it ALWAYS, so a disabled
+GitLab answers `400 gitlab-disabled`; a host off the list `400 gitlab-host-not-allowed`; the detail carries the code, never the URL);
+`gitlab.token` is write-only like `jira.apiToken` (`hasToken` in responses, `data_source.token_rotated` on a rotation).
+`GET /api/v1/data-sources/kinds` (ADMIN, `{items:[{kind, enabled, allowedOrigins}]}`) is what the editor reads to offer only kinds that can
+work: Jira always; GitLab when a host is listed or the dev stub is set, with the origins the validator accepts. `create` and `update` take the transaction-scoped advisory lock
 `DATA_SOURCE_SCOPE_LOCK_KEY` FIRST (`.claude/docs/persistence.md`), so two concurrent writes cannot both pass the
 check; a rejection audits `data_source.scope_rejected`. Data that predates the rules is left alone. **The off-switch**
 is `INGEST_SCOPE_RULES=off` (`ingest.scopeRules`, default `enforced`): e2e-only (the isolated stack's specs create

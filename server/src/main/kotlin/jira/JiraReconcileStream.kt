@@ -6,8 +6,10 @@ import ch.nokillswit.fetch.RunBudget
 import ch.nokillswit.fetch.RunCeiling
 import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
+import ch.nokillswit.ingest.RawUpsertOutcome
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
+import ch.nokillswit.ingest.isChange
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
 

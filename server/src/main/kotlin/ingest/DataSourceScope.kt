@@ -13,8 +13,10 @@ import org.slf4j.LoggerFactory
 private val scopeLog = LoggerFactory.getLogger("ch.nokillswit.ingest.DataSourceScope")
 
 /**
- * Whether [DataSourceService] enforces the two data-source scope invariants (`.claude/docs/ingestion.md` "Data
- * sources"): ONE Jira site across every active data source, and NO project key in two active data sources.
+ * Whether [DataSourceService] enforces the data-source scope invariants (`.claude/docs/ingestion.md` "Data
+ * sources"): ONE Jira site across every active Jira data source and NO project key in two of them; for GitLab, ONE instance across
+ * the active GitLab sources and NO group path equal to, under or above another source's (`GitLabScope.kt`). The kinds never conflict
+ * with each other.
  * [ENFORCED] is the only production value; [OFF] exists for the e2e stack (`INGEST_SCOPE_RULES=off`, refused outside
  * development mode by `configureDatabase`) and for the server tests' direct fixture service.
  */
@@ -55,21 +57,24 @@ internal fun Application.configuredScopeRules(): ScopeRules {
 internal const val DATA_SOURCE_SCOPE_LOCK_KEY = 0x466C6F7753697465L
 
 /** Which scope rule a write broke; the [problemType] is the RFC 7807 `type` a client branches on. */
-enum class ScopeConflictReason(val problemType: String) {
-    OTHER_SITE("urn:flow:problem:data-source-other-site"),
-    PROJECT_OVERLAP("urn:flow:problem:data-source-project-overlap"),
+enum class ScopeConflictReason(val problemType: String, val kind: DataSourceKind) {
+    OTHER_SITE("urn:flow:problem:data-source-other-site", DataSourceKind.JIRA_CLOUD),
+    PROJECT_OVERLAP("urn:flow:problem:data-source-project-overlap", DataSourceKind.JIRA_CLOUD),
+    OTHER_INSTANCE("urn:flow:problem:data-source-other-instance", DataSourceKind.GITLAB),
+    GROUP_OVERLAP("urn:flow:problem:data-source-group-overlap", DataSourceKind.GITLAB),
 }
 
 /**
  * A 409 for a write that would break a scope invariant. `instance` is the conflicting data source's own path
- * (`/api/v1/data-sources/{id}`); [keys] are the shared project keys (empty for [ScopeConflictReason.OTHER_SITE]) and
- * [siteHost] is the REQUESTED site's host (never the full URL) — both feed the `data_source.scope_rejected` audit event.
+ * (`/api/v1/data-sources/{id}`); [keys] are the shared project keys (Jira) or the overlapping group paths (GitLab), empty for the
+ * site/instance reasons, and [host] is the REQUESTED site's or instance's host (never the full URL) — both feed the
+ * `data_source.scope_rejected` audit event.
  */
 class DataSourceScopeConflictException(
     val reason: ScopeConflictReason,
     val conflictingId: UInt,
     val keys: List<String>,
-    val siteHost: String,
+    val host: String,
     detail: String,
 ) : ConflictException(detail, reason.problemType, "/api/v1/data-sources/$conflictingId")
 
@@ -79,14 +84,27 @@ internal suspend fun R2dbcTransaction.takeDataSourceScopeLock(rules: ScopeRules)
 }
 
 /**
- * Throws the scope 409 for [request] against every active data source other than [excludeId] (the row being updated;
- * null on a create, which also checks the site); the caller holds the lock from [takeDataSourceScopeLock].
+ * Throws the scope 409 for [request] against every active data source of its kind other than [excludeId] (the row being updated;
+ * null on a create, which also checks the site or instance); the caller holds the lock from [takeDataSourceScopeLock]. [gitLabPolicy]
+ * canonicalises a GitLab base URL for the comparison.
  */
-internal suspend fun enforceDataSourceScope(rules: ScopeRules, request: DataSourceRequest, excludeId: UInt?) {
+internal suspend fun enforceDataSourceScope(
+    rules: ScopeRules,
+    request: DataSourceRequest,
+    excludeId: UInt?,
+    gitLabPolicy: GitLabBaseUrlPolicy?,
+) {
     if (rules == ScopeRules.OFF) return
+    when (request.kindOrBadRequest()) {
+        DataSourceKind.JIRA_CLOUD -> enforceJiraScope(checkNotNull(request.jira), excludeId)
+        DataSourceKind.GITLAB -> enforceGitLabScope(checkNotNull(request.gitlab), excludeId, checkNotNull(gitLabPolicy))
+    }
+}
+
+private suspend fun enforceJiraScope(jira: JiraConnectionRequest, excludeId: UInt?) {
     val connections = DataSourceService.Connections
     // These are the JIRA rules (one Jira site, no project in two sources): they are checked against Jira rows only. Another kind's
-    // rows neither protect keys nor name a site, and are never decoded here (a GitLab source has its own rules, with its own release).
+    // rows neither protect keys nor name a site, and are never decoded here (GitLab has its own rules: `GitLabScope.kt`).
     val others = connections.selectAll().where { connections.active() and connections.isJira() }.toList()
         .filter { it[connections.id].value != excludeId }
         .mapNotNull { row ->
@@ -99,7 +117,7 @@ internal suspend fun enforceDataSourceScope(rules: ScopeRules, request: DataSour
             }
             settings?.let { ScopeCandidate(id, row[connections.name], it.siteUrl, it.projectKeys) }
         }
-    findScopeConflict(others, request.jira.siteUrl, request.jira.projectKeys, checkSite = excludeId == null)?.let { throw it }
+    findScopeConflict(others, jira.siteUrl, jira.projectKeys, checkSite = excludeId == null)?.let { throw it }
 }
 
 /**

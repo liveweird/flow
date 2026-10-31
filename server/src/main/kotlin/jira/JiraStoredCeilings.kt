@@ -1,5 +1,6 @@
 package ch.nokillswit.jira
 
+import ch.nokillswit.ingest.RawUpsertOutcome
 import ch.nokillswit.ingest.StreamContext
 import org.slf4j.Logger
 
@@ -53,9 +54,6 @@ internal fun requireProcessPageHoldsAnIssue(stored: JiraStoredCeilings) {
             "could be stored that PROCESS can never claim"
     }
 }
-
-/** Whether a write changed stored data: the progress signal of `StreamContext.heartbeat`. A refusal changes nothing. */
-internal val RawUpsertOutcome.isChange: Boolean get() = this != RawUpsertOutcome.UNCHANGED && this != RawUpsertOutcome.REFUSED
 
 /** Ticks [counter] once per [RawUpsertOutcome.REFUSED] in [outcomes] and returns how many there were. */
 internal fun StreamContext.countRefused(counter: String, outcomes: Iterable<RawUpsertOutcome>): Int =

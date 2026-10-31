@@ -380,6 +380,11 @@ place:
 
 The "is this team there and active" check every one of those reads runs is ONE function, `teams/TeamActive.kt` `Teams.requireActive(teamId) { failure }` (the caller picks
 the status: `Teams.requireActiveOrNotFound` for a path team, a `400` for the reports' `teamId` filter); the row-locking twin is `lockActiveForWrite`.
+- `ingest/SyncStatusRoutes.kt` (the ADMIN status view) READS `gitlab/GitLabRawStore.counts(connectionId)` (V41: row COUNTS of `raw.gitlab_projects` /
+  `raw.gitlab_users` by their markers, never a payload) for a GITLAB connection, through the store published as `GitLabRawStoreKey` (absent when GitLab is off
+  in the process: `counts.gitlab` is then null). `gitlab/GitLabConnector` WRITES only `raw.gitlab_*` and its two `sync_cursors` streams, and READS the
+  connection through `DataSourceService.readGitLabForSync` (the decrypted token, for the connector alone).
+
 List each new cross-feature read/write here as it lands — the list IS the permission.
 
 ### Schemas
@@ -895,7 +900,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V40`:
+Current migrations are `V1`–`V41`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -1079,6 +1084,7 @@ Current migrations are `V1`–`V40`:
   row is rewritten (every existing row is `JIRA_CLOUD` and satisfies the wider check), no new column, and nothing creates a `GITLAB` row
   before the GitLab data-source release, so an old pod never reads one. `MigrationChecksumTest` pins it. No cross-feature read or write
   is added: the list above is unchanged.
+- `V41__gitlab_raw_store` - see "The GitLab raw store (V41)" below: `raw.gitlab_projects` and `raw.gitlab_users`.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
@@ -1267,6 +1273,30 @@ the column default 24 means an existing deployment wakes up at 24 months. The re
   enabled connection) is kept: the DERIVE is unnecessary but harmless, the same documented precedent as V31/`min_sample_size`.
 - **This release stores and edits the setting only**; the reports' read-time clamp and the data-source backfill floor follow.
 - Purely additive (an old pod ignores the column). `MigrationChecksumTest` gains V39's pin.
+
+### The GitLab raw store (V41)
+
+`V41__gitlab_raw_store.sql` adds the GitLab connector's two raw tables in the `raw` schema (`gitlab/GitLabRawStore.kt` and its collaborators;
+the design is `gitlab-integration.md` "Schema"). Both are keyed `(connection_id → public.source_connections, <id>)`, store a SLIM `payload JSONB`
+(a projection, never the whole document: `gitlab/GitLabSlim.kt`) canonicalized by `canonicalJson` and hashed with `sha256Hex` like `raw.jira_*`, and
+carry `first_seen_at` / `last_seen_at` / `changed_at` epoch millis.
+
+- **`raw.gitlab_projects`**: `project_id`, `path_with_namespace` (≤1024), `group_path` / `group_id` (the CONFIGURED group the project was listed
+  under, not its own subgroup), `default_branch`, `archived`, `moved_out_at` (not seen under any configured group in a COMPLETED pass; cleared when
+  seen again), `deleted_at` (RECONCILE's, PR 9; unused until then) and the COMMITS stream's `commits_head_sha CHAR(40)` / `relist_requested`
+  (PR 7; null/false until then).
+- **`raw.gitlab_users`**: `user_id`, `username`, `name`, `state`, `bot`, `emails JSONB` (the sorted, distinct, lowercased union of the user's
+  `email`/`commit_email`/`public_email` and the confirmed secondary emails - also inside the payload, so ONE hash covers both), `deleted_at` (not seen
+  in a completed `/users` pass).
+- **The diff rule is the Jira one**, lifted: `ingest/RawUpsertOutcome.kt`'s `classifyUpsert` (no stored row inserts, the same hash on a live row is
+  unchanged, a tombstoned row seen again is resurrected, any other difference is a change). `GitLabRawWrites` loads a 100-row page with ONE
+  `SELECT ... IN (...) FOR UPDATE` (keys sorted), inserts new rows in one multi-row `INSERT`, touches unchanged live rows with one `UPDATE ... last_seen_at`, and
+  rewrites a changed or tombstoned row (payload, hash, `changed_at`, markers cleared). The sweeps (`markProjectsMovedOutNotSeenSince`,
+  `markUsersDeletedNotSeenSince`) tombstone live rows with `last_seen_at` older than the pass start.
+- **PURGE**: `GitLabRawPurge` deletes 500-row batches of each table per connection (`GitLabRawStore.purgeAll`, the connector's `PurgeStep`).
+- Indexes `(connection_id, last_seen_at)` on both tables serve the sweeps and the users-freshness read (`oldestLiveUserSeenAt`). The telemetry size
+  estimate picks both tables up by their `connection_id` column automatically. Purely additive: an old pod never reads them.
+  `MigrationChecksumTest` pins it.
 
 ### Telemetry (V36)
 

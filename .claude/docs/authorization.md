@@ -205,9 +205,17 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     audited `data_source.scope_rejected`, answered after validation (400 wins) and after the 403 guard. `jira.apiToken` is write-only — required on create, optional on
     update (omitted keeps the current token, present rotates it, audited separately as
     `data_source.token_rotated`); no response or audit event ever carries it, only
-    `jira.hasApiToken`. Delete is soft (disables the connection; the raw/normalized rows purge
+    `jira.hasApiToken`. **The GitLab kind (1.34.0)** rides the same routes with a `gitlab` block instead of `jira` (exactly one, else `400`;
+    the block sets the kind, which is fixed: the other block on a PUT, or a different canonical `gitlab.baseUrl`, is `409`; `gitlab.token`
+    is write-only like the Jira token, only `gitlab.hasToken` is echoed). Its own scope `409`s are
+    `urn:flow:problem:data-source-other-instance` / `…-group-overlap`; a base URL off the operator's `GITLAB_ALLOWED_HOSTS`, or any GitLab
+    write while the kind is off, is a `400` carrying `gitlab-host-not-allowed` / `gitlab-disabled`; the stored Test connection of a GitLab row
+    while the kind is off is `409 data-source-kind-unsupported`. **`GET /api/v1/data-sources/kinds`** (ADMIN, `requireAdmin` first; `{items}` of
+    `{kind, enabled, allowedOrigins}`) tells the editor which kinds can be created: nothing in it is a secret (the operator's own host list), but
+    like the rest of the surface it is not an any-authenticated read. Delete is soft (disables the connection; the raw/normalized rows purge
     later per the v0.2.0 plan's grace-period amendment). Mutations audit
-    `data_source.created`/`.updated`/`.token_rotated`/`.deleted`. Tests: `DataSourceRoutesTest`.
+    `data_source.created`/`.updated`/`.token_rotated`/`.deleted` (the first two and `.tested`/`.scope_rejected` carry `kind` and `host`).
+    Tests: `DataSourceRoutesTest`, `GitLabDataSourceRoutesTest`, `GitLabScopeTest`.
   - `/api/v1/data-sources/{id}/sync-jobs` (`POST`/`GET`, `GET .../sync-jobs/{jobId}`,
     `POST .../sync-jobs/{jobId}/cancel`, `ingest/SyncJobRoutes.kt`) → **ADMIN only**, `requireAdmin`
     before `call.receive()` on the enqueue mutation (guard-before-read/-body, the data-sources

@@ -2,6 +2,7 @@ package ch.nokillswit.jira
 
 import ch.nokillswit.fetch.DEFAULT_REQUEST_DEADLINE_MILLIS
 import ch.nokillswit.fetch.FetchSource
+import ch.nokillswit.fetch.OutboundPermits
 import ch.nokillswit.fetch.RateLimitSignal
 import ch.nokillswit.fetch.SourceHttp
 import ch.nokillswit.fetch.defaultMaxResponseNodes
@@ -36,9 +37,10 @@ internal fun createJiraHttp(
     sleeper: suspend (Long) -> Unit = { delay(it) },
     clock: () -> Long = System::currentTimeMillis,
     maxResponseNodes: Long = defaultMaxResponseNodes(maxResponseBytes),
+    permits: OutboundPermits? = null,
 ): SourceHttp = SourceHttp(
     client, maxRetries, maxResponseBytes, maxConcurrentRequests, JIRA_SOURCE, requestDeadlineMillis, random, sleeper, clock,
-    maxResponseNodes,
+    maxResponseNodes, permits,
 )
 
 /** `Authorization` header value for [scheme] - never logged (see `.claude/docs/security.md`). */

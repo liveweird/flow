@@ -60,6 +60,7 @@ class MigrationChecksumTest {
         "V38__source_connection_reconcile_pause.sql" to -1348539040,
         "V39__history_horizon_months.sql" to -441676957,
         "V40__source_connection_kind_gitlab.sql" to 58882136,
+        "V41__gitlab_raw_store.sql" to 1702253531,
     )
 
     @Test
