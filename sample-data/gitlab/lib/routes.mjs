@@ -175,11 +175,11 @@ export function defineRoutes(w, world) {
         const v = pathIn(m, state);
         if (ids.includes(v.groupId)) list.push({ e, v });
       }
-      list.sort((a, b) => a.e.updatedMs - b.e.updatedMs || a.e.id - b.e.id);
+      list.sort((a, b) => b.e.updatedMs - a.e.updatedMs || b.e.id - a.e.id);
       return {
         type: "paged", urlPath: `${API}/groups/${g.id}/merge_requests`,
-        query: { scope: "all", state: "all", include_subgroups: "true", order_by: "updated_at", sort: "asc", per_page: "100" },
-        linkParams: { id: g.id, include_subgroups: "true", order_by: "updated_at", scope: "all", sort: "asc", state: "all" },
+        query: { scope: "all", state: "all", include_subgroups: "true", order_by: "updated_at", sort: "desc", per_page: "100" },
+        linkParams: { id: g.id, include_subgroups: "true", order_by: "updated_at", scope: "all", sort: "desc", state: "all" },
         items: list.map(({ e, v }) => mrJson(e, { ...projectById.get(e.projectId), fullPath: v.fullPath })),
       };
     });
