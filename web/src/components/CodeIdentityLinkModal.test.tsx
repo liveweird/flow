@@ -81,16 +81,26 @@ describe("CodeIdentityLinkModal", () => {
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ message: "Linked" }));
   });
 
-  test("preselects the current link", async () => {
-    mockFetch.mockResolvedValue(jsonResponse(200, PEOPLE));
+  test("preselects the current link under the same label the loaded option has, and settles: one directory request, no search loop", async () => {
+    // A FRESH Response per call: a body can be read once, so a reused one would fail every request after the first.
+    mockFetch.mockImplementation(() => Promise.resolve(jsonResponse(200, PEOPLE)));
     renderModal(async () => {}, {
       ...IDENTITY,
       status: "LINKED",
       decision: { decision: "LINKED", jiraAccountId: "acc-3", jiraDisplayName: "Sample User 3", decidedByUserId: 1, decidedAt: "2026-10-31T09:05:00Z" },
     });
 
-    expect(await screen.findByRole("combobox", { name: "Jira person" })).toHaveValue("Sample User 3");
+    const picker = await screen.findByRole("combobox", { name: "Jira person" });
+    await waitFor(() => expect(picker).toHaveAttribute("aria-busy", "false"));
+    expect(picker).toHaveValue("Sample User 3 (acc-3)");
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+
+    // Longer than the 300 ms debounce, twice over: a label that read as a new search term would have sent another request by now.
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(picker).toHaveValue("Sample User 3 (acc-3)");
+    const directory = mockFetch.mock.calls.filter(([url]) => (url as string).startsWith("/api/v1/jira-users?"));
+    expect(directory).toHaveLength(1);
+    expect(new URL(directory[0][0] as string, "http://test").searchParams.has("q")).toBe(false);
   });
 
   test("a 400 stays inline in the modal and no toast is shown", async () => {

@@ -6,12 +6,14 @@
   and deleted at the end of its test, AND the identity decisions of the stub host `gitlab-stub:8080`
   (`public.code_identity_links`): the only spec that writes them, cleared at its start and again at its end (a decision is keyed by
   host, so it would outlive the connection and show on the next run). It reads the shared Jira fixture through `sharedFixtureReady`
-  (that is what puts the stub's 30 Jira people in `norm.people`) and never mutates it. No reports lock: a GitLab connection
-  changes no derive input.
+  (that is what puts the stub's 30 Jira people in `norm.people`) and never mutates it. It holds the `data-sources` lock (the
+  data-sources spec's GitLab test creates a source on the same stub host with the same groups, which the server refuses with a 409
+  while the other is active), and sweeps leftover `e2e-identities-*` / `e2e-gitlab-*` sources at its start so a crashed run cannot
+  break the next. A GitLab connection changes no derive input.
 
 ## Scenario: admin reviews the GitLab stub's identities: confirms the proposals, ignores the service account, links the unmatched author and removes a decision
 
-1. Through the API, the shared Jira fixture is made ready, a GitLab-stub source (groups `platform` and `apps`) is created and synced, and
+1. Through the API, leftover GitLab-stub sources of earlier runs are deleted, the shared Jira fixture is made ready, a GitLab-stub source (groups `platform` and `apps`) is created and synced, and
    every stale decision of the stub host is deleted.
 2. The admin signs in, opens the source's details page and clicks **Identities**.
    - *Expected*: the URL ends in `/identities`, the heading reads **Identities** and the **Proposed** tab is selected.

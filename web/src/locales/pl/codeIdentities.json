@@ -1,7 +1,6 @@
 {
   "title": "Tożsamości",
   "intro": "Powiąż użytkowników GitLab i adresy commitów z osobami z Jiry. Propozycje dopasowują po adresie e-mail; tylko potwierdzone decyzje przypisują aktywność w kodzie.",
-  "tableAria": "Tożsamości GitLab",
   "tab": {
     "PROPOSED": "Proponowane",
     "UNMAPPED": "Niedopasowane",
@@ -22,8 +21,15 @@
   "state": {
     "deleted": "Usunięty",
     "bot": "Bot",
-    "unseen": "Niewidoczna",
-    "unseenHint": "Żadne źródło danych z tej instancji GitLab nie ma już tej tożsamości."
+    "unseen": "Niewidziana",
+    "unseenHint": "Żadne źródło danych z tej instancji GitLab nie ma już tej tożsamości.",
+    "value": {
+      "active": "Aktywny",
+      "blocked": "Zablokowany",
+      "deactivated": "Dezaktywowany",
+      "banned": "Zbanowany",
+      "ldap_blocked": "Zablokowany (LDAP)"
+    }
   },
   "person": {
     "bot": "Bot",
@@ -60,6 +66,7 @@
     "notFound": "Tożsamość lub jej decyzja już nie istnieje. Odśwież listę.",
     "invalid": "Żądanie zostało odrzucone. Sprawdź osobę z Jiry i spróbuj ponownie.",
     "conflict": "To źródło danych nie jest źródłem GitLab.",
+    "sourceGone": "To źródło danych już nie istnieje.",
     "failedStatus": "Operacja nie powiodła się ({{status}})",
     "failed": "Operacja nie powiodła się. Sprawdź połączenie i spróbuj ponownie."
   },
@@ -75,7 +82,8 @@
     "PROPOSED": "Brak propozycji — każdy pasujący adres ma decyzję.",
     "UNMAPPED": "Nic niedopasowanego.",
     "LINKED": "Brak powiązanych tożsamości.",
-    "IGNORED_OR_BOT": "Nic nie jest ignorowane."
+    "IGNORED_OR_BOT": "Nic nie jest ignorowane.",
+    "search": "Żadna tożsamość nie pasuje do wyszukiwania."
   },
   "loadFailed": "Nie udało się wczytać tożsamości",
   "notFound": "To źródło danych nie istnieje albo nie jest źródłem GitLab.",

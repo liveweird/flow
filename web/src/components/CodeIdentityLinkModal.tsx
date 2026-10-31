@@ -5,6 +5,7 @@ import { useDebouncedValue } from "@mantine/hooks";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { decideCodeIdentity, type CodeIdentityResponse } from "../api/codeIdentities";
 import { listJiraUsers } from "../api/metrics";
+import { jiraPersonLabel } from "../utils/codeIdentityLabels";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
 import ErrorAlert from "./ErrorAlert";
@@ -35,10 +36,13 @@ export default function CodeIdentityLinkModal({
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   // The picked person, kept apart from the search results: a new term replaces the options, and the selection must keep its label.
+  // The label is spelled by the SAME helper as the loaded options, so the preselection and the option it becomes read alike.
   const [picked, setPicked] = useState<{ value: string; label: string } | null>(
-    current?.jiraAccountId ? { value: current.jiraAccountId, label: current.jiraDisplayName ?? current.jiraAccountId } : null,
+    current?.jiraAccountId ? { value: current.jiraAccountId, label: jiraPersonLabel(current.jiraDisplayName, current.jiraAccountId) } : null,
   );
-  // Choosing an option makes Mantine put its label into the search box — that is not a search term.
+  // Choosing an option (or preselecting one) makes Mantine put its label into the search box - that is not a search term. It only works
+  // while `picked.label` is spelled exactly like the loaded option it becomes (`jiraPersonLabel`): a different spelling reads as a new
+  // term, reloads the options, swaps the label and starts over.
   const term = picked !== null && search === picked.label ? "" : search.trim();
   const [debounced] = useDebouncedValue(term, 300);
   const settling = term !== debounced;
@@ -49,7 +53,7 @@ export default function CodeIdentityLinkModal({
     placeholderData: keepPreviousData,
   });
   const loading = people.isLoading || people.isPlaceholderData;
-  const options = (people.data?.items ?? []).map((person) => ({ value: person.accountId, label: `${person.displayName} (${person.accountId})` }));
+  const options = (people.data?.items ?? []).map((person) => ({ value: person.accountId, label: jiraPersonLabel(person.displayName, person.accountId) }));
   if (picked !== null && !options.some((option) => option.value === picked.value)) options.unshift(picked);
 
   async function save() {

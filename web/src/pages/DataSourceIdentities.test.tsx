@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { notifications } from "@mantine/notifications";
 import { Route, Routes, useLocation } from "react-router-dom";
 import DataSourceIdentities from "./DataSourceIdentities";
@@ -101,11 +101,18 @@ function listUrls(mockFetch: FetchMock): URL[] {
     .map(([url]) => new URL(url as string, "http://test"));
 }
 
+function lastListUrl(mockFetch: FetchMock): URL {
+  const urls = listUrls(mockFetch);
+  return urls[urls.length - 1];
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 function serve(mockFetch: FetchMock, extra?: (url: string, init: RequestInit | undefined) => Response | undefined) {
   mockFetch.mockImplementation((url: string, init?: RequestInit) => {
     const custom = extra?.(url, init);
     if (custom) return Promise.resolve(custom);
-    if (url.startsWith("/api/v1/data-sources/5/code-identities?")) {
+    if (/^\/api\/v1\/data-sources\/[56]\/code-identities\?/.test(url)) {
       const status = new URL(url, "http://test").searchParams.get("status") ?? "";
       const items = PAGES[status] ?? [];
       return Promise.resolve(jsonResponse(200, { items, page: 1, pageSize: 20, total: items.length }));
@@ -114,21 +121,28 @@ function serve(mockFetch: FetchMock, extra?: (url: string, init: RequestInit | u
   });
 }
 
+function installFetchMock(): FetchMock {
+  const mockFetch = vi.fn();
+  vi.stubGlobal("fetch", mockFetch);
+  localStorage.setItem("flow.auth.token", "fake-token");
+  localStorage.setItem("flow.auth.roles", JSON.stringify(["ADMIN"]));
+  return mockFetch;
+}
+
+function restoreFetchMock() {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  localStorage.clear();
+}
+
 describe("DataSourceIdentities page", () => {
   let mockFetch: FetchMock;
 
   beforeEach(() => {
-    mockFetch = vi.fn();
-    vi.stubGlobal("fetch", mockFetch);
-    localStorage.setItem("flow.auth.token", "fake-token");
-    localStorage.setItem("flow.auth.roles", JSON.stringify(["ADMIN"]));
+    mockFetch = installFetchMock();
   });
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
-    localStorage.clear();
-  });
+  afterEach(restoreFetchMock);
 
   test("opens on the Proposed tab: the request carries status, paging and sort, and the proposals read as proposals", async () => {
     serve(mockFetch);
@@ -166,17 +180,18 @@ describe("DataSourceIdentities page", () => {
     expect(listUrls(mockFetch).some((url) => url.searchParams.get("status") === "LINKED")).toBe(true);
     expect(within(row).getByText("Sample User 9")).toBeInTheDocument();
     expect(within(row).getByText("Proposed: Sample User 3")).toBeInTheDocument();
-    expect(within(row).getByText("blocked")).toBeInTheDocument();
+    expect(within(row).getByText("Blocked")).toBeInTheDocument();
     expect(within(row).getByText("2026-10-31 09:05")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Confirm all proposals/ })).not.toBeInTheDocument();
   });
 
-  test("a deep link opens its tab; an unknown status falls back to Proposed", async () => {
+  test("a status in the URL opens its tab", async () => {
     serve(mockFetch);
     renderPage("/data-sources/5/identities?status=UNMAPPED");
     expect(await screen.findByText("GitLab user #9")).toBeInTheDocument();
     expect(screen.getByText("contractor.sample@mail.example")).toBeInTheDocument();
     expect(screen.getByText("Commit e-mail only")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Unmapped" })).toHaveAttribute("aria-selected", "true");
   });
 
   test("an unknown status in the URL shows the Proposed tab", async () => {
@@ -193,6 +208,8 @@ describe("DataSourceIdentities page", () => {
 
     const row = (await screen.findByText("u77")).closest("tr") as HTMLElement;
     expect(within(row).getByText("Not seen")).toBeInTheDocument();
+    // The hint is visible text (reachable without a pointer), not a tooltip.
+    expect(within(row).getByText("No data source on this GitLab instance still has this identity.")).toBeInTheDocument();
     await user.click(within(row).getByRole("button", { name: "Operations for u77" }));
     expect(await screen.findByRole("menuitem", { name: "Remove decision" })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "Ignore" })).not.toBeInTheDocument();
@@ -298,6 +315,50 @@ describe("DataSourceIdentities page", () => {
     expect(screen.getByText("Clear the search to confirm all proposals.")).toBeInTheDocument();
   });
 
+  test("removing an orphaned decision goes through the confirm, DELETEs its key and refreshes the list", async () => {
+    let removed = false;
+    serve(mockFetch, (url, init) => {
+      if (init?.method === "DELETE") {
+        removed = true;
+        return new Response(null, { status: 204 });
+      }
+      if (removed && url.startsWith("/api/v1/data-sources/5/code-identities?")) return jsonResponse(200, { items: [], page: 1, pageSize: 20, total: 0 });
+      return undefined;
+    });
+    const user = userEvent.setup();
+    renderPage("/data-sources/5/identities?status=IGNORED_OR_BOT");
+
+    const row = (await screen.findByText("u77")).closest("tr") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "Operations for u77" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Remove decision" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Remove the decision for u77? The identity goes back to proposed or unmapped.")).toBeInTheDocument();
+    expect(mockFetch.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    const [url] = (await waitFor(() => {
+      const call = mockFetch.mock.calls.find(([, init]) => init?.method === "DELETE");
+      expect(call).toBeDefined();
+      return call;
+    })) as [string];
+    expect(url).toBe("/api/v1/data-sources/5/code-identities/u77");
+    expect(await screen.findByText("Nothing ignored.")).toBeInTheDocument();
+    expect(screen.queryByText("u77")).not.toBeInTheDocument();
+  });
+
+  test("clicking the identity header sorts descending by name", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("Sample Dev One");
+    expect(screen.getByRole("columnheader", { name: /GitLab identity/ })).toHaveAttribute("aria-sort", "ascending");
+    await user.click(screen.getByRole("button", { name: "GitLab identity" }));
+
+    await waitFor(() => expect(lastListUrl(mockFetch).searchParams.get("sort")).toBe("-displayName"));
+    expect(screen.getByRole("columnheader", { name: /GitLab identity/ })).toHaveAttribute("aria-sort", "descending");
+  });
+
   test("a 404 (or a Jira source's 409) renders the not-found state with a way back", async () => {
     mockFetch.mockResolvedValue(jsonResponse(409, { title: "Conflict", status: 409 }));
     renderPage();
@@ -312,5 +373,255 @@ describe("DataSourceIdentities page", () => {
     renderPage();
     expect(await screen.findByText("No proposals — every matching address is decided.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Confirm all proposals (0)" })).toBeDisabled();
+  });
+});
+
+describe("DataSourceIdentities page paging", () => {
+  let mockFetch: FetchMock;
+
+  beforeEach(() => {
+    mockFetch = installFetchMock();
+  });
+
+  afterEach(restoreFetchMock);
+
+  const manyRows = (url: string) =>
+    /code-identities\?/.test(url) ? jsonResponse(200, { items: [MATCHED], page: 1, pageSize: 20, total: 45 }) : undefined;
+
+  test("the pager asks for the page it is clicked to", async () => {
+    serve(mockFetch, manyRows);
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("Sample Dev One");
+    expect(screen.getByText("45 total")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "2" }));
+    await waitFor(() => expect(lastListUrl(mockFetch).searchParams.get("page")).toBe("2"));
+  });
+
+  test("a status change goes back to page 1", async () => {
+    serve(mockFetch, manyRows);
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("Sample Dev One");
+    await user.click(screen.getByRole("button", { name: "2" }));
+    await waitFor(() => expect(lastListUrl(mockFetch).searchParams.get("page")).toBe("2"));
+    await user.click(screen.getByRole("tab", { name: "Linked" }));
+
+    await waitFor(() => {
+      const last = lastListUrl(mockFetch);
+      expect(last.searchParams.get("status")).toBe("LINKED");
+      expect(last.searchParams.get("page")).toBe("1");
+    });
+  });
+
+  test("a search change goes back to page 1", async () => {
+    serve(mockFetch, manyRows);
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("Sample Dev One");
+    await user.click(screen.getByRole("button", { name: "2" }));
+    await waitFor(() => expect(lastListUrl(mockFetch).searchParams.get("page")).toBe("2"));
+    fireEvent.change(screen.getByLabelText("Search name, username or address"), { target: { value: "zoe" } });
+
+    await waitFor(() => {
+      const last = lastListUrl(mockFetch);
+      expect(last.searchParams.get("q")).toBe("zoe");
+      expect(last.searchParams.get("page")).toBe("1");
+    });
+  });
+
+  test("the last row of the last page decided away steps back to the new last page, not to an empty state", async () => {
+    let decided = false;
+    serve(mockFetch, (url, init) => {
+      if (init?.method === "PUT") {
+        decided = true;
+        return jsonResponse(200, BOT);
+      }
+      if (!url.startsWith("/api/v1/data-sources/5/code-identities?")) return undefined;
+      const page = new URL(url, "http://test").searchParams.get("page");
+      if (decided) {
+        // 20 proposals left: the old page 2 is now past the end (empty, unchanged total), page 1 is full.
+        return jsonResponse(200, { items: page === "1" ? [MATCHED] : [], page: Number(page), pageSize: 20, total: 20 });
+      }
+      return jsonResponse(200, { items: page === "1" ? [MATCHED] : [BOT], page: Number(page), pageSize: 20, total: 21 });
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("Sample Dev One");
+    await user.click(screen.getByRole("button", { name: "2" }));
+    await user.click(await screen.findByRole("button", { name: "Operations for Project bot" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Ignore" }));
+
+    await waitFor(() => expect(listUrls(mockFetch).some((url) => url.searchParams.get("page") === "2")).toBe(true));
+    await waitFor(() => {
+      expect(lastListUrl(mockFetch).searchParams.get("page")).toBe("1");
+      expect(screen.getByText("Sample Dev One")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("No proposals — every matching address is decided.")).not.toBeInTheDocument();
+  });
+});
+
+describe("DataSourceIdentities page search", () => {
+  let mockFetch: FetchMock;
+
+  beforeEach(() => {
+    mockFetch = installFetchMock();
+  });
+
+  afterEach(restoreFetchMock);
+
+  test("q lives in the URL beside the status, travels with a tab change and is not remembered for another source", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    const first = renderPage();
+
+    await screen.findByText("Sample Dev One");
+    fireEvent.change(screen.getByLabelText("Search name, username or address"), { target: { value: "zoe" } });
+    expect(screen.getByTestId("search")).toHaveTextContent("?q=zoe");
+    await user.click(screen.getByRole("tab", { name: "Linked" }));
+    await waitFor(() => expect(lastListUrl(mockFetch).searchParams.get("q")).toBe("zoe"));
+    expect(screen.getByTestId("search").textContent).toMatch(/status=LINKED/);
+    expect(screen.getByTestId("search").textContent).toMatch(/q=zoe/);
+    expect(Object.keys(localStorage).some((key) => key.endsWith(".filter.q"))).toBe(false);
+
+    first.unmount();
+    renderPage("/data-sources/6/identities");
+    await screen.findByText("Sample Dev One");
+    expect(screen.getByLabelText("Search name, username or address")).toHaveValue("");
+    expect(lastListUrl(mockFetch).searchParams.has("q")).toBe(false);
+  });
+
+  test("an empty result while searching says no identity matches, not that the tab is empty", async () => {
+    serve(mockFetch, (url) =>
+      new URL(url, "http://test").searchParams.get("q") === "nobody" ? jsonResponse(200, { items: [], page: 1, pageSize: 20, total: 0 }) : undefined,
+    );
+    renderPage("/data-sources/5/identities?q=nobody");
+
+    expect(await screen.findByText("No identities match the search.")).toBeInTheDocument();
+    expect(screen.queryByText("No proposals — every matching address is decided.")).not.toBeInTheDocument();
+  });
+
+  test("nothing is sent before the 300 ms debounce, then one request carries the term", async () => {
+    serve(mockFetch);
+    renderPage();
+
+    await screen.findByText("Sample Dev One");
+    const before = listUrls(mockFetch).length;
+    fireEvent.change(screen.getByLabelText("Search name, username or address"), { target: { value: "zoe" } });
+    await sleep(150);
+    expect(listUrls(mockFetch)).toHaveLength(before);
+    await waitFor(() => expect(lastListUrl(mockFetch).searchParams.get("q")).toBe("zoe"));
+    expect(listUrls(mockFetch)).toHaveLength(before + 1);
+  });
+
+  test("a term longer than the server's 100 characters is cut to 100 in the request", async () => {
+    serve(mockFetch);
+    renderPage();
+
+    await screen.findByText("Sample Dev One");
+    fireEvent.change(screen.getByLabelText("Search name, username or address"), { target: { value: `  ${"x".repeat(150)}` } });
+    await waitFor(() => expect(lastListUrl(mockFetch).searchParams.has("q")).toBe(true));
+    expect(lastListUrl(mockFetch).searchParams.get("q")).toBe("x".repeat(100));
+  });
+});
+
+describe("DataSourceIdentities page action failures", () => {
+  let mockFetch: FetchMock;
+
+  beforeEach(() => {
+    mockFetch = installFetchMock();
+  });
+
+  afterEach(restoreFetchMock);
+
+  const FAIL = (status: number) => jsonResponse(status, { title: "Failed", status });
+
+  test("a failed Confirm all shows its error inline, closes the dialog and toasts nothing", async () => {
+    const toast = vi.spyOn(notifications, "show").mockReturnValue("id");
+    serve(mockFetch, (_url, init) => (init?.method === "POST" ? FAIL(500) : undefined));
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("Sample Dev One");
+    await user.click(screen.getByRole("button", { name: "Confirm all proposals (2)" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Confirm all proposals" }));
+
+    expect(await screen.findByText("Action failed (500)")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(toast).not.toHaveBeenCalled();
+  });
+
+  test("a Confirm all that finds the data source gone says so, in its own words", async () => {
+    serve(mockFetch, (_url, init) => (init?.method === "POST" ? FAIL(404) : undefined));
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("Sample Dev One");
+    await user.click(screen.getByRole("button", { name: "Confirm all proposals (2)" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Confirm all proposals" }));
+
+    expect(await screen.findByText("The data source no longer exists.")).toBeInTheDocument();
+    expect(screen.queryByText(/The identity or its decision no longer exists/)).not.toBeInTheDocument();
+  });
+
+  test("a failed decision's error is gone once Confirm all runs", async () => {
+    serve(mockFetch, (_url, init) => {
+      if (init?.method === "PUT") return FAIL(500);
+      if (init?.method === "POST") return jsonResponse(200, { linked: 1, bots: 1 });
+      return undefined;
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("Sample Dev One");
+    await user.click(screen.getByRole("button", { name: "Operations for Sample Dev One" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Ignore" }));
+    expect(await screen.findByText("Action failed (500)")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Confirm all proposals (2)" }));
+    expect(screen.queryByText("Action failed (500)")).not.toBeInTheDocument();
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Confirm all proposals" }));
+    await waitFor(() => expect(mockFetch.mock.calls.some(([, init]) => init?.method === "POST")).toBe(true));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.queryByText("Action failed (500)")).not.toBeInTheDocument();
+  });
+
+  test("a failed Confirm all's error is gone once a row action runs", async () => {
+    serve(mockFetch, (_url, init) => {
+      if (init?.method === "POST") return FAIL(500);
+      if (init?.method === "PUT") return jsonResponse(200, MATCHED);
+      return undefined;
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("Sample Dev One");
+    await user.click(screen.getByRole("button", { name: "Confirm all proposals (2)" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Confirm all proposals" }));
+    expect(await screen.findByText("Action failed (500)")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Operations for Sample Dev One" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Ignore" }));
+    await waitFor(() => expect(mockFetch.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(true));
+    await waitFor(() => expect(screen.queryByText("Action failed (500)")).not.toBeInTheDocument());
+  });
+
+  test("a failure is not carried over to another tab", async () => {
+    serve(mockFetch, (_url, init) => (init?.method === "PUT" ? FAIL(500) : undefined));
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("Sample Dev One");
+    await user.click(screen.getByRole("button", { name: "Operations for Sample Dev One" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Ignore" }));
+    expect(await screen.findByText("Action failed (500)")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Unmapped" }));
+    await screen.findByText("GitLab user #9");
+    expect(screen.queryByText("Action failed (500)")).not.toBeInTheDocument();
   });
 });

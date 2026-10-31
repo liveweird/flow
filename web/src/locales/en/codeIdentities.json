@@ -1,7 +1,6 @@
 {
   "title": "Identities",
   "intro": "Link GitLab users and commit addresses to Jira people. Proposals match by e-mail; only confirmed decisions attribute code activity.",
-  "tableAria": "GitLab identities",
   "tab": {
     "PROPOSED": "Proposed",
     "UNMAPPED": "Unmapped",
@@ -23,7 +22,14 @@
     "deleted": "Deleted",
     "bot": "Bot",
     "unseen": "Not seen",
-    "unseenHint": "No data source on this GitLab instance still has this identity."
+    "unseenHint": "No data source on this GitLab instance still has this identity.",
+    "value": {
+      "active": "Active",
+      "blocked": "Blocked",
+      "deactivated": "Deactivated",
+      "banned": "Banned",
+      "ldap_blocked": "Blocked (LDAP)"
+    }
   },
   "person": {
     "bot": "Bot",
@@ -60,6 +66,7 @@
     "notFound": "The identity or its decision no longer exists. Reload the list.",
     "invalid": "The request was rejected. Check the Jira person and try again.",
     "conflict": "This data source is not a GitLab source.",
+    "sourceGone": "The data source no longer exists.",
     "failedStatus": "Action failed ({{status}})",
     "failed": "Action failed. Check your connection and try again."
   },
@@ -75,7 +82,8 @@
     "PROPOSED": "No proposals — every matching address is decided.",
     "UNMAPPED": "Nothing unmapped.",
     "LINKED": "No linked identities yet.",
-    "IGNORED_OR_BOT": "Nothing ignored."
+    "IGNORED_OR_BOT": "Nothing ignored.",
+    "search": "No identities match the search."
   },
   "loadFailed": "The identities could not be loaded",
   "notFound": "This data source does not exist or is not a GitLab source.",

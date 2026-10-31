@@ -1,9 +1,9 @@
 import { useTranslation } from "react-i18next";
-import { Badge, Group, Menu, Stack, Table, Text, Tooltip } from "@mantine/core";
+import { Badge, Group, Menu, Stack, Table, Text } from "@mantine/core";
 import { IconBan, IconCheck, IconLink, IconRobot, IconTrash } from "@tabler/icons-react";
 import type { CodeIdentityResponse } from "../api/codeIdentities";
 import { formatDateTime } from "../utils/formatDate";
-import { identityName, proposalDiffers, proposalWhat } from "../utils/codeIdentityLabels";
+import { identityName, identityStateLabel, proposalDiffers, proposalWhat } from "../utils/codeIdentityLabels";
 import RowActionsMenu from "./RowActionsMenu";
 
 export type CodeIdentityRowActions = {
@@ -104,30 +104,36 @@ export default function CodeIdentityRow({ identity, actions }: { identity: CodeI
         </Stack>
       </Table.Td>
       <Table.Td>
-        <Group gap={4}>
-          {!identity.seen && (
-            <Tooltip label={t("codeIdentities.state.unseenHint")} multiline maw={260}>
+        <Stack gap={4}>
+          <Group gap={4}>
+            {!identity.seen && (
               <Badge size="sm" color="orange">
                 {t("codeIdentities.state.unseen")}
               </Badge>
-            </Tooltip>
+            )}
+            {identity.state && identity.state !== "active" && (
+              <Badge size="sm" color="gray">
+                {identityStateLabel(identity.state, t)}
+              </Badge>
+            )}
+            {identity.deleted && (
+              <Badge size="sm" color="gray">
+                {t("codeIdentities.state.deleted")}
+              </Badge>
+            )}
+            {identity.bot && (
+              <Badge size="sm" color="gray">
+                {t("codeIdentities.state.bot")}
+              </Badge>
+            )}
+          </Group>
+          {/* Visible text, not a tooltip: a hover-only hint is out of a keyboard user's reach. */}
+          {!identity.seen && (
+            <Text size="xs" c="dimmed" maw={240}>
+              {t("codeIdentities.state.unseenHint")}
+            </Text>
           )}
-          {identity.state && identity.state !== "active" && (
-            <Badge size="sm" color="gray">
-              {identity.state}
-            </Badge>
-          )}
-          {identity.deleted && (
-            <Badge size="sm" color="gray">
-              {t("codeIdentities.state.deleted")}
-            </Badge>
-          )}
-          {identity.bot && (
-            <Badge size="sm" color="gray">
-              {t("codeIdentities.state.bot")}
-            </Badge>
-          )}
-        </Group>
+        </Stack>
       </Table.Td>
       <Table.Td>
         <PersonCell identity={identity} />

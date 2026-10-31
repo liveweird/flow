@@ -125,16 +125,16 @@ endpoint (`requireAdmin` server-side).
 - **Code identities (`pages/DataSourceIdentities.tsx`, 1.38.0; `gitlab-integration.md` "Identity").** `/data-sources/:id/identities` (`dataSourceIdentitiesPath`, under
   `RequireAdmin`; the Identities button on the details page is offered for a `GITLAB` source only - a Jira source answers `409`, shown as the not-found
   state, as a `404` is). The four tabs (Proposed / Unmapped / Linked / Ignored & bots) ARE the `status` search param (a deep link; an unknown value falls back
-  to Proposed), the search box is `q` (stored, debounced 300 ms, capped at the server's 100 characters), sort/paging through `usePagedSort`. The table prints the
+  to Proposed), the search box is the `q` search param beside it (NOT remembered in localStorage, so a link carries it, a tab change keeps it and another source never inherits it; debounced 300 ms, cut to the server's 100 characters; an empty result while searching reads "No identities match the search."), sort/paging through `usePagedSort` (a page past the end after the last row of the last page was decided steps back to the last page, never an empty state over existing rows). The table prints the
   FULL addresses (ADMIN only, U1): identity (name, username, "Commit e-mail only" for an e-mail identity, "GitLab user #id" for a ghost), addresses, state badges
-  (non-active state, deleted, bot), the Jira person (a stored decision, with what would be proposed now beside it when that differs; else the proposal with
+  (GitLab's non-active state in words - `identityStateLabel`'s known values, any other shown raw -, deleted, bot), the Jira person (a stored decision, with what would be proposed now beside it when that differs; else the proposal with
   its "Proposed by e-mail" hint), and the decision date (`formatDateTime`, UTC). An orphaned decision (`seen: false`: no active data source on this GitLab instance still has the identity;
   one only another source of the host has is not listed) carries
-  the orange "Not seen" badge (tooltip: "No data source on this GitLab instance still has this identity."), shows its key instead of a name and offers Remove only. Row actions (`RowActionsMenu`): Confirm proposal (the
+  the orange "Not seen" badge with the visible dimmed hint "No data source on this GitLab instance still has this identity." (text, not a tooltip: keyboard users reach it), shows its key instead of a name and offers Remove only. Row actions (`RowActionsMenu`): Confirm proposal (the
   proposal sent through the ordinary PUT), Link to a Jira person... (`components/CodeIdentityLinkModal.tsx`: its own `Select` over `listJiraUsers({ scope: "SITE" })`
   as `JiraMemberModal` does, the current link preselected), Mark as bot, Ignore, Remove decision (`useDeleteConfirm`). "Confirm all proposals (N)" (Proposed
   tab; N = the tab's total) sits behind a `ConfirmActionModal`, POSTs `confirm-proposals` and toasts `{linked, bots}` as written; it is disabled while a
-  search is active (the server confirms every proposal of the source, never a filtered slice). Failures render inline (`FormErrorAlert`), successes toast.
+  search is active (the server confirms every proposal of the source, never a filtered slice). Failures render inline (`FormErrorAlert`), successes toast; a new action or a tab change resets both mutations first, so only the failure of the action that ran last shows, and a `404` from Confirm all reads "The data source no longer exists.". The link modal's preselected person is labelled by `jiraPersonLabel`, the same "Name (accountId)" spelling as the loaded options (a different one reads as a new search term and loops).
   `api/codeIdentities.ts`, `components/CodeIdentityRow.tsx`, `utils/codeIdentityLabels.ts`, the `codeIdentities` i18n area.
 - **`utils/dataSourceLinks.ts`** is the ONE place the route family is spelled out
   (`dataSourcesPath`, `dataSourcePath`, `dataSourceProfilePath`, `dataSourceIdentitiesPath`, `dataSourceInspectPath`) — never

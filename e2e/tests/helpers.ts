@@ -14,7 +14,9 @@ export { expect, test };
  * a test, or a holiday or a settings edit that moves the inputs, fails it ("the data changed since the chart was drawn"). The old
  * alphabetical order only avoided the overlap by luck (`reports` ran last); build-times.md WHY 37 reordered it and the overlap failed
  * `reports` twice in nine runs. Playwright never runs two tests that share a lock at the same time, so `reports` holds all four locks
- * and each of the four specs holds its own: they stay free to overlap each other.
+ * and each of the four specs holds its own: they stay free to overlap each other. `code-identities` also takes `dataSources`, for a
+ * different reason: both it and the data-sources GitLab test put an active source with the same groups on the stub host, which the
+ * server refuses with a 409.
  */
 export const REPORTS_EXCLUSIVE_LOCKS = {
   capacity: "reports-apart-from-capacity",

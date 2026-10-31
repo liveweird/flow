@@ -31,7 +31,6 @@ import SortHeader from "../components/SortHeader";
 import TableLoadingRow from "../components/TableLoadingRow";
 import { useDeleteConfirm } from "../hooks/useDeleteConfirm";
 import { usePagedSort } from "../hooks/usePagedSort";
-import { isString, useStoredState } from "../hooks/useStoredState";
 import { identityName } from "../utils/codeIdentityLabels";
 import { dataSourcePath } from "../utils/dataSourceLinks";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
@@ -42,6 +41,15 @@ const SORT_FIELDS = ["displayName"] as const;
 const SETTINGS_KEY = "dataSourceIdentities";
 const STATUSES: readonly CodeIdentityStatus[] = ["PROPOSED", "UNMAPPED", "LINKED", "IGNORED_OR_BOT"];
 const COLUMN_COUNT = 6;
+/** The server caps `q` at 100 characters (a longer one is a 400). */
+const MAX_QUERY_LENGTH = 100;
+const ACTION_ERROR_KEYS = {
+  notFound: "codeIdentities.error.notFound",
+  invalid: "codeIdentities.error.invalid",
+  conflict: "codeIdentities.error.conflict",
+  failedStatus: "codeIdentities.error.failedStatus",
+  failed: "codeIdentities.error.failed",
+} as const;
 
 type DecideVariables = {
   identity: CodeIdentityResponse;
@@ -51,9 +59,9 @@ type DecideVariables = {
 
 /**
  * The GitLab source's identities (`/data-sources/:id/identities`, ADMIN only): every GitLab user and commit address the sync found,
- * by status tab (Proposed / Unmapped / Linked / Ignored & bots — the `status` search param, so a tab is a link), with row-by-row
- * decisions and one "Confirm all proposals". The full addresses are shown (the admin decides on them). A 404 or 409 (a Jira source)
- * is the not-found state.
+ * by status tab (Proposed / Unmapped / Linked / Ignored & bots — the `status` search param, so a tab is a link; the search box is the
+ * `q` param beside it, so a link carries the search and another source never inherits it), with row-by-row decisions and one
+ * "Confirm all proposals". The full addresses are shown (the admin decides on them). A 404 or 409 (a Jira source) is the not-found state.
  */
 export default function DataSourceIdentities() {
   const { t } = useTranslation();
@@ -66,10 +74,19 @@ export default function DataSourceIdentities() {
   const statusParam = searchParams.get("status");
   const status = STATUSES.find((candidate) => candidate === statusParam) ?? "PROPOSED";
 
-  const [filter, setFilter] = useStoredState(`${SETTINGS_KEY}.filter.q`, "", isString);
+  const filter = searchParams.get("q") ?? "";
   const [debouncedFilter] = useDebouncedValue(filter, 300);
-  // The server caps `q` at 100 characters (a longer one is a 400).
-  const q = debouncedFilter.trim().slice(0, 100);
+  const q = debouncedFilter.trim().slice(0, MAX_QUERY_LENGTH);
+  const setFilter = (value: string) =>
+    setSearchParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        if (value) next.set("q", value);
+        else next.delete("q");
+        return next;
+      },
+      { replace: true },
+    );
   const { page, setPage, pageSize, setPageSize, sortField, sortDir, sortParam, toggleSort } = usePagedSort<(typeof SORT_FIELDS)[number]>(
     "displayName",
     [status, q],
@@ -82,6 +99,12 @@ export default function DataSourceIdentities() {
     placeholderData: keepPreviousData,
     enabled: idIsValid && admin,
   });
+
+  // A page past the end (the last row of the last page was just decided or removed) answers an empty list with the unchanged total:
+  // step back to the last page instead of showing an empty state over rows that still exist. Adjusting state while rendering, guarded.
+  if (list.data && !list.isPlaceholderData && page > 1 && list.data.items.length === 0 && list.data.total > 0) {
+    setPage(Math.max(1, Math.ceil(list.data.total / pageSize)));
+  }
 
   const refresh = () => refreshQueriesAfterMutation(queryClient, ["dataSources", "identities"]);
   const [linking, setLinking] = useState<CodeIdentityResponse | null>(null);
@@ -121,23 +144,45 @@ export default function DataSourceIdentities() {
     );
   }
 
-  const actionError = decide.error ?? confirmAll.error;
   const total = list.data?.total ?? 0;
   const searching = q !== "";
+  // A new action clears the last one's failure (and a tab change does too): only the mutation that ran LAST can show an error.
+  const startAction = () => {
+    decide.reset();
+    confirmAll.reset();
+  };
+  const actionError = confirmAll.isError
+    ? saveErrorMessage(confirmAll.error, t, { ...ACTION_ERROR_KEYS, notFound: "codeIdentities.error.sourceGone" })
+    : decide.isError
+      ? saveErrorMessage(decide.error, t, ACTION_ERROR_KEYS)
+      : null;
   const actions = {
     confirm: (identity: CodeIdentityResponse) => {
       const proposal = identity.proposal;
       if (!proposal) return;
+      startAction();
       decide.mutate({
         identity,
         body: proposal.decision === "BOT" ? { decision: "BOT" } : { decision: "LINKED", jiraAccountId: proposal.jiraAccountId },
         toast: proposal.decision === "BOT" ? "codeIdentities.toast.bot" : "codeIdentities.toast.linked",
       });
     },
-    link: setLinking,
-    markBot: (identity: CodeIdentityResponse) => decide.mutate({ identity, body: { decision: "BOT" }, toast: "codeIdentities.toast.bot" }),
-    ignore: (identity: CodeIdentityResponse) => decide.mutate({ identity, body: { decision: "IGNORED" }, toast: "codeIdentities.toast.ignored" }),
-    remove: removal.requestDelete,
+    link: (identity: CodeIdentityResponse) => {
+      startAction();
+      setLinking(identity);
+    },
+    markBot: (identity: CodeIdentityResponse) => {
+      startAction();
+      decide.mutate({ identity, body: { decision: "BOT" }, toast: "codeIdentities.toast.bot" });
+    },
+    ignore: (identity: CodeIdentityResponse) => {
+      startAction();
+      decide.mutate({ identity, body: { decision: "IGNORED" }, toast: "codeIdentities.toast.ignored" });
+    },
+    remove: (identity: CodeIdentityResponse) => {
+      startAction();
+      removal.requestDelete(identity);
+    },
   };
 
   const body = (
@@ -156,7 +201,14 @@ export default function DataSourceIdentities() {
                 {t("codeIdentities.confirmAllFilterHint")}
               </Text>
             )}
-            <Button leftSection={<IconCheck size={16} />} disabled={total === 0 || searching} onClick={() => setConfirmAllOpen(true)}>
+            <Button
+              leftSection={<IconCheck size={16} />}
+              disabled={total === 0 || searching}
+              onClick={() => {
+                startAction();
+                setConfirmAllOpen(true);
+              }}
+            >
               {t("codeIdentities.confirmAll", { count: total })}
             </Button>
           </Group>
@@ -165,13 +217,7 @@ export default function DataSourceIdentities() {
 
       {actionError && (
         <FormErrorAlert title={t("codeIdentities.actionFailed")}>
-          {saveErrorMessage(actionError, t, {
-            notFound: "codeIdentities.error.notFound",
-            invalid: "codeIdentities.error.invalid",
-            conflict: "codeIdentities.error.conflict",
-            failedStatus: "codeIdentities.error.failedStatus",
-            failed: "codeIdentities.error.failed",
-          })}
+          {actionError}
         </FormErrorAlert>
       )}
       {list.isError && <ErrorAlert error={list.error} title={t("codeIdentities.loadFailed")} />}
@@ -194,14 +240,15 @@ export default function DataSourceIdentities() {
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {list.isLoading && !list.data ? (
+          {(list.isLoading && !list.data) || (list.data && list.data.items.length === 0 && list.data.total > 0) ? (
+            // The second case is a page past the end, already on its way back to the last page.
             <TableLoadingRow colSpan={COLUMN_COUNT} />
           ) : list.data && list.data.items.length > 0 ? (
             list.data.items.map((identity) => <CodeIdentityRow key={identity.identityKey} identity={identity} actions={actions} />)
           ) : !list.isError ? (
             <Table.Tr>
               <Table.Td colSpan={COLUMN_COUNT}>
-                <EmptyState icon={IconUsersGroup} label={t(`codeIdentities.empty.${status}`)} />
+                <EmptyState icon={IconUsersGroup} label={t(searching ? "codeIdentities.empty.search" : `codeIdentities.empty.${status}`)} />
               </Table.Td>
             </Table.Tr>
           ) : null}
@@ -223,7 +270,16 @@ export default function DataSourceIdentities() {
       <Tabs
         value={status}
         onChange={(value) => {
-          if (value) setSearchParams({ status: value }, { replace: true });
+          if (!value) return;
+          startAction();
+          setSearchParams(
+            (previous) => {
+              const next = new URLSearchParams(previous);
+              next.set("status", value);
+              return next;
+            },
+            { replace: true },
+          );
         }}
         keepMounted={false}
       >
