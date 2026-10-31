@@ -10,12 +10,13 @@ import kotlinx.serialization.json.jsonObject
 
 // The slim payloads the raw store keeps (V41): a projection of GitLab's document, never the whole of it - no description, avatar,
 // statistics or permissions. The projection IS what the sha256 hashes, so a field GitLab adds to its document never moves a hash.
+// The key lists are `internal` so `GitLabRawPayloadWhitelistTest` can pin every stored payload against them.
 
-private val PROJECT_KEYS = listOf(
+internal val PROJECT_KEYS = listOf(
     "id", "path", "path_with_namespace", "name", "default_branch", "archived", "visibility", "created_at", "last_activity_at",
 )
-private val NAMESPACE_KEYS = listOf("id", "full_path", "kind", "parent_id")
-private val USER_KEYS = listOf(
+internal val NAMESPACE_KEYS = listOf("id", "full_path", "kind", "parent_id")
+internal val USER_KEYS = listOf(
     "id", "username", "name", "state", "bot", "is_admin", "locked", "external", "public_email", "email", "commit_email", "created_at",
     "last_activity_on",
 )

@@ -17,6 +17,7 @@ import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.ingest.TOKEN_INACTIVE
 import ch.nokillswit.ingest.TOKEN_SCOPE_TOO_BROAD
 import ch.nokillswit.ingest.backfillFromEpochMillis
+import ch.nokillswit.norm.purgeAll
 
 private const val NOT_ADMIN = "NOT_ADMIN"
 private const val READ_API = "read_api"
@@ -34,7 +35,8 @@ private const val READ_API = "read_api"
  * reads nothing SYNC's cursors hold and writes only its own, and ends with `code_process` (never the profile), so a tombstone or a
  * refilled stat is mirrored into the norm layer in the SAME job. REPROCESS re-flags every raw commit and merge request and runs
  * `code_process` then `code_profile`, under a plain context with no tally and no token probe (a local rebuild works with a revoked
- * token). PURGE drains the raw tables; DERIVE never reaches a connector (`IngestWorker` chains it for kinds that derive metrics only).
+ * token). PURGE drains the raw tables, then the code layer; DERIVE never reaches a connector (`IngestWorker` chains it for kinds that
+ * derive metrics only).
  */
 class GitLabConnector(
     private val newClient: GitLabClientFactory,
@@ -44,9 +46,17 @@ class GitLabConnector(
 ) : Connector {
     override val kind = DataSourceKind.GITLAB
 
-    /** PURGE's connector-owned step: drains this connection's `raw.gitlab_*` rows in batches. */
+    /**
+     * PURGE's connector-owned steps, in this order (Jira's): the raw tables, then the code layer (`norm.code_*`). Both drain in bounded
+     * batches. `source_connections.profile` is left alone, as for Jira.
+     */
     override val purgeSteps: List<PurgeStep>
-        get() = sync?.let { deps -> listOf(PurgeStep { connectionId -> deps.rawStore.purgeAll(connectionId) }) } ?: emptyList()
+        get() = sync?.let { deps ->
+            listOf(
+                PurgeStep { connectionId -> deps.rawStore.purgeAll(connectionId) },
+                PurgeStep { connectionId -> deps.codeStore.purgeAll(connectionId) },
+            )
+        } ?: emptyList()
 
     override suspend fun run(context: SyncJobRunContext) {
         when (context.claim.kind) {

@@ -98,6 +98,15 @@ class PackageBoundaryTest {
     }
 
     @Test
+    fun `norm never references jira or gitlab`() {
+        // The normalized layer is connector-agnostic: a connector writes into it, never the other way round (`norm/` imports `infra/` and
+        // `ingest/` only). The scan must see the package, or an empty result proves nothing.
+        val lower = setOf("ch.nokillswit.norm")
+        assertTrue(mainSources.any { packageOf(it.readText()) in lower }, "no source declares ch.nokillswit.norm")
+        assertEquals(emptyList(), violations(lower, listOf("jira", "gitlab")))
+    }
+
+    @Test
     fun `metrics never references reports`() {
         val lower = setOf("ch.nokillswit.metrics")
         assertTrue(mainSources.any { packageOf(it.readText()) in lower }, "no source declares ch.nokillswit.metrics")

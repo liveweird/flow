@@ -363,6 +363,11 @@ class GitLabConnectorTest {
         assertTrue(store.commitFileRows(connId, 1, expectedSha).isEmpty(), "and their files with them")
         assertTrue(store.mergeRequestRows(connId).isEmpty(), "the merge requests are purged")
         assertTrue(store.mrEventRows(connId).isEmpty(), "and their events with them")
+        assertEquals(emptyList(), code.commitRows(connId), "the code layer is purged after the raw tables")
+        assertEquals(emptyList(), code.mergeRequestRows(connId))
+        assertEquals(emptyMap(), code.mrEventRows(connId))
+        assertEquals(emptyList(), code.identityRows(connId))
+        assertEquals(emptyList(), code.projectRows(connId))
     }
 
     companion object {
