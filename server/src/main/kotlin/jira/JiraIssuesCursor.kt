@@ -1,6 +1,7 @@
 package ch.nokillswit.jira
 
 import ch.nokillswit.fetch.CALL_TALLY_KEYS
+import ch.nokillswit.ingest.backfillFromEpochMillis
 import kotlinx.serialization.Serializable
 
 // The ISSUES stream's persisted cursor and the scope decisions read off it (split out of `JiraIssuesStream.kt`, which keeps the

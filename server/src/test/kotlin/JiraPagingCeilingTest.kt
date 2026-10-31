@@ -23,7 +23,7 @@ import ch.nokillswit.jira.ReconcileCursor
 import ch.nokillswit.jira.RawIssueInput
 import ch.nokillswit.jira.ReferenceCeilings
 import ch.nokillswit.jira.ReferenceCursor
-import ch.nokillswit.jira.backfillFromEpochMillis
+import ch.nokillswit.ingest.backfillFromEpochMillis
 import ch.nokillswit.jira.createJiraHttp
 import ch.nokillswit.jira.decodeCursor
 import ch.nokillswit.jira.decodeIssuesCursor

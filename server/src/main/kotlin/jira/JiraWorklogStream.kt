@@ -3,6 +3,7 @@ package ch.nokillswit.jira
 import ch.nokillswit.fetch.BoundedAnswer
 import ch.nokillswit.fetch.FetchException
 import ch.nokillswit.fetch.PageCeiling
+import ch.nokillswit.fetch.SkipBudget
 import ch.nokillswit.fetch.halvedBatchSize
 import ch.nokillswit.fetch.isOversized
 import ch.nokillswit.infra.catchingFailures
@@ -60,7 +61,7 @@ private const val WORKLOG_LIST_MAX_IDS = 1000
 /** The run-local (never persisted) size of a `worklog/list` id batch (starts at [WORKLOG_LIST_MAX_IDS], only shrinks) and skip budget. */
 private class ListAsk(var size: Int = WORKLOG_LIST_MAX_IDS) {
     /** Listed worklogs skipped vs. asked over the whole run (the threshold is per run, across the feed's pages). */
-    val skips = SkipBudget("WORKLOGS", "listed worklogs")
+    val skips = SkipBudget(JIRA_SOURCE, "WORKLOGS", "listed worklogs")
 }
 
 /**
@@ -138,7 +139,7 @@ class JiraWorklogStream internal constructor(
     private suspend fun backfillPerIssue(context: StreamContext) {
         // Run-local: issues whose own response is over the cap stay unsynced for the next run but are not re-claimed here.
         val gaveUp = mutableSetOf<Long>()
-        val skips = SkipBudget("WORKLOGS", "issues")
+        val skips = SkipBudget(JIRA_SOURCE, "WORKLOGS", "issues")
         while (true) {
             val batch = rawStore.staleWorklogIssueIds(context.connectionId, BACKFILL_BATCH_SIZE, gaveUp)
             if (batch.isEmpty()) break

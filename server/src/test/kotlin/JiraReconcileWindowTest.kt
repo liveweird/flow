@@ -15,7 +15,7 @@ import ch.nokillswit.jira.JiraWorklogIdsPage
 import ch.nokillswit.jira.JiraWorklogStartAtPage
 import ch.nokillswit.jira.RawIssueInput
 import ch.nokillswit.jira.MAX_CURSOR_RESTARTS
-import ch.nokillswit.jira.backfillFromEpochMillis
+import ch.nokillswit.ingest.backfillFromEpochMillis
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json

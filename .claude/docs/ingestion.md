@@ -945,8 +945,8 @@ once the stream returns — RECONCILE's OWN job-level bookkeeping, parallel to h
 `.claude/docs/persistence.md` "The Jira RECONCILE scratch table (V12)") — every in-scope issue id
 Jira reports for THIS pass inside the window, nothing else. **The window** is the one the ISSUES
 stream's first run covers: `N` = WHOLE minutes (rounded down, so the sweep never starts before
-`backfillFrom`) from the connection's `backfillFrom` (UTC midnight, `jira/JiraTime.kt`'s
-`backfillFromEpochMillis`, shared with the SYNC runner) to `passStartedAt`. Without the bound the
+`backfillFrom`) from the connection's `backfillFrom` (UTC midnight, `ingest/BackfillFrom.kt`'s
+`backfillFromEpochMillis`, shared with the SYNC runner and the GitLab connector) to `passStartedAt`. Without the bound the
 sweep would list every older in-scope issue, and each one would be fetched by the index-gap path one
 `GET /issue/{id}` at a time. **Stored rows last updated before `backfillFrom` are kept but NOT
 re-checked** — their Jira deletions and moves are not detected. The JQL and the window start are

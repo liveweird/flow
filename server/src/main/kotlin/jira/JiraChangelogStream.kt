@@ -3,6 +3,7 @@ package ch.nokillswit.jira
 import ch.nokillswit.fetch.AnswerCeiling
 import ch.nokillswit.fetch.BoundedAnswer
 import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.fetch.SkipBudget
 import ch.nokillswit.fetch.halvedBatchSize
 import ch.nokillswit.fetch.isOversized
 import ch.nokillswit.infra.time.MILLIS_PER_DAY
@@ -118,7 +119,7 @@ class JiraChangelogStream(
         // response still exceeds the cap are left stale for the next run but not claimed again by this one.
         var size = bulkSize
         val gaveUp = mutableSetOf<Long>()
-        val skips = SkipBudget("CHANGELOGS", "issues")
+        val skips = SkipBudget(JIRA_SOURCE, "CHANGELOGS", "issues")
 
         while (true) {
             val batch = rawStore.staleChangelogIssueIds(context.connectionId, size, gaveUp)

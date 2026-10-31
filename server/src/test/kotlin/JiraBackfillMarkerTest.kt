@@ -5,7 +5,7 @@ import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.jira.JIRA_SOURCE
 import ch.nokillswit.jira.JiraIssuesStream
 import ch.nokillswit.jira.JiraSearchPage
-import ch.nokillswit.jira.backfillFromEpochMillis
+import ch.nokillswit.ingest.backfillFromEpochMillis
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonObject
