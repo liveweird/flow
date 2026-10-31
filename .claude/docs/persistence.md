@@ -1440,25 +1440,32 @@ description or note body, and no key holds an email (decision 10).
 ### Code identity links (V45)
 
 `V45__code_identity_links.sql` (`identities/CodeIdentityLinkStore.kt`; design `gitlab-integration.md` "Identity") adds `public.code_identity_links`: an ADMIN's
-decision about ONE GitLab identity of ONE instance. PK `(source_host, identity_key)`: `identity_key` is the code layer's `u<id>` / `e<hash>` key
-(`norm.code_identities`, V44) and `source_host` the instance's authority - the lowercase host, plus `:port` when the base URL names one
+decision about ONE GitLab identity of ONE instance. PK `(source_host, identity_key)`: `identity_key` (`VARCHAR(40)`) is the code layer's `u<id>` / `e<hash>` key
+(`norm.code_identities`, V44) and `source_host` (`VARCHAR(300)`) the instance's authority - the lowercase host, plus `:port` when the base URL names one
 (`sourceHostOf`, taken from the data source's canonical base URL). `decision` is `LINKED` / `IGNORED` / `BOT` (`CodeIdentityDecision`) and
-`jira_account_id` (`VARCHAR(100)`, `norm.people.account_id`'s width) is non-null **exactly when LINKED**; `decided_by_user_id` (`REFERENCES users(id)`, no
-`ON DELETE` rule: users are only ever soft-deleted, and an admin's departure must not unlink people) and `decided_at` (epoch-millis `BIGINT`) say who and
-when. Both are enforced by the SQL, whatever writes the row: `ck_code_identity_links_decision` (the closed vocabulary) and
-`ck_code_identity_links_account` (`(decision = 'LINKED') = (jira_account_id IS NOT NULL)`: a LINKED row without an account, or an IGNORED / BOT row that
-still names one, is impossible). `idx_code_identity_links_account` (partial, `WHERE jira_account_id IS NOT NULL`) serves the resolver's `keysByAccount`.
-There is no foreign key to `jira_account_id` (`norm.people` is per connection and rebuilt) - the route checks the account is known when it writes.
+`jira_account_id` (`VARCHAR(100)`, `norm.people.account_id`'s width) is non-null **exactly when LINKED**, and never empty; `decided_by_user_id` (`NOT NULL`, every decision
+is made by an admin; `REFERENCES users(id)`, no `ON DELETE` rule: users are only ever soft-deleted, and an admin's departure must not unlink people) and `decided_at`
+(epoch-millis `BIGINT`) say who and when. Four CHECKs enforce the shapes in SQL, whatever writes the row: `ck_code_identity_links_decision` (the closed vocabulary),
+`ck_code_identity_links_key` (`identity_key ~ '^(u[0-9]{1,19}|e[0-9a-f]{32})$'`, what the code layer mints), `ck_code_identity_links_host` (`source_host <> ''` and
+`= lower(source_host)`, what `sourceHostOf` mints) and `ck_code_identity_links_account` (`(decision = 'LINKED') = (jira_account_id IS NOT NULL)` and a present account
+is non-empty: a LINKED row without an account, or an IGNORED / BOT row that still names one, is impossible). `idx_code_identity_links_account`
+(`(source_host, jira_account_id) WHERE decision = 'LINKED'`) serves the resolver's `keysByAccount`, which filters on exactly those three.
+There is no foreign key to `jira_account_id` (`norm.people` is per connection and rebuilt) - the service checks the account is known when it writes. **If a LINKED
+account later vanishes from Jira** the link stays and still resolves; the list shows it with no display name, and a re-PUT of the same account is accepted (the
+unknown-account check skips an account the stored link already names).
 
 - **Host-keyed, no connection column, undated.** `norm.code_identities` is rebuilt wholesale per PROCESS run and drained by PURGE, and a data source can be
   deleted and created again for the same instance; a link points at the HOST, never at a row or a connection, so it **survives PURGE, a data-source
   delete and a re-created source** and applies again as soon as the identity rows are back. No purge step is registered (`JobHandlerRegistry` untouched).
-  A decision whose identity never returns is a harmless orphan an ADMIN removes with `DELETE`. Proposals (an address matching a Jira person) are
+  A decision whose identity is gone stays listed (as not seen) on the decided tabs of any active data source on the same host and is removable there; with no
+  active source on the host it waits, inert, until one is created. Proposals (an address matching a Jira person) are
   computed at read time and never stored; only decisions are rows, and only a LINKED decision attributes anything.
 - **Readers and writers.** `identities/` only: `CodeIdentityLinkStore` is the single place that touches the table (`Links` is a query-only Exposed
   definition; `decided_by_user_id` is a plain `long` column there because `identities/` never imports `flowusers/`). The routes' service and
   `IdentityResolver` (the one entry point for the later reports) are its callers; nothing in `ingest/`, `norm/`, `jira/`, `gitlab/` references it. A row lock
-  on a link is a plain `FOR UPDATE`: nothing references this table, so no long transaction holds key-share locks on it ("Row locks vs. FK locks").
+  on a link is a plain `FOR UPDATE`: nothing references this table, so no long transaction holds key-share locks on it ("Row locks vs. FK locks"). The store's
+  writes report what they wrote (`insertIfAbsent`/`update`: boolean; `insertIgnoringConflicts`: the keys inserted; `delete`: the row removed), and the PUT pattern is
+  `find(forUpdate = true)`, else `insertIfAbsent`, and on a lost race `find(forUpdate = true)` + `update`, all in ONE transaction (`CodeIdentityLinkStore.find`).
 - **Hard delete** (an exception listed in "Soft delete (convention)"): the deletable action is "this decision was wrong"; the audit trail carries who
   decided and who removed what.
 - Purely additive: an old pod never reads it. `MigrationChecksumTest` pins it.
@@ -1552,7 +1559,7 @@ NOT with `FOR KEY SHARE`, so DERIVE's FK locks never stall it. `lockActiveForWri
 expression indexes (`uq_teams_name_active`, `uq_source_connections_name_active`, `uq_users_email_active`), which PostgreSQL does
 not count as key columns — a rename is still a non-key update. Plain `FOR UPDATE` is for a row nothing references from a long
 transaction (`users` is referenced only by columns no long transaction inserts — `updated_by_*`, `teams.manager_user_id`,
-`user_disabled_features.user_id`, `sync_jobs.requested_by_user_id`, `password_reset_tokens.user_id` (short inserts only - `issue`):
+`user_disabled_features.user_id`, `sync_jobs.requested_by_user_id`, `password_reset_tokens.user_id` (short inserts only - `issue`), `code_identity_links.decided_by_user_id` (V45, one short insert or update per admin decision):
 `FlowUserService.lockedActiveAdminCount`;
 `raw.jira_*`, the `sync_jobs` rows), or for `SKIP LOCKED` claims. A new `FOR UPDATE` on an FK-referenced row needs that
 justification in a comment. `RowLockVersusDeriveTest` pins both halves: a writer completes while another transaction holds

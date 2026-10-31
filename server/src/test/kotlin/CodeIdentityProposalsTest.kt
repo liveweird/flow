@@ -141,6 +141,19 @@ class CodeIdentityProposalsTest {
     }
 
     @Test
+    fun `names and usernames sort case-insensitively, the exact text breaking a tie, the key breaking a full tie`() {
+        val mixed = listOf(
+            row("u1", "Zed", "zed"), row("u2", "alice", "Alice"), row("u3", "Bob", "bob"),
+            row("u5", "ALICE", "alice"), row("u4", "alice", "ALICE"),
+        )
+        assertEquals(listOf("u5", "u2", "u4", "u3", "u1"), page(mixed).first.map { it.key }, "ALICE < alice (natural), u2 < u4 (key)")
+        val descending = page(mixed, sort = listOf(SortField("displayName", true), SortField("id", false)))
+        assertEquals(listOf("u1", "u3", "u2", "u4", "u5"), descending.first.map { it.key })
+        val byUsername = page(mixed, sort = listOf(SortField("username", false), SortField("id", false)))
+        assertEquals(listOf("u4", "u2", "u5", "u3", "u1"), byUsername.first.map { it.key }, "ALICE < Alice < alice, then bob, zed")
+    }
+
+    @Test
     fun `paging returns the requested slice, the filtered total and an empty page past the end`() {
         val many = (1..8).map { row("u$it", "Name $it") }
         val second = page(many, page = 2, pageSize = 3)

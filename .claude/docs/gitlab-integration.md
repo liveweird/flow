@@ -506,6 +506,9 @@ force-pushed project's old commits and its divergence commit are in the stub too
   key without an identity row. A user added to GitLab re-flags every merge request (the username map is fingerprinted) and any address change every commit:
   one first-run-sized local pass, deadline-exempt. Ghost USER rows (an id with no users row, e.g. deleted before the first sync) are counted separately
   (`identities.ghosts`).
+- **Identity links outlive their identity and their account (V45):** a decision whose identity is gone stays listed (as not seen) on the decided tabs of any
+  active data source on the same host and is removable there; with no active source on the host it waits, inert, until one is created. A LINKED account that vanishes
+  from Jira keeps its link, which still resolves; the list shows it with no display name, and a re-PUT of the same account is accepted.
 - **First-sync ordering:** `since` with out-of-order dates may stop early (see COMMITS, "RELIST and the `since` caveat"); RECONCILE's `since`-less re-list catches up (the 14-day stop is a residual, below).
 - **RECONCILE smoke list** (PR 12): `GET /projects/:id` answers 404 for a project the token cannot see (a deletion mark is then wrong-but-recoverable: PROJECTS resurrects it); the
   per-merge-request 404 of a project whose merge-request feature is off while the project answers 200 (those ARE tombstoned); `updated_after` at the floor (inclusive or exclusive);

@@ -59,8 +59,9 @@ data class SearchableIdentity(
  * - [status]: equality on [SearchableIdentity.status].
  * - [q] (blank = absent): `foldForSearch(q)` contained in the fold of the display name, the username or ANY address - case- and
  *   accent-insensitive like `containsNormalized`. The key is not searched.
- * - Sort: the request's fields in order, `displayName` and `username` by String natural order with absent values LAST in both
- *   directions (ghosts sink), `id` = the identity key. `parsePaging` appends the `id` ascending tiebreaker, so equal names keep key order.
+ * - Sort: the request's fields in order, `displayName` and `username` case-insensitively (then the exact text) with absent values LAST in
+ *   both directions (ghosts sink), `id` = the identity key. `parsePaging` appends the `id` ascending tiebreaker, so equal names keep
+ *   key order.
  * - Page: the 1-based `page` of `pageSize`; a page past the end is an empty list with the same total.
  */
 fun <R> selectPage(
@@ -86,22 +87,28 @@ private fun SearchableIdentity.matches(foldedNeedle: String): Boolean =
 
 private fun <R> comparatorFor(sort: List<SortField>, projection: (R) -> SearchableIdentity): Comparator<R> {
     val parts = sort.map { field ->
-        val value: (SearchableIdentity) -> String? = when (field.name) {
-            "displayName" -> SearchableIdentity::displayName
-            "username" -> SearchableIdentity::username
-            "id" -> SearchableIdentity::key
+        val (value, order) = when (field.name) {
+            "displayName" -> SearchableIdentity::displayName to NAME_ORDER
+            "username" -> SearchableIdentity::username to NAME_ORDER
+            "id" -> SearchableIdentity::key to naturalOrder()
             else -> error("Sort field '${field.name}' has no identity accessor (paging helper invariant violated)")
         }
-        Comparator<R> { a, b -> compareNullsLast(value(projection(a)), value(projection(b)), field.descending) }
+        Comparator<R> { a, b -> compareNullsLast(value(projection(a)), value(projection(b)), field.descending, order) }
     }
     return parts.reduce { first, next -> first.thenComparing(next) }
 }
 
-/** Natural String order, reversed when [descending]; an absent value sorts after every present one in BOTH directions. */
-private fun compareNullsLast(a: String?, b: String?, descending: Boolean): Int = when {
+/**
+ * Names and usernames sort case-insensitively ("alice" before "Zed"), the exact text as the tiebreak between two spellings of one name;
+ * the identity key then settles a full tie (`parsePaging` appends the `id` field).
+ */
+private val NAME_ORDER: Comparator<String> = String.CASE_INSENSITIVE_ORDER.thenComparing(naturalOrder())
+
+/** [order], reversed when [descending]; an absent value sorts after every present one in BOTH directions. */
+private fun compareNullsLast(a: String?, b: String?, descending: Boolean, order: Comparator<String>): Int = when {
     a == null && b == null -> 0
     a == null -> 1
     b == null -> -1
-    descending -> b.compareTo(a)
-    else -> a.compareTo(b)
+    descending -> order.compare(b, a)
+    else -> order.compare(a, b)
 }
