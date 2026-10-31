@@ -362,12 +362,7 @@ class RawIssueInspectorTest {
     fun `an issue heavier than the web heap share holds is 413 even under processPageBytes - the threshold is share over factor`() =
         testApplication {
             // A 2 MiB response cap makes a 28 MiB share: it admits 28 / 8 = 3.5 MiB of stored text, below the default 8 MiB page.
-            configureApp(
-                "app.role" to "web",
-                "jira.maxResponseBytes" to (2L * 1024 * 1024).toString(),
-                // GitLab's ceiling may not exceed Jira's (gitlab/GitLabConfig.kt), so it follows.
-                "gitlab.maxResponseBytes" to (2L * 1024 * 1024).toString(),
-            )
+            configureApp("app.role" to "web", "jira.maxResponseBytes" to (2L * 1024 * 1024).toString())
             startApplication()
             val share = application.attributes[JiraHeapShareKey]
             assertEquals(28L * 1024 * 1024, share.capacityBytes)
@@ -397,12 +392,7 @@ class RawIssueInspectorTest {
     @Test
     fun `a dense custom_fields text counts toward the weight - it is embedded unparsed and refused when the share cannot hold it`() =
         testApplication {
-            configureApp(
-                "app.role" to "web",
-                "jira.maxResponseBytes" to (2L * 1024 * 1024).toString(),
-                // GitLab's ceiling may not exceed Jira's (gitlab/GitLabConfig.kt), so it follows.
-                "gitlab.maxResponseBytes" to (2L * 1024 * 1024).toString(),
-            )
+            configureApp("app.role" to "web", "jira.maxResponseBytes" to (2L * 1024 * 1024).toString())
             startApplication()
             val admin = seededClient("rawissuecustomfields", FlowUserRole.ADMIN)
             val connId = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>().id

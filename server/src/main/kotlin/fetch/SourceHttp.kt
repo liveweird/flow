@@ -40,12 +40,12 @@ internal const val DEFAULT_REQUEST_DEADLINE_MILLIS = 180_000L
  * response read at [maxResponseBytes] (Covenant's `ToadieGraphqlClient` shape), parsed only under [maxResponseNodes] tokens and
  * [MAX_RESPONSE_DEPTH] levels (a big one behind one lock, `NodeCeiling.kt`), and the upstream's own
  * [RateLimitSignal] pause (Jira: `X-RateLimit-NearLimit`). [client] is expected to already carry `HttpTimeout` and the
- * guarded OkHttp engine (`jira/Jira.kt`) - tests substitute a Ktor `MockEngine` client instead.
+ * guarded OkHttp engine (`infra/outbound/GuardedKtorClient.kt`) - tests substitute a Ktor `MockEngine` client instead.
  * [random]/[sleeper]/[clock] are the test seams `JiraBackoffTest`/`JiraClientTest` inject.
  *
  * [LOW-2] [requestDeadlineMillis] (config `jira.requestDeadlineSeconds`, default 180s) bounds the
  * TOTAL time one logical call may spend across every attempt plus backoff — [requestTimeoutSeconds]
- * (`HttpTimeout`, wired in `jira/Jira.kt`) only bounds a SINGLE attempt, so unbounded retries could
+ * (`HttpTimeout`, wired in `infra/outbound/GuardedKtorClient.kt`) only bounds a SINGLE attempt, so unbounded retries could
  * otherwise keep one call going for as long as [maxRetries] deep exponential backoff
  * sums to (~10 minutes at the ceiling). A `Retry-After` whose wait alone would cross the remaining
  * deadline fails `RATE_LIMITED` immediately rather than sleeping past the budget; any other retry

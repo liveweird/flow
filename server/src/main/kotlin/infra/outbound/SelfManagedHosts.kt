@@ -10,8 +10,8 @@ import java.net.InetAddress
  *
  * What the rule is, in one place ([addressAllowed]):
  *  - an address that is NOT blocked today ([isBlockedAddress]) is allowed for every host, listed or not;
- *  - loopback, link-local (incl. the cloud metadata address), any-local, multicast and `::/96` are refused for every host,
- *    whatever the CIDRs say (and the CIDRs may not overlap them: [parseSelfManagedHosts] refuses at boot);
+ *  - loopback, link-local (incl. the cloud metadata address), any-local, multicast, `0.0.0.0/8`, `::/96`, 6to4 and Teredo are
+ *    refused for every host, whatever the CIDRs say (and the CIDRs may not overlap them: [parseSelfManagedHosts] refuses at boot);
  *  - any other blocked address (private, unique-local, CGNAT, ...) is allowed only for a LISTED host and only inside a CIDR.
  *
  * An IPv4-mapped IPv6 address is unwrapped to IPv4 before any matching, so `::ffff:10.0.0.5` is judged as `10.0.0.5`.
@@ -54,15 +54,19 @@ private const val MAX_LABEL_LENGTH = 63
 private const val MAX_ECHOED_ENTRY = 100
 private val DNS_LABEL = Regex("[a-z0-9]([a-z0-9-]*[a-z0-9])?")
 private val HEX_OR_DECIMAL_PART = Regex("(0x[0-9a-f]+|[0-9]+)")
-private val SAFE_TO_ECHO = Regex("[A-Za-z0-9.:*/_\\[\\]-]+")
+/** What may be echoed in an error: strictly host-shaped (`host`, `host:port`) or CIDR-shaped (hex digits, `.`, `:`, `/`). */
+private val HOST_SHAPED = Regex("[A-Za-z0-9.-]+(:[0-9]{1,5})?")
+private val CIDR_SHAPED = Regex("[0-9A-Fa-f.:]+/[0-9]{1,3}")
 private val PORT_DIGITS = Regex("[0-9]{1,5}")
 
 /**
  * Always refused, for every host: loopback, link-local, any-local, multicast, the whole of `0.0.0.0/8` ("this network", of which
- * the JDK flags only `0.0.0.0`) and the deprecated IPv6 `::/96` family (`::`, `::1`, IPv4-compatible `::a.b.c.d`).
+ * the JDK flags only `0.0.0.0`), the deprecated IPv6 `::/96` family (`::`, `::1`, IPv4-compatible `::a.b.c.d`) and the tunnelling
+ * prefixes 6to4 `2002::/16` and Teredo `2001:0::/32`.
  */
 private fun InetAddress.isNeverAllowed(): Boolean {
     if (isLoopbackAddress || isLinkLocalAddress || isAnyLocalAddress || isMulticastAddress) return true
+    if (isSixToFourOrTeredo()) return true
     return if (this is Inet4Address) address[0] == 0.toByte() else address.take(IPV6_ZERO_PREFIX_BYTES).all { it == 0.toByte() }
 }
 
@@ -72,8 +76,8 @@ private const val IPV6_ZERO_PREFIX_BYTES = 12
  * An entry for an error message: echoed when it is plainly a host or CIDR, otherwise only its position. An entry that carries
  * `user:secret@host` or a `?token=` must never reach a log through a startup error.
  */
-private fun describe(index: Int, entry: String): String =
-    if (entry.length <= MAX_ECHOED_ENTRY && SAFE_TO_ECHO.matches(entry)) "entry ${index + 1} \"$entry\"" else "entry ${index + 1}"
+private fun describe(index: Int, entry: String, shape: Regex): String =
+    if (entry.length <= MAX_ECHOED_ENTRY && shape.matches(entry)) "entry ${index + 1} \"$entry\"" else "entry ${index + 1}"
 
 private fun splitList(raw: String, key: String): List<String> {
     if (raw.isBlank()) return emptyList()
@@ -82,8 +86,8 @@ private fun splitList(raw: String, key: String): List<String> {
     }
 }
 
-private fun parseHostEntry(entry: String, index: Int): SelfManagedHosts.HostEntry {
-    fun refuse(why: String): Nothing = error("Config \"gitlab.allowedHosts\": ${describe(index, entry)} $why")
+private fun parseHostEntry(entry: String, index: Int, key: String): SelfManagedHosts.HostEntry {
+    fun refuse(why: String): Nothing = error("Config \"$key\": ${describe(index, entry, HOST_SHAPED)} $why")
     if (entry.contains("://")) refuse("must be a host name, not a URL (no scheme)")
     if ('@' in entry) refuse("must not carry credentials")
     if ('/' in entry || '?' in entry || '#' in entry) refuse("must be host or host:port only (no path, query or fragment)")
@@ -114,20 +118,21 @@ private fun isDnsName(host: String): Boolean {
 }
 
 /**
- * Parses and validates `gitlab.allowedHosts` and `gitlab.allowedCidrs` (the raw comma-separated strings). Throws
- * [IllegalStateException] (startup refuses) naming the key and the offending entry when anything is malformed.
+ * Parses and validates the raw comma-separated host list ([hostsKey], e.g. `gitlab.allowedHosts`) and CIDR list ([cidrsKey]).
+ * Throws [IllegalStateException] (startup refuses) naming the key and the offending entry when anything is malformed; an entry
+ * that is not plainly host- or CIDR-shaped is named by position only, so a credential in it never reaches an error.
  */
-fun parseSelfManagedHosts(hostsRaw: String, cidrsRaw: String): SelfManagedHosts {
-    val hostEntries = splitList(hostsRaw, "gitlab.allowedHosts").mapIndexed { i, e -> parseHostEntry(e, i) }.toSet()
-    val cidrs = splitList(cidrsRaw, "gitlab.allowedCidrs").mapIndexed { index, entry ->
+fun parseSelfManagedHosts(hostsRaw: String, cidrsRaw: String, hostsKey: String, cidrsKey: String): SelfManagedHosts {
+    val hostEntries = splitList(hostsRaw, hostsKey).mapIndexed { i, e -> parseHostEntry(e, i, hostsKey) }.toSet()
+    val cidrs = splitList(cidrsRaw, cidrsKey).mapIndexed { index, entry ->
         try {
             parseCidr(entry)
         } catch (e: IllegalArgumentException) {
-            error("Config \"gitlab.allowedCidrs\": ${describe(index, entry)} ${e.message}")
+            error("Config \"$cidrsKey\": ${describe(index, entry, CIDR_SHAPED)} ${e.message}")
         }
     }
     check(cidrs.isEmpty() || hostEntries.isNotEmpty()) {
-        "Config \"gitlab.allowedCidrs\" is set but \"gitlab.allowedHosts\" is empty (a range is only ever for a listed host)"
+        "Config \"$cidrsKey\" is set but \"$hostsKey\" is empty (a range is only ever for a listed host)"
     }
     return if (hostEntries.isEmpty()) SelfManagedHosts.NONE else SelfManagedHosts.of(hostEntries, cidrs)
 }

@@ -26,8 +26,8 @@ private val log = LoggerFactory.getLogger("ch.nokillswit.outbound")
  * a genuine `*.atlassian.net` tenant per the SAME shape `ingest/DataSource.kt` enforces at
  * create/update time (one source of truth — [JIRA_SITE_URL_PATTERN] /
  * [ATLASSIAN_RESERVED_SITE_LABELS]), or, in development mode only, the configured
- * `jira.stubBaseUrl` host — plus [isBlockedAddress], ported VERBATIM from Toadie's
- * `infra/fetch/UrlFetch.kt` (`isBlockedAddress` and its private helpers), as defense in depth once
+ * `jira.stubBaseUrl` host — plus [isBlockedAddress], ported from Toadie's
+ * `infra/fetch/UrlFetch.kt` (`isBlockedAddress` and its private helpers, with the additions noted on it), as defense in depth once
  * DNS actually resolves a host. A Jira Cloud API host is always public, so the address check is a
  * backstop; the allow-list is the boundary that actually matters. Every rejection is audited as
  * `outbound.blocked` with scheme + host ONLY — never a full URL, which may embed a query string.
@@ -80,16 +80,26 @@ fun isAllowedJiraHost(host: String, stubHost: String?, developmentMode: Boolean)
 }
 
 /**
- * Ported from Toadie's `infra/fetch/UrlFetch.kt` (`isBlockedAddress`, lines 129-154), with ONE addition: an IPv4-mapped IPv6
- * address (`::ffff:a.b.c.d`) is unwrapped to its IPv4 form first ([withoutIpv4Mapping]). The JDK folds a mapped literal into an
- * `Inet4Address` on its own, but an `Inet6Address` built from the raw 16 bytes is not folded, and its `isLoopbackAddress`/
- * `isSiteLocalAddress` would answer for the IPv6 form only.
+ * Ported from Toadie's `infra/fetch/UrlFetch.kt` (`isBlockedAddress`, lines 129-154), with two additions: an IPv4-mapped IPv6
+ * address (`::ffff:a.b.c.d`) is unwrapped to its IPv4 form first ([withoutIpv4Mapping]) - an `Inet6Address` built from the raw 16
+ * bytes is not folded by the JDK, and its `isLoopbackAddress`/`isSiteLocalAddress` would answer for the IPv6 form only - and the
+ * IPv6 tunnelling prefixes 6to4 `2002::/16` and Teredo `2001:0::/32` are blocked ([isSixToFourOrTeredo]): both embed an arbitrary
+ * IPv4 address a translator may deliver to, so the embedded address cannot be vouched for here.
  */
 internal fun InetAddress.isBlockedAddress(): Boolean = withoutIpv4Mapping().isBlockedForm()
 
 private fun InetAddress.isBlockedForm(): Boolean =
     isLoopbackAddress || isSiteLocalAddress || isLinkLocalAddress || isAnyLocalAddress ||
-        isMulticastAddress || isUniqueLocalIpv6() || isSpecialIpv4() || isNat64()
+        isMulticastAddress || isUniqueLocalIpv6() || isSpecialIpv4() || isNat64() || isSixToFourOrTeredo()
+
+/** 6to4 `2002::/16` or Teredo `2001:0000::/32`. */
+internal fun InetAddress.isSixToFourOrTeredo(): Boolean {
+    val bytes = address
+    if (bytes.size != IPV6_BYTES) return false
+    val b0 = bytes[0].toInt() and 0xFF
+    val b1 = bytes[1].toInt() and 0xFF
+    return (b0 == 0x20 && b1 == 0x02) || (b0 == 0x20 && b1 == 0x01 && bytes[2] == 0.toByte() && bytes[3] == 0.toByte())
+}
 
 /** The IPv4 address inside an IPv4-mapped IPv6 address (`::ffff:0:0/96`), or this address unchanged. */
 internal fun InetAddress.withoutIpv4Mapping(): InetAddress {
@@ -128,6 +138,21 @@ private fun InetAddress.isNat64(): Boolean {
     val prefix = byteArrayOf(0x00, 0x64, 0xFF.toByte(), 0x9B.toByte(), 0, 0, 0, 0, 0, 0, 0, 0)
     return bytes.copyOfRange(0, 12).contentEquals(prefix) &&
         InetAddress.getByAddress(bytes.copyOfRange(12, 16)).isBlockedAddress()
+}
+
+/** A scheme, host and port: what a request's URL is allowed to name. */
+data class Origin(val scheme: String, val host: String, val port: Int)
+
+private const val HTTPS_PORT = 443
+
+/**
+ * The per-REQUEST origin rule of the Jira client (the transport-level twin of [isAllowedJiraHost], which only sees a hostname in
+ * DNS and never sees an IP-literal URL at all): `https` on port 443 to an allowed Jira host, or - [developmentMode] only - exactly
+ * the configured [stub] origin (its own scheme and port).
+ */
+fun isAllowedJiraOrigin(scheme: String, host: String, port: Int, stub: Origin?, developmentMode: Boolean): Boolean {
+    if (scheme == "https" && port == HTTPS_PORT && isAllowedJiraHost(host, null, developmentMode = false)) return true
+    return developmentMode && stub != null && scheme == stub.scheme && port == stub.port && host.equals(stub.host, ignoreCase = true)
 }
 
 /** Audits `outbound.blocked` (scheme + host ONLY) and throws — never called with a full URL. */
@@ -217,7 +242,9 @@ internal object DirectSocketFactory : SocketFactory() {
  * [sslSocketFactory] and [trustManager] (both or neither) replace the JVM default trust: the GitLab client adds an operator
  * CA bundle ALONGSIDE the default CAs this way. There is no option to skip certificate or hostname verification.
  * [originAllowed] (scheme, host, port) is checked on every request before it is sent, so a `host:port` allow-list entry
- * means that port only (DNS sees a hostname, never a port); a refusal is audited `outbound.blocked` like a DNS one.
+ * means that port only (DNS sees a hostname, never a port) and an IP-literal URL, which OkHttp never hands to DNS, is judged too; a
+ * refusal is audited `outbound.blocked` like a DNS one. With it set, a request that carries a caller-set `Host` header is refused
+ * as well (it would name one host to the guard and another to the server).
  */
 fun guardedOkHttpClient(
     allowedHost: (String) -> Boolean,
@@ -237,9 +264,12 @@ fun guardedOkHttpClient(
         if (originAllowed != null) {
             addInterceptor(
                 Interceptor { chain ->
-                    val url = chain.request().url
-                    if (!originAllowed(url.scheme, url.host, url.port)) auditBlockedOutbound(url.scheme, url.host)
-                    chain.proceed(chain.request())
+                    val request = chain.request()
+                    val url = request.url
+                    if (request.header("Host") != null || !originAllowed(url.scheme, url.host, url.port)) {
+                        auditBlockedOutbound(url.scheme, url.host)
+                    }
+                    chain.proceed(request)
                 },
             )
         }

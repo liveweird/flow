@@ -25,11 +25,11 @@ private const val MAX_BUNDLE_BYTES = 1L * 1024 * 1024
  * `javax.net.ssl.trustStore` override), its anchors are copied into a fresh in-memory KeyStore with the bundle's, and a
  * standard PKIX trust manager is built over that. Certificate and hostname verification stay on: this has no "trust all".
  *
- * Throws [IllegalStateException] (startup refuses, naming the key and never the file's content) for an unreadable file, one
+ * Throws [IllegalStateException] (startup refuses, naming the config [key] and never the file's content) for an unreadable file, one
  * past [MAX_BUNDLE_BYTES], a malformed one, or one that holds no X.509 certificate.
  */
-fun loadCaBundleTrust(path: String): TlsTrust {
-    val certificates = readCertificates(path)
+fun loadCaBundleTrust(path: String, key: String): TlsTrust {
+    val certificates = readCertificates(path, key)
     val store = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null, null) }
     defaultTrustManager().acceptedIssuers.forEachIndexed { i, anchor -> store.setCertificateEntry("default-$i", anchor) }
     certificates.forEachIndexed { i, certificate -> store.setCertificateEntry("bundle-$i", certificate) }
@@ -45,24 +45,24 @@ fun defaultTrustManager(): X509TrustManager {
     return factory.trustManagers.filterIsInstance<X509TrustManager>().single()
 }
 
-private fun readCertificates(path: String): List<X509Certificate> {
+private fun readCertificates(path: String, key: String): List<X509Certificate> {
     val file = try {
         Path.of(path)
     } catch (_: java.nio.file.InvalidPathException) {
-        error("Config \"gitlab.caBundle\" is not a valid file path")
+        error("Config \"$key\" is not a valid file path")
     }
     val bytes = try {
-        check(Files.isRegularFile(file)) { "Config \"gitlab.caBundle\" does not point at a readable file" }
-        check(Files.size(file) <= MAX_BUNDLE_BYTES) { "Config \"gitlab.caBundle\" is larger than ${MAX_BUNDLE_BYTES / 1024} KiB" }
+        check(Files.isRegularFile(file)) { "Config \"$key\" does not point at a readable file" }
+        check(Files.size(file) <= MAX_BUNDLE_BYTES) { "Config \"$key\" is larger than ${MAX_BUNDLE_BYTES / 1024} KiB" }
         Files.readAllBytes(file)
     } catch (_: IOException) {
-        error("Config \"gitlab.caBundle\" does not point at a readable file")
+        error("Config \"$key\" does not point at a readable file")
     }
     val certificates = try {
         CertificateFactory.getInstance("X.509").generateCertificates(bytes.inputStream()).filterIsInstance<X509Certificate>()
     } catch (_: GeneralSecurityException) {
-        error("Config \"gitlab.caBundle\" is not a valid PEM bundle of X.509 certificates")
+        error("Config \"$key\" is not a valid PEM bundle of X.509 certificates")
     }
-    check(certificates.isNotEmpty()) { "Config \"gitlab.caBundle\" holds no X.509 certificate" }
+    check(certificates.isNotEmpty()) { "Config \"$key\" holds no X.509 certificate" }
     return certificates
 }

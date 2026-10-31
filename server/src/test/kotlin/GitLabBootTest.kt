@@ -45,52 +45,74 @@ class GitLabBootTest {
         assertStartupFails(part) { startApplication() }
     }
 
+    // Production-specific rules only: the stub refusal and one valid start. Everything else refuses in ANY mode, so one
+    // development boot per key is enough (SelfManagedHostsTest unit-tests every host/CIDR case).
+
     @Test
     fun `production refuses a non-blank gitlab stubBaseUrl`() = assertProductionRefuses(
         "gitlab.stubBaseUrl", "gitlab.stubBaseUrl" to "http://gitlab-stub:8095",
     )
 
     @Test
-    fun `production refuses a malformed or too-wide CIDR`() {
-        for (cidr in listOf("0.0.0.0/0", "10.0.0.0/7", "127.0.0.0/8", "169.254.169.254/32", "not-a-cidr")) {
-            assertProductionRefuses(
-                "gitlab.allowedCidrs", "gitlab.allowedHosts" to "gitlab.example.com", "gitlab.allowedCidrs" to cidr,
-            )
-        }
-    }
-
-    @Test
-    fun `production refuses CIDRs without hosts`() = assertProductionRefuses(
-        "gitlab.allowedCidrs", "gitlab.allowedCidrs" to "10.20.0.0/16",
-    )
-
-    @Test
-    fun `production refuses a malformed host entry`() = assertProductionRefuses(
+    fun `a malformed host entry refuses startup`() = assertDevelopmentRefuses(
         "gitlab.allowedHosts", "gitlab.allowedHosts" to "*.example.com",
     )
 
     @Test
-    fun `production refuses an unreadable or certificate-less CA bundle`() {
+    fun `a bad CIDR refuses startup`() = assertDevelopmentRefuses(
+        "gitlab.allowedCidrs", "gitlab.allowedHosts" to "gitlab.example.com", "gitlab.allowedCidrs" to "169.254.169.254/32",
+    )
+
+    @Test
+    fun `CIDRs without hosts refuse startup`() = assertDevelopmentRefuses(
+        "gitlab.allowedCidrs", "gitlab.allowedCidrs" to "10.20.0.0/16",
+    )
+
+    @Test
+    fun `an unreadable CA bundle refuses startup`() {
         val missing = "/nonexistent/ca-${UUID.randomUUID()}.pem"
-        assertProductionRefuses("gitlab.caBundle", "gitlab.allowedHosts" to "gitlab.example.com", "gitlab.caBundle" to missing)
-        val empty = File.createTempFile("gitlab-empty-ca", ".pem").also { it.deleteOnExit() }
-        assertProductionRefuses(
-            "gitlab.caBundle", "gitlab.allowedHosts" to "gitlab.example.com", "gitlab.caBundle" to empty.absolutePath,
-        )
+        assertDevelopmentRefuses("gitlab.caBundle", "gitlab.allowedHosts" to "gitlab.example.com", "gitlab.caBundle" to missing)
     }
 
     @Test
-    fun `production refuses a gitlab maxResponseBytes above jira maxResponseBytes`() {
-        assertProductionRefuses("gitlab.maxResponseBytes", "jira.maxResponseBytes" to "4194304", "gitlab.maxResponseBytes" to "4194305")
-        assertProductionRefuses("gitlab.maxResponseBytes", "gitlab.maxResponseBytes" to "16777216")
+    fun `a CA bundle without hosts refuses startup`() = assertDevelopmentRefuses(
+        "gitlab.caBundle", "gitlab.caBundle" to testCa,
+    )
+
+    @Test
+    fun `an explicit gitlab maxResponseBytes above jira maxResponseBytes refuses startup, naming both values`() = testApplication {
+        configureApp("jira.maxResponseBytes" to "4194304", "gitlab.maxResponseBytes" to "4194305")
+        val failure = runCatching { startApplication() }.exceptionOrNull()
+        assertNotNull(failure, "startup must fail closed, even while GitLab is disabled")
+        val messages = generateSequence(failure) { it.cause }.mapNotNull { it.message }.joinToString(" | ")
+        assertTrue("gitlab.maxResponseBytes" in messages && "4194305" in messages && "4194304" in messages, messages)
     }
 
     @Test
-    fun `a malformed numeric setting refuses startup in any mode`() {
-        assertDevelopmentRefuses("gitlab.maxResponseBytes", "gitlab.maxResponseBytes" to "abc")
+    fun `a malformed numeric setting refuses startup`() {
         assertDevelopmentRefuses("gitlab.maxResponseBytes", "gitlab.maxResponseBytes" to "10")
         assertDevelopmentRefuses("gitlab.requestTimeoutSeconds", "gitlab.requestTimeoutSeconds" to "0")
-        assertDevelopmentRefuses("gitlab.requestTimeoutSeconds", "gitlab.requestTimeoutSeconds" to "121")
+    }
+
+    @Test
+    fun `lowering only jira maxResponseBytes boots, and GitLab follows it`() = testApplication {
+        configureApp("jira.maxResponseBytes" to (2L * 1024 * 1024).toString())
+        startApplication()
+        assertEquals(2L * 1024 * 1024, application.attributes[GitLabSettingsKey].maxResponseBytes)
+    }
+
+    @Test
+    fun `the default gitlab maxResponseBytes is 8 MiB, and an explicit lower value is kept`() {
+        testApplication {
+            configureApp()
+            startApplication()
+            assertEquals(8L * 1024 * 1024, application.attributes[GitLabSettingsKey].maxResponseBytes)
+        }
+        testApplication {
+            configureApp("gitlab.maxResponseBytes" to "1048576")
+            startApplication()
+            assertEquals(1048576L, application.attributes[GitLabSettingsKey].maxResponseBytes)
+        }
     }
 
     @Test
@@ -101,6 +123,13 @@ class GitLabBootTest {
         val messages = generateSequence(failure) { it.cause }.mapNotNull { it.message }.joinToString(" | ")
         assertTrue("gitlab.stubBaseUrl" in messages, messages)
         assertFalse("pw-marker" in messages, "the stub URL is never echoed")
+    }
+
+    @Test
+    fun `a stub URL with credentials, a query or a fragment refuses startup`() {
+        for (stub in listOf("http://user@gitlab-stub:8095", "http://gitlab-stub:8095/?x=1", "http://gitlab-stub:8095/#f")) {
+            assertDevelopmentRefuses("gitlab.stubBaseUrl", "gitlab.stubBaseUrl" to stub)
+        }
     }
 
     @Test

@@ -5,14 +5,13 @@ import ch.nokillswit.gitlab.GitLabBaseUrlProblem
 import ch.nokillswit.gitlab.GitLabDevStub
 import ch.nokillswit.gitlab.validateGitLabBaseUrl
 import ch.nokillswit.infra.outbound.SelfManagedHosts
-import ch.nokillswit.infra.outbound.parseSelfManagedHosts
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 /** `gitlab/GitLabBaseUrl.kt`: the base-URL rules the data-source validator will map to 400s by their stable codes. */
 class GitLabBaseUrlTest {
-    private val hosts = parseSelfManagedHosts("gitlab.example.com,git.example.com:8443", "")
+    private val hosts = parseGitLabHosts("gitlab.example.com,git.example.com:8443", "")
     private val stub = GitLabDevStub("http", "gitlab-stub", 8095)
 
     private fun problem(raw: String, hosts: SelfManagedHosts = this.hosts, devStub: GitLabDevStub? = null): GitLabBaseUrlProblem =
@@ -29,7 +28,7 @@ class GitLabBaseUrlTest {
     @Test
     fun `the default port 443 matches a listed host with no port, and the reverse`() {
         assertEquals("https://gitlab.example.com", validateGitLabBaseUrl("https://gitlab.example.com:443", hosts, null).toString())
-        val explicit = parseSelfManagedHosts("gitlab.example.com:443", "")
+        val explicit = parseGitLabHosts("gitlab.example.com:443", "")
         assertEquals("https://gitlab.example.com", validateGitLabBaseUrl("https://gitlab.example.com", explicit, null).toString())
         assertEquals(GitLabBaseUrlProblem.HOST_NOT_ALLOWED, problem("https://gitlab.example.com:8443"), "another port is another origin")
         assertEquals(GitLabBaseUrlProblem.HOST_NOT_ALLOWED, problem("https://git.example.com"), "an entry with a port means that port only")

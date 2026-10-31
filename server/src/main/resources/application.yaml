@@ -352,20 +352,25 @@ gitlab:
   allowedHosts: "$GITLAB_ALLOWED_HOSTS:"
   # Comma-separated IPv4/IPv6 CIDRs a LISTED host may resolve to (a self-managed GitLab usually sits on a private address). Any other
   # host keeps the full address check. Startup refuses /0, IPv4 wider than /8, IPv6 wider than /32, any range that overlaps loopback,
-  # link-local (169.254/16 incl. the cloud metadata address, fe80::/10), any-local or multicast, and CIDRs without allowedHosts.
+  # link-local (169.254/16 incl. the cloud metadata address, fe80::/10), any-local, multicast, 6to4 (2002::/16), Teredo (2001:0::/32)
+  # or NAT64, and CIDRs without allowedHosts.
   allowedCidrs: "$GITLAB_ALLOWED_CIDRS:"
   # A PEM file with one or more X.509 CA certificates, added to the GitLab client's trust ALONGSIDE the JVM default CAs (the Jira
-  # client is untouched). Startup refuses an unreadable or certificate-less file. There is no skip-TLS / trust-all setting.
+  # client is untouched). Startup refuses an unreadable or certificate-less file, and a bundle without allowedHosts. There is no
+  # skip-TLS / trust-all setting.
   caBundle: "$GITLAB_CA_BUNDLE:"
   # Reroutes GitLab calls to the in-JVM/compose GitLab stub (an http(s) origin) - DEVELOPMENT ONLY; production startup refuses a
   # non-blank value (gitlab/GitLabConfig.kt), like jira.stubBaseUrl.
   stubBaseUrl: "$GITLAB_STUB_BASE_URL:"
   # Per-attempt request and connect timeout (1..120 s), like jira.requestTimeoutSeconds.
   requestTimeoutSeconds: "$GITLAB_REQUEST_TIMEOUT_SECONDS:30"
-  # The bounded-read ceiling on one GitLab response body (1 KiB..128 MiB). It may not exceed jira.maxResponseBytes (startup refuses
-  # otherwise): the worker's boot-time heap fit (jira/JiraHeapFit.kt) counts the Jira ceiling, so a smaller-or-equal GitLab ceiling is
-  # covered by it.
-  maxResponseBytes: "$GITLAB_MAX_RESPONSE_BYTES:8388608"
+  # The bounded-read ceiling on one GitLab response body (1 KiB..128 MiB). BLANK (the default) = min(8 MiB, jira.maxResponseBytes), so
+  # lowering only the Jira ceiling just works. An explicit value may not exceed jira.maxResponseBytes (startup refuses otherwise, even
+  # while GitLab is disabled). The worker's heap fit (jira/JiraHeapFit.kt) sizes its per-slot response tree from the Jira ceiling, so a
+  # GitLab ceiling at or below it stays inside that figure; the fit does NOT count in-flight GitLab bodies (it counts
+  # jira.maxConcurrentRequests x jira.maxResponseBytes of Jira requests), so GitLab requests must share Jira's request semaphore or be
+  # added to the fit when the first GitLab stream lands (`.claude/docs/gitlab-integration.md`).
+  maxResponseBytes: "$GITLAB_MAX_RESPONSE_BYTES:"
 
 ingest:
   # The sync-job queue and worker scheduler (v0.2.0 plan §5/§9, ingest/IngestWorker.kt,

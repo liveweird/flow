@@ -5,7 +5,6 @@ import ch.nokillswit.gitlab.buildGuardedGitLabHttpClient
 import ch.nokillswit.infra.outbound.BlockedHostException
 import ch.nokillswit.infra.outbound.GuardedDns
 import ch.nokillswit.infra.outbound.SelfManagedHosts
-import ch.nokillswit.infra.outbound.parseSelfManagedHosts
 import com.github.tomakehurst.wiremock.WireMockServer
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.get
@@ -14,6 +13,7 @@ import com.github.tomakehurst.wiremock.core.WireMockConfiguration.options
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import java.net.InetAddress
 import java.net.UnknownHostException
@@ -40,7 +40,7 @@ class GitLabOutboundGuardTest {
     private val loopback = InetAddress.getByName("127.0.0.1")
     private fun ip(literal: String): InetAddress = InetAddress.getByName(literal)
 
-    private val hosts = parseSelfManagedHosts("gitlab.example.com", "10.20.0.0/16")
+    private val hosts = parseGitLabHosts("gitlab.example.com", "10.20.0.0/16")
 
     @BeforeTest
     fun startStub() {
@@ -192,7 +192,7 @@ class GitLabOutboundGuardTest {
 
     @Test
     fun `a listed host is reachable on its listed port over https only`() = runBlocking<Unit> {
-        val withPort = parseSelfManagedHosts("gitlab.example.com:8443", "10.20.0.0/16")
+        val withPort = parseGitLabHosts("gitlab.example.com:8443", "10.20.0.0/16")
         val client = buildGuardedGitLabHttpClient(
             withPort, devStub = null, requestTimeoutSeconds = 5, resolver = { error("must not resolve") },
         )
@@ -248,6 +248,28 @@ class GitLabOutboundGuardTest {
             } finally {
                 production.close()
             }
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test
+    fun `a caller-set Host header is refused and audited, even towards an allowed origin`() = runBlocking<Unit> {
+        wiremock.stubFor(get(urlPathEqualTo("/ok")).willReturn(aResponse().withStatus(200).withBody("stub")))
+        val client = buildGuardedGitLabHttpClient(hosts, devStub, 5, resolver = { listOf(loopback) })
+        try {
+            val url = "http://localhost:${wiremock.port()}/ok"
+            assertEquals("stub", client.get(url).bodyAsText(), "the same request without the header goes through")
+            withAuditCapture { audit ->
+                assertFailsWith<BlockedHostException> { client.get(url) { header(HttpHeaders.Host, "evil.example.net") } }
+                // The host audited is the one the request really names, never the header's value.
+                val event = assertNotNull(blocked(audit, "localhost").singleOrNull())
+                assertTrue(event.hasKeyValue("scheme", "http"))
+                assertEquals(setOf("scheme", "host"), event.keyValuePairs.map { it.key }.toSet(), "scheme and host ONLY")
+                assertTrue(blocked(audit, "evil.example.net").isEmpty())
+            }
+            // A lower-case spelling is the same header.
+            assertFailsWith<BlockedHostException> { client.get(url) { header("host", "evil.example.net") } }
         } finally {
             client.close()
         }

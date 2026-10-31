@@ -138,6 +138,8 @@ class OutboundGuardTest {
             "IPv6 unique-local fc00::/7" to ipv6(0xfc00, 0, 0, 0, 0, 0, 0, 1),
             "IPv6 unique-local fd00::/7" to ipv6(0xfd12, 0x3456, 0, 0, 0, 0, 0, 1),
             "IPv6 link-local fe80::/10" to ipv6(0xfe80, 0, 0, 0, 0, 0, 0, 1),
+            "6to4 2002::/16 embedding a public IPv4" to ipv6(0x2002, 0xcb00, 0x710a, 0, 0, 0, 0, 1),
+            "Teredo 2001:0::/32" to ipv6(0x2001, 0, 0x4136, 0xe378, 0x8000, 0x63bf, 0x3fff, 0xfdd2),
             "IPv4-mapped IPv6 loopback ::ffff:127.0.0.1" to ipv6(0, 0, 0, 0, 0, 0xffff, 0x7f00, 0x0001),
             "IPv4-mapped IPv6 private ::ffff:10.0.0.1" to ipv6(0, 0, 0, 0, 0, 0xffff, 0x0a00, 0x0001),
             "NAT64 64:ff9b::/96 embedding a private IPv4" to ipv6(0x0064, 0xff9b, 0, 0, 0, 0, 0xc0a8, 0x0101),

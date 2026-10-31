@@ -10,6 +10,10 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
+/** The production key names, spelled once for the tests. */
+internal fun parseGitLabHosts(hostsRaw: String, cidrsRaw: String): SelfManagedHosts =
+    parseSelfManagedHosts(hostsRaw, cidrsRaw, hostsKey = "gitlab.allowedHosts", cidrsKey = "gitlab.allowedCidrs")
+
 /**
  * The self-managed host allowance (`infra/outbound/SelfManagedHosts.kt`, `Cidr.kt`; `.claude/docs/security.md` "Outbound HTTP
  * calls"): parsing and every boot refusal, then the address rule across its matrix. Pure and offline: literals only, no DNS.
@@ -29,21 +33,21 @@ class SelfManagedHostsTest {
     }
 
     private fun refusal(hosts: String = "", cidrs: String = ""): String =
-        assertFailsWith<IllegalStateException> { parseSelfManagedHosts(hosts, cidrs) }.message.orEmpty()
+        assertFailsWith<IllegalStateException> { parseGitLabHosts(hosts, cidrs) }.message.orEmpty()
 
     // --- allowedHosts ---
 
     @Test
     fun `an empty configuration is off`() {
-        val none = parseSelfManagedHosts("", "")
+        val none = parseGitLabHosts("", "")
         assertFalse(none.enabled)
-        assertFalse(parseSelfManagedHosts("   ", "  ").enabled)
+        assertFalse(parseGitLabHosts("   ", "  ").enabled)
         assertFalse(none.hostListed("gitlab.example.com"))
     }
 
     @Test
     fun `hosts are lowercased, trimmed, deduplicated and a missing port means 443`() {
-        val hosts = parseSelfManagedHosts(" GitLab.Example.COM , git.example.com:8443,gitlab.example.com:443 ", "")
+        val hosts = parseGitLabHosts(" GitLab.Example.COM , git.example.com:8443,gitlab.example.com:443 ", "")
         assertTrue(hosts.enabled)
         assertTrue(hosts.hostListed("gitlab.example.com"))
         assertTrue(hosts.hostListed("GITLAB.EXAMPLE.COM"))
@@ -59,7 +63,7 @@ class SelfManagedHostsTest {
 
     @Test
     fun `a single-label intranet name is a valid host`() {
-        assertTrue(parseSelfManagedHosts("gitlab", "").hostListed("gitlab"))
+        assertTrue(parseGitLabHosts("gitlab", "").hostListed("gitlab"))
     }
 
     @Test
@@ -113,6 +117,27 @@ class SelfManagedHostsTest {
     }
 
     @Test
+    fun `the config key names are parameters, not hard-coded`() {
+        val hostsFailure = assertFailsWith<IllegalStateException> { parseSelfManagedHosts("*.example.com", "", "my.hosts", "my.cidrs") }
+        assertTrue("my.hosts" in hostsFailure.message.orEmpty() && "gitlab" !in hostsFailure.message.orEmpty(), hostsFailure.message)
+        val cidrFailure = assertFailsWith<IllegalStateException> {
+            parseSelfManagedHosts("a.example.com", "0.0.0.0/0", "my.hosts", "my.cidrs")
+        }
+        assertTrue("my.cidrs" in cidrFailure.message.orEmpty() && "gitlab" !in cidrFailure.message.orEmpty(), cidrFailure.message)
+        val orphan = assertFailsWith<IllegalStateException> { parseSelfManagedHosts("", "10.20.0.0/16", "my.hosts", "my.cidrs") }
+        assertTrue("my.cidrs" in orphan.message.orEmpty() && "my.hosts" in orphan.message.orEmpty(), orphan.message)
+    }
+
+    @Test
+    fun `only strictly host- or CIDR-shaped entries are echoed in an error`() {
+        assertTrue("\"gitlab.example.com/path\"" !in refusal(hosts = "gitlab.example.com/path"), "a path-bearing entry: by position")
+        assertTrue("\"*.example.com\"" !in refusal(hosts = "*.example.com"))
+        assertTrue("\"10.0.0.5:8443\"" in refusal(hosts = "10.0.0.5:8443"), "a plain host:port is echoed")
+        assertTrue("\"0.0.0.0/0\"" in refusal(hosts = "gitlab.example.com", cidrs = "0.0.0.0/0"), "a plain CIDR is echoed")
+        assertTrue("\"gitlab.example.com/24\"" !in refusal(hosts = "gitlab.example.com", cidrs = "gitlab.example.com/24"))
+    }
+
+    @Test
     fun `an empty entry in a list refuses startup`() {
         assertTrue("entry 2 is empty" in refusal(hosts = "gitlab.example.com,,git.example.com"))
         assertTrue("entry 2 is empty" in refusal(hosts = "gitlab.example.com,"))
@@ -124,7 +149,7 @@ class SelfManagedHostsTest {
     @Test
     fun `valid CIDRs parse`() {
         val cidrs = "10.20.0.0/16, 172.16.0.0/12,192.168.5.0/24,10.0.0.0/8,fd12:3456::/32,fd12:3456:789a::/48,10.1.2.3/32"
-        val hosts = parseSelfManagedHosts("gitlab.example.com", cidrs)
+        val hosts = parseGitLabHosts("gitlab.example.com", cidrs)
         assertTrue(hosts.enabled)
     }
 
@@ -174,7 +199,7 @@ class SelfManagedHostsTest {
             "169.254.0.0/16", "169.254.169.254/32", "169.254.1.0/24",
             "0.0.0.0/8", "0.0.0.0/32", "0.1.0.0/16",
             "224.0.0.0/4", "239.1.0.0/16", "224.0.0.1/32",
-            "::1/128", "::/128", "::/32",
+            "::1/128", "::/128", "::/32", "2002::/32", "2002:c000::/32", "2001::/32", "2001:0:4136::/48",
             "fe80::/10", "fe80::1/128", "fe80:1::/32",
             "ff00::/8", "ff02::/32", "ff02::1/128",
         )
@@ -195,7 +220,7 @@ class SelfManagedHostsTest {
 
     // --- addressAllowed: the matrix ---
 
-    private val listed = parseSelfManagedHosts("gitlab.example.com", "10.20.0.0/16,172.16.0.0/12,fd12:3456::/32")
+    private val listed = parseGitLabHosts("gitlab.example.com", "10.20.0.0/16,172.16.0.0/12,fd12:3456::/32")
     private val listedHost = "gitlab.example.com"
     private val unlistedHost = "other.example.com"
 
@@ -235,10 +260,11 @@ class SelfManagedHostsTest {
     @Test
     fun `loopback, link-local, any-local and multicast are refused for a listed host whatever the CIDRs say`() {
         // The broadest CIDRs the boot check admits that are NEAR these ranges, plus an unrestricted-looking /8 beside them.
-        val broad = parseSelfManagedHosts(listedHost, "10.0.0.0/8,126.0.0.0/8,128.0.0.0/8,169.0.0.0/9,170.0.0.0/8,fd00::/32")
+        val broad = parseGitLabHosts(listedHost, "10.0.0.0/8,126.0.0.0/8,128.0.0.0/8,169.0.0.0/9,170.0.0.0/8,fd00::/32")
         val never = listOf(
             "127.0.0.1", "127.255.255.254", "169.254.169.254", "169.254.0.1", "0.0.0.0", "0.1.2.3", "224.0.0.1", "239.255.255.255",
             "::1", "::", "fe80::1", "febf::1", "ff02::1", "ff00::", "::10.0.0.1",
+            "2002:c000:204::1", "2002:0a14:0105::1", "2001:0:4136:e378:8000:63bf:3fff:fdd2", "2001:0:0:0:0:0:0:1",
         )
         for (literal in never) {
             assertFalse(broad.addressAllowed(listedHost, ip(literal)), "$literal must be refused for a listed host")
@@ -269,16 +295,16 @@ class SelfManagedHostsTest {
 
     @Test
     fun `a NAT64 address embedding a private IPv4 is refused even with broad CIDRs`() {
-        val broad = parseSelfManagedHosts(listedHost, "10.0.0.0/8,fd00::/32")
+        val broad = parseGitLabHosts(listedHost, "10.0.0.0/8,fd00::/32")
         assertFalse(broad.addressAllowed(listedHost, ip("64:ff9b::a14:105")), "64:ff9b::10.20.1.5")
         assertFalse(broad.addressAllowed(listedHost, ip("64:ff9b::7f00:1")), "64:ff9b::127.0.0.1")
     }
 
     @Test
     fun `an IPv4 CIDR never matches an IPv6 address and the reverse`() {
-        val v4only = parseSelfManagedHosts(listedHost, "10.20.0.0/16")
+        val v4only = parseGitLabHosts(listedHost, "10.20.0.0/16")
         assertFalse(v4only.addressAllowed(listedHost, ip("fd12:3456::1")))
-        val v6only = parseSelfManagedHosts(listedHost, "fd12:3456::/32")
+        val v6only = parseGitLabHosts(listedHost, "fd12:3456::/32")
         assertFalse(v6only.addressAllowed(listedHost, ip("10.20.1.5")))
     }
 

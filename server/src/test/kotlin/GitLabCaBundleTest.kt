@@ -35,7 +35,7 @@ class GitLabCaBundleTest {
 
     @Test
     fun `the GitLab trust accepts the bundle's CA and still holds every JVM default CA`() {
-        val trust = loadCaBundleTrust(testCaFile.absolutePath)
+        val trust = loadCaBundleTrust(testCaFile.absolutePath, "gitlab.caBundle")
         val defaults = defaultTrustManager().acceptedIssuers
         assertTrue(defaults.isNotEmpty(), "the JVM has default CAs")
         val accepted = fingerprints(trust.trustManager.acceptedIssuers)
@@ -56,7 +56,7 @@ class GitLabCaBundleTest {
 
     @Test
     fun `guardedOkHttpClient uses exactly the trust it is given`() {
-        val trust = loadCaBundleTrust(testCaFile.absolutePath)
+        val trust = loadCaBundleTrust(testCaFile.absolutePath, "gitlab.caBundle")
         val gitlab = guardedOkHttpClient(
             allowedHost = { true }, timeoutSeconds = 5, sslSocketFactory = trust.sslSocketFactory, trustManager = trust.trustManager,
         )
@@ -74,11 +74,12 @@ class GitLabCaBundleTest {
     @Test
     fun `a bundle of several certificates loads them all`() {
         val pem = testCaFile.readText()
-        val trust = loadCaBundleTrust(tempFile(pem + "\n# a second copy\n" + pem).absolutePath)
+        val trust = loadCaBundleTrust(tempFile(pem + "\n# a second copy\n" + pem).absolutePath, "gitlab.caBundle")
         assertTrue(testCa.encoded.toList() in fingerprints(trust.trustManager.acceptedIssuers))
     }
 
-    private fun refusal(path: String): String = assertFailsWith<IllegalStateException> { loadCaBundleTrust(path) }.message.orEmpty()
+    private fun refusal(path: String): String =
+        assertFailsWith<IllegalStateException> { loadCaBundleTrust(path, "gitlab.caBundle") }.message.orEmpty()
 
     @Test
     fun `an unreadable, certificate-less or malformed bundle refuses startup naming the key and never its content`() {
@@ -100,6 +101,12 @@ class GitLabCaBundleTest {
             assertTrue("gitlab.caBundle" in message, "$label: $message")
             assertFalse(secret in message, "$label: the file's content never reaches the error: $message")
         }
+    }
+
+    @Test
+    fun `the refusal names the key it was given`() {
+        val failure = assertFailsWith<IllegalStateException> { loadCaBundleTrust("/nonexistent/ca.pem", "some.other.key") }
+        assertTrue("some.other.key" in failure.message.orEmpty() && "gitlab" !in failure.message.orEmpty(), failure.message)
     }
 
     @Test
