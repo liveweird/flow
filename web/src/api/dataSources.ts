@@ -10,7 +10,10 @@ export type DataSourcePage = paths["/api/v1/data-sources"]["get"]["responses"]["
 export type DataSourceListItem = DataSourcePage["items"][number];
 export type DataSourceResponse = paths["/api/v1/data-sources/{id}"]["get"]["responses"]["200"]["content"]["application/json"];
 export type DataSourceRequest = paths["/api/v1/data-sources"]["post"]["requestBody"]["content"]["application/json"];
-export type JiraConnectionRequest = DataSourceRequest["jira"];
+export type JiraConnectionRequest = NonNullable<DataSourceRequest["jira"]>;
+export type GitLabConnectionRequest = NonNullable<DataSourceRequest["gitlab"]>;
+export type DataSourceKind = DataSourceResponse["kind"];
+export type DataSourceKindsResponse = paths["/api/v1/data-sources/kinds"]["get"]["responses"]["200"]["content"]["application/json"];
 export type DataSourceState = DataSourceResponse["status"]["state"];
 export type DataSourceTestRequest = paths["/api/v1/data-sources/test"]["post"]["requestBody"]["content"]["application/json"];
 export type ConnectionTestResult = paths["/api/v1/data-sources/test"]["post"]["responses"]["200"]["content"]["application/json"];
@@ -41,6 +44,11 @@ type DataSourceListQuery = {
 export async function listDataSources(q: DataSourceListQuery): Promise<DataSourcePage> {
   const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, name: q.name });
   return jsonRequest<DataSourcePage>(`/api/v1/data-sources?${params}`);
+}
+
+/** Which kinds this server can create (GitLab needs an operator allow-list) and, per kind, the origins a base URL may name. */
+export async function getDataSourceKinds(): Promise<DataSourceKindsResponse> {
+  return jsonRequest<DataSourceKindsResponse>("/api/v1/data-sources/kinds");
 }
 
 export async function createDataSource(body: DataSourceRequest): Promise<DataSourceResponse> {

@@ -25,6 +25,9 @@ npm test                      # reuses or starts the stack, runs specs, leaves t
   data-source scope rules (one Jira site across the active sources, no project key in two of them: a `409` otherwise — `.claude/docs/ingestion.md`
   "Data sources"), because the specs create sources on their own sites with overlapping keys; it is e2e-only, the server REFUSES `off` outside
   development mode, and a stack running with the default `enforced` makes those specs fail with that `409`.
+  The compose file also points the app at the bundled `gitlab-stub` (`GITLAB_STUB_BASE_URL`, default `http://gitlab-stub:8080`, no workflow change
+  needed: `docker compose up -d --wait` starts every service): with `GITLAB_ALLOWED_HOSTS` blank that enables the GitLab data-source kind and makes the stub's
+  exact origin the only accepted base URL, which is what `data-sources.spec.ts` types. A stack started by hand must not blank the variable.
   Setup never tears down services or volumes, including after a failed start or test run. Tests
   clean up only the records they own; existing demo data stays intact. The one `global-teardown.ts`
   deletes only the shared read-only fixture's two API rows (below), tolerating a row that is already gone.
@@ -185,7 +188,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
   create a connection against the Jira stub → test connection → sync it end to end (polling until
   the job succeeds and the raw-store counts show the full 1,201-issue in-scope dataset) → read the
   data profile and the raw issue inspector (a known key, then a malformed one) → delete from the
-  list; the editor refuses a backfill date before the history horizon (the floor, A48) with nothing sent; a regular user sees no Data sources nav link and is bounced from the URL.
+  list; the same journey for the 1.34.0 GitLab kind against the compose `gitlab-stub` (pick GitLab, base URL `http://gitlab-stub:8080`, two group paths → test connection → sync → the counts read 4 projects and 8 users; the Jira-only pages and actions are absent); the editor refuses a backfill date before the history horizon (the floor, A48) with nothing sent; a regular user sees no Data sources nav link and is bounced from the URL.
 - [`metrics-config.spec.ts`](scenarios/metrics-config.md) — the v0.3.0 metrics CONFIGURATION
   surfaces (the reports are `reports.spec.ts`): the global Metrics settings form (a save of the aging window and the epic estimate gap tolerance
   persists, an all-weekend-days value is refused inline) restored to its pre-test values through

@@ -10,6 +10,20 @@ The first Jira-domain surface (v0.2.0 plan §9/§10), ADMIN-only end to end: the
 in `App.tsx`; every page's queries additionally stay `enabled` only for `useAdmin()`), and every
 endpoint (`requireAdmin` server-side).
 
+- **Two kinds (1.34.0, `gitlab-integration.md`).** A data source is `JIRA_CLOUD` or `GITLAB` (self-managed GitLab: base URL, a read-only access token, the group
+  paths to read); a response carries exactly one of `jira`/`gitlab` (the other is null), so the pages never read `dataSource.jira.…` directly -
+  `dataSourceHost(ds)` and `dataSourceScope(ds)` (`utils/dataSourceForm.ts`) answer for either kind. The editor's kind picker is fed by
+  `GET /data-sources/kinds` (`getDataSourceKinds`, query key `["dataSourceKinds"]`): GitLab is offered only when the server enables it
+  (`enabled`, from `GITLAB_ALLOWED_HOSTS` or the development stub), otherwise its option is disabled with a hint, and `allowedOrigins`
+  is the base-URL allow-list the form checks client-side. The details page offers the Data profile, Raw issue inspector and Metrics
+  configuration links and the Reconcile now and Reprocess buttons for Jira sources only (the three pages are `409` for GitLab; RECONCILE/REPROCESS
+  are no-ops until PR 9/10); a GitLab source shows its instance, its group paths and `counts.gitlab` (projects, moved out, deleted, users, deleted).
+  The editor's per-kind fields live in `components/DataSourceKindFields.tsx` (the picker, the Jira block, the GitLab block: Base URL fixed once created, a
+  write-only `PasswordInput` token, a lowercasing `TagsInput` of group paths); the picker is fixed on edit and a switch empties the other kind's
+  fields. The validation rules are kind-gated (`whenKind`) and mirror `ingest/GitLabDataSource.kt` (origin shape, 1..10 group paths, the segment
+  pattern, no nested path); a save `409` of type `data-source-other-instance` marks Base URL and `data-source-group-overlap` marks Group paths.
+  Test connection validates only the active kind's fields, and editing with a blank token probes the stored connection, for both kinds.
+  Test-connection and sync error codes (`TOKEN_SCOPE_TOO_BROAD`, `TOKEN_INACTIVE`, `NOT_ADMIN`, ...) are shown verbatim, like every other upstream code.
 - **`api/dataSources.ts`** mirrors `api/teams.ts`'s shape — list/create/update/delete plus the two
   Test-connection wrappers (`testDataSourceAdHoc`/`testDataSourceStored`) and `requestSyncJob`
   and the per-connection reads/actions: `listSyncJobs`/`cancelSyncJob` (`…/sync-jobs`),
@@ -30,9 +44,7 @@ endpoint (`requireAdmin` server-side).
   `freshness.pausedAt` / `freshness.reconcilePausedAt` (`TelemetryPanel.test.tsx`).
 - **`pages/DataSources.tsx`** is the Teams registry template (`useRegistryListControls` +
   `RegistryListTable`), sorted by name only (the server's other sortable fields — `id`,
-  `createdAt`, `updatedAt` — have no visible column). Columns: name, site host (parsed from
-  `jira.siteUrl` — always a bare origin, so `new URL(...).host` is safe), projects (joined
-  keys), enabled (plain Yes/No text — the state badge below is the one place this page spends
+  `createdAt`, `updatedAt` — have no visible column). Columns: name, kind (a gray light `Badge`), site host (`dataSourceHost`: the Jira site or the GitLab instance - always a bare origin, so `new URL(...).host` is safe), scope (`dataSourceScope`: the joined Jira project keys or GitLab group paths), enabled (plain Yes/No text — the state badge below is the one place this page spends
   colour), last success (`YYYY-MM-DD HH:mm` sliced from the ISO string like `VersionStamp`, never
   `toLocaleString()` — deterministic across test/CI locales; "Never" when null), and the
   `DataSourceState` badge — teal `CURRENT`, red `FAILED`, gray everything else
