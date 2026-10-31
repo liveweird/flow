@@ -356,7 +356,8 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
   with no refetch, and **Reprocess** applies one at once; (2) the *reference rows* are rebuilt wholesale (projects; identities: one USER row per raw
   user, a ghost USER row per user id the facts name without a users row, one EMAIL row per live author address that matches no user, named by its newest
   commit); (3) *commits* then *merge requests* in keyset pages of 50, ONE transaction per page, rows read `FOR NO KEY UPDATE`. A failing page is
-  bounded (counted, its rows stay flagged, the pass continues; more than 3 failed pages in a run fails the job) and every failure leaves as stage +
+  bounded (a row fault - the normalizer throws, a stored value cannot be decoded, SQLSTATE 22/23 - is counted, its rows stay flagged and the
+  pass continues; more than 3 failed pages in a run fails the job; any other failure propagates at once) and every failure leaves as stage +
   raw keys + the cause's class, never a bound value. **Counted lines** (`countLines`): `files_counted` is the stored files no glob matches
   (**distinct stored paths, not `/diff` entries** - a delete plus a re-add of one path is one stored file, so the stub oracle's `counted.files` can
   exceed it by those pairs while the lines agree), the additions/deletions of the included files with known lines plus the `too_large` remainder (above);

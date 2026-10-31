@@ -25,6 +25,8 @@ import ch.nokillswit.norm.NormCodeCommit
 import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.ingest.SyncCursorsService
 import ch.nokillswit.ingest.failureDetail
+import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.spi.IThrowableProxy
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -447,7 +449,18 @@ class GitLabProcessStreamTest {
     fun `one poisoned page is counted and skipped, the rest is processed and its rows stay flagged`() = runBlocking<Unit> {
         val connId = rawClone()
         val poison = firstKeysOfPages(connId, 1)
-        val progress = process(connId, normalizers = poisoned(poison))
+        val logs = LogCapture(GitLabProcessStream::class.java.name)
+        val progress = try {
+            process(connId, normalizers = poisoned(poison))
+        } finally {
+            logs.detach()
+        }
+        val warns = logs.events.filter { it.level == Level.WARN }
+        assertEquals(1, warns.size, "one WARN for the one tolerated page")
+        assertTrue("commit page" in warns.single().formattedMessage)
+        fun IThrowableProxy.messages(): List<String?> = listOf(message) + (cause?.messages() ?: emptyList())
+        val logged = listOf(warns.single().formattedMessage) + warns.single().throwableProxy.messages().filterNotNull()
+        assertTrue(logged.none { "@" in it }, "the tolerated-page WARN carries no address: $logged")
         assertEquals(1L, progress["commitPagesFailed"])
         assertEquals(250L, progress["commitsProcessed"], "the other five pages of 50 landed")
         assertEquals(60L, progress["mergeRequestsProcessed"], "the merge request pass ran past the failed commit page")
@@ -456,6 +469,23 @@ class GitLabProcessStreamTest {
         val healed = process(connId)
         assertEquals(50L, healed["commitsProcessed"], "the next run retries exactly that page")
         assertEquals(0L, processStore.countNeedsProcessing(connId))
+    }
+
+    @Test
+    fun `a raw value its decoder cannot read faults only its own page`() = runBlocking<Unit> {
+        val connId = rawClone()
+        val first = raw.mergeRequestRows(connId).minOf { it[MergeRequests.mrId] }
+        suspendTransaction(sharedDatabaseForTests()) {
+            MergeRequests.update({ (MergeRequests.connectionId eq connId) and (MergeRequests.mrId eq first) }) {
+                // PostgreSQL casts " 5" to bigint (the reference rebuild reads the ids that way), the reader's toLong() does not.
+                it[reviewerIds] = """[" 5"]"""
+            }
+        }
+        val progress = process(connId)
+        assertEquals(1L, progress["mergeRequestPagesFailed"], "the NumberFormatException of the reader is a row fault of that page")
+        assertEquals(10L, progress["mergeRequestsProcessed"], "the second page of 10 landed")
+        assertEquals(300L, progress["commitsProcessed"])
+        assertEquals(50L, processStore.countNeedsProcessing(connId), "the poisoned page's merge requests stay flagged")
     }
 
     @Test

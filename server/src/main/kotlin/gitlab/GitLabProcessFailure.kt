@@ -1,6 +1,7 @@
 package ch.nokillswit.gitlab
 
 import io.r2dbc.spi.R2dbcException
+import kotlinx.serialization.SerializationException
 
 /** A failed page names at most this many raw keys (project ids, shas, merge request ids: never a title, email, path or name). */
 internal const val MAX_LOGGED_KEYS = 20
@@ -21,11 +22,14 @@ private fun keysText(keys: List<String>) = if (keys.isEmpty()) "" else " (${keys
 /** The normalizer threw for a row of the page: a data fault of that page, not an outage. Its message is only the cause's class. */
 internal class NormalizationFault(cause: Throwable) : RuntimeException(cause.javaClass.simpleName, cause)
 
-/** A row-level fault of one page: the normalizer threw, or the database refused a row's value (SQLSTATE class 22 or 23). */
+/**
+ * A row-level fault of one page: the normalizer threw, the database refused a row's value (SQLSTATE class 22 or 23), or a raw reader's
+ * decoder could not read a stored value (a malformed JSON or id list: [SerializationException], [NumberFormatException]).
+ */
 internal fun Throwable.isRowFault(): Boolean {
     var current: Throwable? = this
     while (current != null) {
-        if (current is NormalizationFault) return true
+        if (current is NormalizationFault || current is SerializationException || current is NumberFormatException) return true
         val state = (current as? R2dbcException)?.sqlState
         if (state != null && (state.startsWith("22") || state.startsWith("23"))) return true
         current = current.cause
