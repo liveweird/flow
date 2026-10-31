@@ -10,6 +10,7 @@ import ch.nokillswit.norm.StatusCategory
 import ch.nokillswit.norm.StatusRef
 import ch.nokillswit.norm.TombstoneKind
 import ch.nokillswit.norm.WorkItemStore
+import ch.nokillswit.norm.analyzedRowCount
 import org.slf4j.LoggerFactory
 
 /** `raw.jira_issues`'s own claim-scan batch size (v0.2.0 plan §8) — the PROCESS step's page size. */
@@ -17,6 +18,12 @@ private const val PROCESS_BATCH_SIZE = 50
 
 /** One issue that failed PROCESS on its own — the id is what the log line names. */
 private class IssueFailure(val issueId: Long, val error: Exception)
+
+/** What one page transaction did: the issues that failed NORMALIZATION and the rows it wrote into the analyzed `norm.work_item*` tables. */
+private class PageWrite(val failures: List<IssueFailure>, val rows: Long)
+
+/** The rows of the analyzed tables the run has committed so far (the closing ANALYZE's materiality input). */
+private class WrittenRows(var count: Long = 0)
 
 private val log = LoggerFactory.getLogger(JiraProcessStream::class.java)
 
@@ -46,6 +53,12 @@ private val log = LoggerFactory.getLogger(JiraProcessStream::class.java)
  * rescheduled with backoff; a REPROCESS/RECONCILE needs a manual re-run) instead of ending SUCCEEDED over
  * stale `norm` — that pattern is an outage, not a row. A bad row alone on its page ends the run normally
  * (`issuesFailed`, retried by the next PROCESS pass).
+ *
+ * **The run ends with a conditional `ANALYZE`** of `norm.work_items`, `norm.work_item_worklogs` and `norm.work_item_field_intervals`
+ * ([WorkItemStore.analyzeAfterProcess], its own short transaction): when the run wrote at least a tenth of what the tables' statistics
+ * describe (or a table was never analyzed), DERIVE's worklog statement would otherwise plan a second connection's rows at one row
+ * (build-times WHY 60). A failure or a lock timeout is one WARN, never a failed run; the progress keys are `normAnalyzed` and
+ * `normAnalyzeMs`.
  */
 class JiraProcessStream(
     private val rawStore: JiraRawStore,
@@ -69,13 +82,15 @@ class JiraProcessStream(
         // Keyset paging: each stale issue is visited ONCE per run. An issue that fails stays flagged
         // for the NEXT PROCESS pass (plan §8) instead of being re-claimed by this loop forever.
         var afterIssueId: Long? = null
+        val written = WrittenRows()
         while (true) {
             val claim = rawStore.issuesToProcessWithin(connectionId, PROCESSING_VERSION, PROCESS_BATCH_SIZE, afterIssueId)
             claim.oversized.forEach { skipOversized(context, it) }
             afterIssueId = claim.lastExaminedId ?: break
-            if (claim.ids.isNotEmpty()) processBatch(context, connectionId, claim.ids, fieldIds, statusLookup, issueTypeHierarchy)
+            if (claim.ids.isNotEmpty()) processBatch(context, connectionId, claim.ids, fieldIds, statusLookup, issueTypeHierarchy, written)
             context.heartbeat(changed = claim.ids.isNotEmpty())
         }
+        workItemStore.analyzeAfterProcess(written.count).recordIn(context)
     }
 
     /** The "skip, loudly" of an issue whose own stored text is over the page budget: the id and the sizes, never a payload. */
@@ -95,10 +110,11 @@ class JiraProcessStream(
         fieldIds: JiraFieldIds,
         statusLookup: Map<String, Pair<String, StatusCategory>>,
         issueTypeHierarchy: Map<String, Int>,
+        written: WrittenRows,
     ) {
         val now = context.clock()
         var pageError: Exception? = null
-        val pageFailures = catchingFailures<List<IssueFailure>?>(
+        val pageWrite = catchingFailures<PageWrite?>(
             block = {
                 context.transaction { processPage(connectionId, batchIds, fieldIds, statusLookup, issueTypeHierarchy, now) }
             },
@@ -111,8 +127,13 @@ class JiraProcessStream(
                 null
             },
         )
-        val failures = pageFailures ?: batchIds.mapNotNull { issueId ->
-            processOneIssueSafely(context, connectionId, issueId, fieldIds, statusLookup, issueTypeHierarchy)
+        val failures = if (pageWrite != null) {
+            written.count += pageWrite.rows
+            pageWrite.failures
+        } else {
+            batchIds.mapNotNull { issueId ->
+                processOneIssueSafely(context, connectionId, issueId, fieldIds, statusLookup, issueTypeHierarchy, written)
+            }
         }
         // A page-level DB error where EVERY issue then failed on its own too — and none of the failures
         // is a data/integrity error (a bad ROW) — looks like an outage: end the job (it fails and is
@@ -142,7 +163,8 @@ class JiraProcessStream(
      * failed NORMALIZATION — they were skipped without touching the database, so the transaction stays
      * valid and every other issue of the page still lands (an issue a concurrent PURGE removed is
      * simply absent from the read and counts as done, as in the per-issue path). A DB error
-     * propagates and aborts the page. Memory: a page holds its issues' payloads, changelogs and
+     * propagates and aborts the page. Returns the rows written too ([PageWrite]), which the caller counts only once the page committed.
+     * Memory: a page holds its issues' payloads, changelogs and
      * worklogs at once, parsed — bounded by the claim ([JiraRawStore.issuesToProcessWithin]: at most `jira.processPageBytes` of stored
      * text, 50 issues), which the boot-time heap fit check budgets (`JiraHeapFit.kt` `processSlotBytes`).
      */
@@ -153,7 +175,7 @@ class JiraProcessStream(
         statusLookup: Map<String, Pair<String, StatusCategory>>,
         issueTypeHierarchy: Map<String, Int>,
         now: Long,
-    ): List<IssueFailure> {
+    ): PageWrite {
         val rawIssues = rawStore.issuesForProcessing(connectionId, batchIds)
         val changelogs = rawStore.changelogPayloadsForIssues(connectionId, batchIds)
         val worklogs = rawStore.worklogPayloadsForIssues(connectionId, batchIds)
@@ -171,7 +193,7 @@ class JiraProcessStream(
         val processedIds = normalized.map { it.issueId }.toSet()
         val readShas = rawIssues.filter { it.issueId in processedIds }.associate { it.issueId to it.sha256 }
         rawStore.markProcessedBatch(connectionId, readShas, now, PROCESSING_VERSION)
-        return failures
+        return PageWrite(failures, normalized.sumOf { it.analyzedRowCount() })
     }
 
     /**
@@ -186,9 +208,12 @@ class JiraProcessStream(
         fieldIds: JiraFieldIds,
         statusLookup: Map<String, Pair<String, StatusCategory>>,
         issueTypeHierarchy: Map<String, Int>,
+        written: WrittenRows,
     ): IssueFailure? = catchingFailures<IssueFailure?>(
         block = {
-            context.transaction { processOneIssue(connectionId, issueId, fieldIds, statusLookup, issueTypeHierarchy, context.clock()) }
+            val rows =
+                context.transaction { processOneIssue(connectionId, issueId, fieldIds, statusLookup, issueTypeHierarchy, context.clock()) }
+            written.count += rows
             null
         },
         onFailure = { IssueFailure(issueId, it) },
@@ -201,13 +226,15 @@ class JiraProcessStream(
         statusLookup: Map<String, Pair<String, StatusCategory>>,
         issueTypeHierarchy: Map<String, Int>,
         now: Long,
-    ) {
-        val raw = rawStore.issueForProcessing(connectionId, issueId) ?: return // a concurrent PURGE already removed it — nothing to do.
+    ): Long {
+        // A concurrent PURGE already removed the issue: nothing to do, nothing written.
+        val raw = rawStore.issueForProcessing(connectionId, issueId) ?: return 0L
         val changelogs = rawStore.changelogPayloadsForIssue(connectionId, issueId)
         val worklogs = rawStore.worklogPayloadsForIssue(connectionId, issueId)
         val normalized = normalizeRaw(raw, changelogs, worklogs, fieldIds, statusLookup, issueTypeHierarchy)
         workItemStore.replaceWorkItem(connectionId, normalized, now)
         rawStore.markProcessed(connectionId, issueId, raw.sha256, now, PROCESSING_VERSION)
+        return normalized.analyzedRowCount()
     }
 
     /** One raw issue plus its changelog/worklog payloads → its tiled write-shape (pure — no database access). */

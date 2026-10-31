@@ -67,9 +67,16 @@ internal class ProcessNormalizers(
  * cancellation, a lost lease) propagates at once. Every failure leaves as a [ProcessFailure]: stage, keys and the cause's class, never a
  * bound value.
  *
+ * 5. **The closing `ANALYZE`** of `norm.code_commits`, `norm.code_merge_requests` and `norm.code_mr_events`
+ *    ([CodeActivityStore.analyzeAfterProcess], its own short transaction) when the run wrote at least a tenth of what their statistics
+ *    describe, or a table was never analyzed: the PROFILE's event count (and a second source's reads) would otherwise plan the new
+ *    rows at one row (build-times WHY 60). A failure or a lock timeout is one WARN, never a failed run. `code_projects` and
+ *    `code_identities` are left out: hundreds of rows, rebuilt wholesale, read only by `connection_id`-filtered counts.
+ *
  * Progress: `commitsProcessed`, `mergeRequestsProcessed`, `identities` (rows written), `exclusionsChanged` / `identityMapChanged` /
- * `usernameMapChanged` (1 when that fingerprint re-flagged), the failed-page counters. Never calls GitLab, so it is deadline-exempt
- * ([GITLAB_LOCAL_STREAMS]): nothing that calls GitLab may follow it.
+ * `usernameMapChanged` (1 when that fingerprint re-flagged), the failed-page counters, `normAnalyzed` / `normAnalyzeMs` (the closing
+ * ANALYZE, present only when it ran). Never calls GitLab, so it is deadline-exempt ([GITLAB_LOCAL_STREAMS]): nothing that calls GitLab
+ * may follow it.
  */
 internal class GitLabProcessStream(
     private val processStore: GitLabRawProcessStore,
@@ -79,8 +86,8 @@ internal class GitLabProcessStream(
 ) : Stream {
     override val name: String = CODE_PROCESS_STREAM_NAME
 
-    /** The failed pages of ONE run, across both passes. */
-    private class FailedPages(var count: Int = 0)
+    /** The failed pages of ONE run, across both passes, and the rows it wrote into the analyzed `norm.code_*` tables. */
+    private class RunTally(var failedPages: Int = 0, var rowsWritten: Long = 0)
 
     override suspend fun run(context: StreamContext) {
         val users = staged("users read") { processStore.userRowsForNorm(context.connectionId) }
@@ -88,9 +95,10 @@ internal class GitLabProcessStream(
         if (staged("fingerprints") { applyFingerprints(context, map) }) context.heartbeat(changed = true)
         staged("reference rows") { rebuildReferenceRows(context, users, map) }
         context.heartbeat(changed = true)
-        val failed = FailedPages()
-        processCommits(context, map, failed)
-        processMergeRequests(context, map, failed)
+        val tally = RunTally()
+        processCommits(context, map, tally)
+        processMergeRequests(context, map, tally)
+        codeStore.analyzeAfterProcess(tally.rowsWritten).recordIn(context)
     }
 
     private suspend fun <T> staged(stage: String, block: suspend () -> T): T = catchingFailures(
@@ -128,7 +136,7 @@ internal class GitLabProcessStream(
         context.incrementProgress("identities", identities.toLong())
     }
 
-    private suspend fun processCommits(context: StreamContext, map: IdentityMap, failed: FailedPages) {
+    private suspend fun processCommits(context: StreamContext, map: IdentityMap, tally: RunTally) {
         val connectionId = context.connectionId
         val excluded: (String) -> Boolean = { PathGlob.matchesAny(exclusions, it) }
         var after: CommitKey? = null
@@ -136,7 +144,7 @@ internal class GitLabProcessStream(
             val keys = staged("commit claim") { processStore.commitsToProcess(connectionId, CODE_PROCESSING_VERSION, PROCESS_PAGE, after) }
             if (keys.isEmpty()) break
             after = keys.last()
-            val processed = page(context, failed, "commit page", "commitPagesFailed", keys.map { "${it.projectId}/${it.sha}" }) {
+            val processed = page(context, tally, "commit page", "commitPagesFailed", keys.map { "${it.projectId}/${it.sha}" }) {
                 context.transaction {
                     val now = context.clock()
                     val rows = processStore.commitsForProcessing(connectionId, keys)
@@ -148,12 +156,13 @@ internal class GitLabProcessStream(
                     rows.size
                 }
             }
+            tally.rowsWritten += processed
             context.incrementProgress("commitsProcessed", processed.toLong())
             context.heartbeat(changed = processed > 0)
         }
     }
 
-    private suspend fun processMergeRequests(context: StreamContext, map: IdentityMap, failed: FailedPages) {
+    private suspend fun processMergeRequests(context: StreamContext, map: IdentityMap, tally: RunTally) {
         val connectionId = context.connectionId
         var after: Long? = null
         while (true) {
@@ -162,7 +171,8 @@ internal class GitLabProcessStream(
             }
             if (ids.isEmpty()) break
             after = ids.last()
-            val processed = page(context, failed, "merge request page", "mergeRequestPagesFailed", ids.map { it.toString() }) {
+            var pageRows = 0L
+            val processed = page(context, tally, "merge request page", "mergeRequestPagesFailed", ids.map { it.toString() }) {
                 context.transaction {
                     val now = context.clock()
                     val rows = processStore.mergeRequestsForProcessing(connectionId, ids)
@@ -170,9 +180,12 @@ internal class GitLabProcessStream(
                     val normalized = normalizing { rows.map { normalizers.mergeRequest(it, events[it.mrId].orEmpty(), map) } }
                     codeStore.replaceMergeRequests(connectionId, normalized, now)
                     processStore.markMergeRequestsProcessed(connectionId, rows.map { it.mrId }, now, CODE_PROCESSING_VERSION)
+                    pageRows = normalized.sumOf { 1L + it.events.size }
                     rows.size
                 }
             }
+            // A failed page returns 0 and rolled back: only a committed page counts.
+            if (processed > 0) tally.rowsWritten += pageRows
             context.incrementProgress("mergeRequestsProcessed", processed.toLong())
             context.heartbeat(changed = processed > 0)
         }
@@ -187,7 +200,7 @@ internal class GitLabProcessStream(
      */
     private suspend fun page(
         context: StreamContext,
-        failed: FailedPages,
+        tally: RunTally,
         stage: String,
         counter: String,
         keys: List<String>,
@@ -197,7 +210,7 @@ internal class GitLabProcessStream(
             block = { work() },
             onFailure = { failure ->
                 val wrapped = ProcessFailure(stage, keys, failure)
-                if (!failure.isRowFault() || ++failed.count > PROCESS_FAILED_PAGES_MAX) throw wrapped
+                if (!failure.isRowFault() || ++tally.failedPages > PROCESS_FAILED_PAGES_MAX) throw wrapped
                 // The stack and class names of the causes, never their messages (`LoggedFailure`).
                 log.warn("{}; the rows stay flagged for the next run", wrapped.message, LoggedFailure(failure, wrapped.message.orEmpty()))
                 context.incrementProgress(counter)

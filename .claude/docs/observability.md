@@ -347,6 +347,6 @@ lives entirely in `sync_jobs.progress`/`current_stream`** (`StreamContext.increm
 `GET …/{id}/status` — see `.claude/docs/ingestion.md` "Progress counters"/"Sync status endpoint"),
 **not the audit trail**: it is a best-effort operational signal (a page count, which stream is
 active), not a security-relevant event, so it deliberately does not go through `audit(...)`. PROCESS
-and PROFILE follow the same rule (`issuesProcessed`/`issuesFailed`, `profileComputed`), and so does the ISSUES stream's skip of a bad
+and PROFILE follow the same rule (`issuesProcessed`/`issuesFailed`, `profileComputed`; PROCESS's closing ANALYZE adds `normAnalyzed`/`normAnalyzeMs`, and its failure is ONE WARN from the `ch.nokillswit.norm.NormAnalyze` logger naming the constant tables and the exception's class, never its message — no audit event, `ingestion.md` "The closing `ANALYZE`"), and so does the ISSUES stream's skip of a bad
 issue (`issuesSkipped` plus a WARN naming the issue key and id, never the payload — `ingestion.md` "ISSUES: a bad issue is skipped, loudly"). Any FUTURE stream-level
 audit trail (as opposed to progress) arrives with a later commit and gets its own paragraph here.

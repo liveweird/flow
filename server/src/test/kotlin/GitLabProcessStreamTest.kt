@@ -551,9 +551,13 @@ class GitLabProcessStreamTest {
             return context.progressSnapshot()
         }
         val first = run()
-        assertEquals(mapOf("commitsProcessed" to 300L, "mergeRequestsProcessed" to 60L, "identities" to 9L), first)
-        // fingerprints + reference rows + 6 commit pages + 2 merge request pages
-        assertEquals(10, beats.size)
+        assertEquals(
+            mapOf("commitsProcessed" to 300L, "mergeRequestsProcessed" to 60L, "identities" to 9L),
+            first - setOf("normAnalyzed", "normAnalyzeMs"),
+        )
+        // fingerprints + reference rows + 6 commit pages + 2 merge request pages, and one more flushing the closing ANALYZE's progress when
+        // it ran (it does when the shared database's statistics call the 360 rows material: `NormAnalyzeGitLabTest` pins the rule).
+        assertEquals(if (first["normAnalyzed"] == 1L) 11 else 10, beats.size)
         val noop = run()
         assertEquals(mapOf("identities" to 9L), noop, "nothing flagged: no page counters")
         assertEquals(1, beats.size, "only the reference rebuild beats (no fingerprint change, no page)")

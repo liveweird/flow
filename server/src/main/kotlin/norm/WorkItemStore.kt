@@ -23,11 +23,12 @@ val WorkItemStoreKey = AttributeKey<WorkItemStore>("WorkItemStore")
  * - [NormProfileReads] — the data profile's bulk reads (`jira/JiraProfile.kt`);
  * - [NormInspectorReads] — one issue's rows for the raw issue inspector;
  * - [NormPickerReads] — the `/jira-users` and metrics-config option reads;
- * - [NormPurge] — the PURGE step's batched deletes.
+ * - [NormPurge] — the PURGE step's batched deletes;
+ * - [analyzeAfterProcess] (`NormAnalyze.kt`) — the planner statistics of the tables a PROCESS has just filled.
  *
  * A new `norm` read or write goes in the collaborator that owns its concern, plus its one-line delegation here.
  */
-class WorkItemStore(database: R2dbcDatabase) {
+class WorkItemStore(private val database: R2dbcDatabase, private val analyzeSettings: NormAnalyzeSettings = NormAnalyzeSettings()) {
     private val writer = WorkItemWriter(database)
     private val reference = NormReferenceStore(database)
     private val derivation = NormDerivationReads(database)
@@ -343,6 +344,12 @@ class WorkItemStore(database: R2dbcDatabase) {
     suspend fun distinctIntervalStatusIds(connectionId: UInt): Set<String> = pickers.distinctIntervalStatusIds(connectionId)
     suspend fun distinctCustomFieldValues(connectionId: UInt, fieldId: String): List<Pair<String, String?>> =
         pickers.distinctCustomFieldValues(connectionId, fieldId)
+
+    // --- Planner statistics (`NormAnalyze.kt`) ---
+
+    /** Jira PROCESS's closing step: `ANALYZE` the three tables DERIVE's worklog statement joins when [rowsWritten] of them is material. */
+    suspend fun analyzeAfterProcess(rowsWritten: Long): NormAnalyzeResult =
+        analyzeIfMaterial(database, NORM_WORK_ITEM_ANALYZED_TABLES, rowsWritten, analyzeSettings)
 
     // --- PURGE ([NormPurge]; the drain loop is the `purgeAll` extension in that file) ---
 

@@ -174,7 +174,7 @@ class ProcessReferenceRowsTest {
             assertEquals(300, maxLength("norm.boards", "name", connId))
             assertEquals(300, maxLength("norm.board_columns", "name", connId))
             assertEquals(500, maxLength("norm.sprints", "name", connId))
-            assertEquals(mapOf("issuesProcessed" to 1L), context.progressSnapshot(), "nothing skipped, the flagged issue landed")
+            assertEquals(mapOf("issuesProcessed" to 1L), context.progressWithoutNormAnalyze(), "nothing skipped, the flagged issue landed")
             assertEquals(1, count("norm.work_items", connId))
             assertEquals(0L, SyncedStubFixture.rawStore().countNeedsProcessing(connId))
         }
@@ -201,7 +201,7 @@ class ProcessReferenceRowsTest {
 
         JiraProcessStream(SyncedStubFixture.rawStore(), SyncedStubFixture.workItems()).run(context)
 
-        assertEquals(mapOf("issuesProcessed" to 1L), context.progressSnapshot(), "nothing skipped, the flagged issue landed")
+        assertEquals(mapOf("issuesProcessed" to 1L), context.progressWithoutNormAnalyze(), "nothing skipped, the flagged issue landed")
         assertEquals(0L, SyncedStubFixture.rawStore().countNeedsProcessing(connId))
         val statuses = "SELECT DISTINCT name FROM norm.statuses WHERE connection_id = $connId AND name = '$statusName'"
         assertEquals(listOf(statusName), query(statuses))
@@ -235,7 +235,7 @@ class ProcessReferenceRowsTest {
         assertEquals(listOf(accountId), query(raw))
         val people = "SELECT account_id FROM norm.people WHERE connection_id = $connId AND account_id = '$accountId'"
         assertEquals(listOf(accountId), query(people))
-        assertEquals(mapOf("issuesProcessed" to 1L), context.progressSnapshot(), "nothing skipped, the flagged issue landed")
+        assertEquals(mapOf("issuesProcessed" to 1L), context.progressWithoutNormAnalyze(), "nothing skipped, the flagged issue landed")
     }
 
     @Test
@@ -258,7 +258,7 @@ class ProcessReferenceRowsTest {
 
         JiraProcessStream(SyncedStubFixture.rawStore(), SyncedStubFixture.workItems()).run(context)
 
-        assertEquals(mapOf("issuesProcessed" to 1L), context.progressSnapshot())
+        assertEquals(mapOf("issuesProcessed" to 1L), context.progressWithoutNormAnalyze())
         assertEquals(120, maxLength("norm.work_item_field_changes", "field", connId))
         assertEquals(0L, SyncedStubFixture.rawStore().countNeedsProcessing(connId))
     }
@@ -347,7 +347,7 @@ class ProcessReferenceRowsTest {
             assertEquals(usersBefore - 1, count("norm.people", connId))
             assertEquals(boardsBefore - 2, count("norm.boards", connId))
             assertEquals(sprintsBefore - 1, count("norm.sprints", connId))
-            assertEquals(mapOf("issuesProcessed" to 1L, "referenceRowsSkipped" to 5L), context.progressSnapshot())
+            assertEquals(mapOf("issuesProcessed" to 1L, "referenceRowsSkipped" to 5L), context.progressWithoutNormAnalyze())
             assertEquals(1, count("norm.work_items", connId), "the flagged issue still lands")
             val lines = storeLogs.events.map { it.formattedMessage }
             listOf("norm.statuses", "norm.people", "norm.boards", "norm.sprints").forEach { table ->
@@ -384,7 +384,7 @@ class ProcessReferenceRowsTest {
                 dropTrigger()
             }
 
-            assertEquals(mapOf("issuesProcessed" to 1L, "referenceRowsSkipped" to 1L), context.progressSnapshot())
+            assertEquals(mapOf("issuesProcessed" to 1L, "referenceRowsSkipped" to 1L), context.progressWithoutNormAnalyze())
             assertEquals(sprintsBefore, sprintIds(connId), "the failed rebuild rolled back — the previous sprint rows are untouched")
             assertEquals(0, count("norm.sprints", connId, "AND name = 'changed-by-the-second-run'"))
             assertEquals(statusesBefore, count("norm.statuses", connId), "the other reference tables still rebuilt")
