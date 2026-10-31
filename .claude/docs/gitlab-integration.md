@@ -366,12 +366,18 @@ rides `data_source.updated` (host only; the patterns are never logged). Defaults
 fetch, so a change is a code-layer REPROCESS without refetching. Each `norm` commit row carries `files_counted`,
 `additions_counted` and `deletions_counted` beside the raw totals; for a `too_large` file its lines are the commit's `stats`
 minus the RAW lines of its other files (excluded ones included, so a lock file beside it is not credited to it), and the
-file then counts unless it is itself excluded (the stub's `special.tooLarge` pins both figures). MR line counts (GraphQL totals) are not exclusion-aware.
+file then counts unless it is itself excluded (the stub's `special.tooLarge` pins both figures). A `files_capped` commit gets NO such remainder (its `stats` include
+files that were never stored): an included unknown-lines file leaves its counted lines null, otherwise they are the sum of the known included lines over
+the stored files (U2). MR line counts (GraphQL totals) are not exclusion-aware.
 
 ## Identity
 
 - **Keys** in `norm.code_identities`: `u<gitlabUserId>`, or `e<sha256(canonical email)[0:32]>` for a commit email that
   matches no GitLab user. A key holds no email, but the `e` key is an UNSALTED sha256 prefix of the canonical address: not an address, yet an address can be CONFIRMED by guessing it; keys stay out of logs anyway.
+  **Resolution** of a commit's `author_email`: the canonical address is one of a user's `emails` (a LIVE user wins over a deleted one that held the
+  same address, then the lowest id), else the noreply pattern (`<id>-<username>@users.noreply.<host>`, the id is in the local part), else the `e` key. A
+  review-request note's `@username` resolves the same way (live first). PROCESS fingerprints both maps (and the exclusion list) in its cursor row and
+  re-flags what depends on them when one changes.
 - **Links** in `public.code_identity_links (source_host, identity_key)`: `decision` LINKED / IGNORED / BOT,
   `jira_account_id` non-null exactly when LINKED, decided-by/at. Undated (team attribution stays dated through
   `metrics.team_membership`) and keyed by host, so they survive a re-created data source.

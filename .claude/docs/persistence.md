@@ -1416,8 +1416,9 @@ description or note body, and no key holds an email (decision 10).
 - **`norm.code_commits`**: PK `(connection_id, project_id, sha)` = the raw PK; `identity_key` the resolved author; `is_merge`; GitLab's own `additions` /
   `deletions` / `files` beside the **`additions_counted` / `deletions_counted` / `files_counted`** figures (after the path exclusions); `files_capped`;
   `deleted_at` mirrored; its own `processed_at` / `processing_version`. **A `_counted` null means UNKNOWN - files pending or terminally unavailable, a
-  merge commit (no diff is read), or (additions / deletions only) an included file with unknown lines while GitLab's stats are missing, so `files_counted` is
-  set but the counted lines are null - never zero.** `idx_norm_code_commits_identity (connection_id, identity_key, committed_at) WHERE deleted_at IS NULL`.
+  merge commit (no diff is read), or (additions / deletions only) an included file with unknown lines while GitLab's stats are missing - or the commit is
+  `files_capped`, whose stats cover files that were never stored, so no remainder is credited - so `files_counted` is set but the counted lines are
+  null - never zero.** `idx_norm_code_commits_identity (connection_id, identity_key, committed_at) WHERE deleted_at IS NULL`.
   **`norm.code_merge_requests`**: PK `(connection_id, mr_id)`, unique `idx_norm_code_mrs_project_iid (connection_id, project_id, iid)` and `idx_norm_code_mrs_author (connection_id, author_key, created_at) WHERE deleted_at IS NULL` (no index on `reviewer_keys` / `assignee_keys`: a report that needs one adds it); author / merge-user keys,
   `reviewer_keys` / `assignee_keys` (sorted JSONB arrays of `u<id>`), GitLab's diff stats (null = a gap; NOT exclusion-aware), `notes_capped`, and
   `details_state` (`READ` / `PENDING` / `UNREADABLE`: whether the events are current - a report reads the state, never "no events"). **`norm.code_mr_events`**:

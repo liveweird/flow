@@ -293,6 +293,20 @@ class GitLabConnectorTest {
     }
 
     @Test
+    fun `REPROCESS needs no token probe - an inactive token does not stop the local rebuild`() = runBlocking<Unit> {
+        val connId = connection()
+        val connector = GitLabFixtures.connector(dataSources)
+        GitLabFixtures.run(connector, connId, onDemand = true)
+        val digest = GitLabFixtures.codeDigest(connId)
+        override("/personal_access_tokens/self", body = """{"scopes":["read_api"],"active":false}""")
+        assertFailsWith<JobRefusedException> { GitLabFixtures.run(connector, connId) }
+        val progress = mutableListOf<String>()
+        GitLabFixtures.run(connector, connId, SyncJobKind.REPROCESS, progress = progress)
+        assertEquals(300L, lastProgress(progress)["commitsProcessed"])
+        assertEquals(digest, GitLabFixtures.codeDigest(connId))
+    }
+
+    @Test
     fun `a non-admin token syncs the users without asking for secondary emails`() = runBlocking<Unit> {
         val connId = connection()
         override("/user", body = """{"id":2,"is_admin":false}""")
@@ -346,8 +360,13 @@ class GitLabConnectorTest {
         val reconcile = mutableListOf<String>()
         GitLabFixtures.run(connector, connId, SyncJobKind.RECONCILE, progress = reconcile)
         assertEquals(digest, GitLabFixtures.codeDigest(connId), "a RECONCILE at day zero changes no norm row")
-        GitLabFixtures.run(connector, connId, SyncJobKind.REPROCESS)
+        val reprocess = mutableListOf<String>()
+        GitLabFixtures.run(connector, connId, SyncJobKind.REPROCESS, progress = reprocess)
         assertEquals(digest, GitLabFixtures.codeDigest(connId), "REPROCESS rebuilds the same norm rows")
+        val reprocessed = lastProgress(reprocess)
+        assertEquals(300L, reprocessed["commitsProcessed"], "every commit is re-flagged and re-processed")
+        assertEquals(60L, reprocessed["mergeRequestsProcessed"])
+        assertEquals(1L, reprocessed["profileComputed"], "and the profile is recomputed")
         assertEquals(0L, GitLabFixtures.processStore().countNeedsProcessing(connId))
         assertEquals(stored,
             store.projectRows(connId).map { it[GitLabRawStore.Projects.projectId] to it[GitLabRawStore.Projects.changedAt] })

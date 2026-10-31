@@ -54,7 +54,10 @@ object SyncedGitLabFixture {
         CloneSupport.cloneInTransaction(RAW_CLONE_TABLES, fromConnectionId, toConnectionId)
     }
 
-    /** [cloneRawData] plus the five `norm.code_*` tables and `source_connections.profile`/`profile_at`, in ONE transaction. */
+    /**
+     * [cloneRawData] plus the five `norm.code_*` tables, `source_connections.profile`/`profile_at` and the `code_process` cursor row (the
+     * fingerprints the norm rows were computed under: without it the clone's first PROCESS would re-flag everything), in ONE transaction.
+     */
     fun cloneProcessedData(fromConnectionId: UInt, toConnectionId: UInt) {
         CloneSupport.cloneInTransaction(RAW_CLONE_TABLES + PROCESSED_CLONE_TABLES, fromConnectionId, toConnectionId) { st ->
             val connections = DataSourceService.Connections.tableName
@@ -63,6 +66,12 @@ object SyncedGitLabFixture {
                     "FROM $connections src WHERE src.id = $fromConnectionId AND $connections.id = $toConnectionId",
             )
             assertEquals(1, updated, "the clone's source_connections row must receive the source's profile")
+            val cursor = st.executeUpdate(
+                "INSERT INTO sync_cursors (connection_id, stream, cursor, watermark_at, last_completed_at, updated_at) " +
+                    "SELECT $toConnectionId, stream, cursor, watermark_at, last_completed_at, updated_at FROM sync_cursors " +
+                    "WHERE connection_id = $fromConnectionId AND stream = 'code_process'",
+            )
+            assertEquals(1, cursor, "the fixture's SYNC ended with PROCESS, which stores its fingerprints")
         }
     }
 

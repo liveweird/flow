@@ -18,6 +18,7 @@ import ch.nokillswit.norm.identityKeyForEmail
 import ch.nokillswit.norm.identityKeyForUser
 import ch.nokillswit.norm.noreplyUserId
 import ch.nokillswit.norm.orderEvents
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -30,10 +31,10 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * How a person is named in the facts, built ONCE per PROCESS run from EVERY `raw.gitlab_users` row (live and deleted). A commit's
- * `author_email` resolves, in order: (1) the canonical address is one of a user's `emails` -> `u<id>` (a duplicate across users: the
- * lowest id wins, deterministic); (2) the noreply pattern `<id>-<username>@users.noreply.<host>` -> `u<id>` (the id is in the local part);
- * (3) otherwise `e<hash>`. Merge request and event actors are ids, so they are `u<id>` directly; a review-request note's `@username`
- * resolves through [usernameKey].
+ * `author_email` resolves, in order: (1) the canonical address is one of a user's `emails` -> `u<id>` (a duplicate across users: a live
+ * user wins over a deleted one, then the lowest id: deterministic); (2) the noreply pattern `<id>-<username>@users.noreply.<host>` ->
+ * `u<id>` (the id is in the local part); (3) otherwise `e<hash>`. Merge request and event actors are ids, so they are `u<id>`
+ * directly; a review-request note's `@username` resolves through [usernameKey].
  */
 internal class IdentityMap private constructor(
     private val emailToUserId: Map<String, Long>,
@@ -61,11 +62,21 @@ internal class IdentityMap private constructor(
         sha256Hex(canonicalJson(JsonObject(emailToUserId.mapValues { JsonPrimitive(identityKeyForUser(it.value)) })))
     }
 
+    /**
+     * A sha256 of the sorted username -> key map ([usernameKey]). A user added or renamed turns an unresolved review-request target into
+     * a `u<id>`, so PROCESS re-flags the merge requests (and the commits) when it differs from the stored one.
+     */
+    val usernameFingerprint: String by lazy { sha256Hex(canonicalJson(JsonObject(usernameToKey.mapValues { JsonPrimitive(it.value) }))) }
+
     companion object {
+        /**
+         * Built from EVERY user row. When an address or a username belongs to several users (an address reused after an account was
+         * deleted, a username re-registered), a LIVE row wins over a deleted one, then the lowest id: deterministic.
+         */
         fun from(users: List<RawUserForNorm>): IdentityMap {
             val emails = HashMap<String, Long>()
             val usernames = HashMap<String, String>()
-            users.sortedBy { it.userId }.forEach { user ->
+            users.sortedWith(compareBy({ it.deletedAt != null }, { it.userId })).forEach { user ->
                 user.emails.map(::canonicalEmail).filter { it.isNotEmpty() }.forEach { emails.putIfAbsent(it, user.userId) }
                 usernames.putIfAbsent(user.username.lowercase(), identityKeyForUser(user.userId))
             }
@@ -76,7 +87,7 @@ internal class IdentityMap private constructor(
 
 /** The fingerprint of the EFFECTIVE exclusion list, in its stored order (the list is admin-ordered and de-duplicated at the write). */
 internal fun exclusionsFingerprint(patterns: List<String>): String =
-    sha256Hex(canonicalJson(kotlinx.serialization.json.JsonArray(patterns.map(::JsonPrimitive))))
+    sha256Hex(canonicalJson(JsonArray(patterns.map(::JsonPrimitive))))
 
 /**
  * The identity rows of one PROCESS run (V44 `norm.code_identities`): one USER row per raw user; a ghost USER row (no username, name or
@@ -127,7 +138,12 @@ internal fun codeCommit(
     val isMerge = raw.parentCount > 1
     val known = !isMerge && raw.filesFetchedAt != null && raw.filesError == null
     val counted = if (known) {
-        countLines(files.map { CountedFile(it.path, it.additions, it.deletions) }, LineStats(raw.additions, raw.deletions), excluded)
+        countLines(
+            files.map { CountedFile(it.path, it.additions, it.deletions) },
+            LineStats(raw.additions, raw.deletions),
+            raw.filesCapped,
+            excluded,
+        )
     } else {
         null
     }

@@ -72,23 +72,34 @@ class CountedLines(val files: Int, val additions: Int?, val deletions: Int?)
  * construction, credited once. When every unknown file is excluded the remainder is dropped; when an included unknown file exists and the
  * stats are null the figure is null. A binary file is a known 0/0.
  *
+ * A [capped] commit (more files than were stored) gets NO remainder: the stats cover files that were never stored, so the remainder would
+ * credit them to the stored unknown-lines files. If an included unknown-lines file exists the counted lines are null (unknown), else
+ * they are the sum of the known included lines (a lower bound over the stored files).
+ *
  * Worked example (the stub's `special.tooLarge` commit): stats 5269/215, a lock file 59/66 (excluded), `README` 10/9 and a too-large
  * `catalog` null/null. Raw known = 69/75, remainder 5200/140: counted = 2 files (README, catalog), 10 + 5200 = 5210
  * additions and 9 + 140 = 149 deletions. With the catalog excluded too: 1 file, 10/9.
  */
-fun countLines(files: List<CountedFile>, stats: LineStats, excluded: (String) -> Boolean): CountedLines {
+fun countLines(files: List<CountedFile>, stats: LineStats, capped: Boolean = false, excluded: (String) -> Boolean): CountedLines {
     val included = files.filterNot { excluded(it.path) }
     return CountedLines(
         files = included.size,
-        additions = countDimension(files, included, stats.additions) { it.additions },
-        deletions = countDimension(files, included, stats.deletions) { it.deletions },
+        additions = countDimension(files, included, stats.additions, capped) { it.additions },
+        deletions = countDimension(files, included, stats.deletions, capped) { it.deletions },
     )
 }
 
-private fun countDimension(all: List<CountedFile>, included: List<CountedFile>, total: Int?, lines: (CountedFile) -> Int?): Int? {
+private fun countDimension(
+    all: List<CountedFile>,
+    included: List<CountedFile>,
+    total: Int?,
+    capped: Boolean,
+    lines: (CountedFile) -> Int?,
+): Int? {
     val includedKnown = included.sumOf { lines(it) ?: 0 }
     if (included.none { lines(it) == null }) return includedKnown
-    if (total == null) return null
+    // Capped: no remainder (the stats include files that were never stored). Otherwise missing stats leave the figure unknown.
+    if (capped || total == null) return null
     val rawKnown = all.sumOf { lines(it) ?: 0 }
     return includedKnown + maxOf(0, total - rawKnown)
 }

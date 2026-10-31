@@ -3,8 +3,13 @@ package ch.nokillswit
 import ch.nokillswit.gitlab.CommitKey
 import ch.nokillswit.gitlab.GitLabDiffStats
 import ch.nokillswit.gitlab.GitLabProcessStream
+import ch.nokillswit.gitlab.PROCESS_FAILED_PAGES_MAX
+import ch.nokillswit.gitlab.ProcessFailure
+import ch.nokillswit.gitlab.ProcessNormalizers
+import ch.nokillswit.gitlab.codeCommit
 import ch.nokillswit.gitlab.GitLabRawStore.Commits
 import ch.nokillswit.gitlab.GitLabRawStore.MergeRequests
+import ch.nokillswit.gitlab.GitLabRawStore.MrEvents
 import ch.nokillswit.gitlab.GitLabRawStore.Users
 import ch.nokillswit.gitlab.DETAILS_ERROR_NOT_FOUND
 import ch.nokillswit.gitlab.MrDetailsOutcome
@@ -17,7 +22,9 @@ import ch.nokillswit.norm.DetailsState
 import ch.nokillswit.norm.IdentityKind
 import ch.nokillswit.norm.MrEventKind
 import ch.nokillswit.norm.NormCodeCommit
+import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.ingest.SyncCursorsService
+import ch.nokillswit.ingest.failureDetail
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -40,6 +47,8 @@ import java.io.File
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -76,8 +85,11 @@ class GitLabProcessStreamTest {
 
     private fun globs(patterns: List<String> = DEFAULT_PATH_EXCLUSIONS) = patterns.map(PathGlob::compile)
 
-    private suspend fun process(connId: UInt, patterns: List<String> = DEFAULT_PATH_EXCLUSIONS): Map<String, Long> =
-        GitLabFixtures.runStream(GitLabProcessStream(processStore, code, globs(patterns)), connId)
+    private suspend fun process(
+        connId: UInt,
+        patterns: List<String> = DEFAULT_PATH_EXCLUSIONS,
+        normalizers: ProcessNormalizers = ProcessNormalizers(),
+    ): Map<String, Long> = GitLabFixtures.runStream(GitLabProcessStream(processStore, code, globs(patterns), normalizers), connId)
 
     private fun oracleCommit(projectId: Long, sha: String): JsonObject =
         expected.getValue("commitFiles").jsonObject.getValue(projectId.toString()).jsonObject.getValue(sha).jsonObject
@@ -204,7 +216,9 @@ class GitLabProcessStreamTest {
         assertEquals(300L, first["commitsProcessed"])
         assertEquals(60L, first["mergeRequestsProcessed"])
         assertEquals(9L, first["identities"])
-        assertNull(first["exclusionsChanged"], "the first run stores the fingerprints and re-flags nothing")
+        assertNull(first["exclusionsChanged"], "the first run only stores the fingerprints: nothing CHANGED")
+        assertNull(first["identityMapChanged"])
+        assertNull(first["usernameMapChanged"])
         assertEquals(0L, processStore.countNeedsProcessing(connId))
         val digest = GitLabFixtures.codeDigest(connId)
         assertEquals(digest, GitLabFixtures.codeDigest(fixtureId), "the clone's PROCESS equals the fixture's own")
@@ -366,6 +380,153 @@ class GitLabProcessStreamTest {
         assertEquals(2L, after.emailOnly)
         assertTrue(code.commitRows(connId).count { !it.isMerge && it.identityKey == "u2" } < 84)
         assertIncrementalEqualsReprocess(connId)
+    }
+
+    @Test
+    fun `a user added or renamed after the first run resolves a review request's target at the next run`() = runBlocking<Unit> {
+        val connId = rawClone()
+        val targetUsername = raw.mrEventRows(connId).filter { it[MrEvents.action] == "REVIEW_REQUESTED" }
+            .flatMap { parseStringArray(it[MrEvents.targets] ?: "[]") }.groupingBy { it }.eachCount().maxByOrNull { it.value }!!.key
+        val owner = raw.userRows(connId).single { it[Users.username].equals(targetUsername, ignoreCase = true) }
+        val ownerId = owner[Users.userId]
+        suspend fun rename(to: String) {
+            suspendTransaction(sharedDatabaseForTests()) {
+                Users.update({ (Users.connectionId eq connId) and (Users.userId eq ownerId) }) { it[username] = to }
+            }
+        }
+        suspend fun resolvedTargets() =
+            code.mrEventRows(connId).values.flatten().sumOf { event -> event.targetKeys.count { key -> key == "u$ownerId" } }
+
+        rename("renamed-before-first-run")
+        process(connId)
+        assertEquals(0, resolvedTargets(), "the target is unresolved while nobody owns the username")
+        rename(owner[Users.username])
+        val run = process(connId)
+        assertEquals(1L, run["usernameMapChanged"])
+        assertEquals(60L, run["mergeRequestsProcessed"], "a username change re-flags the merge requests too")
+        assertTrue(resolvedTargets() > 0, "the owner's review requests now name u$ownerId")
+        assertIncrementalEqualsReprocess(connId)
+    }
+
+    // ---------------------------------------------------------------------------------------------- failures
+
+    @Test
+    fun `a failure leaves as stage, keys and the cause's class - never a bound value`() = runBlocking<Unit> {
+        val connId = rawClone()
+        val email = "contractor.sample@mail.example"
+        val failing = ProcessNormalizers(identities = { _, _, _, _ -> error("duplicate key value (identity_key) = ($email)") })
+        val thrown = assertFailsWith<ProcessFailure> { process(connId, normalizers = failing) }
+        assertFalse(email in thrown.message.orEmpty(), thrown.message)
+        assertFalse(email in failureDetail(thrown), "the job's error detail carries no bound value")
+        assertTrue(email in thrown.cause?.message.orEmpty(), "while the original stays as the cause for the stack")
+        assertTrue("reference rows" in thrown.message.orEmpty() && "IllegalStateException" in thrown.message.orEmpty())
+        assertEquals(360L, processStore.countNeedsProcessing(connId), "nothing was processed, everything stays flagged")
+    }
+
+    private fun poisoned(keys: Set<CommitKey>) = ProcessNormalizers(commit = { raw, files, excluded, map ->
+        if (CommitKey(raw.projectId, raw.sha) in keys) {
+            error("cannot normalize ${raw.authorEmail}")
+        } else {
+            codeCommit(raw, files, excluded, map)
+        }
+    })
+
+    /** The first key of each of the first [pages] claim pages of a fully flagged clone (pages of 50 by `(project_id, sha)`). */
+    private suspend fun firstKeysOfPages(connId: UInt, pages: Int): Set<CommitKey> {
+        val firsts = mutableSetOf<CommitKey>()
+        var after: CommitKey? = null
+        repeat(pages) {
+            val page = processStore.commitsToProcess(connId, CODE_PROCESSING_VERSION, 50, after)
+            firsts += page.first()
+            after = page.last()
+        }
+        return firsts
+    }
+
+    @Test
+    fun `one poisoned page is counted and skipped, the rest is processed and its rows stay flagged`() = runBlocking<Unit> {
+        val connId = rawClone()
+        val poison = firstKeysOfPages(connId, 1)
+        val progress = process(connId, normalizers = poisoned(poison))
+        assertEquals(1L, progress["commitPagesFailed"])
+        assertEquals(250L, progress["commitsProcessed"], "the other five pages of 50 landed")
+        assertEquals(60L, progress["mergeRequestsProcessed"], "the merge request pass ran past the failed commit page")
+        assertEquals(50L, processStore.countNeedsProcessing(connId), "the poisoned page's rows stay flagged for the next run")
+        assertEquals(250, code.commitRows(connId).size)
+        val healed = process(connId)
+        assertEquals(50L, healed["commitsProcessed"], "the next run retries exactly that page")
+        assertEquals(0L, processStore.countNeedsProcessing(connId))
+    }
+
+    @Test
+    fun `more than the bound of poisoned pages in one run is an outage and the job fails`() = runBlocking<Unit> {
+        val tolerant = rawClone()
+        val outage = rawClone()
+        val tolerated = process(tolerant, normalizers = poisoned(firstKeysOfPages(tolerant, PROCESS_FAILED_PAGES_MAX)))
+        assertEquals(PROCESS_FAILED_PAGES_MAX.toLong(), tolerated["commitPagesFailed"], "up to the bound is tolerated")
+        val failure = assertFailsWith<ProcessFailure> {
+            process(outage, normalizers = poisoned(firstKeysOfPages(outage, PROCESS_FAILED_PAGES_MAX + 1)))
+        }
+        assertTrue("commit page" in failure.message.orEmpty() && "@" !in failure.message.orEmpty(), failure.message)
+    }
+
+    // ---------------------------------------------------------------------------------------------- flags, cursor, progress
+
+    @Test
+    fun `refreshed details are flagged for PROCESS and the next run writes them as pending`() = runBlocking<Unit> {
+        val connId = GitLabFixtures.createConnection().also { connections += it }
+        SyncedGitLabFixture.cloneProcessedData(fixtureId, connId)
+        val mr = code.mergeRequestRows(connId).first { it.additions != null }
+        assertTrue(raw.settleMrDetails(connId, mr.mrId, emptyList(), 6_000L, MrDetailsOutcome(error = DETAILS_ERROR_NOT_FOUND)))
+        process(connId)
+        assertEquals(DetailsState.UNREADABLE, code.mergeRequestRows(connId).single { it.mrId == mr.mrId }.detailsState)
+        assertEquals(1, raw.retryMrDetails(connId, listOf(DETAILS_ERROR_NOT_FOUND), 10))
+        assertEquals(1L, processStore.countNeedsProcessing(connId), "the un-stamp flags PROCESS")
+        process(connId)
+        assertEquals(DetailsState.PENDING, code.mergeRequestRows(connId).single { it.mrId == mr.mrId }.detailsState)
+    }
+
+    @Test
+    fun `an absent or undecodable cursor re-flags everything, a matching one nothing`() = runBlocking<Unit> {
+        val connId = GitLabFixtures.createConnection().also { connections += it }
+        SyncedGitLabFixture.cloneProcessedData(fixtureId, connId)
+        val cursors = SyncCursorsService(sharedDatabaseForTests())
+        assertNull(process(connId)["commitsProcessed"], "the cloned cursor matches: nothing to do")
+        cursors.clear(connId, "code_process")
+        val absent = process(connId)
+        assertEquals(300L, absent["commitsProcessed"], "no cursor: the configuration the rows were computed under is unknown")
+        assertEquals(60L, absent["mergeRequestsProcessed"])
+        assertNull(absent["exclusionsChanged"], "an unknown past is not a change")
+        cursors.put(connId, "code_process", """{"exclusionsSha256":7}""")
+        assertEquals(300L, process(connId)["commitsProcessed"], "an undecodable cursor counts as changed")
+        assertEquals(0L, processStore.countNeedsProcessing(connId))
+    }
+
+    @Test
+    fun `progress keys and heartbeats - one beat per stage and page, a no-op run only the reference rows`() = runBlocking<Unit> {
+        val connId = rawClone()
+        val beats = mutableListOf<String?>()
+        suspend fun run(): Map<String, Long> {
+            beats.clear()
+            val context = StreamContext(
+                connId, 1u, sharedDatabaseForTests(), SyncCursorsService(sharedDatabaseForTests()),
+                jobHeartbeat = { progress, _ ->
+                    beats += progress
+                    true
+                },
+            )
+            val stream = GitLabProcessStream(processStore, code, globs())
+            context.currentStreamName = stream.name
+            stream.run(context)
+            return context.progressSnapshot()
+        }
+        val first = run()
+        assertEquals(mapOf("commitsProcessed" to 300L, "mergeRequestsProcessed" to 60L, "identities" to 9L), first)
+        // fingerprints + reference rows + 6 commit pages + 2 merge request pages
+        assertEquals(10, beats.size)
+        val noop = run()
+        assertEquals(mapOf("identities" to 9L), noop, "nothing flagged: no page counters")
+        assertEquals(1, beats.size, "only the reference rebuild beats (no fingerprint change, no page)")
     }
 
     // ---------------------------------------------------------------------------------------------- the page lock

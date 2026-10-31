@@ -95,6 +95,21 @@ class CodeNormalizationTest {
     }
 
     @Test
+    fun `a capped commit gets no remainder - an included unknown file leaves the lines unknown, otherwise the known lines are summed`() {
+        val files = listOf(CountedFile("a", 10, 4), CountedFile("big", null, null))
+        val capped = countLines(files, LineStats(5000, 900), capped = true) { false }
+        val unknown = Triple(capped.files, capped.additions, capped.deletions)
+        assertEquals(Triple(2, null, null), unknown, "the stats cover files that were never stored")
+        val uncapped = countLines(files, LineStats(5000, 900)) { false }
+        assertEquals(Triple(2, 5000, 900), Triple(uncapped.files, uncapped.additions, uncapped.deletions))
+        val unknownExcluded = countLines(files, LineStats(5000, 900), capped = true) { it == "big" }
+        assertEquals(Triple(1, 10, 4), Triple(unknownExcluded.files, unknownExcluded.additions, unknownExcluded.deletions))
+        val allKnown = countLines(listOf(CountedFile("a", 10, 4), CountedFile("b", 1, 1)), LineStats(5000, 900), capped = true) { false }
+        val bound = Triple(allKnown.files, allKnown.additions, allKnown.deletions)
+        assertEquals(Triple(2, 11, 5), bound, "a lower bound over the stored files")
+    }
+
+    @Test
     fun `a binary file is a known zero and a negative remainder is clamped`() {
         val binary = lines(listOf(CountedFile("logo.png", 0, 0)), LineStats(0, 0))
         assertEquals(Triple(1, 0, 0), Triple(binary.files, binary.additions, binary.deletions))
