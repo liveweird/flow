@@ -404,7 +404,8 @@ amendment over the architect's original all-`public`-with-prefixes recommendatio
   — the RECONCILE stream's own scratch table. A future GitLab connector adds `raw.gitlab_*`
   alongside these rather than inventing a fourth schema.
 - **`norm`** — the neutral, source-agnostic layer every connector normalizes into (`work_items`,
-  `sprints`, `boards`, …) — landed at V13 (plan commit 8a, "The normalized layer (V13)" below).
+  `sprints`, `boards`, …) — landed at V13 (plan commit 8a, "The normalized layer (V13)" below); the code layer's
+  `code_projects`, `code_identities`, `code_commits`, `code_merge_requests` and `code_mr_events` joined it at V44 ("The normalized code layer (V44)" below).
 - **`metrics`** — the metrics layer's own schema: configuration lands first (V15, v0.3.0 M1 commit
   3, "The `metrics` schema — configuration (V15)" below); the derived star (dimensions/bridges/
   facts/daily aggregates) lands at V16, v0.3.0 M3 commit 7 ("The `metrics` schema — the derived
@@ -1414,18 +1415,20 @@ description or note body, and no key holds an email (decision 10).
   `insertRows` the current set), like `norm.statuses` / `norm.people`.
 - **`norm.code_commits`**: PK `(connection_id, project_id, sha)` = the raw PK; `identity_key` the resolved author; `is_merge`; GitLab's own `additions` /
   `deletions` / `files` beside the **`additions_counted` / `deletions_counted` / `files_counted`** figures (after the path exclusions); `files_capped`;
-  `deleted_at` mirrored; its own `processed_at` / `processing_version`. **A `_counted` null means UNKNOWN - files pending or terminally unavailable, or a
-  merge commit (no diff is read) - never zero.** `idx_norm_code_commits_identity (connection_id, identity_key, committed_at) WHERE deleted_at IS NULL`.
-  **`norm.code_merge_requests`**: PK `(connection_id, mr_id)`, unique `idx_norm_code_mrs_project_iid (connection_id, project_id, iid)`; author / merge-user keys,
+  `deleted_at` mirrored; its own `processed_at` / `processing_version`. **A `_counted` null means UNKNOWN - files pending or terminally unavailable, a
+  merge commit (no diff is read), or (additions / deletions only) an included file with unknown lines while GitLab's stats are missing, so `files_counted` is
+  set but the counted lines are null - never zero.** `idx_norm_code_commits_identity (connection_id, identity_key, committed_at) WHERE deleted_at IS NULL`.
+  **`norm.code_merge_requests`**: PK `(connection_id, mr_id)`, unique `idx_norm_code_mrs_project_iid (connection_id, project_id, iid)` and `idx_norm_code_mrs_author (connection_id, author_key, created_at) WHERE deleted_at IS NULL` (no index on `reviewer_keys` / `assignee_keys`: a report that needs one adds it); author / merge-user keys,
   `reviewer_keys` / `assignee_keys` (sorted JSONB arrays of `u<id>`), GitLab's diff stats (null = a gap; NOT exclusion-aware), `notes_capped`, and
   `details_state` (`READ` / `PENDING` / `UNREADABLE`: whether the events are current - a report reads the state, never "no events"). **`norm.code_mr_events`**:
-  PK `(connection_id, mr_id, seq)` (no surrogate id), `kind` (`COMMENT`, `DIFF_COMMENT`, `APPROVAL`, `REVIEW_REQUESTED`, `REVIEWED`, `CHANGES_REQUESTED`),
-  `actor_key`, `event_at` (null = the source carries no time), `target_keys` (JSONB, set only for REVIEW_REQUESTED); `idx_norm_code_mr_events_actor
+  PK `(connection_id, mr_id, seq)` (no surrogate id; `seq` is the position in the CURRENT event set, renumbered on every PROCESS of the merge request - never reference an event by `(mr_id, seq)` across runs), `kind` (`COMMENT`, `DIFF_COMMENT`, `APPROVAL`, `REVIEW_REQUESTED`, `REVIEWED`, `CHANGES_REQUESTED`),
+  `actor_key`, `event_at` (null = the source carries no time), `target_keys` (JSONB, set only for REVIEW_REQUESTED, and NULL there too when every named username failed to resolve); `idx_norm_code_mr_events_actor
   (connection_id, actor_key, event_at)`.
 - **Facts are flagged, not rebuilt.** A commit / merge request is written when its raw row is `needs_processing` (or its `processing_version` differs from
   `CODE_PROCESSING_VERSION`): `replaceCommits` is ONE `upsertRows` on the raw PK writing every non-key column; `replaceMergeRequests` deletes the page's
   events, `insertRows` the fresh set and `upsertRows` the rows. A tombstone is MIRRORED in `deleted_at`, never deleted. Every write joins the caller's
-  transaction (the PROCESS page transaction also holds the raw rows' marks); empty input writes nothing.
+  transaction (the PROCESS page transaction also holds the raw rows' marks). The fact writers skip empty input; the wholesale rebuilds (`replaceProjects`,
+  `replaceIdentities`) always delete first, so an empty list empties them.
 - **`CODE_PROCESSING_VERSION`** (`norm/CodeNormalization.kt`, `1`) is separate from Jira's `PROCESSING_VERSION`: bump it on ANY change to the code layer's
   rules, and every raw GitLab commit / merge request is claimed again on the next pass with no migration.
 - **PURGE**: `CodeActivityStore.purgeAll` (`norm/CodeActivityPurge.kt`) drains `code_mr_events` (batches of `NORM_PURGE_BATCH_SIZE` rows by their own

@@ -4,6 +4,7 @@
 -- (identity kind, event kind, details state) are Kotlin-enum-whitelisted (norm/CodeNormalization.kt) and NOT CHECK-constrained (they drive
 -- no SQL-level behaviour), and there is NO foreign key between two norm tables (V13 has none): a REPLACE deletes the children explicitly.
 -- Nothing here holds code, a diff, a description or a note body (decision 9), and no key holds an email (decision 10).
+-- The persistence side (keys, REPLACE semantics, PURGE order) is in persistence.md "The normalized code layer (V44)".
 --
 -- Two ways a table is written. code_projects and code_identities are the REFERENCE rows: rebuilt WHOLESALE per connection on every PROCESS
 -- run (delete the connection's rows, insert the current set), like norm.statuses / norm.people. code_commits and code_merge_requests are the
@@ -11,7 +12,9 @@
 -- deleted_at, never deleted); code_mr_events is REPLACED per merge request on every PROCESS of that merge request.
 --
 -- Every *_counted column is the line count AFTER the data source's path exclusions (PROCESS applies them, never the fetch). A NULL count means
--- UNKNOWN - the commit's files are still pending or terminally unavailable, or the commit is a merge (no diff is read) - and is NEVER zero.
+-- UNKNOWN - the commit's files are still pending or terminally unavailable, or the commit is a merge (no diff is read), or (additions /
+-- deletions only) an included file has unknown lines (too large, collapsed) while GitLab's stats are missing, so files_counted is set but
+-- the counted additions / deletions are NULL - and is NEVER zero.
 -- additions / deletions / files stay beside them as GitLab reported them (stats over ALL files). files_capped = the commit has more files
 -- than were stored (the first 1,000), so the counted columns cover the stored files only.
 -- processed_at / processing_version are this row's own bookkeeping (CODE_PROCESSING_VERSION, separate from Jira's PROCESSING_VERSION), written
@@ -111,11 +114,16 @@ CREATE TABLE norm.code_merge_requests (
 );
 -- An iid is unique within its project (the raw table's rule); PR 11's links and the reports read a merge request by it.
 CREATE UNIQUE INDEX idx_norm_code_mrs_project_iid ON norm.code_merge_requests (connection_id, project_id, iid);
+-- The per-author merge request reads of the reports (live merge requests only). reviewer_keys / assignee_keys carry no index: a report that
+-- needs one adds it.
+CREATE INDEX idx_norm_code_mrs_author ON norm.code_merge_requests (connection_id, author_key, created_at) WHERE deleted_at IS NULL;
 
 -- The review events of a merge request, in a deterministic order (seq = 1..n per merge request: event time ascending with nulls last, then
--- kind, actor, raw source, raw source id). kind is one of COMMENT, DIFF_COMMENT, APPROVAL, REVIEW_REQUESTED, REVIEWED, CHANGES_REQUESTED.
+-- kind, actor, raw source, raw source id). seq is the position in the CURRENT event set of the merge request, renumbered on every PROCESS of
+-- it: never reference an event by (mr_id, seq) across runs. kind is one of COMMENT, DIFF_COMMENT, APPROVAL, REVIEW_REQUESTED, REVIEWED, CHANGES_REQUESTED.
 -- event_at NULL = the source carries no time (the legacy approvals endpoint). target_keys = the people a REVIEW_REQUESTED event asked, as
--- "u<id>" keys (NULL for every other kind). A note's body is never stored. No surrogate id: the composite key is the identity of a row.
+-- "u<id>" keys (NULL for every other kind, and for a REVIEW_REQUESTED whose usernames all failed to resolve). A note's body is never stored.
+-- No surrogate id: the composite key only orders the current set.
 CREATE TABLE norm.code_mr_events (
     connection_id INTEGER NOT NULL REFERENCES public.source_connections(id),
     mr_id BIGINT NOT NULL,

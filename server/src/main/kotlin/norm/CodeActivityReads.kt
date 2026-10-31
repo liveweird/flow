@@ -58,7 +58,7 @@ internal class CodeActivityReads(private val database: R2dbcDatabase) {
             earliestCommittedAt = range[earliest],
             latestCommittedAt = range[latest],
             filesCapped = commits(nonMerge and (CodeCommits.filesCapped eq true)),
-            filesCounted = commits(nonMerge and CodeCommits.filesCounted.isNotNull()),
+            commitsWithCounts = commits(nonMerge and CodeCommits.additionsCounted.isNotNull() and CodeCommits.deletionsCounted.isNotNull()),
         )
     }
 

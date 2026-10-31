@@ -18,8 +18,8 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 /**
  * The PURGE step's deletes over `norm.code_*` ([CodeActivityStore] delegates here): one bounded batch per big table per call (the
  * [NormPurge] shape: select a batch of keys, delete them), so a connection with a large history drains in bounded transactions. Events are
- * batched by their own key `(mr_id, seq)`, never by merge request, so one statement never cascades past its batch. The two small reference
- * tables are cleared outright. The drain loop is [purgeAll] below.
+ * batched by their own key `(mr_id, seq)`, never by merge request: nothing cascades between these FK-free tables, so a statement deletes
+ * exactly its batch. The two small reference tables are cleared outright. The drain loop is [purgeAll] below.
  */
 internal class CodeActivityPurge(private val database: R2dbcDatabase) {
 

@@ -63,7 +63,7 @@ class MigrationChecksumTest {
         "V41__gitlab_raw_store.sql" to 1702253531,
         "V42__gitlab_commits_raw_store.sql" to 565422636,
         "V43__gitlab_merge_requests_raw_store.sql" to -1734985487,
-        "V44__norm_code_layer.sql" to 1669390645,
+        "V44__norm_code_layer.sql" to 186702799,
     )
 
     @Test

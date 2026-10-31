@@ -276,7 +276,7 @@ data class CodeProjectCounts(val live: Long, val movedOut: Long, val deleted: Lo
 
 /**
  * The live commits: [count] non-merge, [merges], the commit-time range of ALL live commits, [filesCapped] (live non-merge, more files than
- * stored) and [filesCounted] (live non-merge whose counted figures are known).
+ * stored) and [commitsWithCounts] (live non-merge with BOTH counted lines figures known: `additions_counted` and `deletions_counted` set).
  */
 data class CodeCommitFigures(
     val count: Long,
@@ -284,7 +284,7 @@ data class CodeCommitFigures(
     val earliestCommittedAt: Long?,
     val latestCommittedAt: Long?,
     val filesCapped: Long,
-    val filesCounted: Long,
+    val commitsWithCounts: Long,
 )
 
 /** The live merge requests: [byState] (GitLab's state names), [withDiffStats] (not a gap) and the two non-READ [DetailsState]s. */

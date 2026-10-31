@@ -19,7 +19,8 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
  * The code layer's PROCESS write path ([CodeActivityStore] delegates here). Two shapes, as V44's header says: the REFERENCE rows
  * (projects, identities) are rebuilt wholesale - the connection's rows deleted and the current set inserted - and the FACTS (commits, merge
  * requests) are upserted on the raw primary key, a merge request's events replaced with it. Each method is ONE transaction that joins the
- * caller's enclosing one (the PROCESS stream's page transaction also holds the raw rows' marks); empty input writes nothing.
+ * caller's enclosing one (the PROCESS stream's page transaction also holds the raw rows' marks). The fact writers skip empty input; the
+ * wholesale rebuilds (`replaceProjects`, `replaceIdentities`) always delete first, so an empty list empties them.
  * No row is ever deleted outside a wholesale rebuild or a PURGE: a tombstone is MIRRORED in `deleted_at`.
  */
 internal class CodeActivityWriter(private val database: R2dbcDatabase) {

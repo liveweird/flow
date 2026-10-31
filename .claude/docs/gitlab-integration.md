@@ -371,7 +371,7 @@ file then counts unless it is itself excluded (the stub's `special.tooLarge` pin
 ## Identity
 
 - **Keys** in `norm.code_identities`: `u<gitlabUserId>`, or `e<sha256(canonical email)[0:32]>` for a commit email that
-  matches no GitLab user. Keys hold no email, so no PII lands in URLs or logs.
+  matches no GitLab user. A key holds no email, but the `e` key is an UNSALTED sha256 prefix of the canonical address: not an address, yet an address can be CONFIRMED by guessing it; keys stay out of logs anyway.
 - **Links** in `public.code_identity_links (source_host, identity_key)`: `decision` LINKED / IGNORED / BOT,
   `jira_account_id` non-null exactly when LINKED, decided-by/at. Undated (team attribution stays dated through
   `metrics.team_membership`) and keyed by host, so they survive a re-created data source.
