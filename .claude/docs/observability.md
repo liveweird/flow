@@ -205,6 +205,16 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   `metrics/MetricsConfigRoutes.kt`); a no-op re-PUT (byte-for-byte identical to what is already
   stored) emits nothing, the features-PUT precedent. `GET .../metrics-config` and `GET
   .../metrics-config/options` are read-only, so they emit nothing.
+- `code_identity.decided` (byUserId/dataSourceId/host/identityKey/decision/jiraAccountId, nullable/decisionFrom, nullable/jiraAccountIdFrom,
+  nullable/via `PUT`|`CONFIRM_PROPOSALS`) - an ADMIN's decision about a GitLab identity, stored by the instance's `host`
+  (`identities/CodeIdentityRoutes.kt`, V45): `PUT .../code-identities/{identityKey}` when the stored decision is new or CHANGED
+  (`decisionFrom`/`jiraAccountIdFrom` are the values actually overwritten, null on a first decision; an identical re-PUT writes and audits
+  nothing), and `POST .../code-identities/confirm-proposals` ONCE PER LINK it wrote (a decision stored meanwhile is not written, so not
+  audited; a second call audits nothing). It decides whose work an identity is in every later report, so the trail answers who linked what.
+  `identityKey` is `u<id>` or the unsalted `e<hash>` of a commit address: never an address, a name or a username.
+- `code_identity.decision_removed` (byUserId/dataSourceId/host/identityKey/decision/jiraAccountId, nullable) - `DELETE .../code-identities/{identityKey}`
+  that removed a row (the values of the row removed, from `DELETE ... RETURNING`); a `404` audits nothing. The GET is read-only and emits
+  nothing; a denied call is the generic `authz.denied`.
 
 Field-naming convention: the acting caller is `byUserId` everywhere except the auth lifecycle
 events (`login.*`, `logout`, `refresh.rejected`, `access.rejected`, `password_reset.*`), where `userId` identifies the account being
