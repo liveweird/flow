@@ -707,18 +707,45 @@ class GitLabCommitsWalkTest {
         assertNull(store.projectRows(connId).single()[GitLabRawStore.Projects.relistStartedAt])
     }
 
-    private suspend fun connectionWith(projects: Int): UInt {
+    /** [projects] projects with a head and a commit each, except the [headless] ones (no head yet) and the [branchless] (no branch). */
+    private suspend fun connectionWith(projects: Int, headless: Set<Int> = emptySet(), branchless: Set<Int> = emptySet()): UInt {
         val connId = connection()
         val extra = (2..projects).map {
             val payload = Json.parseToJsonElement("""{"id":$it,"path":"p$it","path_with_namespace":"platform/p$it","name":"p$it"}""")
-            RawGitLabProject(it.toLong(), "platform/p$it", "platform", 7, BRANCH, false, payload)
+            RawGitLabProject(it.toLong(), "platform/p$it", "platform", 7, BRANCH.takeUnless { _ -> it in branchless }, false, payload)
         }
         store.upsertProjects(connId, extra, now = 1)
-        for (id in 1..projects) {
+        for (id in (1..projects).filter { it !in headless }) {
             store.upsertCommits(connId, id.toLong(), listOf(raw(1)), now = 100)
             store.recordCommitsHead(connId, id.toLong(), sha(1))
         }
         return connId
+    }
+
+    @Test
+    fun `a deferring reconcile sweep keeps the older epoch a row already has`() = runBlocking<Unit> {
+        val connId = connection()
+        val hidden = MAX_SWEEP_CONFIRMATIONS + 10
+        store.upsertCommits(connId, PROJECT, (1..hidden).map { raw(it) }, now = 100)
+        store.recordCommitsHead(connId, PROJECT, sha(hidden))
+        store.beginRelist(connId, PROJECT, now = 50) // a SYNC re-list deferred earlier: request set, epoch 50
+        val client = FakeClient().apply {
+            listingOf = { _, _, _, _ -> commitPage((hidden + 1)..(hidden + 1)) }
+            mergeBaseOf = { _, a, _ -> a }
+        }
+        runReconcile(client, connId)
+        val row = store.projectRows(connId).single()
+        assertEquals(50L, row[GitLabRawStore.Projects.relistStartedAt], "the older epoch is kept, not replaced by the reconcile's")
+        assertTrue(row[GitLabRawStore.Projects.relistRequested])
+    }
+
+    @Test
+    fun `a project without a head or a branch does not reset the failure streak`() = runBlocking<Unit> {
+        // 1 fails, 2 has no head, 3 has no branch, 4 and 5 fail: three failures in a row as far as GitLab is concerned.
+        val connId = connectionWith(5, headless = setOf(2), branchless = setOf(3))
+        val failing = FakeClient().apply { listingOf = { _, _, _, _ -> throw fetchFailure("UPSTREAM_UNAVAILABLE") } }
+        assertEquals("UPSTREAM_UNAVAILABLE", assertFailsWith<FetchException> { runReconcile(failing, connId) }.code)
+        assertEquals(3, failing.listCalls, "projects 1, 4 and 5 called GitLab; 2 and 3 made no call and proved nothing")
     }
 
     @Test

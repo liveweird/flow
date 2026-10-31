@@ -32,7 +32,8 @@ internal const val COMMIT_FILES_FLUSH_ROWS = 5_000
 
 /**
  * The most re-list sweep candidates one PROJECT confirms per run (one `merge_base` call each, `gitlab-integration.md` "Streams"; the cap is
- * per project, so a RECONCILE run's real bound is projects x about 103 `merge_base` calls - the cap, the probe and its repeat). More
+ * per project, so a RECONCILE run's real bound is projects x about 103 calls - the cap, the tip probe and its repeat, and the tip read
+ * of an empty listing). More
  * than this and the rest waits for the next run: the project keeps its re-list request AND its epoch (`relist_started_at`). A candidate
  * is "not seen since the epoch", and every candidate a run handles - kept or unconfirmed (touched, so seen) or tombstoned - leaves that
  * set for good, so each further run sees strictly fewer candidates and repeated runs converge.

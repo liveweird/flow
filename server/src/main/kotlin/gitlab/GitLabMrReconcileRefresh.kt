@@ -15,7 +15,7 @@ private val log = LoggerFactory.getLogger(GitLabMrReconcileRefresh::class.java)
  * `ceil(gaps / 50)` calls per project and at most [RECONCILE_STATS_CALLS] a run. More than 5,000 permanent gaps would starve the older
  * fillable ones: nothing records when a gap was last asked, so the read cannot rotate. The iids GitLab answers are written
  * (stats and PROCESS flag, the details stamp untouched: `mrStatsRefilled` counts rows filled); one it still answers null for stays a
- * gap, asked again tomorrow - at most one call per project with gaps per day. A transient OUTAGE code ([GRAPHQL_OUTAGE_CODES]) ends the
+ * gap, asked again tomorrow. A transient OUTAGE code ([GRAPHQL_OUTAGE_CODES]) ends the
  * pass after that one call (`mrGraphqlBreaker`, the details stream's breaker); a GAP code ([GRAPHQL_GAP_CODES]) or a null project moves
  * on to the next project; anything else (a rate limit, a rejected token) propagates. A partial answer with `errors[]` still writes
  * what it answered and carries on with the project's next batch, so one permanent gap cannot starve the newer merge requests behind it.

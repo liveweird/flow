@@ -83,7 +83,7 @@ internal class GitLabCommitsStream(
             // A walk saved for another branch (the default branch was renamed mid-pass) names a listing that no longer exists: drop it.
             val saved = resumed?.walk?.takeIf { it.projectId == project.projectId && it.branch == project.defaultBranch }
             val skipped = try {
-                visit(context, pass, project, saved).also { streak.succeeded() }
+                visit(context, pass, project, saved).also { if (it.called) streak.succeeded() }.skipped
             } catch (failure: FetchException) {
                 if (!reconcile || !failure.isProjectScoped()) throw failure
                 streak.failed(failure)
@@ -105,12 +105,19 @@ internal class GitLabCommitsStream(
         context.transaction { context.clearCursor(name) }
     }
 
-    /** Decides and walks one project; true when it was skipped (no branch, or the branch or project is gone). */
-    private suspend fun visit(context: StreamContext, pass: Pass, project: CommitsProjectRow, saved: CommitsWalkCursor?): Boolean =
+    /**
+     * What visiting one project came to: [skipped] (no branch, or the branch or project is gone) and whether GitLab was [called] at all.
+     * Only a visit that called GitLab proves it is answering, so only that resets [ProjectFailureStreak]; a project without a head or
+     * without a branch says nothing about an outage.
+     */
+    private class Visit(val skipped: Boolean, val called: Boolean)
+
+    /** Decides and walks one project. */
+    private suspend fun visit(context: StreamContext, pass: Pass, project: CommitsProjectRow, saved: CommitsWalkCursor?): Visit =
         when (val decision = if (saved != null) Decision.Walk(saved) else decide(context, project)) {
-            Decision.Unchanged -> false
-            Decision.Skip -> true
-            is Decision.Walk -> !walk(context, pass, decision.cursor)
+            Decision.Unchanged -> Visit(skipped = false, called = !reconcile) // a reconcile finds Unchanged only for a project with no head
+            Decision.Skip -> Visit(skipped = true, called = false)
+            is Decision.Walk -> Visit(skipped = !walk(context, pass, decision.cursor), called = true)
         }
 
     /** RECONCILE gave up on [projectId] for this pass (a project-scoped failure): its walk is dropped so the pass moves past it. */
