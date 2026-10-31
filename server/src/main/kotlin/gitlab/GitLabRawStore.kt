@@ -25,6 +25,8 @@ val GitLabRawStoreKey = AttributeKey<GitLabRawStore>("GitLabRawStore")
  *    merge-request backlog, counts and group lookups;
  *  - [GitLabRawPurge] - the PURGE step's batched deletes.
  *
+ * The PROCESS-side reads and marks (V44's code layer) live in the sibling [GitLabRawProcessStore], over these same tables.
+ *
  * The commit tables carry no payload and no hash: a commit is immutable by SHA (`.claude/docs/persistence.md` "The GitLab commits raw
  * store (V42)"); a merge request is mutable and hashed, its events are a replaced set ("The GitLab merge-request raw store (V43)").
  */

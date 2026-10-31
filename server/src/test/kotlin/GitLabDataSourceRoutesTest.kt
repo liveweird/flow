@@ -299,13 +299,18 @@ class GitLabDataSourceRoutesTest {
                 request(created.name, gitlab(token = null, groups = groups, pathExclusions = pathExclusions)),
             )
             suspend fun effective() = admin.get("/api/v1/data-sources/${created.id}").body<DataSourceResponse>().gitlab!!.pathExclusions
+            // What the SYNC job reads: the effective list (the defaults for a null one, the stored list otherwise, an empty list as is).
+            suspend fun forSync() = assertNotNull(GitLabFixtures.dataSources().readGitLabForSync(created.id)).pathExclusions
+            assertEquals(DEFAULT_PATH_EXCLUSIONS, forSync(), "a never-set list reads as the defaults")
 
             assertEquals(HttpStatusCode.NoContent, put(listOf("*.lock", " docs/** ", "*.lock")).status)
             assertEquals(listOf("*.lock", "docs/**"), effective(), "trimmed, de-duplicated, order kept")
+            assertEquals(listOf("*.lock", "docs/**"), forSync(), "the stored list is what the job reads")
             assertEquals(HttpStatusCode.NoContent, put(null).status)
             assertEquals(listOf("*.lock", "docs/**"), effective(), "omitted on update keeps the stored list")
             assertEquals(HttpStatusCode.NoContent, put(emptyList()).status)
             assertEquals(emptyList(), effective(), "an empty list excludes nothing and is not the defaults")
+            assertEquals(emptyList(), forSync(), "and the job reads it as empty, not as the defaults")
             assertEquals(HttpStatusCode.NoContent, put(null).status)
             assertEquals(emptyList(), effective())
 
