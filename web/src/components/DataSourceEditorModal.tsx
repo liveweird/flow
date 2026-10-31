@@ -55,10 +55,10 @@ const PROBE_FIELDS: Record<DataSourceKind, ("siteUrl" | "email" | "apiToken" | "
 };
 
 /** The values a kind switch empties: the OTHER kind's connection fields, so nothing typed for one kind lingers under the other. */
-const KIND_RESETS: Record<DataSourceKind, Partial<DataSourceFormValues>> = {
-  JIRA_CLOUD: { baseUrl: "", token: "", groupPaths: [] },
-  GITLAB: { siteUrl: "", email: "", apiToken: "", projectKeys: [], authScheme: "BASIC" },
-};
+const KIND_RESETS = (defaultPathExclusions: string[]): Record<DataSourceKind, Partial<DataSourceFormValues>> => ({
+  JIRA_CLOUD: { baseUrl: "", token: "", groupPaths: [], pathExclusions: [] },
+  GITLAB: { siteUrl: "", email: "", apiToken: "", projectKeys: [], authScheme: "BASIC", pathExclusions: [...defaultPathExclusions] },
+});
 
 /**
  * Create (target null) / edit (target set) — a port of Covenant's `ToadieConnectionEditorModal`
@@ -94,6 +94,9 @@ export default function DataSourceEditorModal({
   const gitlabInfo = kinds.data?.items.find((item) => item.kind === "GITLAB");
   const gitlabEnabled = gitlabInfo?.enabled === true;
   const allowedOrigins = gitlabInfo?.allowedOrigins ?? [];
+  const defaultPathExclusions = gitlabInfo?.defaultPathExclusions ?? [];
+  // What an untouched Excluded paths field holds: the stored list on edit, the kind's defaults on create (the request omits it then).
+  const pathExclusionsBaseline = target?.gitlab?.pathExclusions ?? defaultPathExclusions;
   const form = useForm<DataSourceFormValues>({
     initialValues: target ? fromDataSourceResponse(target) : EMPTY_DATA_SOURCE_FORM,
     validate: dataSourceFormValidation(t, isEdit, backfillContext, allowedOrigins),
@@ -101,7 +104,7 @@ export default function DataSourceEditorModal({
   const kind = form.values.kind;
 
   function selectKind(next: DataSourceKind) {
-    form.setValues({ kind: next, ...KIND_RESETS[next] });
+    form.setValues({ kind: next, ...KIND_RESETS(defaultPathExclusions)[next] });
     form.clearErrors();
     setTestError(null);
     setTestResult(null);
@@ -112,10 +115,10 @@ export default function DataSourceEditorModal({
     setSubmitting(true);
     try {
       if (target) {
-        await updateDataSource(target.id, toDataSourceRequest(values));
+        await updateDataSource(target.id, toDataSourceRequest(values, pathExclusionsBaseline));
         showSuccessToast(t("dataSources.toast.saved"));
       } else {
-        await createDataSource(toDataSourceRequest(values));
+        await createDataSource(toDataSourceRequest(values, pathExclusionsBaseline));
         showSuccessToast(t("dataSources.toast.created"));
       }
       await onSaved();
@@ -158,7 +161,7 @@ export default function DataSourceEditorModal({
         ? await testDataSourceStored(target.id)
         : await testDataSourceAdHoc(
             kind === "GITLAB"
-              ? { gitlab: toGitLabConnectionRequest(form.values) }
+              ? { gitlab: toGitLabConnectionRequest(form.values, pathExclusionsBaseline) }
               : { jira: toJiraConnectionRequest(form.values) },
           );
       setTestResult(result);
@@ -195,7 +198,12 @@ export default function DataSourceEditorModal({
             kindsFailed={kinds.isError}
           />
           {kind === "GITLAB" ? (
-            <GitLabConnectionFields form={form} isEdit={isEdit} allowedOrigins={allowedOrigins} />
+            <GitLabConnectionFields
+              form={form}
+              isEdit={isEdit}
+              allowedOrigins={allowedOrigins}
+              defaultPathExclusions={defaultPathExclusions}
+            />
           ) : (
             <JiraConnectionFields form={form} isEdit={isEdit} />
           )}

@@ -52,6 +52,9 @@ export const MAX_GROUP_PATHS = 10;
 const MAX_GROUP_PATH_LENGTH = 255;
 /** One segment of a GitLab group path (`ingest/GitLabDataSource.kt` `GROUP_SEGMENT_PATTERN`). */
 const GROUP_SEGMENT_PATTERN = /^[a-z0-9_][a-z0-9_.-]*$/;
+/** The excluded-path list bounds (`infra/validation/PathGlob.kt`): at most 100 patterns of 1..255 characters each. */
+export const MAX_PATH_EXCLUSIONS = 100;
+const MAX_PATH_EXCLUSION_LENGTH = 255;
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_BACKFILL_YEARS_BACK = 10;
@@ -102,6 +105,8 @@ export type DataSourceFormValues = {
   token: string;
   /** GitLab: full group paths, lowercased (subgroups are included by the server). */
   groupPaths: string[];
+  /** GitLab: glob patterns of files left out of the line counts; prefilled from the `/kinds` defaults on create. */
+  pathExclusions: string[];
 };
 
 export const EMPTY_DATA_SOURCE_FORM: DataSourceFormValues = {
@@ -119,6 +124,7 @@ export const EMPTY_DATA_SOURCE_FORM: DataSourceFormValues = {
   baseUrl: "",
   token: "",
   groupPaths: [],
+  pathExclusions: [],
 };
 
 /** The form values of a stored data source: the kind's own block fills its fields, the other kind's stay empty. */
@@ -138,6 +144,7 @@ export function fromDataSourceResponse(dataSource: DataSourceResponse): DataSour
     authScheme: jira?.authScheme ?? "BASIC",
     baseUrl: gitlab?.baseUrl ?? "",
     groupPaths: gitlab?.groupPaths ?? [],
+    pathExclusions: gitlab?.pathExclusions ?? [],
   };
 }
 
@@ -219,6 +226,18 @@ function groupPathsRule(t: TFunction) {
   };
 }
 
+/** The GitLab excluded-path rule: at most 100 patterns, each 1..255 characters and not blank or made of slashes alone. */
+function pathExclusionsRule(t: TFunction) {
+  return (value: string[]) => {
+    if (value.length > MAX_PATH_EXCLUSIONS) return t("dataSources.validation.pathExclusionsCount");
+    const bad = value.find((pattern) => {
+      const trimmed = pattern.trim();
+      return trimmed === "" || trimmed.length > MAX_PATH_EXCLUSION_LENGTH || stripSlashes(trimmed) === "";
+    });
+    return bad === undefined ? null : t("dataSources.validation.pathExclusionsInvalid", { pattern: bad });
+  };
+}
+
 /**
  * Validation rules shared by the create/edit modal AND the Test-connection button (mirrors the server's checks). The Jira rules
  * bind only on a `JIRA_CLOUD` form and the GitLab rules (`baseUrl`, `token`, `groupPaths`) only on a `GITLAB` one - Mantine hands
@@ -262,6 +281,7 @@ export function dataSourceFormValidation(
       return v.length <= MAX_API_TOKEN_LENGTH ? null : t("dataSources.validation.tokenTooLong");
     }),
     groupPaths: whenKind("GITLAB", groupPathsRule(t)),
+    pathExclusions: whenKind("GITLAB", pathExclusionsRule(t)),
     syncIntervalMinutes: (value: number) =>
       value >= MIN_SYNC_INTERVAL_MINUTES && value <= MAX_SYNC_INTERVAL_MINUTES
         ? null
@@ -297,18 +317,27 @@ export function toJiraConnectionRequest(values: DataSourceFormValues): JiraConne
   };
 }
 
-/** The `gitlab` block alone - shared by the save mapper and the ad-hoc Test-connection call. A blank token is omitted (kept on edit). */
-export function toGitLabConnectionRequest(values: DataSourceFormValues): GitLabConnectionRequest {
+/**
+ * The `gitlab` block alone - shared by the save mapper and the ad-hoc Test-connection call. A blank token is omitted (kept on edit).
+ * `pathExclusions` is sent only when the user changed it: [baselinePathExclusions] is what an untouched form holds - the `/kinds`
+ * defaults on create (so the source keeps following them), the stored list on edit (a PUT without it keeps the stored value). Any
+ * other list, an empty one included, is sent as given.
+ */
+export function toGitLabConnectionRequest(values: DataSourceFormValues, baselinePathExclusions: string[] = []): GitLabConnectionRequest {
   const token = values.token.trim();
+  const pathExclusions = values.pathExclusions.map((pattern) => pattern.trim());
+  const untouched =
+    pathExclusions.length === baselinePathExclusions.length && pathExclusions.every((pattern, index) => pattern === baselinePathExclusions[index]);
   return {
     baseUrl: trimmedBaseUrl(values.baseUrl),
     token: token === "" ? undefined : token,
     groupPaths: normalizeGroupPaths(values.groupPaths),
+    ...(untouched ? {} : { pathExclusions }),
   };
 }
 
 /** The wire body: a blank `backfillFrom` is omitted so the server computes its own default; exactly one connection block, by kind. */
-export function toDataSourceRequest(values: DataSourceFormValues): DataSourceRequest {
+export function toDataSourceRequest(values: DataSourceFormValues, baselinePathExclusions: string[] = []): DataSourceRequest {
   const backfillFrom = values.backfillFrom.trim();
   return {
     name: values.name.trim(),
@@ -317,7 +346,7 @@ export function toDataSourceRequest(values: DataSourceFormValues): DataSourceReq
     backfillFrom: backfillFrom === "" ? undefined : backfillFrom,
     reconcileHourUtc: values.reconcileHourUtc,
     ...(values.kind === "GITLAB"
-      ? { gitlab: toGitLabConnectionRequest(values) }
+      ? { gitlab: toGitLabConnectionRequest(values, baselinePathExclusions) }
       : { jira: toJiraConnectionRequest(values) }),
   };
 }

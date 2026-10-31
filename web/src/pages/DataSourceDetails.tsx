@@ -129,6 +129,10 @@ function GitLabCountRows({ counts }: { counts: SyncCounts }) {
       <DetailRow label={t("dataSources.details.count.projectsDeleted")}>{gitlab?.projectsDeleted ?? "—"}</DetailRow>
       <DetailRow label={t("dataSources.details.count.users")}>{gitlab?.users ?? "—"}</DetailRow>
       <DetailRow label={t("dataSources.details.count.usersDeleted")}>{gitlab?.usersDeleted ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.commits")}>{gitlab?.commits ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.commitsMerge")}>{gitlab?.commitsMerge ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.commitsDeleted")}>{gitlab?.commitsDeleted ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.commitFilesPending")}>{gitlab?.commitFilesPending ?? "—"}</DetailRow>
     </>
   );
 }
@@ -151,6 +155,9 @@ function ConnectionKindRows({ connection }: { connection: DataSourceResponse }) 
         <>
           <DetailRow label={t("dataSources.field.baseUrl")}>{gitlab.baseUrl}</DetailRow>
           <DetailRow label={t("dataSources.column.scope")}>{gitlab.groupPaths.join(", ")}</DetailRow>
+          <DetailRow label={t("dataSources.field.pathExclusions")}>
+            {gitlab.pathExclusions.length > 0 ? gitlab.pathExclusions.join(", ") : t("dataSources.details.pathExclusionsNone")}
+          </DetailRow>
         </>
       )}
     </>

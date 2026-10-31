@@ -56,6 +56,7 @@ function bound(rules: Rules, values: DataSourceFormValues) {
     baseUrl: (v: string) => rules.baseUrl(v, values),
     token: (v: string) => rules.token(v, values),
     groupPaths: (v: string[]) => rules.groupPaths(v, values),
+    pathExclusions: (v: string[]) => rules.pathExclusions(v, values),
   };
 }
 
@@ -274,6 +275,7 @@ describe("fromDataSourceResponse", () => {
       baseUrl: "",
       token: "",
       groupPaths: [],
+      pathExclusions: [],
       name: "Acme Jira",
       enabled: true,
       syncIntervalMinutes: 60,
@@ -303,6 +305,19 @@ describe("the GitLab kind", () => {
     expect(rules.baseUrl("ftp://nope", VALID)).toBeNull();
     expect(rules.token("", VALID)).toBeNull();
     expect(rules.groupPaths([], VALID)).toBeNull();
+    expect(rules.pathExclusions(Array.from({ length: 101 }, (_, i) => `p${i}`), VALID)).toBeNull();
+    expect(rules.pathExclusions(["x"], GITLAB)).toBeNull();
+  });
+
+  test("pathExclusions: at most 100 patterns, each 1..255 characters, none blank or made of slashes alone", () => {
+    expect(create.pathExclusions([])).toBeNull();
+    expect(create.pathExclusions(["package-lock.json", "*.min.js", "**/vendor/**"])).toBeNull();
+    expect(create.pathExclusions(Array.from({ length: 100 }, (_, i) => `p${i}`))).toBeNull();
+    expect(create.pathExclusions(Array.from({ length: 101 }, (_, i) => `p${i}`))).toBe("Enter at most 100 patterns");
+    expect(create.pathExclusions(["a".repeat(255)])).toBeNull();
+    expect(create.pathExclusions(["a".repeat(256)])).toBe(`Invalid pattern: ${"a".repeat(256)}`);
+    expect(create.pathExclusions(["ok", "///"])).toBe("Invalid pattern: ///");
+    expect(create.pathExclusions(["   "])).toBe("Invalid pattern:    ");
   });
 
   test("baseUrl: an origin only - http(s), a host, an optional port, one trailing slash tolerated", () => {
@@ -380,9 +395,29 @@ describe("the GitLab kind", () => {
     expect(toGitLabConnectionRequest({ ...GITLAB, token: " glpat-x " }).token).toBe("glpat-x");
   });
 
+  test("toGitLabConnectionRequest sends the excluded paths only when they differ from the baseline (trimmed; an empty list too)", () => {
+    const defaults = ["package-lock.json", "*.min.js"];
+    const at = (pathExclusions: string[], baseline: string[]) => toGitLabConnectionRequest({ ...GITLAB, pathExclusions }, baseline);
+    // Untouched (create: the /kinds defaults; edit: the stored list) - no key, so the server keeps/follows its value.
+    expect(at(defaults, defaults)).not.toHaveProperty("pathExclusions");
+    expect(at([" package-lock.json ", "*.min.js"], defaults)).not.toHaveProperty("pathExclusions");
+    expect(at([], [])).not.toHaveProperty("pathExclusions");
+    // Changed: one entry removed, reordered, added, or emptied - the trimmed list is sent.
+    expect(at(["package-lock.json"], defaults).pathExclusions).toEqual(["package-lock.json"]);
+    expect(at(["*.min.js", "package-lock.json"], defaults).pathExclusions).toEqual(["*.min.js", "package-lock.json"]);
+    expect(at([...defaults, " go.sum "], defaults).pathExclusions).toEqual([...defaults, "go.sum"]);
+    expect(at([], defaults)).toHaveProperty("pathExclusions", []);
+    // Without a baseline (no defaults known) any non-empty list is a change.
+    expect(toGitLabConnectionRequest({ ...GITLAB, pathExclusions: ["x"] }).pathExclusions).toEqual(["x"]);
+  });
+
   test("toDataSourceRequest emits exactly one connection block, by kind", () => {
     const gitlab = toDataSourceRequest(GITLAB);
-    expect(gitlab.gitlab).toEqual({ baseUrl: "https://gitlab.acme.com", token: "glpat-token", groupPaths: ["platform", "apps/web"] });
+    expect(gitlab.gitlab).toEqual({
+      baseUrl: "https://gitlab.acme.com",
+      token: "glpat-token",
+      groupPaths: ["platform", "apps/web"],
+    });
     expect(gitlab).not.toHaveProperty("jira");
     expect(gitlab.name).toBe("Acme GitLab");
     const jira = toDataSourceRequest(VALID);
@@ -400,7 +435,7 @@ describe("the GitLab kind", () => {
     reconcileHourUtc: 4,
     configRevision: 1,
     jira: null,
-    gitlab: { baseUrl: "https://gitlab.acme.com", hasToken: true, groupPaths: ["platform", "apps/web"], pathExclusions: [] },
+    gitlab: { baseUrl: "https://gitlab.acme.com", hasToken: true, groupPaths: ["platform", "apps/web"], pathExclusions: ["go.sum", "**/dist/**"] },
     status: {
       state: "NEVER_SYNCED",
       consecutiveFailures: 0,
@@ -427,6 +462,7 @@ describe("the GitLab kind", () => {
       baseUrl: "https://gitlab.acme.com",
       token: "",
       groupPaths: ["platform", "apps/web"],
+      pathExclusions: ["go.sum", "**/dist/**"],
     });
   });
 

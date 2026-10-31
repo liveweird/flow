@@ -39,11 +39,12 @@ the two never run at the same time, whatever the dispatch order.
 9. Back on the Data sources list, they delete the connection from its row menu.
    - *Expected*: the row is gone.
 
-## Scenario: admin connects the GitLab stub, syncs it, and reads back its projects and users
+## Scenario: admin connects the GitLab stub, syncs it, and reads back its projects, users and commits
 
 1. The admin signs in, opens **New data source**, fills a unique name and picks **GitLab** in the **Kind** control.
-   - *Expected*: the form swaps to the GitLab fields (Base URL, Access token, Group paths); the option is
-     enabled because the compose stack sets `GITLAB_STUB_BASE_URL`.
+   - *Expected*: the form swaps to the GitLab fields (Base URL, Access token, Group paths, **Excluded paths**); the
+     option is enabled because the compose stack sets `GITLAB_STUB_BASE_URL`. **Excluded paths** is prefilled with the
+     server's built-in defaults from the kinds read (the pill `package-lock.json` is present).
 2. They enter the base URL `http://gitlab-stub:8080` (the stub's own origin is the only one the server accepts
    while `GITLAB_ALLOWED_HOSTS` is blank), an access token (any non-empty value works against the stub) and the
    group paths `platform` and `apps`.
@@ -52,13 +53,16 @@ the two never run at the same time, whatever the dispatch order.
 4. They click **Create**.
    - *Expected*: the modal closes; the new connection appears in the filtered list.
 5. They open the new data source's details page.
-   - *Expected*: the connection table names the kind **GitLab** and the groups `platform, apps`; there is no **Data
+   - *Expected*: the connection table names the kind **GitLab**, the groups `platform, apps` and the **Excluded paths**
+     (the defaults, including `package-lock.json`); there is no **Data
      profile**, **Raw issue inspector** or **Metrics configuration** link and no **Reprocess** button (they are Jira-only;
      the server answers `409` for them on a GitLab source).
 6. They click **Sync now**.
    - *Expected*: eventually (a reload each attempt) a **Sync** job row reads **Succeeded** and the raw-store counts show
      **Projects: 4** and **Users: 8** - the stub's in-scope projects (`sample-data/gitlab/expected.json`
-     `projects.inScopeIds`) and its users (`users.list`).
+     `projects.inScopeIds`) and its users (`users.list`) - plus **Commits: 300**, **Merge commits: 19** and
+     **Commits awaiting file details: 0** (`commits.inScopeTotals`; one sync drains the stub's 281 non-merge diffs
+     under the default per-run budget).
 7. Back on the Data sources list, they delete the connection from its row menu.
    - *Expected*: the row is gone.
 
@@ -87,7 +91,8 @@ the two never run at the same time, whatever the dispatch order.
 
 - **GitLab day-2 deltas and the token-scope refusal** (a project moved out of the groups, `TOKEN_SCOPE_TOO_BROAD`,
   `TOKEN_INACTIVE`, `NOT_ADMIN`) - pinned by the server's `GitLabConnectorTest` and the editor's component tests; the journey drives
-  the day-zero happy path only. Commits and merge requests are not read yet (a later version).
+  the day-zero happy path only. The force-push re-list, the stored-head range walk and the per-file line counts are
+  pinned by the server's `GitLabCommitsStreamTest`/`GitLabCommitsWalkTest`; merge requests are not read yet (a later version).
 - **Validation and conflicts** (a malformed site URL, a duplicate name, a fixed site URL on
   update, `FORBIDDEN_SCOPE`/`AUTHENTICATION_FAILED` test-connection rows) — pinned by the
   server's `DataSourceRoutesTest`/`DataSourceTestConnectionTest` and the SPA's

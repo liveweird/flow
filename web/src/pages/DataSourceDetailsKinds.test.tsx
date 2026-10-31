@@ -40,7 +40,7 @@ const GITLAB_CONNECTION = {
   kind: "GITLAB",
   name: "Platform GitLab",
   jira: null,
-  gitlab: { baseUrl: "http://gitlab-stub:8080", hasToken: true, groupPaths: ["platform", "apps"] },
+  gitlab: { baseUrl: "http://gitlab-stub:8080", hasToken: true, groupPaths: ["platform", "apps"], pathExclusions: ["package-lock.json", "*.min.js"] },
 };
 
 const JIRA_COUNTS = {
@@ -56,7 +56,7 @@ const JIRA_COUNTS = {
 const GITLAB_COUNTS = {
   ...JIRA_COUNTS,
   rawIssues: 0,
-  gitlab: { projects: 4, projectsMovedOut: 1, projectsDeleted: 2, users: 8, usersDeleted: 3 },
+  gitlab: { projects: 4, projectsMovedOut: 1, projectsDeleted: 2, users: 8, usersDeleted: 3, commits: 300, commitsMerge: 19, commitsDeleted: 5, commitFilesPending: 7 },
 };
 
 function serve(mockFetch: ReturnType<typeof vi.fn>, connection: unknown, counts: unknown) {
@@ -121,6 +121,7 @@ describe("DataSourceDetails page: the connection kinds", () => {
     expect(within(connection).getByText("GitLab")).toBeInTheDocument();
     expect(within(connection).getByText("http://gitlab-stub:8080")).toBeInTheDocument();
     expect(within(connection).getByText("platform, apps")).toBeInTheDocument();
+    expect(within(connection).getByText("Excluded paths").closest("tr")).toHaveTextContent("package-lock.json, *.min.js");
     expect(within(connection).queryByText("Service-account email")).not.toBeInTheDocument();
 
     const counts = screen.getByRole("table", { name: "Raw store counts" });
@@ -130,6 +131,10 @@ describe("DataSourceDetails page: the connection kinds", () => {
     expect(row("Projects deleted")).toHaveTextContent("2");
     expect(row("Users")).toHaveTextContent("8");
     expect(row("Users deleted")).toHaveTextContent("3");
+    expect(row("Commits")).toHaveTextContent("300");
+    expect(row("Merge commits")).toHaveTextContent("19");
+    expect(row("Commits deleted")).toHaveTextContent("5");
+    expect(row("Commits awaiting file details")).toHaveTextContent("7");
     expect(within(counts).queryByText("Raw issues")).not.toBeInTheDocument();
 
     expect(screen.getByRole("button", { name: "Sync now" })).toBeInTheDocument();
@@ -148,5 +153,15 @@ describe("DataSourceDetails page: the connection kinds", () => {
     const counts = await screen.findByRole("table", { name: "Raw store counts" });
     expect(within(counts).getByText("Projects").closest("tr")).toHaveTextContent("—");
     expect(within(counts).getByText("Users").closest("tr")).toHaveTextContent("—");
+    expect(within(counts).getByText("Commits").closest("tr")).toHaveTextContent("—");
+    expect(within(counts).getByText("Commits awaiting file details").closest("tr")).toHaveTextContent("—");
+  });
+
+  test("a GitLab source with an empty exclusion list says so", async () => {
+    serve(mockFetch, { ...GITLAB_CONNECTION, gitlab: { ...GITLAB_CONNECTION.gitlab, pathExclusions: [] } }, GITLAB_COUNTS);
+    renderPage();
+
+    const connection = await screen.findByRole("table", { name: "Connection" });
+    expect(within(connection).getByText("Excluded paths").closest("tr")).toHaveTextContent("None");
   });
 });
