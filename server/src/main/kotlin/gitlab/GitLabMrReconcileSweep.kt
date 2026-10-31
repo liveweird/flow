@@ -20,8 +20,10 @@ private const val MAX_LOGGED_IDS = 20
  * rest) instead of starving the tail.
  *
  * At most [MAX_MR_CONFIRMATIONS] are confirmed per run, grouped by project. Per project, in order:
- *  1. `GET /projects/:id` must answer 200 FIRST. A 404 means every candidate of the project is UNCONFIRMED; any other failure of this
- *     probe propagates (the saved `listingDone` cursor resumes at the sweep);
+ *  1. `GET /projects/:id` must answer 200 FIRST. A 404, or a failure one project can cause on its own ([PROJECT_SCOPED_FAILURE_CODES]),
+ *     means every candidate of the project is UNCONFIRMED and the pass goes on ([RECONCILE_CONSECUTIVE_FAILURES] of those in a row
+ *     rethrow, like the outage they read as); any other failure of this probe propagates (the saved `listingDone` cursor resumes at the
+ *     sweep);
  *  2. per candidate `GET .../merge_requests/:iid`: **200** = KEPT (the body is stored through `upsertMergeRequests`: unchanged rows are
  *     touched, a changed one is refreshed and its details go stale; a body that is not the candidate - another id or project - proves
  *     nothing and counts as UNCONFIRMED); **404** = GONE (tentative); any other failure = UNCONFIRMED;
@@ -34,7 +36,9 @@ private const val MAX_LOGGED_IDS = 20
  * answers 200 for; a group that was `NOT_FOUND` or skipped is not in `completedGroups`; an invisible project (403 reads as 404) fails the
  * pre-probe, one lost mid-batch fails the post-probe; a project that moved out of the group minutes ago answers 200 by id (bounded by
  * the cap; the next SYNC marks it moved out and the next RECONCILE excludes it); a project with merge requests switched off answers 200
- * while its merge requests 404 - they ARE tombstoned (the API has none any more; rows and events stay).
+ * while its merge requests 404 - they ARE tombstoned (the API has none any more; rows and events stay); the same goes for an internal or
+ * public project whose merge requests are limited to its members when the token's user loses membership: the group listing drops them,
+ * each GET answers 404 and they are tombstoned - recoverable, a listing that shows them again resurrects them.
  *
  * Progress: `mrReconcileCandidates` (the batch), `mrReconcileKept`, `mrReconcileUnconfirmed`, `mergeRequestsDeleted`,
  * `mrReconcileDeferred` (more candidates than the cap). Heartbeats: false per probe, and true after a project's write only when it
@@ -72,8 +76,9 @@ internal class GitLabMrReconcileSweep(
         if (candidates.size > MAX_MR_CONFIRMATIONS) context.incrementProgress("mrReconcileDeferred")
         val tombstoned = mutableListOf<Long>()
         var unconfirmed = 0
+        val streak = ProjectFailureStreak()
         for ((projectId, group) in batch.groupBy { it.projectId }) {
-            val outcome = confirm(context, projectId, group)
+            val outcome = confirm(context, projectId, group, streak)
             tombstoned += outcome.gone
             unconfirmed += outcome.unconfirmed.size
             store(context, outcome)
@@ -85,9 +90,14 @@ internal class GitLabMrReconcileSweep(
     }
 
     /** The verdicts for one project's candidates; the calls run outside any transaction. */
-    private suspend fun confirm(context: StreamContext, projectId: Long, group: List<StaleMergeRequest>): Outcome {
+    private suspend fun confirm(
+        context: StreamContext,
+        projectId: Long,
+        group: List<StaleMergeRequest>,
+        streak: ProjectFailureStreak,
+    ): Outcome {
         val outcome = Outcome()
-        val trusted = projectAnswers(projectId)
+        val trusted = projectAnswers(projectId, streak)
         context.heartbeat(changed = false)
         for (candidate in group) {
             if (!trusted) {
@@ -107,19 +117,27 @@ internal class GitLabMrReconcileSweep(
             context.heartbeat(changed = false)
         }
         // The project may have been lost part-way through the batch: believe the 404s only if it still answers now.
-        if (outcome.gone.isNotEmpty() && !projectAnswers(projectId)) {
+        if (outcome.gone.isNotEmpty() && !projectAnswers(projectId, streak)) {
             outcome.unconfirmed += outcome.gone
             outcome.gone.clear()
         }
         return outcome
     }
 
-    /** Whether `GET /projects/:id` answers 200 (404 = false); any other failure propagates. */
-    private suspend fun projectAnswers(projectId: Long): Boolean = try {
+    /**
+     * Whether `GET /projects/:id` answers 200. A 404 or a project-scoped failure is "no" (the latter counted in [streak]); any other
+     * failure propagates.
+     */
+    private suspend fun projectAnswers(projectId: Long, streak: ProjectFailureStreak): Boolean = try {
         client.project(projectId)
+        streak.succeeded()
         true
     } catch (failure: FetchException) {
-        if (failure.code == NOT_FOUND) false else throw failure
+        when {
+            failure.code == NOT_FOUND -> false.also { streak.succeeded() }
+            failure.isProjectScoped() -> false.also { streak.failed(failure) }
+            else -> throw failure
+        }
     }
 
     /** Any failure other than a 404 is [Probe.Failed]: the candidate stays live and is touched (the safe error). */

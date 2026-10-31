@@ -200,8 +200,9 @@ class GitLabRawStore(database: R2dbcDatabase) {
     /** Sets `archived = true` on a project RECONCILE found archived; touches no marker and no payload (see [GitLabRawWrites]). */
     suspend fun markProjectArchived(connectionId: UInt, projectId: Long): Boolean = writes.markProjectArchived(connectionId, projectId)
 
-    /** The ids of up to [limit] moved-out, not deleted projects, oldest move first: the RECONCILE project probes. */
-    suspend fun movedOutProjects(connectionId: UInt, limit: Int): List<Long> = reads.movedOutProjects(connectionId, limit)
+    /** The ids of up to [limit] moved-out, not deleted projects above [afterProjectId], by id: the RECONCILE project probes. */
+    suspend fun movedOutProjects(connectionId: UInt, limit: Int, afterProjectId: Long = 0): List<Long> =
+        reads.movedOutProjects(connectionId, limit, afterProjectId)
 
     suspend fun counts(connectionId: UInt): GitLabSyncCounts = reads.counts(connectionId, mrReads.mrCounts(connectionId))
 
@@ -229,10 +230,11 @@ class GitLabRawStore(database: R2dbcDatabase) {
 
     /**
      * Ends a re-list's sweep: records [headSha] when there is one (an empty listing keeps the stored head), writes `relist_requested =
-     * [moreToDo]` and clears the epoch once it is false.
+     * [moreToDo]` and clears the epoch once it is false. A RECONCILE re-list passes its cursor's [epoch]: it is recorded on the row (when
+     * none is set) only if [moreToDo], so SYNC's `continueRelist` finishes the sweep under the epoch that defines the candidates.
      */
-    suspend fun finishRelist(connectionId: UInt, projectId: Long, headSha: String?, moreToDo: Boolean) =
-        commitWrites.finishRelist(connectionId, projectId, headSha, moreToDo)
+    suspend fun finishRelist(connectionId: UInt, projectId: Long, headSha: String?, moreToDo: Boolean, epoch: Long? = null) =
+        commitWrites.finishRelist(connectionId, projectId, headSha, moreToDo, epoch)
 
     /** Marks the live [shas] seen now: the re-list sweep confirmed they are still on the branch. */
     suspend fun touchCommits(connectionId: UInt, projectId: Long, shas: List<String>, now: Long) =

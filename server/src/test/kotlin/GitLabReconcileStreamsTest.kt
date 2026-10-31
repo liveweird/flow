@@ -156,9 +156,9 @@ class GitLabReconcileStreamsTest {
         // The moved project still serves its commits by id at day two: re-listed, everything kept.
         assertEquals(commitsBefore.commitsOf(movedProject).size, rows.commitsOf(movedProject).size)
         assertTrue(rows.commitsOf(movedProject).all { it[Commits.deletedAt] == null })
-        // The renamed default branch: the stored `master` no longer exists, so the project is skipped with its request left set.
+        // The renamed default branch: the stored `master` no longer exists, so the project is skipped and its row is left as it was.
         assertEquals(1L, progress["commitsProjectsSkipped"])
-        assertTrue(projects.getValue(4).relistRequested)
+        assertFalse(projects.getValue(4).relistRequested, "a skipped reconcile walk raises no re-list request")
         assertTrue((progress["commitsRelisted"] ?: 0) >= 3)
 
         assertEquals(emptyList(), leftoverCursors(connId))

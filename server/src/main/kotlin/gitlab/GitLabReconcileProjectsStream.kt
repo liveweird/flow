@@ -22,7 +22,13 @@ private const val MAX_LOGGED_IDS = 20
  *
  * The 200 body is NEVER fed to `upsertProjects`: the body of an archived or moved project differs from its listing, the hash would
  * change and `changeProject` would resurrect the row as live (it clears both markers). Any other failure propagates (rate limit,
- * authentication), and a lease loss costs nothing: every probe commits its own write and repeats are guarded, so there is no cursor.
+ * authentication) - except a failure one project can cause on its own ([PROJECT_SCOPED_FAILURE_CODES]: it counts as `projectProbesFailed`,
+ * the project is left as it was and the pass goes on; [RECONCILE_CONSECUTIVE_FAILURES] in a row rethrow, like the outage they read as).
+ * A lease loss costs nothing: every probe commits its own write and repeats are guarded.
+ *
+ * Rotation: the probes go by project id from a keyset in the `reconcile_projects` cursor row (`lastProbedId`), at most
+ * [MAX_PROJECT_PROBES] a run, wrapping to the start when fewer remain, so more moved-out projects than one run's cap are all probed within
+ * a few runs. The row exists only while the set is larger than one run's cap; a smaller set is probed whole every run and keeps no cursor.
  * One WARN per run names the deleted ids (at most [MAX_LOGGED_IDS]).
  */
 internal class GitLabReconcileProjectsStream(
@@ -33,15 +39,44 @@ internal class GitLabReconcileProjectsStream(
 
     override suspend fun run(context: StreamContext) {
         val deleted = mutableListOf<Long>()
-        for (projectId in rawStore.movedOutProjects(context.connectionId, MAX_PROJECT_PROBES)) {
+        val streak = ProjectFailureStreak()
+        val batch = nextBatch(context)
+        for (projectId in batch) {
             val changed = when (val verdict = probe(projectId)) {
-                Verdict.Gone -> markDeleted(context, projectId).also { if (it) deleted += projectId }
-                is Verdict.Exists -> if (verdict.archived) markArchived(context, projectId) else probed(context)
+                Verdict.Gone -> markDeleted(context, projectId).also { if (it) deleted += projectId }.also { streak.succeeded() }
+                is Verdict.Exists -> {
+                    streak.succeeded()
+                    if (verdict.archived) markArchived(context, projectId) else probed(context)
+                }
+                is Verdict.Failed -> {
+                    streak.failed(verdict.failure)
+                    context.incrementProgress("projectProbesFailed")
+                    false
+                }
             }
             context.heartbeat(changed)
         }
+        saveRotation(context, batch)
         if (deleted.isNotEmpty()) {
             log.warn("GitLab projects marked deleted by a reconcile (404): {} (ids {})", deleted.size, deleted.take(MAX_LOGGED_IDS))
+        }
+    }
+
+    /** The next [MAX_PROJECT_PROBES] moved-out projects after the saved keyset, wrapping to the start for whatever room is left. */
+    private suspend fun nextBatch(context: StreamContext): List<Long> {
+        val after = context.cursor(name)?.cursor?.let { decodeCursor<ProjectProbeCursor>(it).lastProbedId } ?: 0L
+        val ahead = rawStore.movedOutProjects(context.connectionId, MAX_PROJECT_PROBES, after)
+        if (ahead.size >= MAX_PROJECT_PROBES || after == 0L) return ahead
+        val wrapped = rawStore.movedOutProjects(context.connectionId, MAX_PROJECT_PROBES - ahead.size, 0L)
+        return ahead + wrapped.filter { it !in ahead }
+    }
+
+    /** Keeps the keyset only while the set outgrows one run's cap; a smaller set is probed whole and needs none. */
+    private suspend fun saveRotation(context: StreamContext, batch: List<Long>) {
+        if (batch.size < MAX_PROJECT_PROBES) {
+            context.transaction { context.clearCursor(name) }
+        } else {
+            context.transaction { context.putCursor(name, encodeCursor(ProjectProbeCursor(batch.last()))) }
         }
     }
 
@@ -62,11 +97,18 @@ internal class GitLabReconcileProjectsStream(
         data object Gone : Verdict
 
         class Exists(val archived: Boolean) : Verdict
+
+        /** A project-scoped failure: the project is left as it was. */
+        class Failed(val failure: FetchException) : Verdict
     }
 
     private suspend fun probe(projectId: Long): Verdict = try {
         Verdict.Exists(client.project(projectId).archived)
     } catch (failure: FetchException) {
-        if (failure.code == "NOT_FOUND") Verdict.Gone else throw failure
+        when {
+            failure.code == "NOT_FOUND" -> Verdict.Gone
+            failure.isProjectScoped() -> Verdict.Failed(failure)
+            else -> throw failure
+        }
     }
 }

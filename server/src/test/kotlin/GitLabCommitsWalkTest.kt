@@ -639,7 +639,7 @@ class GitLabCommitsWalkTest {
     }
 
     @Test
-    fun `reconcile leaves a headless project to SYNC, skips a gone branch and resumes a failed listing under the same epoch`() =
+    fun `reconcile leaves a headless project to SYNC, skips a gone branch untouched and resumes a failed listing from its cursor`() =
         runBlocking<Unit> {
         val headless = connection()
         val untouched = FakeClient()
@@ -654,13 +654,18 @@ class GitLabCommitsWalkTest {
         store.recordCommitsHead(gone, PROJECT, sha(1))
         val skipped = runReconcile(FakeClient().apply { listingOf = { _, _, _, _ -> throw fetchFailure("NOT_FOUND") } }, gone)
         assertEquals(1L, skipped["commitsProjectsSkipped"])
-        assertTrue(project(gone).relistRequested, "the request is left set for the next SYNC to continue")
+        assertFalse(project(gone).relistRequested, "a skipped reconcile walk raises no re-list request")
+        assertNull(store.projectRows(gone).single()[GitLabRawStore.Projects.relistStartedAt], "and records no epoch")
+        val afterSkip = FakeClient().apply { listingOf = { _, _, _, _ -> commitPage(1 downTo 1) } }
+        run(afterSkip, gone)
+        assertEquals(1, afterSkip.listCalls, "the next SYNC is a plain CHECK: tip == head")
+        assertEquals(0, afterSkip.mergeBaseCalls)
 
         val connId = connection()
         store.upsertCommits(connId, PROJECT, listOf(raw(1)), now = 100)
         store.recordCommitsHead(connId, PROJECT, sha(1))
         val client = FakeClient().apply {
-            listingOf = { _, _, _, page -> if (page == 1) commitPage(5 downTo 4, next = 2) else throw fetchFailure("UPSTREAM_UNAVAILABLE") }
+            listingOf = { _, _, _, page -> if (page == 1) commitPage(5 downTo 4, next = 2) else throw fetchFailure("RATE_LIMITED") }
             mergeBaseOf = { _, a, _ -> a }
         }
         assertFailsWith<FetchException> { runReconcile(client, connId) }
@@ -669,14 +674,74 @@ class GitLabCommitsWalkTest {
         assertTrue(saved.walk?.reconcile == true)
         assertNull(saved.walk?.since)
         assertNull(cursors.get(connId, "commits"))
-        val epoch = store.projectRows(connId).single()[GitLabRawStore.Projects.relistStartedAt]
-        assertEquals(saved.walk?.epochMillis, epoch)
+        assertNotNull(saved.walk?.epochMillis, "the epoch lives in the cursor")
+        assertNull(store.projectRows(connId).single()[GitLabRawStore.Projects.relistStartedAt], "not on the project row")
+        assertFalse(project(connId).relistRequested, "a cut reconcile leaves the flag as it was")
 
         client.listed.clear()
         client.listingOf = { _, _, _, _ -> commitPage(3 downTo 1) }
         runReconcile(client, connId)
         assertEquals(listOf(2), client.listed.map { it.third }, "resumed at page 2, no new epoch")
         assertNull(cursors.get(connId, "reconcile_commits"))
+    }
+
+    @Test
+    fun `a deferring reconcile sweep raises the request and records its epoch, and the next SYNC finishes under it`() = runBlocking<Unit> {
+        val connId = connection()
+        val hidden = MAX_SWEEP_CONFIRMATIONS + 50
+        store.upsertCommits(connId, PROJECT, (1..hidden).map { raw(it) }, now = 100)
+        store.recordCommitsHead(connId, PROJECT, sha(hidden))
+        val client = FakeClient().apply {
+            listingOf = { _, _, _, _ -> commitPage((hidden + 1)..(hidden + 1)) }
+            mergeBaseOf = { _, a, _ -> a }
+        }
+        val first = runReconcile(client, connId)
+        assertEquals(MAX_SWEEP_CONFIRMATIONS.toLong(), first["commitsSweepKept"])
+        assertTrue(project(connId).relistRequested, "more candidates than the cap: SYNC's continueRelist finishes")
+        assertNotNull(store.projectRows(connId).single()[GitLabRawStore.Projects.relistStartedAt], "under the reconcile's epoch")
+
+        client.mergeBaseCalls = 0
+        val second = run(client, connId)
+        assertEquals(50L, second["commitsSweepKept"], "the kept candidates did not come back: the epoch is the reconcile's")
+        assertFalse(project(connId).relistRequested)
+        assertNull(store.projectRows(connId).single()[GitLabRawStore.Projects.relistStartedAt])
+    }
+
+    private suspend fun connectionWith(projects: Int): UInt {
+        val connId = connection()
+        val extra = (2..projects).map {
+            val payload = Json.parseToJsonElement("""{"id":$it,"path":"p$it","path_with_namespace":"platform/p$it","name":"p$it"}""")
+            RawGitLabProject(it.toLong(), "platform/p$it", "platform", 7, BRANCH, false, payload)
+        }
+        store.upsertProjects(connId, extra, now = 1)
+        for (id in 1..projects) {
+            store.upsertCommits(connId, id.toLong(), listOf(raw(1)), now = 100)
+            store.recordCommitsHead(connId, id.toLong(), sha(1))
+        }
+        return connId
+    }
+
+    @Test
+    fun `a project the token cannot see is skipped by reconcile and the pass goes on, three in a row fail the run`() = runBlocking<Unit> {
+        val connId = connectionWith(3)
+        val client = FakeClient().apply {
+            listingOf = { project, _, _, _ -> if (project == 2L) throw fetchFailure("FORBIDDEN_SCOPE") else commitPage(1 downTo 1) }
+        }
+        val progress = runReconcile(client, connId)
+        assertEquals(1L, progress["commitsProjectsSkipped"])
+        assertEquals(3, client.listed.size, "projects 1 and 3 were walked, the one between them failed")
+        assertNull(cursors.get(connId, "reconcile_commits"), "the pass ended: the skipped project's walk is not kept")
+        assertTrue(store.liveProjectsForCommits(connId).none { it.relistRequested })
+
+        val outage = connectionWith(3)
+        val failing = FakeClient().apply { listingOf = { _, _, _, _ -> throw fetchFailure("UPSTREAM_UNAVAILABLE") } }
+        assertEquals("UPSTREAM_UNAVAILABLE", assertFailsWith<FetchException> { runReconcile(failing, outage) }.code)
+        assertEquals(3, failing.listCalls, "two skips, the third failure in a row is rethrown")
+
+        val limited = connectionWith(3)
+        val rateLimited = FakeClient().apply { listingOf = { _, _, _, _ -> throw fetchFailure("RATE_LIMITED") } }
+        assertEquals("RATE_LIMITED", assertFailsWith<FetchException> { runReconcile(rateLimited, limited) }.code)
+        assertEquals(1, rateLimited.listCalls, "a connection-wide failure propagates at once")
     }
 
     // --- COMMIT FILES --------------------------------------------------------------------------------------------------------

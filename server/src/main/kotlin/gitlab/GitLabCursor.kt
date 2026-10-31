@@ -121,3 +121,7 @@ internal data class MergeRequestsPass(
     val seenMax: Long? = null,
     val projectIds: List<Long> = emptyList(),
 )
+
+/** `reconcile_projects`' rotation: the last project id the previous run probed (see [GitLabReconcileProjectsStream]). */
+@Serializable
+internal data class ProjectProbeCursor(val lastProbedId: Long)

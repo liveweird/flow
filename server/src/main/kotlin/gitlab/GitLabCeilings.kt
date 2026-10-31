@@ -31,7 +31,8 @@ internal const val COMMIT_FILES_FLUSH_COMMITS = 25
 internal const val COMMIT_FILES_FLUSH_ROWS = 5_000
 
 /**
- * The most re-list sweep candidates one project confirms per run (one `merge_base` call each, `gitlab-integration.md` "Streams"). More
+ * The most re-list sweep candidates one PROJECT confirms per run (one `merge_base` call each, `gitlab-integration.md` "Streams"; the cap is
+ * per project, so a RECONCILE run's real bound is projects x about 103 `merge_base` calls - the cap, the probe and its repeat). More
  * than this and the rest waits for the next run: the project keeps its re-list request AND its epoch (`relist_started_at`). A candidate
  * is "not seen since the epoch", and every candidate a run handles - kept or unconfirmed (touched, so seen) or tombstoned - leaves that
  * set for good, so each further run sees strictly fewer candidates and repeated runs converge.
@@ -67,10 +68,18 @@ internal const val MAX_MR_CONFIRMATIONS = 200
 internal const val RECONCILE_STATS_CALLS = 100
 
 /**
- * The most `details_error` stamps RECONCILE un-stamps per run. Ten is the MR DETAILS skip budget's floor (`max(10, 10 %)`), so ten that
- * fail again can never fail the SYNC that re-reads them - an unbounded un-stamp of permanently failing merge requests would.
+ * The most `details_error` stamps RECONCILE un-stamps per run. The MR DETAILS skip budget fails a SYNC once more than `max(10, 10 %)` of a
+ * run's terminal reads fail, and it counts the retried merge requests together with the fresh failures of the same run: five is half the
+ * floor, so five that fail again plus up to five new ones can never trip it. An unbounded un-stamp of permanently failing merge requests
+ * would.
  */
-internal const val RECONCILE_DETAILS_RETRIES = 10
+internal const val RECONCILE_DETAILS_RETRIES = 5
+
+/**
+ * How many project-scoped failures in a row ([PROJECT_SCOPED_FAILURE_CODES]) one RECONCILE stream skips before it rethrows the last one:
+ * one broken project is skipped, three in a row read as an outage and fail the run (it backs off like any outage).
+ */
+internal const val RECONCILE_CONSECUTIVE_FAILURES = 3
 
 /** The pending-commit batch the COMMIT FILES stream claims from the backlog at a time. */
 internal const val COMMIT_FILES_BATCH = 50

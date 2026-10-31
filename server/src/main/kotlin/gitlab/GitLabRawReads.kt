@@ -47,11 +47,17 @@ internal class GitLabRawReads(private val database: R2dbcDatabase) {
         )
     }
 
-    /** The moved-out, not deleted projects (oldest move first, then id): RECONCILE asks GitLab whether each still exists. */
-    suspend fun movedOutProjects(connectionId: UInt, limit: Int): List<Long> = suspendTransaction(database) {
+    /**
+     * The moved-out, not deleted projects with an id above [afterProjectId], by id: RECONCILE asks GitLab whether each still exists, and
+     * the id is the keyset it rotates over when more than one run's cap are moved out.
+     */
+    suspend fun movedOutProjects(connectionId: UInt, limit: Int, afterProjectId: Long): List<Long> = suspendTransaction(database) {
         Projects.select(Projects.projectId)
-            .where { (Projects.connectionId eq connectionId) and Projects.movedOutAt.isNotNull() and Projects.deletedAt.isNull() }
-            .orderBy(Projects.movedOutAt to SortOrder.ASC, Projects.projectId to SortOrder.ASC)
+            .where {
+                (Projects.connectionId eq connectionId) and Projects.movedOutAt.isNotNull() and Projects.deletedAt.isNull() and
+                    (Projects.projectId greater afterProjectId)
+            }
+            .orderBy(Projects.projectId to SortOrder.ASC)
             .limit(limit)
             .toList()
             .map { it[Projects.projectId] }

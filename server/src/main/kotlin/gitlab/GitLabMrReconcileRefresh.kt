@@ -10,8 +10,10 @@ private val log = LoggerFactory.getLogger(GitLabMrReconcileRefresh::class.java)
  * What RECONCILE re-asks after the merge-request re-list (`gitlab-integration.md` "MR DETAILS", "RECONCILE may re-ask"): the stats
  * SYNC left as gaps, and the details reads that failed. RECONCILE never runs MR DETAILS itself.
  *
- * **Stats** (L6): the settled live merge requests of live projects with no diff stats ([GitLabMrReads.gappedMergeRequests]), grouped by
- * project, [MR_DETAILS_BATCH] iids per GraphQL call, at most [RECONCILE_STATS_CALLS] calls a run. The iids GitLab answers are written
+ * **Stats** (L6): the settled live merge requests of live projects with no diff stats ([GitLabMrReads.gappedMergeRequests], newest first,
+ * at most [RECONCILE_STATS_CALLS] x [MR_DETAILS_BATCH] = 5,000 rows), grouped by project, [MR_DETAILS_BATCH] iids per GraphQL call, so
+ * `ceil(gaps / 50)` calls per project and at most [RECONCILE_STATS_CALLS] a run. More than 5,000 permanent gaps would starve the older
+ * fillable ones: nothing records when a gap was last asked, so the read cannot rotate. The iids GitLab answers are written
  * (stats and PROCESS flag, the details stamp untouched: `mrStatsRefilled` counts rows filled); one it still answers null for stays a
  * gap, asked again tomorrow - at most one call per project with gaps per day. A transient OUTAGE code ([GRAPHQL_OUTAGE_CODES]) ends the
  * pass after that one call (`mrGraphqlBreaker`, the details stream's breaker); a GAP code ([GRAPHQL_GAP_CODES]) or a null project moves

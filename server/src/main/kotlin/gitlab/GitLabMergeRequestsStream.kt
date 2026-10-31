@@ -93,7 +93,9 @@ internal class GitLabMergeRequestsStream(
         val run = Run(
             context, stored.watermarks.filterKeys { it in configured }.toMutableMap(), row?.lastCompletedAt,
             rawStore.configuredGroupIds(context.connectionId), rawStore.storedProjectIds(context.connectionId),
-            rawStore.liveProjectIdsByGroup(context.connectionId), stored.projectSets.filterKeys { it in configured }.toMutableMap(),
+            // RECONCILE keeps no project sets and lists every group from the floor: the group lookup would be unused.
+            if (reconcile) emptyMap() else rawStore.liveProjectIdsByGroup(context.connectionId),
+            stored.projectSets.filterKeys { it in configured }.toMutableMap(),
         )
         // A pass saved for another list of groups (an edit while it was interrupted) names other groups by index: restart at group 0.
         val savedPass = stored.pass?.takeIf { it.groups == configured && it.groupIndex in configured.indices }

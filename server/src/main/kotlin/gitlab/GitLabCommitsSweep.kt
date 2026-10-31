@@ -66,7 +66,7 @@ internal class CommitsSweep(private val client: GitLabClient, private val rawSto
             val now = context.clock()
             rawStore.touchCommits(connectionId, projectId, kept + unconfirmed, now)
             val count = rawStore.tombstoneCommits(connectionId, projectId, gone, now)
-            rawStore.finishRelist(connectionId, projectId, tip, moreToDo)
+            rawStore.finishRelist(connectionId, projectId, tip, moreToDo, epoch.takeIf { cursor.reconcile })
             context.incrementProgress("commitsRelisted")
             if (count > 0) context.incrementProgress("commitsTombstoned", count.toLong())
             if (kept.isNotEmpty()) context.incrementProgress("commitsSweepKept", kept.size.toLong())

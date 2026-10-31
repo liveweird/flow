@@ -15,6 +15,7 @@ import ch.nokillswit.gitlab.GitLabRawStore
 import ch.nokillswit.gitlab.GitLabRawStore.MergeRequests
 import ch.nokillswit.gitlab.GitLabReconcileProjectsStream
 import ch.nokillswit.gitlab.MAX_MR_CONFIRMATIONS
+import ch.nokillswit.gitlab.MAX_PROJECT_PROBES
 import ch.nokillswit.gitlab.MR_DETAILS_BATCH
 import ch.nokillswit.gitlab.MergeRequestsCursor
 import ch.nokillswit.gitlab.MergeRequestsPass
@@ -174,8 +175,61 @@ class GitLabReconcileTest {
         assertNull(second["projectsDeleted"], "a repeat writes nothing")
         assertNull(second["projectsArchived"])
         assertEquals(1L, second["projectsProbed"])
-        val failing = FakeClient().apply { projectOf = { throw failure("UPSTREAM_UNAVAILABLE") } }
+        val failing = FakeClient().apply { projectOf = { throw failure("RATE_LIMITED") } }
         assertFailsWith<FetchException> { GitLabFixtures.runStream(GitLabReconcileProjectsStream(failing, store), connId) }
+    }
+
+    private suspend fun movedOutConnection(count: Int): UInt {
+        val connId = GitLabFixtures.createConnection().also { connections += it }
+        store.upsertProjects(connId, (1..count).map { project(it.toLong()) }, now = SEEDED_AT)
+        assertEquals(count, store.markProjectsMovedOutNotSeenSince(connId, passStartedAt = 5_000, now = 6_000))
+        return connId
+    }
+
+    @Test
+    fun `a project the token cannot see is counted and skipped, three in a row fail the run, a rate limit fails it at once`() =
+        runBlocking<Unit> {
+        val connId = movedOutConnection(3)
+        val client = FakeClient().apply { projectOf = { id -> if (id == 2L) throw failure("FORBIDDEN_SCOPE") else throw notFound() } }
+        val progress = GitLabFixtures.runStream(GitLabReconcileProjectsStream(client, store), connId)
+        assertEquals(listOf(1L, 2L, 3L), client.projectProbes, "the pass goes on past the forbidden one")
+        assertEquals(1L, progress["projectProbesFailed"])
+        assertEquals(2L, progress["projectsDeleted"])
+        assertNull(store.projectRows(connId).first { it[GitLabRawStore.Projects.projectId] == 2L }[GitLabRawStore.Projects.deletedAt])
+
+        val outage = movedOutConnection(5)
+        val failing = FakeClient().apply { projectOf = { throw failure("UPSTREAM_UNAVAILABLE") } }
+        assertEquals("UPSTREAM_UNAVAILABLE", assertFailsWith<FetchException> {
+            GitLabFixtures.runStream(GitLabReconcileProjectsStream(failing, store), outage)
+        }.code)
+        assertEquals(3, failing.projectProbes.size)
+
+        val limited = movedOutConnection(5)
+        val rateLimited = FakeClient().apply { projectOf = { throw failure("RATE_LIMITED") } }
+        assertFailsWith<FetchException> { GitLabFixtures.runStream(GitLabReconcileProjectsStream(rateLimited, store), limited) }
+        assertEquals(1, rateLimited.projectProbes.size)
+    }
+
+    @Test
+    fun `more moved-out projects than one run's cap are all probed over two runs by a keyset that wraps`() = runBlocking<Unit> {
+        val total = MAX_PROJECT_PROBES + 5
+        val connId = movedOutConnection(total)
+        val client = FakeClient().apply { projectOf = { detail(it) } }
+        GitLabFixtures.runStream(GitLabReconcileProjectsStream(client, store), connId)
+        val first = client.projectProbes.toList()
+        assertEquals(MAX_PROJECT_PROBES, first.size)
+        assertNotNull(cursors.get(connId, "reconcile_projects"), "the set outgrows one run: the keyset is kept")
+
+        client.projectProbes.clear()
+        GitLabFixtures.runStream(GitLabReconcileProjectsStream(client, store), connId)
+        assertEquals(MAX_PROJECT_PROBES, client.projectProbes.size)
+        assertEquals((1L..total).toSet(), (first + client.projectProbes).toSet(), "every moved-out project was probed within two runs")
+        assertTrue(client.projectProbes.take(5).all { it > MAX_PROJECT_PROBES }, "the second run starts after the keyset, then wraps")
+
+        // A set that fits one run keeps no cursor and is probed whole every run.
+        val small = movedOutConnection(3)
+        GitLabFixtures.runStream(GitLabReconcileProjectsStream(client, store), small)
+        assertNull(cursors.get(small, "reconcile_projects"))
     }
 
     // --- 2. the re-list mode and its cursor ----------------------------------------------------------------------------------
@@ -387,6 +441,32 @@ class GitLabReconcileTest {
         assertNull(cursorOf(connId))
     }
 
+    @Test
+    fun `a forbidden project leaves its candidates unconfirmed and the pass goes on, three in a row fail the run`() = runBlocking<Unit> {
+        val connId = connection()
+        seed(connId, mr(1), mr(2, projectId = 2))
+        val client = FakeClient().apply {
+            listing(mapOf(PLATFORM_GROUP to emptyList(), APPS_GROUP to emptyList()))
+            projectOf = { id -> if (id == 1L) throw failure("FORBIDDEN_SCOPE") else detail(id) }
+            mergeRequestOf = { _, iid -> mr(iid, projectId = 2) }
+        }
+        val progress = reconcile(client, connId)
+        assertEquals(1L, progress["mrReconcileUnconfirmed"])
+        assertEquals(1L, progress["mrReconcileKept"], "project 2 was confirmed after project 1 was left alone")
+        assertNull(row(connId, mr(1).mrId)[MergeRequests.deletedAt])
+        assertTrue(row(connId, mr(1).mrId)[MergeRequests.lastSeenAt] > SEEDED_AT, "touched, so it leaves this pass's set")
+
+        val outage = connection()
+        seed(outage, mr(1), mr(2, projectId = 2), mr(3, projectId = 3))
+        val failing = FakeClient().apply {
+            listing(mapOf(PLATFORM_GROUP to emptyList(), APPS_GROUP to emptyList()))
+            projectOf = { throw failure("UPSTREAM_UNAVAILABLE") }
+        }
+        assertEquals("UPSTREAM_UNAVAILABLE", assertFailsWith<FetchException> { reconcile(failing, outage) }.code)
+        assertEquals(3, failing.projectProbes.size)
+        assertTrue(failing.mrProbes.isEmpty() && store.mergeRequestRows(outage).none { it[MergeRequests.deletedAt] != null })
+    }
+
     // --- 5. the cap ------------------------------------------------------------------------------------------------------------
 
     @Test
@@ -512,7 +592,7 @@ class GitLabReconcileTest {
     // --- 7. the details retries (U2) -----------------------------------------------------------------------------------------
 
     @Test
-    fun `the retries un-stamp the ten stalest failed reads, and the oversized one only on demand`() = runBlocking<Unit> {
+    fun `the retries un-stamp the five stalest failed reads, and the oversized one only on demand`() = runBlocking<Unit> {
         val connId = connection()
         seed(connId, *(1..14).map { mr(it.toLong()) }.toTypedArray())
         for (n in 1L..12L) {
@@ -524,17 +604,19 @@ class GitLabReconcileTest {
 
         val scheduled = GitLabFixtures.freshContext(connId)
         GitLabMrReconcileRefresh(client, store, onDemand = false).run(scheduled)
+        assertEquals(5, RECONCILE_DETAILS_RETRIES, "half the skip budget's floor: five that fail again plus five fresh never trip it")
         assertEquals(RECONCILE_DETAILS_RETRIES.toLong(), scheduled.progressSnapshot()["mrDetailsRetried"])
         assertEquals(RECONCILE_DETAILS_RETRIES, store.staleMergeRequests(connId, 100).size, "they re-enter the details backlog")
         assertEquals(DETAILS_ERROR_LIMIT_EXCEEDED, row(connId, mr(14).mrId)[MergeRequests.detailsError], "not on a scheduled run")
         val stillStamped = store.mergeRequestRows(connId).filter { it[MergeRequests.detailsError] != null }.map { it[MergeRequests.iid] }
-        assertEquals(setOf(11L, 12L, 13L, 14L), stillStamped.toSet(), "the three freshest stamps and the oversized one")
+        assertEquals((6L..14L).toSet(), stillStamped.toSet(), "the freshest stamps and the oversized one")
         assertEquals(0, client.graphqlCalls.size + client.restCalls, "RECONCILE never reads details itself")
 
         val onDemand = GitLabFixtures.freshContext(connId)
         GitLabMrReconcileRefresh(client, store, onDemand = true).run(onDemand)
-        assertEquals(4L, onDemand.progressSnapshot()["mrDetailsRetried"], "the three left and the oversized one")
-        assertEquals(14, store.staleMergeRequests(connId, 100).size)
+        assertEquals(RECONCILE_DETAILS_RETRIES.toLong(), onDemand.progressSnapshot()["mrDetailsRetried"], "capped, oversized one included")
+        assertNull(row(connId, mr(14).mrId)[MergeRequests.detailsError], "its stamp is the stalest, so it goes first")
+        assertEquals(2 * RECONCILE_DETAILS_RETRIES, store.staleMergeRequests(connId, 100).size)
     }
 
     // --- 8. durable-change accounting ------------------------------------------------------------------------------------------
