@@ -1,6 +1,7 @@
 package ch.nokillswit.gitlab
 
 import ch.nokillswit.fetch.RunCeiling
+import ch.nokillswit.infra.time.MILLIS_PER_DAY
 
 /**
  * The paging ceilings of one GitLab SYNC run (`jira-integration.md` "Paging ceilings" for the idea), sized with wide headroom for the
@@ -36,6 +37,14 @@ internal const val COMMIT_FILES_FLUSH_ROWS = 5_000
  * set for good, so each further run sees strictly fewer candidates and repeated runs converge.
  */
 internal const val MAX_SWEEP_CONFIRMATIONS = 100
+
+/**
+ * How far below the backfill floor RECONCILE's `since`-less commits walk goes before it stops: the listing ends after a page whose
+ * commits are ALL older than the floor minus this. A commit whose date is skewed to before the floor sits, in git's date-ordered walk,
+ * directly before its in-window parents, so the slack only has to cover a child dated before the floor - minutes to hours in practice;
+ * two weeks is the margin. The residual (a child skewed by more than that and sitting last on a page) is on the PR 12 smoke list.
+ */
+internal const val RECONCILE_COMMITS_SLACK_MILLIS = 14 * MILLIS_PER_DAY
 
 /** The pending-commit batch the COMMIT FILES stream claims from the backlog at a time. */
 internal const val COMMIT_FILES_BATCH = 50

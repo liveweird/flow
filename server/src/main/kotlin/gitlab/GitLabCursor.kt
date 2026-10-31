@@ -64,6 +64,11 @@ internal data class CommitsWalkCursor(
     val listingDone: Boolean = false,
     /** A RELIST's epoch (`raw.gitlab_projects.relist_started_at`): the sweep's candidates are the live commits nothing has seen since. */
     val epochMillis: Long? = null,
+    /**
+     * A RELIST without `since` on the wire (RECONCILE's, [since] is null): the listing walks the branch from the tip and is bounded
+     * client-side by [sinceMillis] (the backfill floor), so a commit GitLab's `since` would hide with its skewed child is listed too.
+     */
+    val reconcile: Boolean = false,
 ) {
     /** The branch being walked: the part after `..` of a range (git refs cannot contain `..`). */
     val branch: String get() = refName.substringAfter("..")
