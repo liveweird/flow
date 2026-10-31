@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.gitlab.DETAILS_ERROR_FETCH_FAILED
 import ch.nokillswit.gitlab.DETAILS_ERROR_LIMIT_EXCEEDED
 import ch.nokillswit.gitlab.DETAILS_ERROR_NOT_FOUND
 import ch.nokillswit.gitlab.GITLAB_PURGE_MRS_BATCH_SIZE
@@ -403,6 +404,163 @@ class GitLabMrStoreTest {
             counts.mergeRequests, counts.mergeRequestsMerged, counts.mrEvents, counts.mrDetailsPending, counts.mrDiffStatsMissing,
         )
         assertEquals(listOf(2L, 1L, 2L, 0L, 1L), figures)
+    }
+
+    @Test
+    fun `tombstoning flags PROCESS on live rows only, keeps the events and is a no-op the second time`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertProjects(connId, listOf(project(1)), now = 1_000)
+        store.upsertMergeRequests(connId, listOf(mr(1), mr(2), mr(3)), now = 1_000)
+        settle(connId, 1_001, events = listOf(note(1), approval(5)))
+        markProcessed(connId)
+        tombstone(connId, iid = 3)
+
+        assertEquals(0, store.tombstoneMergeRequests(connId, emptyList(), now = 5_000))
+        val changed = store.tombstoneMergeRequests(connId, listOf(1_001, 1_003, 4_242, 1_001), now = 5_000)
+        assertEquals(1, changed, "the tombstoned and unknown ids change nothing")
+        assertEquals(0, store.tombstoneMergeRequests(connId, listOf(1_001), now = 6_000))
+        val gone = row(connId, 1)
+        assertEquals(5_000L, gone[MergeRequests.deletedAt])
+        assertTrue(gone[MergeRequests.needsProcessing])
+        assertEquals(2, store.mrEventRows(connId, 1_001).size, "events stay until PURGE")
+        assertEquals(1_500L, row(connId, 3)[MergeRequests.deletedAt], "an earlier tombstone is not rewritten")
+        assertFalse(row(connId, 2)[MergeRequests.needsProcessing])
+        val counts = store.mrCounts(connId)
+        assertEquals(1L, counts.mergeRequests)
+        assertEquals(2L, counts.mergeRequestsDeleted)
+    }
+
+    @Test
+    fun `touching moves last_seen_at of live rows only`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertProjects(connId, listOf(project(1)), now = 1_000)
+        store.upsertMergeRequests(connId, listOf(mr(1), mr(2), mr(3)), now = 1_000)
+        tombstone(connId, iid = 2)
+        store.touchMergeRequests(connId, listOf(1_001, 1_002), now = 5_000)
+        store.touchMergeRequests(connId, emptyList(), now = 6_000)
+        assertEquals(5_000L, row(connId, 1)[MergeRequests.lastSeenAt])
+        assertEquals(1_000L, row(connId, 2)[MergeRequests.lastSeenAt], "a tombstoned row is not touched")
+        assertEquals(1_000L, row(connId, 3)[MergeRequests.lastSeenAt])
+        assertEquals(1_000L, row(connId, 1)[MergeRequests.changedAt], "a touch is not a change")
+    }
+
+    @Test
+    fun `reconcile candidates are the unseen live rows of live projects in the listed groups at or above the floor, newest first`() =
+        runBlocking<Unit> {
+        val connId = connection()
+        store.upsertProjects(connId, listOf(project(1), project(2), project(3, group = "tools", groupId = 8)), now = 1_000)
+        store.upsertMergeRequests(
+            connId,
+            listOf(
+                mr(1, updatedAt = 9_000), mr(2, updatedAt = 8_000), mr(3, updatedAt = 100), mr(4, projectId = 2, updatedAt = 7_000),
+                mr(5, projectId = 3, updatedAt = 6_000), mr(6, updatedAt = 9_500), mr(7, updatedAt = 7_500), mr(8, updatedAt = 5_000),
+            ),
+            now = 1_000,
+        )
+        exec("UPDATE raw.gitlab_projects SET moved_out_at = 1500 WHERE project_id = 2 AND connection_id = $connId")
+        tombstone(connId, iid = 6)
+        store.touchMergeRequests(connId, listOf(1_007), now = 3_000)
+
+        suspend fun candidates(groups: Collection<String>, limit: Int = 10, passStartedAt: Long = 2_000) =
+            store.mrReconcileCandidates(connId, floorMillis = 5_000, passStartedAt, groups, limit).map { it.iid }
+        assertEquals(listOf(1L, 2L, 8L), candidates(listOf("platform")),
+            "iid 3 is below the floor, 4 is of a moved-out project, 5 of another group, 6 is tombstoned, 7 was seen this pass")
+        assertEquals(listOf(1L, 2L, 5L, 8L), candidates(listOf("platform", "tools", "platform")))
+        assertEquals(listOf(1L, 2L), candidates(listOf("platform", "tools"), limit = 2))
+        assertEquals(listOf(1L, 2L, 7L, 8L), candidates(listOf("platform"), passStartedAt = 3_001), "the touch is before this pass")
+        assertTrue(candidates(emptyList()).isEmpty())
+        assertTrue(candidates(listOf("elsewhere")).isEmpty())
+        val first = store.mrReconcileCandidates(connId, 5_000, 2_000, listOf("platform"), 1).single()
+        assertEquals(listOf(1_001L, 1L, 1L), listOf(first.mrId, first.projectId, first.iid))
+    }
+
+    @Test
+    fun `the gapped set is the settled missing-stats rows of live projects, newest first`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertProjects(connId, listOf(project(1), project(2)), now = 1_000)
+        store.upsertMergeRequests(
+            connId, listOf(mr(1), mr(2), mr(3), mr(4, projectId = 2), mr(5), mr(6), mr(7)), now = 1_000,
+        )
+        exec("UPDATE raw.gitlab_projects SET moved_out_at = 1500 WHERE project_id = 2 AND connection_id = $connId")
+        settle(connId, 1_001)
+        settle(connId, 1_003, MrDetailsOutcome(error = DETAILS_ERROR_NOT_FOUND))
+        settle(connId, 1_004)
+        settle(connId, 1_005, MrDetailsOutcome(stats = GitLabDiffStats(1, 1, 1)))
+        settle(connId, 1_006)
+        settle(connId, 1_007)
+        tombstone(connId, iid = 6)
+
+        assertEquals(listOf(7L, 1L), store.gappedMergeRequests(connId, 10).map { it.iid },
+            "2 is pending, 3 has an error, 4 is of a moved-out project, 5 has stats, 6 is tombstoned")
+        assertEquals(listOf(7L), store.gappedMergeRequests(connId, 1).map { it.iid })
+        assertEquals(3L, store.mrCounts(connId).mrDiffStatsMissing, "the status figure also counts the moved-out project's gap")
+    }
+
+    @Test
+    fun `writing diff stats fills exactly the given live rows, flags PROCESS and leaves the stamp and events`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertProjects(connId, listOf(project(1), project(2)), now = 1_000)
+        store.upsertMergeRequests(connId, listOf(mr(1), mr(2), mr(3), mr(4), mr(5, projectId = 2)), now = 1_000)
+        for (n in 1L..5L) settle(connId, 1_000 + n, events = listOf(note(n)))
+        tombstone(connId, iid = 4)
+        markProcessed(connId)
+        assertEquals(4L, store.mrCounts(connId).mrDiffStatsMissing, "the four live settled rows are gaps")
+
+        val filled = store.writeMrDiffStats(
+            connId, projectId = 1,
+            statsByIid = mapOf(1L to GitLabDiffStats(5, 2, 3), 3L to GitLabDiffStats(0, 0, 0), 4L to GitLabDiffStats(1, 1, 1),
+                5L to GitLabDiffStats(9, 9, 9), 99L to GitLabDiffStats(1, 1, 1)),
+        )
+        assertEquals(2, filled, "the tombstoned row, the other project's iid and the unknown iid are not written")
+        val stats = row(connId, 1).let { listOf(it[MergeRequests.additions], it[MergeRequests.deletions], it[MergeRequests.fileCount]) }
+        assertEquals(listOf<Int?>(5, 2, 3), stats)
+        assertEquals(0, row(connId, 3)[MergeRequests.additions])
+        assertNull(row(connId, 2)[MergeRequests.additions])
+        assertNull(row(connId, 5)[MergeRequests.additions])
+        assertNull(row(connId, 4)[MergeRequests.additions])
+        assertTrue(row(connId, 1)[MergeRequests.needsProcessing])
+        assertFalse(row(connId, 2)[MergeRequests.needsProcessing])
+        assertEquals(2_000L, row(connId, 1)[MergeRequests.detailsSyncedAt], "the stamp is untouched")
+        assertNull(row(connId, 1)[MergeRequests.detailsError])
+        assertEquals(5, store.mrEventRows(connId).size)
+        assertEquals(0, store.writeMrDiffStats(connId, 1, emptyMap()))
+        assertEquals(listOf(5L, 2L), store.gappedMergeRequests(connId, 10).map { it.iid }, "what is still a gap, newest first")
+    }
+
+    @Test
+    fun `retrying un-stamps the stalest rows of the given error set, bounded, and they re-enter the backlog`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertProjects(connId, listOf(project(1), project(2)), now = 1_000)
+        store.upsertMergeRequests(
+            connId, listOf(mr(1), mr(2), mr(3), mr(4), mr(5, projectId = 2), mr(6), mr(7)), now = 1_000,
+        )
+        exec("UPDATE raw.gitlab_projects SET moved_out_at = 1500 WHERE project_id = 2 AND connection_id = $connId")
+        settle(connId, 1_001, MrDetailsOutcome(error = DETAILS_ERROR_FETCH_FAILED), now = 2_000)
+        settle(connId, 1_002, MrDetailsOutcome(error = DETAILS_ERROR_NOT_FOUND), now = 3_000)
+        settle(connId, 1_003, MrDetailsOutcome(error = DETAILS_ERROR_LIMIT_EXCEEDED), now = 2_500)
+        settle(connId, 1_004, MrDetailsOutcome(error = DETAILS_ERROR_FETCH_FAILED), now = 4_000)
+        settle(connId, 1_005, MrDetailsOutcome(error = DETAILS_ERROR_FETCH_FAILED), now = 1_500)
+        settle(connId, 1_006)
+        settle(connId, 1_007, MrDetailsOutcome(error = DETAILS_ERROR_FETCH_FAILED), now = 1_200)
+        tombstone(connId, iid = 7)
+        assertEquals(5L, store.mrCounts(connId).mrDetailsUnread, "stamped live rows: 1-5 (a tombstoned or clean row is not counted)")
+        assertTrue(store.staleMergeRequests(connId, 10).isEmpty())
+
+        val scheduled = listOf(DETAILS_ERROR_FETCH_FAILED, DETAILS_ERROR_NOT_FOUND)
+        assertEquals(2, store.retryMrDetails(connId, scheduled, limit = 2), "stalest first: 1 (2000), 2 (3000); 5 is moved out")
+        assertEquals(setOf(1L, 2L), store.staleMergeRequests(connId, 10).map { it.iid }.toSet())
+        for (n in 1L..2L) {
+            assertNull(row(connId, n)[MergeRequests.detailsSyncedAt])
+            assertNull(row(connId, n)[MergeRequests.detailsError])
+        }
+        assertEquals(DETAILS_ERROR_LIMIT_EXCEEDED, row(connId, 3)[MergeRequests.detailsError], "outside the scheduled set")
+        assertEquals(3L, store.mrCounts(connId).mrDetailsUnread)
+        assertEquals(1, store.retryMrDetails(connId, scheduled, limit = 10), "only 4 is left in the set")
+        assertEquals(0, store.retryMrDetails(connId, scheduled, limit = 10))
+        assertEquals(0, store.retryMrDetails(connId, emptyList(), limit = 10))
+        assertEquals(0, store.retryMrDetails(connId, scheduled, limit = 0))
+        assertEquals(1, store.retryMrDetails(connId, scheduled + DETAILS_ERROR_LIMIT_EXCEEDED, limit = 10), "on demand: oversized too")
+        assertEquals(1L, store.mrCounts(connId).mrDetailsUnread, "only the moved-out project's stamped row is still unread")
     }
 
     @Test

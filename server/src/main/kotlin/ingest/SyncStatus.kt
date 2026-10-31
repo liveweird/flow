@@ -54,7 +54,8 @@ data class SyncCounts(
  * the tombstoned ([commitsDeleted]) and the COMMIT FILES backlog ([commitFilesPending]: diff unread, not a merge, not tombstoned), and
  * (V43) the live merge requests ([mergeRequests]), the merged ones among them ([mergeRequestsMerged]), the stored review events
  * ([mrEvents]), the MR DETAILS backlog ([mrDetailsPending]) and the settled merge requests whose diff stats GraphQL did not answer
- * ([mrDiffStatsMissing]). Counts only: never a title, a branch or a username.
+ * ([mrDiffStatsMissing]), the merge requests a reconcile tombstoned ([mergeRequestsDeleted]) and the live ones whose details could not
+ * be read ([mrDetailsUnread]: a `details_error` stamp). Counts only: never a title, a branch or a username.
  */
 @Serializable
 data class GitLabSyncCounts(
@@ -72,4 +73,6 @@ data class GitLabSyncCounts(
     val mrEvents: Long,
     val mrDetailsPending: Long,
     val mrDiffStatsMissing: Long,
+    val mergeRequestsDeleted: Long,
+    val mrDetailsUnread: Long,
 )

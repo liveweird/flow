@@ -381,7 +381,7 @@ place:
 The "is this team there and active" check every one of those reads runs is ONE function, `teams/TeamActive.kt` `Teams.requireActive(teamId) { failure }` (the caller picks
 the status: `Teams.requireActiveOrNotFound` for a path team, a `400` for the reports' `teamId` filter); the row-locking twin is `lockActiveForWrite`.
 - `ingest/SyncStatusRoutes.kt` (the ADMIN status view) READS `gitlab/GitLabRawStore.counts(connectionId)` (V41-V43: row COUNTS of `raw.gitlab_projects` /
-  `raw.gitlab_users` / `raw.gitlab_commits` by their markers - live, merge, tombstoned, files pending - and the merge-request counts (`mrCounts` over `raw.gitlab_merge_requests` / `raw.gitlab_mr_events`): live, merged, events, details pending (the stream's own backlog predicate), diff stats missing - never a payload, a commit's title, author or path, or a merge request's title, branch or username) for a GITLAB connection, through the store published as `GitLabRawStoreKey` (absent when GitLab is off
+  `raw.gitlab_users` / `raw.gitlab_commits` by their markers - live, merge, tombstoned, files pending - and the merge-request counts (`mrCounts` over `raw.gitlab_merge_requests` / `raw.gitlab_mr_events`): live, merged, events, details pending (the stream's own backlog predicate), diff stats missing, deleted (tombstoned by a reconcile) and details unread (live, any `details_error`) - never a payload, a commit's title, author or path, or a merge request's title, branch or username) for a GITLAB connection, through the store published as `GitLabRawStoreKey` (absent when GitLab is off
   in the process: `counts.gitlab` is then null). `gitlab/GitLabConnector` WRITES only `raw.gitlab_*` and its two `sync_cursors` streams, and READS the
   connection through `DataSourceService.readGitLabForSync` (the decrypted token, for the connector alone).
 
@@ -1285,7 +1285,7 @@ carry `first_seen_at` / `last_seen_at` / `changed_at` epoch millis.
 
 - **`raw.gitlab_projects`**: `project_id`, `path_with_namespace` (≤1024), `group_path` / `group_id` (the CONFIGURED group the project was listed
   under, not its own subgroup), `default_branch`, `archived`, `moved_out_at` (not seen under any configured group in a COMPLETED pass; cleared when
-  seen again), `deleted_at` (RECONCILE's, PR 9; unused until then) and the COMMITS stream's `commits_head_sha` (CHAR(40) in V41, widened to
+  seen again), `deleted_at` (set by RECONCILE on a `GET /projects/:id` 404 of a moved-out project; `archived` is set true by RECONCILE on a 200 that says so; neither write touches the payload or hash, so the next listing resurrects the project through `changeProject`) and the COMMITS stream's `commits_head_sha` (CHAR(40) in V41, widened to
   VARCHAR(64) by V42) / `relist_requested` (PR 7; null/false until then).
 - **`raw.gitlab_users`**: `user_id`, `username`, `name`, `state`, `bot`, `emails JSONB` (the sorted, distinct, lowercased union of the user's
   `email`/`commit_email`/`public_email` and the confirmed secondary emails - also inside the payload, so ONE hash covers both), `deleted_at` (not seen
@@ -1330,7 +1330,7 @@ canonicalised later), `authored_at`/`committed_at`, `parent_count`, `additions`/
   (`flushCommitFiles`) inserts the files `ON CONFLICT DO NOTHING` and stamps their commits in ONE transaction, so a commit is never stamped without its files.
 - **The tombstone sweep** (`tombstoneCommitsNotSeenSince`): at the end of a force-push re-list, the project's live commits with `committed_at >= since`
   (the oldest live commit when the re-list began, NOT the moving backfill floor) and `last_seen_at < passStartedAt` get `deleted_at = now` and
-  `needs_processing = true`. A tombstone deletes nothing: the files stay until PURGE. RECONCILE (PR 9) sets `deleted_at` the same way.
+  `needs_processing = true`. A tombstone deletes nothing: the files stay until PURGE. RECONCILE sets `deleted_at` the same way: its `reconcile_commits` re-list runs the same sweep.
 - **`needs_processing` / `processed_at` / `processing_version`** are PROCESS's (PR 10), the `raw.jira_issues` shape; a files flush and a tombstone set
   `needs_processing` again. `idx_raw_gitlab_commits_needs_processing` serves its claim scan; `idx_raw_gitlab_commits_project_live` the per-project reads
   (`oldestLiveCommittedAt`, the sweep).
@@ -1374,8 +1374,8 @@ canonicalised later), `authored_at`/`committed_at`, `parent_count`, `additions`/
   clock behind the writer's) still leaves the backlog instead of re-selecting the row forever; a change made in the very millisecond of the stamp is
   not told apart (accepted). `mrDiffStatsMissing` counts the gaps of SETTLED rows only (`details_synced_at >= changed_at`): a changed row is pending, not a
   gap. The outcome type (`MrDetailsOutcome`) refuses the either/or violation.
-- **Nothing here tombstones.** `deleted_at` exists for RECONCILE (PR 9), which tombstones only on a positive per-MR 404 while the project answers; a
-  listing that omits a row (it is filtered by `updated_after`) and a notes 404 are no evidence.
+- **The upsert never tombstones.** `deleted_at` is written by RECONCILE only, on a per-MR 404 confirmed by the project answering 200 before and after; a
+  listing that omits a row (it is filtered by `updated_after`) and a notes 404 are no evidence. `retryMrDetails` (un-stamps a bounded set of `details_error` rows) and `writeMrDiffStats` (fills `additions`/`deletions`/`file_count`, stamp untouched) are RECONCILE's other two writes; all three are guarded on what they set, so a repeated pass is a no-op.
 - **`raw.gitlab_mr_events`**: PK `(connection_id, mr_id, source, source_id)`, composite FK to the merge request `ON DELETE CASCADE`. `source` is `NOTE`
   (`source_id` = the note id), `APPROVAL` (the legacy `/approvals` object, `source_id` = the approver's user id, `event_at` NULL - the endpoint has no
   time) or `REVIEWER` (`/reviewers`, `action` = the state). A note is reduced to an action code (`COMMENT`, `DIFF_COMMENT`, `APPROVAL`, `UNAPPROVAL`,

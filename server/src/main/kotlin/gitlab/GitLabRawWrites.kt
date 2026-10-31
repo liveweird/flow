@@ -177,4 +177,28 @@ internal class GitLabRawWrites(private val database: R2dbcDatabase) {
                 it[deletedAt] = now
             }
         }
+
+    /**
+     * RECONCILE's deletion mark: a moved-out project whose `GET /projects/:id` answered 404. Guarded on `deleted_at IS NULL`, so a repeated
+     * pass is a no-op; true when a row changed. Only the marker is written (no payload, no hash): PROJECTS resurrects the project when it
+     * is listed again ([changeProject] clears both markers).
+     */
+    suspend fun markProjectDeleted(connectionId: UInt, projectId: Long, now: Long): Boolean = suspendTransaction(database) {
+        Projects.update({ (Projects.connectionId eq connectionId) and (Projects.projectId eq projectId) and Projects.deletedAt.isNull() }) {
+            it[deletedAt] = now
+        } > 0
+    }
+
+    /**
+     * RECONCILE's archival mark: only `archived` is set (true when a row changed). It touches no marker, no payload and no hash on purpose:
+     * [changeProject] would resurrect the project (clear `moved_out_at`/`deleted_at`) on the archived body's changed hash, and an archived
+     * project is out of the live set until PROJECTS lists it again.
+     */
+    suspend fun markProjectArchived(connectionId: UInt, projectId: Long): Boolean = suspendTransaction(database) {
+        Projects.update({
+            (Projects.connectionId eq connectionId) and (Projects.projectId eq projectId) and (Projects.archived eq false)
+        }) {
+            it[archived] = true
+        } > 0
+    }
 }

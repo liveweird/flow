@@ -3,6 +3,7 @@ package ch.nokillswit.gitlab
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 
 // The slices of GitLab's REST answers the connector reads; everything else in a body is ignored (the client decodes leniently).
 
@@ -37,3 +38,26 @@ data class GitLabGroup(val id: Long, @SerialName("full_path") val fullPath: Stri
 fun List<String>.tooBroad(): Boolean = any { !it.startsWith("read_") && it != ADMIN_MODE_SCOPE }
 
 private const val ADMIN_MODE_SCOPE = "admin_mode"
+
+/** One project as the PROJECTS stream hands it over: the group it was LISTED under and GitLab's document (slimmed on write). */
+class RawGitLabProject(
+    val projectId: Long,
+    val pathWithNamespace: String,
+    /** The configured group path (lowercase) the project was listed under, and that group's numeric id. */
+    val groupPath: String,
+    val groupId: Long,
+    val defaultBranch: String?,
+    val archived: Boolean,
+    val payload: JsonElement,
+)
+
+/** One user as the USERS stream hands it over; [emails] is the sorted, distinct, lowercase union (`gitLabUserEmails`). */
+class RawGitLabUser(
+    val userId: Long,
+    val username: String,
+    val name: String,
+    val state: String,
+    val bot: Boolean,
+    val emails: List<String>,
+    val payload: JsonElement,
+)

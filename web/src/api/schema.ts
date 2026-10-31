@@ -3256,6 +3256,16 @@ export interface components {
              * @description Live merge requests whose details were read but whose diff stats GraphQL did not answer.
              */
             mrDiffStatsMissing: number;
+            /**
+             * Format: int64
+             * @description Merge requests marked deleted by a reconcile (rows and events kept).
+             */
+            mergeRequestsDeleted: number;
+            /**
+             * Format: int64
+             * @description Live merge requests whose details could not be read: the notes answered 404, a page was over the response ceiling, or the read kept failing (`NOT_FOUND` / `LIMIT_EXCEEDED` / `FETCH_FAILED`).
+             */
+            mrDetailsUnread: number;
         };
         /** @description Raw-layer row counts. For a `GITLAB` connection the Jira integers are 0 and `gitlab` carries its counts (null when this process has no GitLab store, i.e. the kind is off here). */
         SyncCounts: {

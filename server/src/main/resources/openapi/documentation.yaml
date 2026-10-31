@@ -5019,7 +5019,7 @@ components:
         lastCompletedAt: { type: integer, format: int64, nullable: true, description: Epoch millis }
     GitLabSyncCounts:
       type: object
-      required: [projects, projectsMovedOut, projectsDeleted, users, usersDeleted, commits, commitsMerge, commitsDeleted, commitFilesPending, mergeRequests, mergeRequestsMerged, mrEvents, mrDetailsPending, mrDiffStatsMissing]
+      required: [projects, projectsMovedOut, projectsDeleted, users, usersDeleted, commits, commitsMerge, commitsDeleted, commitFilesPending, mergeRequests, mergeRequestsMerged, mrEvents, mrDetailsPending, mrDiffStatsMissing, mergeRequestsDeleted, mrDetailsUnread]
       properties:
         projects: { type: integer, format: int64, minimum: 0, description: Live projects of the configured groups. }
         projectsMovedOut: { type: integer, format: int64, minimum: 0, description: Projects no longer listed under any configured group (rows kept). }
@@ -5035,6 +5035,8 @@ components:
         mrEvents: { type: integer, format: int64, minimum: 0, description: "Stored review events: notes as action codes, approvals and reviewer states." }
         mrDetailsPending: { type: integer, format: int64, minimum: 0, description: "Live merge requests whose notes, approvals, reviewers and diff stats are not read yet, or are older than the merge request's last change." }
         mrDiffStatsMissing: { type: integer, format: int64, minimum: 0, description: "Live merge requests whose details were read but whose diff stats GraphQL did not answer." }
+        mergeRequestsDeleted: { type: integer, format: int64, minimum: 0, description: "Merge requests marked deleted by a reconcile (rows and events kept)." }
+        mrDetailsUnread: { type: integer, format: int64, minimum: 0, description: "Live merge requests whose details could not be read: the notes answered 404, a page was over the response ceiling, or the read kept failing (`NOT_FOUND` / `LIMIT_EXCEEDED` / `FETCH_FAILED`)." }
     SyncCounts:
       type: object
       description: >-
