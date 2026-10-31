@@ -2,6 +2,7 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.ingest.DataSourceService
+import ch.nokillswit.ingest.derivesMetrics
 import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.metrics.HistoryHorizon
@@ -137,14 +138,18 @@ internal suspend fun ReportService.dataStamp(
     nowMs: Long,
 ): List<String> = reportTransaction {
     val c = DataSourceService.Connections
-    val connections = c.select(c.id, c.name, c.settings, c.lastSyncSucceededAt, c.backfillFrom).where { c.active() }.orderBy(c.id).toList()
-    val retired = c.select(c.id, c.purgedAt).where { c.markedAsDeleted eq true }.orderBy(c.id).toList()
+    // Connections of a kind that derives metrics only (`DataSourceKind.derivesMetrics`): another kind's name, sync time and jobs are not
+    // something a report prints, so they must not move a report's ETag either.
+    val connections = c.select(c.id, c.name, c.settings, c.lastSyncSucceededAt, c.backfillFrom)
+        .where { c.active() and c.derivesMetrics() }.orderBy(c.id).toList()
+    val retired = c.select(c.id, c.purgedAt).where { (c.markedAsDeleted eq true) and c.derivesMetrics() }.orderBy(c.id).toList()
     val j = SyncJobsService.Jobs
     val ingestKinds = listOf(SyncJobKind.SYNC, SyncJobKind.RECONCILE, SyncJobKind.REPROCESS, SyncJobKind.PURGE).map { it.name }
     val newestId = j.id.max()
     val lastHeartbeat = j.heartbeatAt.max()
     val lastFinish = j.finishedAt.max()
-    val ingest = j.select(j.connectionId, newestId, lastHeartbeat, lastFinish).where { j.kind inList ingestKinds }
+    val ingest = j.select(j.connectionId, newestId, lastHeartbeat, lastFinish)
+        .where { (j.kind inList ingestKinds) and (j.connectionId inList (connections.map { it[c.id] } + retired.map { it[c.id] })) }
         .groupBy(j.connectionId).orderBy(j.connectionId).toList()
     val t = TeamService.Teams
     val teams = t.select(t.id, t.name, t.updatedAt).where { t.active() }.orderBy(t.id).toList()

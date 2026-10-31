@@ -32,25 +32,42 @@ lands, the section is rewritten as the as-built reference (file names, tests). T
 - **The connector does not feed DERIVE.** `DataSourceKind.derivesMetrics` is false for GITLAB; every Jira-only path is
   gated on it (below).
 
-## The connector seam (BACKLOG D6, done here)
+## The connector seam (BACKLOG D6; as built, PR 3)
 
 Before GitLab, the seam was Jira-shaped: `Connector.testConnection(siteUrl, email, apiToken…)`, `DataSourceRequest.jira`, the
-V8 `kind` CHECK allowing only `JIRA_CLOUD`, and `jira/Jira.kt` *replacing* the connector registry attribute.
+V8 `kind` CHECK allowing only `JIRA_CLOUD`, and `jira/Jira.kt` *replacing* the connector registry attribute. What landed (full
+reference: `ingestion.md` "Connector kinds"; schema: `persistence.md` V40):
 
-- `Connector.testConnection(target: ConnectionTarget)`: a sealed type in `ingest/` with a Jira and a GitLab case.
-- Each connector adds itself through a `connectorRegistry()` helper (the `jobHandlerRegistry()` pattern); `configureGitLab`
-  runs after `configureJira` in `application.yaml`.
-- `DataSourceKind(derivesMetrics)`: `JIRA_CLOUD(true)`, `GITLAB(false)`. The settings decoder picks the shape by kind.
-- **Kind-leak guards.** Without them a GITLAB row would reach Jira paths: the scope check decoding every row as Jira
-  (`ingest/DataSourceScope.kt`), the DERIVE chaining in `IngestWorker.onSucceeded` and the `MetricsSettingsService` fan-out,
-  the report and Home connection scopes (`reports/ReportSupport.resolveConnectionScope`, `HomeReads`), the metrics-config
-  routes (409 `data-source-kind-unsupported`) and the raw-issue inspector. `KindLeakTest` pins each.
-- **Wire shape.** `DataSourceRequest`/`Response`/`TestRequest` carry two optional blocks, `jira` and `gitlab`; exactly one is
-  present, it sets the kind, and the kind is immutable after create. No `oneOf` (the spec stays 3.0-compatible) and the Jira
+- **V40** widens the `kind` CHECK (`source_connections_kind_check`) to `('JIRA_CLOUD','GITLAB')`; schema-only.
+- `Connector.testConnection(target: ConnectionTarget)` (`ingest/Connector.kt`): a sealed type with `Jira` (today's five fields) and
+  `GitLab(baseUrl, token, groupPaths)`; `JiraConnector` refuses the other case. The Jira routes build `ConnectionTarget.Jira`.
+- `ingest/ConnectorRegistry.kt`: `Application.connectorRegistry()` (the `jobHandlerRegistry()` pattern), `register(connector)`
+  (duplicate kind = boot error), `connectorFor`, `connectors()`. `configureJira` registers `JIRA_CLOUD`; **`configureGitLab` must
+  register `GITLAB` the same way and run after `configureJira` in `application.yaml`**. A claimed job whose kind has no connector fails
+  with `CONNECTOR_UNAVAILABLE` (PURGE included), never crashing the loop.
+- `DataSourceKind(derivesMetrics)`: `JIRA_CLOUD(true)`, `GITLAB(false)`. Settings are sealed (`ConnectionSettings`): Jira's stored
+  JSON unchanged, plus `GitLabConnectionSettings(baseUrl, groupPaths, pathExclusions?)`; the decoder picks the shape by the row's
+  kind, and `ResultRow.jiraSettings()` throws on any other kind. **PR 6 fills in the GitLab shape and validation.**
+- **Kind-leak guards**, each pinned by a `KindLeakTest` case (a GITLAB row inserted over `sharedDatabaseForTests()`, `GitLabRowFixture`):
+  the Jira scope check (`DataSourceScope.kt`, Jira rows only), `IngestWorker.onSucceeded` (DERIVE chaining only when
+  `derivesMetrics`; a DERIVE job for a non-metrics kind fails), the `enabledActiveConnections()` fan-out behind
+  `MetricsSettingsService.bumpRevision`, the report and Home connection scopes (`resolveConnectionScope`, `/reports/filters`,
+  `fetchHomeConnections`, the report ETag stamp), the metrics-config routes and the raw-issue inspector (`409
+  data-source-kind-unsupported`; the profile route decodes nothing Jira-shaped and stays per-kind-later).
+- **Interim wire behaviour (PR 3 to PR 6).** `DataSourceResponse` still carries only `jira`, so `DataSourceService.list/read/update/
+  readForTest/persistCloudId` serve Jira rows only: a GITLAB row is absent from the list and `404` by id on the data-source, sync-job,
+  status and stored-test routes. **PR 6 adds the `gitlab` block and replaces that filter** (and decides whether the GitLab sources take
+  the history-horizon backfill floor and the `jobs`/`status` routes).
+- **Wire shape (PR 6, not yet).** `DataSourceRequest`/`Response`/`TestRequest` carry two optional blocks, `jira` and `gitlab`; exactly
+  one is present, it sets the kind, and the kind is immutable after create. No `oneOf` (the spec stays 3.0-compatible) and the Jira
   form's JSON is unchanged.
-- **Scope rules per kind.** Jira keeps its rules, filtered to Jira rows. GitLab: one GitLab host across the active sources
-  (`data-source-other-instance`), and no group equal to or nested in another source's group (`data-source-group-overlap`),
-  so no project is counted twice.
+- **Scope rules per kind (PR 6, not yet).** Jira keeps its rules, now filtered to Jira rows. GitLab: one GitLab host across the active
+  sources (`data-source-other-instance`), and no group equal to or nested in another source's group (`data-source-group-overlap`), so
+  no project is counted twice.
+
+Tests: `ConnectorSeamTest` (registry additive and duplicate-refusing, the booted app's registry, `ConnectionTarget` dispatch and secret
+masking, the V40 CHECK, settings by kind and Jira's unchanged shape, `CONNECTOR_UNAVAILABLE` with a surviving worker loop, the PURGE
+case), `KindLeakTest`, and `MigrationChecksumTest` (the V40 pin).
 
 ## Shared fetch machinery (`fetch/`)
 

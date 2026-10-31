@@ -151,11 +151,13 @@ private fun Route.testConnectionRoutes(service: DataSourceService, connector: Co
             validateJira(jira, apiTokenRequired = true)
             val result = heapShare.withShare(heapShare.capacityBytes) {
                 connector.testConnection(
-                    siteUrl = jira.siteUrl,
-                    email = jira.email,
-                    apiToken = checkNotNull(jira.apiToken) { "apiToken is required on the ad-hoc test" },
-                    projectKeys = jira.projectKeys,
-                    authScheme = jira.authScheme,
+                    ConnectionTarget.Jira(
+                        siteUrl = jira.siteUrl,
+                        email = jira.email,
+                        apiToken = checkNotNull(jira.apiToken) { "apiToken is required on the ad-hoc test" },
+                        projectKeys = jira.projectKeys,
+                        authScheme = jira.authScheme,
+                    ),
                 )
             }
             auditConnectionTest(caller.userId, siteHost(jira.siteUrl), result)
@@ -167,11 +169,13 @@ private fun Route.testConnectionRoutes(service: DataSourceService, connector: Co
             val stored = service.readForTest(route.parent.id).orNotFound("Data source")
             val result = heapShare.withShare(heapShare.capacityBytes) {
                 connector.testConnection(
-                    siteUrl = stored.siteUrl,
-                    email = stored.email,
-                    apiToken = stored.apiToken,
-                    projectKeys = stored.projectKeys,
-                    authScheme = stored.authScheme,
+                    ConnectionTarget.Jira(
+                        siteUrl = stored.siteUrl,
+                        email = stored.email,
+                        apiToken = stored.apiToken,
+                        projectKeys = stored.projectKeys,
+                        authScheme = stored.authScheme,
+                    ),
                 )
             }
             result.cloudId?.let { service.persistCloudId(route.parent.id, it) }

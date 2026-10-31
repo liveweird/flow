@@ -5,6 +5,7 @@ import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.infra.db.active
 import io.ktor.server.application.Application
 import kotlinx.coroutines.flow.toList
+import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.slf4j.LoggerFactory
@@ -84,13 +85,15 @@ internal suspend fun R2dbcTransaction.takeDataSourceScopeLock(rules: ScopeRules)
 internal suspend fun enforceDataSourceScope(rules: ScopeRules, request: DataSourceRequest, excludeId: UInt?) {
     if (rules == ScopeRules.OFF) return
     val connections = DataSourceService.Connections
-    val others = connections.selectAll().where { connections.active() }.toList()
+    // These are the JIRA rules (one Jira site, no project in two sources): they are checked against Jira rows only. Another kind's
+    // rows neither protect keys nor name a site, and are never decoded here (a GitLab source has its own rules, with its own release).
+    val others = connections.selectAll().where { connections.active() and connections.isJira() }.toList()
         .filter { it[connections.id].value != excludeId }
         .mapNotNull { row ->
             // Tolerant like the reports' filter reads: a row whose settings do not decode protects no keys (and cannot sync
             // either) - it must not turn every create and update into a 500.
             val id = row[connections.id].value
-            val settings = catchingFailures({ decodeSettings(row[connections.settings]) }) { failure ->
+            val settings = catchingFailures({ row.jiraSettings() }) { failure ->
                 scopeLog.warn("Data source {} has undecodable settings, skipped by the scope check: {}", id, failure.javaClass.simpleName)
                 null
             }

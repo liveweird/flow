@@ -2,11 +2,11 @@ package ch.nokillswit
 
 import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
 import ch.nokillswit.ingest.Connector
+import ch.nokillswit.ingest.ConnectionTarget
 import ch.nokillswit.ingest.ConnectionTestResult
 import ch.nokillswit.ingest.DataSourceKind
 import ch.nokillswit.ingest.IngestConfig
 import ch.nokillswit.ingest.IngestWorker
-import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JobHandlerRegistry
 import ch.nokillswit.ingest.SyncJobClaim
 import ch.nokillswit.ingest.SyncJobKind
@@ -196,13 +196,7 @@ class TerminalWriteRetryTest {
 
     private class OutageConnector(private val onRun: suspend (SyncJobRunContext) -> Unit) : Connector {
         override val kind = DataSourceKind.JIRA_CLOUD
-        override suspend fun testConnection(
-            siteUrl: String,
-            email: String,
-            apiToken: String,
-            projectKeys: List<String>,
-            authScheme: JiraAuthScheme,
-        ): ConnectionTestResult = error("not used")
+        override suspend fun testConnection(target: ConnectionTarget): ConnectionTestResult = error("not used")
 
         override suspend fun run(context: SyncJobRunContext) = onRun(context)
     }

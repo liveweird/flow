@@ -895,7 +895,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V39`:
+Current migrations are `V1`–`V40`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -1072,6 +1072,13 @@ Current migrations are `V1`–`V39`:
   `clearReconcilePause`), under the connection row's `FOR NO KEY UPDATE`; the scheduler's RECONCILE scan (not SYNC's) filters on
   `reconcile_paused_at IS NULL`. `MigrationChecksumTest` pins it.
 - `V39__history_horizon_months` - see "History horizon (V39)" below: `metrics.settings.history_horizon_months`.
+- `V40__source_connection_kind_gitlab` - the GitLab connector kind (`.claude/docs/gitlab-integration.md` "The connector seam"):
+  `source_connections.kind`'s CHECK widened from `('JIRA_CLOUD')` to `('JIRA_CLOUD', 'GITLAB')`. V8 declared it inline and unnamed, so
+  PostgreSQL named it **`source_connections_kind_check`** (confirmed on the Testcontainers DB; `ConnectorSeamTest` reads it back from
+  `pg_constraint`); V40 drops and re-adds it under that name (V16's constraint-swap pattern for `sync_jobs.kind`). **Schema-only**: no
+  row is rewritten (every existing row is `JIRA_CLOUD` and satisfies the wider check), no new column, and nothing creates a `GITLAB` row
+  before the GitLab data-source release, so an old pod never reads one. `MigrationChecksumTest` pins it. No cross-feature read or write
+  is added: the list above is unchanged.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a

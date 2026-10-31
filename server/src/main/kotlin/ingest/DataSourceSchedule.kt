@@ -19,13 +19,17 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
  * connections are due for which job kind. `DataSourceService` delegates here, keeping the public names stable. A connection PAUSED by
  * the SYNC ceiling-trip counter (`SyncPause.kt`) is not due for SYNC, one paused by the RECONCILE counter (`ReconcilePause.kt`) is not
  * due for RECONCILE; neither pause stops the other job, PURGE or the DERIVE bump scan (PROCESS + DERIVE keep reports fresh).
+ * The scans are kind-agnostic (every kind syncs, reconciles and purges through its own connector) except the DERIVE bump scan, which lists
+ * only connections of a kind that derives metrics (`DataSourceKind.derivesMetrics`, `.claude/docs/ingestion.md` "Connector kinds").
  */
 
-private fun ResultRow.toDueConnection() = DataSourceService.DueConnection(this[Connections.id].value, this[Connections.configRevision])
+private fun ResultRow.toDueConnection() =
+    DataSourceService.DueConnection(this[Connections.id].value, this[Connections.configRevision], dataSourceKind())
 
 internal suspend fun enabledActiveConnectionRows(database: R2dbcDatabase): List<DataSourceService.DueConnection> =
     suspendTransaction(database) {
-        Connections.selectAll().where { Connections.active() and (Connections.enabled eq true) }.toList().map { it.toDueConnection() }
+        Connections.selectAll().where { Connections.active() and (Connections.enabled eq true) and Connections.derivesMetrics() }
+            .toList().map { it.toDueConnection() }
     }
 
 internal suspend fun dueForSyncRows(database: R2dbcDatabase, now: Long): List<DataSourceService.DueConnection> =

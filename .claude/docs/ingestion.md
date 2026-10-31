@@ -117,9 +117,9 @@ connector registry, through the `JobHandler` that `metrics/MetricsJobHandlers.kt
 succeeding silently;
 `.claude/docs/metrics.md` "The DERIVE run algorithm" has the write-side detail)
 is connector-agnostic: it reads `norm.*` plus the connection's effective metrics configuration and
-writes `metrics.*`, never touching Jira, so it runs the same way whichever connector kind the
-connection is. **Chaining** (`IngestWorker.onSucceeded`, `.claude/docs/domain-model.md`'s plan §2
-decision 1): every successful `SYNC`/`RECONCILE`/`REPROCESS` enqueues a scheduled-priority `DERIVE`
+writes `metrics.*`, never touching Jira, so it runs the same way whichever connector kind (of a kind that derives metrics,
+`DataSourceKind.derivesMetrics`) the connection is; `runJob` fails a DERIVE for any other kind (the backstop, "Connector kinds"). **Chaining** (`IngestWorker.onSucceeded`, `.claude/docs/domain-model.md`'s plan §2
+decision 1): every successful `SYNC`/`RECONCILE`/`REPROCESS` of a kind that derives metrics enqueues a scheduled-priority `DERIVE`
 for its OWN connection (`SyncJobsService.enqueueScheduled`, coalesced by `uq_sync_jobs_open_per_kind`
 if one is already open); a `DERIVE` run itself enqueues nothing UNLESS the shared
 `metrics.settings.config_revision` moved WHILE it was running (a config PUT that coalesced into the
@@ -127,7 +127,7 @@ already-open job rather than getting its own — review round 1 fix, `derive()`'
 revision the run actually used, the handler's return value, compared in `onSucceeded` against the registry's
 `ConfigRevisionSource` — `MetricsSettingsService.currentRevision`).
 `MetricsSettingsService.bumpRevision` separately enqueues a `DERIVE`: for EVERY enabled, active
-connection on a global-settings PUT, a team-membership mutation or a team default capacity change
+connection whose kind derives metrics (`DataSourceKind.derivesMetrics`, "Connector kinds") on a global-settings PUT, a team-membership mutation or a team default capacity change
 (every connection's DERIVE reads those), and for the SAVED connection only on a per-connection
 metrics-config PUT or a sprint-calendar save (`.claude/docs/metrics.md` "DERIVE fan-out per config change").
 
@@ -362,7 +362,7 @@ due for a moment), never lose the success or the back-off reset.
 also cancels the connection's open jobs `CONFIG_CHANGED`) clears an existing failure back-off in the same UPDATE
 (`clearBackoff`): `consecutive_failures` → 0 and `next_sync_at` → null for SYNC, `reconcile_failures` → 0 and
 `next_reconcile_at` → null for RECONCILE — so the operator's fix (a rotated token, a corrected scope) is retried on the
-next scheduler tick instead of after up to 6 h. `last_sync_error_code` stays as history; it is a closed vocabulary (`RUN_FAILED`, `RETRIES_EXHAUSTED` and the ceiling-trip codes `LIMIT_EXCEEDED`, `TIME_EXCEEDED`, "Ceiling trips and the pause"; `closedErrorCode` stores anything else as `RUN_FAILED`), since the telemetry panel and the status view show it to ADMINs. A connection with no
+next scheduler tick instead of after up to 6 h. `last_sync_error_code` stays as history; it is a closed vocabulary (`RUN_FAILED`, `RETRIES_EXHAUSTED`, `CONNECTOR_UNAVAILABLE` and the ceiling-trip codes `LIMIT_EXCEEDED`, `TIME_EXCEEDED`, "Ceiling trips and the pause"; `closedErrorCode` stores anything else as `RUN_FAILED`), since the telemetry panel and the status view show it to ADMINs. A connection with no
 back-off keeps its schedule (a rename triggers no extra sync). Soft delete and the metrics-config PUTs do not touch the back-off.
 
 **Idle heap give-back.** `claimAvailable` counts the jobs it launches in a `BusyTracker` (`ingest/IdleHeapGiveBack.kt`); when
@@ -1344,12 +1344,57 @@ source of truth:
   the queue), so a client sees and polls a job that has not been claimed yet; null when nothing is open. This is where `progress`/`currentStream` above surface to an operator (a PENDING
   job has none yet).
 
+## Connector kinds
+
+A second connector kind (GitLab, `.claude/docs/gitlab-integration.md`) shares the table, queue and worker; this is the seam that keeps it
+out of every Jira-only path (V40 + `ingest/`, pinned by `ConnectorSeamTest` and `KindLeakTest`).
+
+- **`DataSourceKind(derivesMetrics)`** (`DataSource.kt`): `JIRA_CLOUD(true)`, `GITLAB(false)`. `derivesMetrics` is the ONE flag a
+  metrics-only path gates on; `Connections.derivesMetrics()` / `Connections.isJira()` (`DataSourceKinds.kt`) are the SQL predicates, and
+  the V40 CHECK (`source_connections_kind_check`, V8's unnamed inline CHECK) admits both kinds.
+- **The connector registry** (`ConnectorRegistry.kt`): `Application.connectorRegistry()` creates it on first use (the
+  `jobHandlerRegistry()` shape); each connector module calls `register(connector)` from its `configureXxx` (`configureJira` registers
+  `JIRA_CLOUD`; the GitLab module follows it in `application.yaml`). Additive: registering a kind twice is a boot error, nothing is
+  replaced. `connectorFor(kind)` / `connectors()` (a snapshot) read it; `configureIngestWorker` builds the worker from `connectors()` at
+  `ApplicationStarted` (the `IngestConnectorOverrideKey` test seam wins). **A kind with no registered connector** (GitLab switched off, not
+  built here) fails its job with `ConnectorUnavailableException` -> job error code `CONNECTOR_UNAVAILABLE`, one of the closed
+  `last_sync_error_code` vocabulary; the worker loop carries on, and a PURGE of such a connection fails too instead of stamping it purged
+  with its raw rows in place. **The scheduler (`IngestWorker.enqueueDue`: scheduled SYNC, RECONCILE and PURGE) skips connections whose
+  kind has no registered connector** (`DueConnection.kind`), because a failed job is terminal and would otherwise be re-enqueued every
+  tick; only a MANUAL job (Sync now) is still queued, and fails with `CONNECTOR_UNAVAILABLE`. Such a connection's PURGE waits until its
+  connector is registered again.
+- **`Connector.testConnection(target: ConnectionTarget)`**: `ConnectionTarget` is a sealed type (`Connector.kt`), `Jira(siteUrl, email,
+  apiToken, projectKeys, authScheme)` and `GitLab(baseUrl, token, groupPaths)`; both mask the secret in `toString`. A connector answers
+  its own case only (`JiraConnector` `check`s: an internal error, never reachable from a route).
+- **Settings by kind** (`DataSourceSettings.kt`): `ConnectionSettings` is a sealed interface with `JiraConnectionSettings` (stored JSON
+  unchanged since V8, no discriminator) and `GitLabConnectionSettings(baseUrl, groupPaths, pathExclusions?)`.
+  `decodeSettings(kind, raw)` picks the shape from the row's `kind`; `ResultRow.jiraSettings()` is the Jira-only read and throws for any
+  other kind, so a missed gate fails loudly instead of reading GitLab JSON as Jira.
+- **Kind-leak guards** (a non-metrics / non-Jira row never reaches these): the scope rules (`DataSourceScope.kt`) read Jira rows only;
+  `IngestWorker.onSucceeded` chains DERIVE only when `claim.connectorKind.derivesMetrics`, and a DERIVE job for another kind fails in
+  `runJob` (backstop); `enabledActiveConnections()` (the `bumpRevision` fan-out) lists metrics-deriving connections only; the report
+  scopes (`resolveConnectionScope`, `/reports/filters`, Home's connections, and the report ETag stamp) list `derivesMetrics`
+  connections only, and an explicit `connectionId` of another kind is the same `400` as an unknown one; the metrics-config routes answer
+  `409 data-source-kind-unsupported` (`DataSourceKindUnsupportedException`, type `urn:flow:problem:data-source-kind-unsupported`) after
+  the admin guard, and so does the raw-issue inspector (`requireMetricsConnection` / `requireJiraConnection`). The data profile route
+  decodes no settings and serves a GITLAB row's stored (empty) profile: it becomes per-kind with the code layer.
+- **The data-source API serves Jira rows only until the GitLab release adds its wire block**: `list`/`read`/`update`/`readForTest`/
+  `persistCloudId` filter on `isJira()`, so a GITLAB row is absent (list, `404` by id) rather than a `500` from a `DataSourceResponse`
+  that cannot carry it. `delete`, the scheduler scans (`dueForSync`/`dueForReconcile`/`dueForPurge`) and `connectionHealth` are
+  kind-agnostic on purpose: every kind syncs, reconciles and purges through its own connector. The backfill floor (history horizon) is
+  applied at write time by `DataSourceService`; whether GitLab sources take it is decided with its data-source release.
+- **Interim inconsistency until PR 6** (a GITLAB row can only exist by direct insert today): the row is `404` on read, PUT, status,
+  sync-jobs and the stored Test connection, but `204` on DELETE (kind-agnostic soft delete), `200` on the profile route (it decodes
+  nothing) and `409 data-source-kind-unsupported` on metrics-config and the raw-issue inspector. `uq_source_connections_name_active`
+  spans kinds, so a Jira POST reusing a hidden GITLAB row's name is a `409` for a row the admin cannot see. PR 6's `gitlab` wire block
+  removes all of this.
+
 ## Data sources
 
 `source_connections` (V8, `ingest/DataSourceService.kt`) is the generic connector registry: `kind`
-(`JIRA_CLOUD` today), typed common columns (schedule, sync status, `config_revision`) and a
-`settings` jsonb holding the Jira-specific shape (`siteUrl`, `email`, `projectKeys`, `authScheme`,
-`cloudId`) — a future GitLab connector reuses this table, its queue and its worker outright. The service keeps the
+(`JIRA_CLOUD`, `GITLAB` since V40 - "Connector kinds"), typed common columns (schedule, sync status, `config_revision`) and a
+`settings` jsonb holding the per-kind shape (Jira's: `siteUrl`, `email`, `projectKeys`, `authScheme`,
+`cloudId`) — the GitLab connector reuses this table, its queue and its worker outright. The service keeps the
 table, the CRUD and the PUT/scope locking; the rest sits beside it as verbatim moves taking an explicit `database`/`cipher`, the service
 delegating by the same public names: `DataSourceReads.kt` (row -> response/status/decrypted `StoredJiraConnection`), `DataSourceSchedule.kt`
 (the due scans), `DataSourceOutcomes.kt` (the job-outcome writes); already beside it: `DataSourceScope.kt` (the scope rules), `ScheduleBackoff.kt` (the back-off). It

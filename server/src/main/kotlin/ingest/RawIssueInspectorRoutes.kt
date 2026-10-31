@@ -75,7 +75,7 @@ fun Application.configureRawIssueInspectorRoutes() {
                 val caller = call.caller()
                 requireAdmin(caller)
                 val connectionId = route.parent.id
-                dataSources.read(connectionId).orNotFound("Data source")
+                dataSources.requireJiraConnection(connectionId, "raw issues to inspect")
 
                 val issueId = resolveRawIssueId(rawStore, connectionId, route.issueKey).orNotFound("Raw issue")
                 // At most MAX_CONCURRENT_INSPECTIONS issues at once in a `web` process; the rest wait for a permit. The permit is held

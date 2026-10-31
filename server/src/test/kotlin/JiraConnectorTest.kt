@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.ingest.ConnectionTarget
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.jira.JIRA_SOURCE
 import ch.nokillswit.jira.JiraClient
@@ -64,10 +65,13 @@ class JiraConnectorTest {
         override suspend fun boardSprints(boardId: Long, startAt: Int) = fail()
     }
 
+    private fun target(projectKey: String) =
+        ConnectionTarget.Jira("https://acme.atlassian.net", "svc@example.com", "tok", listOf(projectKey), JiraAuthScheme.BASIC)
+
     @Test
     fun `a raw-cast IllegalArgumentException anywhere in a probe becomes an INVALID_RESPONSE row, never an uncaught crash`() = runBlocking {
         val connector = JiraConnector(newClient = { _, _, _, _ -> alwaysThrowsRawCast })
-        val result = connector.testConnection("https://acme.atlassian.net", "svc@example.com", "tok", listOf("ENG"), JiraAuthScheme.BASIC)
+        val result = connector.testConnection(target("ENG"))
         assertTrue(result.rows.isNotEmpty())
         assertTrue(result.rows.all { !it.ok && it.code == "INVALID_RESPONSE" }, "every row: ${result.rows}")
     }
@@ -79,7 +83,7 @@ class JiraConnectorTest {
         }
         val connector = JiraConnector(newClient = { _, _, _, _ -> cancelling })
         assertFailsWith<CancellationException> {
-            connector.testConnection("https://acme.atlassian.net", "svc@example.com", "tok", listOf("ENG"), JiraAuthScheme.BASIC)
+            connector.testConnection(target("ENG"))
         }
         Unit
     }
@@ -101,7 +105,7 @@ class JiraConnectorTest {
             }
         }
         val connector = JiraConnector(newClient = { _, _, _, _ -> client }, now = { clock })
-        val result = connector.testConnection("https://acme.atlassian.net", "svc@example.com", "tok", listOf("ENG"), JiraAuthScheme.BASIC)
+        val result = connector.testConnection(target("ENG"))
         val myselfRow = result.rows.single { it.name == "myself" }
         assertEquals("TIMEOUT", myselfRow.code, "myself must be bounded by the ~20ms REMAINING budget, not the full 10s per-probe cap")
     }
@@ -135,7 +139,7 @@ class JiraConnectorTest {
             override suspend fun boardSprints(boardId: Long, startAt: Int) = JiraStartAtPage()
         }
         val connector = JiraConnector(newClient = { _, _, _, _ -> allOk })
-        val result = connector.testConnection("https://acme.atlassian.net", "svc@example.com", "tok", listOf("FLO"), JiraAuthScheme.BASIC)
+        val result = connector.testConnection(target("FLO"))
         assertTrue(result.rows.all { it.ok }, "every probe must succeed: ${result.rows}")
         assertEquals(
             mapOf(
@@ -183,7 +187,7 @@ class JiraConnectorTest {
         val capture = LogCapture("ch.nokillswit.jira.JiraConnector")
         try {
             val ok = JiraConnector(newClient = { _, _, _, _ -> client })
-                .testConnection("https://acme.atlassian.net", "svc@example.com", "tok", listOf("FLO"), JiraAuthScheme.BASIC)
+                .testConnection(target("FLO"))
             assertTrue(ok.rows.single { it.name == "field_search" }.ok, "rows: ${ok.rows}")
             assertEquals(
                 listOf("field/search total=3, values=1, isLast=null, field count=3"),
@@ -198,7 +202,7 @@ class JiraConnectorTest {
                 throw FetchException(JIRA_SOURCE, "FORBIDDEN_SCOPE", status = 403)
         }
         val result = JiraConnector(newClient = { _, _, _, _ -> denied })
-            .testConnection("https://acme.atlassian.net", "svc@example.com", "tok", listOf("FLO"), JiraAuthScheme.BASIC)
+            .testConnection(target("FLO"))
         val row = result.rows.single { it.name == "field_search" }
         assertTrue(!row.ok && !row.required && row.status == 403 && row.code == "FORBIDDEN_SCOPE", "row: $row")
         assertTrue(result.rows.filter { it.required }.all { it.ok }, "the required set stays green: ${result.rows}")
@@ -217,7 +221,7 @@ class JiraConnectorTest {
             override suspend fun fieldsSearch(startAt: Int, maxResults: Int): JiraStartAtPage = awaitCancellation()
         }
         val result = JiraConnector(newClient = { _, _, _, _ -> client }, now = { clock })
-            .testConnection("https://acme.atlassian.net", "svc@example.com", "tok", listOf("FLO"), JiraAuthScheme.BASIC)
+            .testConnection(target("FLO"))
         val row = result.rows.single { it.name == "field_search" }
         assertTrue(!row.ok && !row.required && row.code == "TIMEOUT", "row: $row")
         assertTrue(result.rows.filter { it.required }.all { it.ok }, "every required row stays OK: ${result.rows}")
@@ -236,7 +240,7 @@ class JiraConnectorTest {
                 JsonArray(listOf(JsonPrimitive("junk"), buildJsonObject { put("id", "10001") }))
         }
         val connector = JiraConnector(newClient = { _, _, _, _ -> client })
-        val result = connector.testConnection("https://acme.atlassian.net", "svc@example.com", "tok", listOf("FLO"), JiraAuthScheme.BASIC)
+        val result = connector.testConnection(target("FLO"))
         assertTrue(result.rows.single { it.name == "projects" }.ok, "the REQUIRED projects probe must pass: ${result.rows}")
         assertTrue(result.rows.single { it.name == "project_statuses:FLO" }.ok, "so must the statuses probe: ${result.rows}")
         assertTrue(result.rows.none { it.name == "project_fields" }, "no usable project id means the optional probe is skipped")
@@ -275,7 +279,7 @@ class JiraConnectorTest {
     private suspend fun boardProbes(boardList: List<JsonObject>): Pair<List<String>, List<String>> {
         val calls = mutableListOf<String>()
         val connector = JiraConnector(newClient = { _, _, _, _ -> boardsClient(boardList, calls) })
-        val result = connector.testConnection("https://acme.atlassian.net", "svc@example.com", "tok", listOf("FLO"), JiraAuthScheme.BASIC)
+        val result = connector.testConnection(target("FLO"))
         assertTrue(result.rows.all { it.ok }, "every probe must succeed: ${result.rows}")
         return calls to result.rows.map { it.name }.filter { it.startsWith("board_") }
     }
