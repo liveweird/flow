@@ -126,3 +126,50 @@ internal fun List<RawGitLabCommitFile>.mergedByPath(): List<RawGitLabCommitFile>
 }
 
 private fun sumOrNull(a: Int?, b: Int?): Int? = if (a == null || b == null) null else a + b
+
+// The commit row shapes the raw store takes and hands back (V42): what the COMMITS and COMMIT FILES streams write and read.
+
+/** One default-branch commit as the COMMITS stream hands it over (no body, committer or diff); [additions]/[deletions] are `stats`. */
+class RawGitLabCommit(
+    val sha: String,
+    val title: String,
+    val authorName: String,
+    val authorEmail: String,
+    val authoredAt: Long,
+    val committedAt: Long,
+    val parentCount: Int,
+    val additions: Int?,
+    val deletions: Int?,
+)
+
+/** One file of a commit's `/diff`: [additions]/[deletions] null = GitLab sent it too large or collapsed; a binary file is 0/0. */
+class RawGitLabCommitFile(
+    val path: String,
+    val oldPath: String?,
+    val additions: Int?,
+    val deletions: Int?,
+    val newFile: Boolean,
+    val deletedFile: Boolean,
+    val renamedFile: Boolean,
+    val generatedFile: Boolean,
+)
+
+/** A commit's complete file list; [capped] = the 1,000-file cap cut it. */
+class CommitFilesResult(val files: List<RawGitLabCommitFile>, val capped: Boolean)
+
+/** The terminal `files_error` values (V42): a diff page over the response ceiling, and a commit GitLab no longer has. */
+internal const val FILES_ERROR_LIMIT_EXCEEDED = "LIMIT_EXCEEDED"
+internal const val FILES_ERROR_NOT_FOUND = "NOT_FOUND"
+
+/** What the COMMIT FILES stream settled for one commit: its [result], or a terminal [error] (`LIMIT_EXCEEDED`, `NOT_FOUND`) with none. */
+class CommitFilesOutcome(val projectId: Long, val sha: String, val result: CommitFilesResult?, val error: String?) {
+    init {
+        require((result == null) != (error == null)) { "a commit-files outcome carries exactly one of a result and an error" }
+    }
+}
+
+/** A non-merge live commit whose `/diff` has not been read. */
+class PendingCommit(val projectId: Long, val sha: String)
+
+/** A live project as the COMMITS stream reads it: its default branch, the stored head and whether a re-list was requested. */
+class CommitsProjectRow(val projectId: Long, val defaultBranch: String?, val headSha: String?, val relistRequested: Boolean)
