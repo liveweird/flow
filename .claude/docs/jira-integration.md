@@ -556,8 +556,8 @@ loop's existing oversized path, or ends the stream when the loop has none. Every
 ### Paging ceilings (REFERENCE, PROJECT_FIELDS, ISSUES, RECONCILE)
 
 The remaining loops that trusted the host to stop (the 2026-10-25 security audit's MEDIUM findings) carry ceilings on the same lever
-(`fetch/Ceilings.kt`: `PageCeiling`, `BoundedAnswer`, plus `RunCeiling`/`RunBudget` for a run that writes every page; the figures and
-`PageTokenGuard` in `fetch/PageTokenGuard.kt`, injectable as constructor parameters so a test uses small ones). They are constants, not
+(`fetch/Ceilings.kt`: `PageCeiling`, `BoundedAnswer`, plus `RunCeiling`/`RunBudget` for a run that writes every page; the figures in
+`jira/JiraPagingCeilings.kt`, `PageTokenGuard` in `fetch/PageTokenGuard.kt`, injectable as constructor parameters so a test uses small ones). They are constants, not
 configuration: sized against the real tenant with wide headroom, never against `jira.maxResponseBytes` or a page size. Every check runs
 AFTER the page is fetched and BEFORE its transaction (the page count before the fetch), so a trip leaves the cursor on the token (or
 `startAt`) that asks the refused page; the failure is `LIMIT_EXCEEDED` with text `answer ceiling: ...` (`INVALID_RESPONSE` for a bad token

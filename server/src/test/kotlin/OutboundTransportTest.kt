@@ -39,7 +39,7 @@ import kotlin.test.assertTrue
  * The transport-level guarantees of `infra/outbound/OutboundGuard.kt` that `OutboundGuardTest`
  * (allow-list, address ranges, error mapping) does not pin, each against a LOCAL socket server only
  * (`.claude/docs/security.md` "Outbound HTTP calls", "What pins what"):
- *  - the response/connection release of `jira/SourceHttp.kt` (LOW-3), with the leak window forced open by a
+ *  - the response/connection release of `fetch/SourceHttp.kt` (LOW-3), with the leak window forced open by a
  *    server that sends headers plus a first chunk of the body and then HOLDS the rest — plus the
  *    negative control that the old `client.request()` pattern is stuck in exactly that window;
  *  - [DirectSocketFactory] (LOW-4): no re-resolution, no proxy;
