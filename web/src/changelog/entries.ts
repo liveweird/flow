@@ -17,6 +17,22 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.37.0",
+    date: "2026-10-31",
+    en: `**GitLab: commits, merge requests and review activity become normalized facts.**
+
+- Every sync now turns the stored GitLab data into the normalized code layer: commits with their author identity and their lines counted after the excluded paths, merge requests with their size and state, and review events (comments, diff comments, approvals, review requests, reviews, changes requested). Merge commits are kept but never counted; a commit whose file details are still pending stays "unknown" rather than undercounted.
+- Identities are keys, not people yet: a GitLab user, or a commit e-mail that matches no user. Linking them to Jira people comes in the next release.
+- A changed excluded-paths list is applied at the next sync, or at once with Reprocess, which is now offered for GitLab sources. The data profile is available for GitLab sources and summarizes projects, commits, merge requests, review events and identities.
+- Deleting a GitLab source now purges its normalized rows with the raw ones.`,
+    pl: `**GitLab: commity, merge requesty i aktywność przeglądowa stają się znormalizowanymi faktami.**
+
+- Każda synchronizacja przetwarza teraz zapisane dane GitLab do znormalizowanej warstwy kodu: commity z tożsamością autora i liczbą linii policzoną po wyłączeniu wskazanych ścieżek, merge requesty z rozmiarem i stanem oraz zdarzenia przeglądu (komentarze, komentarze do zmian, zatwierdzenia, prośby o przegląd, przeglądy, prośby o zmiany). Commity merge są zachowywane, ale nigdy nie liczone; commit, którego szczegóły plików jeszcze nie dotarły, pozostaje „nieznany” zamiast zaniżony.
+- Tożsamości to na razie klucze, nie osoby: użytkownik GitLab albo adres e-mail commitu, który nie pasuje do żadnego użytkownika. Powiązanie ich z osobami z Jiry przyjdzie w następnym wydaniu.
+- Zmieniona lista wykluczonych ścieżek jest stosowana przy następnej synchronizacji albo od razu przez „Przetwórz ponownie”, dostępne teraz także dla źródeł GitLab. Profil danych jest dostępny dla źródeł GitLab i podsumowuje projekty, commity, merge requesty, zdarzenia przeglądu i tożsamości.
+- Usunięcie źródła GitLab czyści teraz jego znormalizowane wiersze razem z surowymi.`,
+  },
+  {
     version: "1.36.1",
     date: "2026-10-31",
     en: `**GitLab: a daily reconcile catches what the incremental syncs cannot.**
