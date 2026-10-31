@@ -192,7 +192,7 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
 - **SYNC order and guards** - the job first re-probes `/personal_access_tokens/self` and `/user`: a token with a scope beyond `read_*` fails
   the job `TOKEN_SCOPE_TOO_BROAD`, an inactive one `TOKEN_INACTIVE` (`JobRefusedException`), before anything is stored. RECONCILE and REPROCESS are accepted no-ops until PR 9/10;
   PURGE drains all four raw tables. The streams run PROJECTS -> USERS -> COMMITS -> COMMIT FILES. The job runs under the shared `CallTally` (GitLab's throttling lands under the stored `jira*` progress keys).
-- **COMMITS** (as built, PR 7; `GitLabCommitsStream.kt`, cursor `{passStartedAt, lastCompletedProjectId, walk}`) - per live project in id order
+- **COMMITS** (as built, PR 7; `GitLabCommitsStream.kt` + `GitLabCommitsSweep.kt`, cursor `{passStartedAt, lastCompletedProjectId, walk}`) - per live project in id order
   (`moved_out_at`/`deleted_at` null), the commits of the DEFAULT branch into `raw.gitlab_commits` (no hash, a commit is immutable by SHA; the stored
   whitelist is `title`, author name/email, authored/committed time, parent count and `stats`: never the body, the committer or a diff). What a
   project needs is decided once per run, with no write: no stored head -> **FULL** (`ref_name=<branch>&since=<backfillFrom>&with_stats=true`);
@@ -215,17 +215,26 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
   The candidates are the project's live commits with `committed_at >= since` that nothing has seen since the epoch (`last_seen_at < relist_started_at`):
   the listing's pages and the sweep's touches both count as seeing. A per-run pass start would re-qualify every kept candidate in every run; the epoch
   makes each handled candidate (kept, unconfirmed or tombstoned) leave the set for good, so repeated runs converge.
+  *Continuing a deferred re-list.* A project whose request is still set (the sweep recorded its tip as the head and left candidates over) first reads the
+  branch tip (page 1, no `since`). Tip == head: nothing to list again, straight to the sweep under the same epoch. The head no longer an ancestor of
+  the tip (`merge_base(head, tip) != head`, or `REF_NOT_FOUND`): the branch was force-pushed AGAIN, so the epoch RESTARTS (a new `relist_started_at`; the
+  commits the first sweep touched are candidates again, which is what finds what the second push removed). Otherwise the history only grew and the
+  re-list continues under its epoch. A branch that cannot be read skips the project with its request left as it was.
   *The confirmation* (after the listing, outside any transaction; at most `MAX_SWEEP_CONFIRMATIONS` = 100 per project per run): each candidate is
-  asked against the LISTING'S SNAPSHOT, `merge_base(candidate, tip)` (the branch only for an empty listing): the commit itself means it is still an
-  ancestor (kept, `commitsSweepKept`); another commit, or `REF_NOT_FOUND`, means it left the branch (tombstoned, `needs_processing` set - a rewritten-away
-  commit usually still exists as an unreachable object, so its merge base is the fork point). A `REF_NOT_FOUND` is believed only after ONE probe
-  `merge_base(tip, branch) == tip`: a branch renamed, a project deleted or a second force-push between the listing and the sweep makes the probe fail and
-  every candidate UNCONFIRMED. Unconfirmed (any other failure, or a failed probe) means KEPT and TOUCHED and counted (`commitsSweepUnconfirmed`):
-  keeping a gone commit live is the safe error (RECONCILE re-checks), and a persistently failing candidate must not pin the project in RELIST. Only when
-  MORE candidates remain than the cap does `relist_requested` (and the epoch) stay set for the next run (`commitsSweepDeferred`); otherwise the request
-  and the epoch clear, and an empty listing keeps the stored head. The same early stop can leave a gap in a FULL listing from the backfill floor;
-  RECONCILE (PR 9) is the catch-up. Progress: `pages`, `commits` (inserted), `commitsRelisted`, `commitsTombstoned`, `commitsSweepKept`,
-  `commitsSweepUnconfirmed`, `commitsSweepDeferred`, `commitsProjectsSkipped`.
+  asked against the SNAPSHOT TIP, `merge_base(candidate, tip)`. The tip is the listing's first commit; for an EMPTY listing (every commit older than
+  `since`) it is the branch's own tip, read once (page 1, no `since`), and that tip is recorded as the head too, so the next run is a plain CHECK
+  (tip == head) and not a re-list. The commit itself means it is still an ancestor (kept, `commitsSweepKept`); another commit, or `REF_NOT_FOUND`, means
+  it left the branch (tombstoned, `needs_processing` set - a rewritten-away commit usually still exists as an unreachable object, so its merge base is
+  the fork point). Nothing is believed unless the tip is still on the branch: ONE probe, `merge_base(tip, branch) == tip`, before the batch (a branch
+  renamed, a project deleted or a second force-push in between makes it fail) and, if any verdict was a `REF_NOT_FOUND`, ONE more after it (a project
+  lost mid-batch answers `REF_NOT_FOUND` for the rest of it; a 200 with a different merge base needs no re-probe); a failed probe makes the affected
+  candidates UNCONFIRMED. A probe that fails for any OTHER reason (rate limit, authentication) fails the run, and the saved `listingDone` cursor
+  resumes straight at the sweep next run. Unconfirmed (a tip that cannot be read, any other candidate failure, or a failed probe) means KEPT and
+  TOUCHED and counted (`commitsSweepUnconfirmed`): keeping a gone commit live is the safe error (RECONCILE re-checks), and a persistently failing
+  candidate must not pin the project in RELIST. Only when MORE candidates remain than the cap does `relist_requested` (and the epoch) stay set for the
+  next run (`commitsSweepDeferred`); otherwise the request and the epoch clear, and a missing tip keeps the stored head. The same early stop can leave a
+  gap in a FULL listing from the backfill floor; RECONCILE (PR 9) is the catch-up. Progress: `pages`, `commits` (inserted), `commitsRelisted`,
+  `commitsTombstoned`, `commitsSweepKept`, `commitsSweepUnconfirmed`, `commitsSweepDeferred`, `commitsProjectsSkipped`.
 - **COMMIT FILES** (as built, PR 7; `GitLabCommitFilesStream.kt`, cursor-less: the backlog IS its state) - the live NON-MERGE commits (`parent_count <= 1`;
   a merge's diff is against its first parent, a double count) of LIVE projects (not moved out or deleted: a moved-out project's commits cost no diff call and
   are not counted in `commitFilesPending`, in this stream or the status view) whose diff was never read, newest first, one `/commits/:sha/diff?per_page=100` chain at a
@@ -304,7 +313,7 @@ permission list.
 ## Stub (as built, PR 5)
 
 `sample-data/gitlab/generate.mjs` (zero dependencies, seeded, byte-identical; `--users/--projects/--months/--out`) writes
-`sample-data/gitlab-stub/{mappings,__files}` (1,221 mappings, ~11 MiB) and `sample-data/gitlab/expected.json`. It is served by the
+`sample-data/gitlab-stub/{mappings,__files}` (1,220 mappings, ~11 MiB) and `sample-data/gitlab/expected.json`. It is served by the
 compose `gitlab-stub` (WireMock, `127.0.0.1:8095`, read-only mount; `GITLAB_STUB_BASE_URL` points the app at it) and the in-JVM
 `GitLabStubServer` (`server/src/test/kotlin/`, `JiraStubServer`'s twin); `GitLabStubServerTest` pins the contract over plain HTTP and
 `node --test sample-data/gitlab/generate.test.mjs` (in `scripts/gates.sh e2e` and the CI `e2e-static` job) guards the generator.

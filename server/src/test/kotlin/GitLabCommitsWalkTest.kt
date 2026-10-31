@@ -234,10 +234,18 @@ class GitLabCommitsWalkTest {
         client: FakeClient = FakeClient(),
     ): Pair<FakeClient, Map<String, Long>> {
         val tip = sha(listed.last)
+        val head = store.liveProjectsForCommits(connId).single().headSha
         client.listingOf = { _, _, _, _ -> commitPage(listed.reversed()) }
-        // The probe asks whether the listing's tip is still on the branch; the candidates are asked against that tip.
-        client.mergeBaseOf = { _, a, _ -> if (a == tip) a else base(a) }
-        store.beginRelist(connId, PROJECT, now = 200) // the stored commits (last seen at 100) were not seen since the epoch
+        // The CHECK finds the stored head gone (a force-push) and starts the re-list, whose epoch is the run's clock: the stored commits
+        // (last seen at 100) were not seen since. The probe asks whether the listing's tip is still on the branch; the candidates are
+        // asked against that tip.
+        client.mergeBaseOf = { _, a, b ->
+            when {
+                a == tip -> a
+                a == head && b == BRANCH -> throw fetchFailure(REF_NOT_FOUND)
+                else -> base(a)
+            }
+        }
         return client to run(client, connId)
     }
 
@@ -281,7 +289,7 @@ class GitLabCommitsWalkTest {
         store.recordCommitsHead(connId, PROJECT, sha(total))
         val client = FakeClient()
         val (_, first) = relist(connId, (total + 1)..(total + 1), base = { sha(0) }, client = client)
-        assertEquals(MAX_SWEEP_CONFIRMATIONS + 1, client.mergeBaseCalls, "the tip probe, then one call per candidate up to the cap")
+        assertEquals(MAX_SWEEP_CONFIRMATIONS + 2, client.mergeBaseCalls, "the head check, the tip probe, then the candidates up to the cap")
         assertEquals(MAX_SWEEP_CONFIRMATIONS.toLong(), first["commitsTombstoned"])
         assertEquals(1L, first["commitsSweepDeferred"])
         assertTrue(project(connId).relistRequested)
@@ -301,8 +309,8 @@ class GitLabCommitsWalkTest {
         store.upsertCommits(connId, PROJECT, (4..5).map { raw(it) }, now = 100)
         store.recordCommitsHead(connId, PROJECT, sha(5))
         val (client, _) = relist(connId, 9..9, base = { it })
-        assertEquals(listOf(sha(9) to BRANCH), client.mergeBases.take(1), "the probe: the tip against the branch")
-        val against = client.mergeBases.drop(1).map { it.second }
+        assertTrue(sha(9) to BRANCH in client.mergeBases, "the probe: the tip against the branch")
+        val against = client.mergeBases.filter { it.first == sha(4) || it.first == sha(5) }.map { it.second }.filter { it != BRANCH }
         assertEquals(listOf(sha(9), sha(9)), against, "each candidate against the tip, not the moving branch")
     }
 
@@ -317,29 +325,14 @@ class GitLabCommitsWalkTest {
         }
         store.beginRelist(connId, PROJECT, now = 200)
         val progress = run(client, connId)
-        assertEquals(1, client.mergeBaseCalls, "the probe failed: no candidate is asked")
+        assertEquals(2, client.mergeBaseCalls, "the head check and the failed probe: no candidate is asked")
         assertNull(progress["commitsTombstoned"])
         assertEquals(3L, progress["commitsSweepUnconfirmed"])
         assertTrue(store.commitRows(connId, PROJECT).none { it[GitLabRawStore.Commits.deletedAt] != null })
     }
 
     @Test
-    fun `kept candidates leave the set for good - the next run asks nothing`() = runBlocking<Unit> {
-        val connId = connection()
-        store.upsertCommits(connId, PROJECT, (4..6).map { raw(it) }, now = 100)
-        store.recordCommitsHead(connId, PROJECT, sha(6))
-        val (client, first) = relist(connId, 9..9, base = { it })
-        assertEquals(3L, first["commitsSweepKept"])
-        assertFalse(project(connId).relistRequested)
-        client.mergeBaseCalls = 0
-        client.listingOf = { _, _, _, _ -> commitPage(9 downTo 9) }
-        val second = run(client, connId)
-        assertEquals(0, client.mergeBaseCalls, "tip == head: a CHECK, nothing to confirm")
-        assertNull(second["commitsRelisted"])
-    }
-
-    @Test
-    fun `a hidden window larger than the cap converges over runs without a tombstone`() = runBlocking<Unit> {
+    fun `kept candidates leave the set - a deferred re-list's second run asks only about the rest`() = runBlocking<Unit> {
         val connId = connection()
         val hidden = MAX_SWEEP_CONFIRMATIONS + 50
         store.upsertCommits(connId, PROJECT, (1..hidden).map { raw(it) }, now = 100)
@@ -349,27 +342,157 @@ class GitLabCommitsWalkTest {
         assertTrue(project(connId).relistRequested, "more candidates than the cap: the re-list goes on")
 
         client.mergeBaseCalls = 0
+        client.listed.clear()
         val second = run(client, connId)
         assertEquals(50L, second["commitsSweepKept"])
         assertEquals(51, client.mergeBaseCalls, "the probe and only the 50 not yet touched: kept candidates did not come back")
+        assertTrue(client.listed.all { it.second == null }, "the branch is still at the recorded head: nothing is listed again")
+        assertEquals(1, client.listCalls)
         assertFalse(project(connId).relistRequested)
         assertTrue(store.commitRows(connId, PROJECT).none { it[GitLabRawStore.Commits.deletedAt] != null })
     }
 
     @Test
-    fun `a re-list listing nothing keeps the stored head and clears the request`() = runBlocking<Unit> {
+    fun `an empty re-list listing takes the branch's own tip as the head, so the next run is a plain CHECK`() = runBlocking<Unit> {
         val connId = connection()
         store.upsertCommits(connId, PROJECT, listOf(raw(4)), now = 100)
         store.recordCommitsHead(connId, PROJECT, sha(4))
-        val client = FakeClient().apply {
-            listingOf = { _, _, _, _ -> commitPage(IntRange.EMPTY) }
-            mergeBaseOf = { _, _, _ -> throw fetchFailure("INVALID_RESPONSE") }
-        }
         store.beginRelist(connId, PROJECT, now = 200)
+        // `since` shows nothing (every commit is older than it); the branch itself (no `since`) is at 9, a descendant of the head.
+        val client = FakeClient().apply {
+            listingOf = { _, _, since, _ -> if (since == null) commitPage(9 downTo 9) else commitPage(IntRange.EMPTY) }
+            mergeBaseOf = { _, a, _ -> a }
+        }
         run(client, connId)
-        assertEquals(sha(4), project(connId).headSha, "an empty listing is no head")
+        assertEquals(sha(9), project(connId).headSha, "the stale head is replaced by the branch's tip")
         assertFalse(project(connId).relistRequested)
         assertNull(store.projectRows(connId).single()[GitLabRawStore.Projects.relistStartedAt])
+
+        client.mergeBaseCalls = 0
+        client.listed.clear()
+        val next = run(client, connId)
+        assertEquals(0, client.mergeBaseCalls, "tip == head: a plain CHECK")
+        assertEquals(1, client.listCalls)
+        assertNull(next["commitsRelisted"])
+    }
+
+    @Test
+    fun `an empty re-list listing whose branch tip cannot be read keeps and touches every candidate`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertCommits(connId, PROJECT, listOf(raw(4)), now = 100)
+        store.recordCommitsHead(connId, PROJECT, sha(4))
+        store.beginRelist(connId, PROJECT, now = 200)
+        // A run that listed nothing and was cut before the sweep: the walk is saved with its listing done and no tip.
+        val saved = CommitsWalkCursor(
+            PROJECT, WalkMode.RELIST, BRANCH, since = isoInstant(1), sinceMillis = 1, listingDone = true, epochMillis = 200,
+        )
+        cursors.put(connId, "commits", encodeCursor(CommitsCursor(5, null, saved)), null, null, 5)
+        val client = FakeClient().apply {
+            listingOf = { _, _, _, _ -> throw fetchFailure("NOT_FOUND") }
+            mergeBaseOf = { _, _, _ -> error("no tip, no merge_base") }
+        }
+        val progress = run(client, connId)
+        assertEquals(0, client.mergeBaseCalls)
+        assertEquals(1L, progress["commitsSweepUnconfirmed"])
+        assertNull(progress["commitsTombstoned"])
+        assertEquals(sha(4), project(connId).headSha)
+        assertTrue(store.commitRows(connId, PROJECT).single()[GitLabRawStore.Commits.lastSeenAt] > 100, "touched")
+    }
+
+    @Test
+    fun `a project lost part-way through the batch tombstones nothing - the probe is repeated after it`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertCommits(connId, PROJECT, (4..6).map { raw(it) }, now = 100)
+        store.recordCommitsHead(connId, PROJECT, sha(6))
+        var probes = 0
+        val client = FakeClient().apply {
+            listingOf = { _, _, _, _ -> commitPage(9 downTo 9) }
+            mergeBaseOf = { _, a, b ->
+                when {
+                    // The project is lost after the first probe.
+                    a == sha(9) && b == BRANCH -> if (++probes == 1) a else throw fetchFailure(REF_NOT_FOUND)
+                    else -> throw fetchFailure(REF_NOT_FOUND)
+                }
+            }
+        }
+        val progress = run(client, connId)
+        assertEquals(2, probes, "the probe before the batch and once more after it")
+        assertNull(progress["commitsTombstoned"])
+        assertEquals(3L, progress["commitsSweepUnconfirmed"])
+        assertTrue(store.commitRows(connId, PROJECT).none { it[GitLabRawStore.Commits.deletedAt] != null })
+    }
+
+    @Test
+    fun `a probe that fails for another reason fails the run, and the next run resumes at the sweep`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertCommits(connId, PROJECT, (4..6).map { raw(it) }, now = 100)
+        store.recordCommitsHead(connId, PROJECT, sha(6))
+        var limited = true
+        val client = FakeClient().apply {
+            listingOf = { _, _, _, _ -> commitPage(9 downTo 9) }
+            mergeBaseOf = { _, a, b ->
+                when {
+                    a == sha(6) && b == BRANCH -> throw fetchFailure(REF_NOT_FOUND)
+                    a == sha(9) && b == BRANCH -> if (limited) throw fetchFailure("RATE_LIMITED") else a
+                    else -> a
+                }
+            }
+        }
+        assertEquals("RATE_LIMITED", assertFailsWith<FetchException> { run(client, connId) }.code)
+        assertTrue(store.commitRows(connId, PROJECT).none { it[GitLabRawStore.Commits.deletedAt] != null })
+        val saved = decodeCursor<CommitsCursor>(assertNotNull(cursors.get(connId, "commits")).cursor).walk
+        assertTrue(saved?.listingDone == true, "the listing is done: the cursor waits at the sweep")
+
+        limited = false
+        client.listed.clear()
+        val progress = run(client, connId)
+        assertEquals(0, client.listCalls, "resumed straight at the sweep")
+        assertEquals(3L, progress["commitsSweepKept"])
+        assertFalse(project(connId).relistRequested)
+    }
+
+    @Test
+    fun `a deferred re-list whose branch was force-pushed again starts a new epoch`() = runBlocking<Unit> {
+        val connId = connection()
+        val hidden = MAX_SWEEP_CONFIRMATIONS + 50
+        store.upsertCommits(connId, PROJECT, (1..hidden).map { raw(it) }, now = 100)
+        store.recordCommitsHead(connId, PROJECT, sha(hidden))
+        val (client, _) = relist(connId, (hidden + 1)..(hidden + 1), base = { it })
+        val first = store.projectRows(connId).single()[GitLabRawStore.Projects.relistStartedAt]
+        assertNotNull(first, "deferred: the epoch stays")
+
+        // Pushed again: the recorded head (hidden + 1) is no longer an ancestor of the new tip.
+        val newTip = sha(hidden + 2)
+        client.listed.clear()
+        client.listingOf = { _, _, _, _ -> commitPage((hidden + 2) downTo (hidden + 2)) }
+        client.mergeBaseOf = { _, a, b -> if (a == sha(hidden + 1) && b == newTip) sha(1) else a }
+        run(client, connId)
+        val second = store.projectRows(connId).single()[GitLabRawStore.Projects.relistStartedAt]
+        assertNotNull(second)
+        assertTrue(second > first, "a second force-push restarts the epoch, so the commits the first sweep touched are candidates again")
+        assertTrue(client.listed.any { it.second != null }, "and the branch is listed again")
+    }
+
+    @Test
+    fun `a commit the RANGE listed before it fell back to a re-list is a candidate, one the re-list saw is not`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertCommits(connId, PROJECT, listOf(raw(1)), now = 100)
+        store.recordCommitsHead(connId, PROJECT, sha(1))
+        var ticks = 10_000L
+        val context = StreamContext(connId, 1u, sharedDatabaseForTests(), cursors, jobHeartbeat = { _, _ -> true }, clock = { ticks++ })
+        val client = FakeClient().apply {
+            listingOf = { _, ref, _, page ->
+                when {
+                    !ref.contains("..") -> commitPage(5 downTo 5) // the CHECK, and the re-list
+                    page == 1 -> commitPage(5 downTo 4, next = 2)
+                    else -> throw fetchFailure("NOT_FOUND") // the head vanished mid-RANGE
+                }
+            }
+            mergeBaseOf = { _, a, _ -> a }
+        }
+        run(client, connId, context)
+        val asked = client.mergeBases.filter { it.second == sha(5) }.map { it.first }.toSet()
+        assertEquals(setOf(sha(1), sha(4)), asked, "4 was last seen by the RANGE, before the epoch; 5 again by the re-list, after it")
     }
 
     @Test
@@ -394,12 +517,15 @@ class GitLabCommitsWalkTest {
     @Test
     fun `a re-list never starts before the backfill floor`() = runBlocking<Unit> {
         val connId = connection()
-        store.upsertCommits(connId, PROJECT, listOf(raw(4, committedAt = 5)), now = 100)
-        store.recordCommitsHead(connId, PROJECT, sha(4))
+        store.upsertCommits(connId, PROJECT, listOf(raw(3, committedAt = 5)), now = 100)
+        store.recordCommitsHead(connId, PROJECT, sha(3))
         store.beginRelist(connId, PROJECT, now = 200)
-        val client = FakeClient().apply { listingOf = { _, _, _, _ -> commitPage(4 downTo 4) } }
+        val client = FakeClient().apply {
+            listingOf = { _, _, _, _ -> commitPage(4 downTo 4) }
+            mergeBaseOf = { _, a, _ -> a }
+        }
         run(client, connId, floor = 7_000)
-        assertEquals(isoInstant(7_000), client.listed.single().second, "an ancient commit does not widen the window past the floor")
+        assertEquals(isoInstant(7_000), client.listed.last().second, "an ancient commit does not widen the window past the floor")
     }
 
     // --- COMMIT FILES --------------------------------------------------------------------------------------------------------

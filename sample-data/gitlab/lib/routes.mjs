@@ -134,9 +134,9 @@ export function defineRoutes(w, world) {
     // means it is still on the branch (every old commit at day zero, the divergence commit always); any other commit means it left the branch (the old commits
     // after the force-push: they still exist as unreachable commits, their merge base is the fork point). Also mapped by branch name, as a human would ask.
     if (repo.day2Info?.forcePush) {
-      const emitMergeBase = (name, sha, refOf) => w.emit(name, (state) => {
+      const emitMergeBase = (name, sha, refOf, onlyDay2 = false) => w.emit(name, (state) => {
         const view = repo.views[stateKey(state)];
-        if (!view) return null;
+        if (!view || (onlyDay2 && stateKey(state) !== "day2")) return null;
         return {
           type: "single", urlPath: `${API}/projects/${p.id}/repository/merge_base`,
           query: { "refs[]": { includes: [{ equalTo: sha(view) }, { equalTo: refOf(view) }] } }, body: commitJson(mergeBase(repo.commits, sha(view), view.tip), p),
@@ -146,7 +146,8 @@ export function defineRoutes(w, world) {
         emitMergeBase(`p${p.id}-merge-base-candidate-${sha.slice(0, 12)}`, () => sha, (view) => view.branch);
         emitMergeBase(`p${p.id}-merge-base-candidate-${sha.slice(0, 12)}-by-tip`, () => sha, (view) => view.tip);
       }
-      emitMergeBase(`p${p.id}-merge-base-tip-probe`, (view) => view.tip, (view) => view.branch);
+      // At day zero the probe is the started tip against the branch, which the `-started-tip` mappings above already answer.
+      emitMergeBase(`p${p.id}-merge-base-tip-probe`, (view) => view.tip, (view) => view.branch, true);
     }
     // Commit diffs: gated to day2 only for commits that did not exist in the Started history.
     const startedSet = repo.views.started ? ancestors(repo.commits, repo.views.started.tip) : new Set();

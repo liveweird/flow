@@ -466,4 +466,4 @@ mapping; the rest come in a `-started` and a `-day2` variant. The deltas, all re
 
 ## Size
 
-`gitlab-stub/` is ~11 MiB (1,221 mappings, 737 bodies), under the Jira stub's ~13 MiB; most of it is commit diffs (one body per commit) and the 1,040-file commit. About 470 of the mappings are the per-list past-the-end answers (they share one `[]` body).
+`gitlab-stub/` is ~11 MiB (1,220 mappings, 736 bodies), under the Jira stub's ~13 MiB; most of it is commit diffs (one body per commit) and the 1,040-file commit. About 470 of the mappings are the per-list past-the-end answers (they share one `[]` body).

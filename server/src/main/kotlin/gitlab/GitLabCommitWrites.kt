@@ -103,9 +103,14 @@ internal class GitLabCommitWrites(private val database: R2dbcDatabase) {
         }
     }
 
-    /** Sets `relist_requested` and the epoch (kept if already set, so a re-list that spans runs has ONE epoch); returns the epoch. */
-    suspend fun beginRelist(connectionId: UInt, projectId: Long, now: Long): Long = suspendTransaction(database) {
-        Projects.update({ project(connectionId, projectId) and Projects.relistStartedAt.isNull() }) { it[relistStartedAt] = now }
+    /**
+     * Sets `relist_requested` and the epoch (kept if already set, so a re-list that spans runs has ONE epoch; [restart] replaces it with
+     * [now], for a branch force-pushed again while a re-list was deferred); returns the epoch.
+     */
+    suspend fun beginRelist(connectionId: UInt, projectId: Long, now: Long, restart: Boolean): Long = suspendTransaction(database) {
+        val whose = project(connectionId, projectId)
+        val setEpoch = if (restart) whose else whose and Projects.relistStartedAt.isNull()
+        Projects.update({ setEpoch }) { it[relistStartedAt] = now }
         Projects.update({ project(connectionId, projectId) }) { it[relistRequested] = true }
         val row = Projects.select(Projects.relistStartedAt).where { project(connectionId, projectId) }.toList().single()
         row[Projects.relistStartedAt] ?: now

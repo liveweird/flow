@@ -217,9 +217,10 @@ class GitLabRawStore(database: R2dbcDatabase) {
 
     /**
      * Begins (or continues) the project's re-list: sets `relist_requested` and the re-list epoch (`relist_started_at`, kept if already set)
-     * and returns the epoch. The sweep's candidates are the live commits not seen since it.
+     * and returns the epoch; [restart] replaces a set epoch with [now]. The sweep's candidates are the live commits not seen since it.
      */
-    suspend fun beginRelist(connectionId: UInt, projectId: Long, now: Long): Long = commitWrites.beginRelist(connectionId, projectId, now)
+    suspend fun beginRelist(connectionId: UInt, projectId: Long, now: Long, restart: Boolean = false): Long =
+        commitWrites.beginRelist(connectionId, projectId, now, restart)
 
     /**
      * Ends a re-list's sweep: records [headSha] when there is one (an empty listing keeps the stored head), writes `relist_requested =
