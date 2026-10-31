@@ -92,7 +92,7 @@ from Lettuce, that any new or edited spec must satisfy:
   `public-holidays` owns its own synced Jira-stub connection (`e2e-holidays-ds-*`), team
   (`e2e-holidays-team-*`, one stub person on its roster) and throwaway user, plus ONE `E2E Holiday-*` row of the GLOBAL
   public-holiday dictionary at a time (added and deleted inside its one test, swept by name), on a non-golden sprint so the
-  concurrent `capacity` spec's golden window is untouched.
+  concurrent `capacity` spec's golden window is untouched.; `code-identities` owns its own synced GitLab-stub connection (`e2e-identities-*`) and the identity decisions of the stub host `gitlab-stub:8080` (`public.code_identity_links`, keyed by host, so they outlive the connection) - the ONLY spec that writes them, cleared at its start and its end - and reads the shared fixture's Jira people through `sharedFixtureReady` without mutating it (no reports lock: a GitLab connection changes no derive input).
 - **The shared read-only fixture.** ONE synced Jira-stub connection (`e2e-shared-ds-*`) and the team its FLO board is mapped to
   (`e2e-shared-team-*`, no roster) serve `accessibility-data`, `reports-drill`, `reports-compare` and `reports-person-trend` (and `metrics-config`'s third and fourth
   tests, which need only its synced data), so the suite runs one stub SYNC less per consumer. `global-setup.ts` sweeps stale `e2e-shared-*`
@@ -109,9 +109,9 @@ from Lettuce, that any new or edited spec must satisfy:
   three consumers later.
 - **Dispatch order and locks** (`playwright.config.ts`, `.claude/docs/build-times.md` WHY 37). The runner queues test groups in
   project order and, inside a project, in file-name order, so the config lists three projects over the same browser: `first`
-  (`accessibility`, the longest file that needs no data, and `reports`, the longest chain: its own sync, then 32 tests), `chromium`
+  (`accessibility`, the longest file that needs no data, `reports`, the longest chain: its own sync, then 32 tests, and `code-identities`, which owns a GitLab sync), `chromium`
   (everything else) and `last` (`accessibility-data`, which needs the shared fixture and is long ready by then). The projects are
-  not isolation boundaries and no test depends on their names; a new long spec that owns a sync goes into `first`. Because the
+  not isolation boundaries and no test depends on their names; a new long spec that owns a sync goes into `first` (`code-identities` does). Because the
   order is no longer alphabetical, **`reports` is kept apart from every other spec that has a LIVE synced connection or changes a
   global derive input** by Playwright locks (`test.describe.configure({ lock })`, `REPORTS_EXCLUSIVE_LOCKS` in `helpers.ts`) instead
   of by running at another time: `reports` reads team-level figures (a team's tasks are credited by its roster across every connection
@@ -189,6 +189,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
   the job succeeds and the raw-store counts show the full 1,201-issue in-scope dataset) → read the
   data profile and the raw issue inspector (a known key, then a malformed one) → delete from the
   list; the same journey for the 1.34.0 GitLab kind against the compose `gitlab-stub` (pick GitLab, the Excluded paths defaults prefilled, base URL `http://gitlab-stub:8080`, two group paths → test connection → sync → the counts read 4 projects, 8 users, 300 commits of which 19 merges, 0 awaiting file details, 60 merge requests of which 34 merged, 698 MR events, 0 awaiting details, 1 without size statistics, 0 deleted, 0 with unreadable details → the data profile reads 4 live projects, 281 commits (19 merges), 34 merged merge requests, 76 review requests, 8 GitLab users and 1 unmatched commit email → Reconcile now succeeds and changes none of them; the inspector and metrics configuration are absent, the profile and Reprocess present); the editor refuses a backfill date before the history horizon (the floor, A48) with nothing sent; a regular user sees no Data sources nav link and is bounced from the URL.
+- [`code-identities.spec.ts`](scenarios/code-identities.md) — the 1.38.0 identity mapping: a synced GitLab stub source's identities page proposes 6 Jira people and 1 bot → Confirm all links 6 and marks 1 → the service account is ignored, the unmatched commit author is linked by hand to a Jira person and that decision is removed; every decision is cleared again (the spec owns the stub host's links).
 - [`metrics-config.spec.ts`](scenarios/metrics-config.md) — the v0.3.0 metrics CONFIGURATION
   surfaces (the reports are `reports.spec.ts`): the global Metrics settings form (a save of the aging window and the epic estimate gap tolerance
   persists, an all-weekend-days value is refused inline) restored to its pre-test values through

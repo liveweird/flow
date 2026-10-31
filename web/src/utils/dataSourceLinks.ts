@@ -2,6 +2,7 @@
 export const dataSourcesPath = "/data-sources";
 export const dataSourcePath = (id: number) => `${dataSourcesPath}/${id}`;
 export const dataSourceProfilePath = (id: number) => `${dataSourcePath(id)}/profile`;
+export const dataSourceIdentitiesPath = (id: number) => `${dataSourcePath(id)}/identities`;
 export const dataSourceMetricsConfigPath = (id: number) => `${dataSourcePath(id)}/metrics-config`;
 /** The global metrics settings singleton (time zone, working days, percentiles) — the admin's other configuration surface. */
 export const metricsSettingsPath = "/metrics-settings";

@@ -13,6 +13,7 @@ import {
   IconRefresh,
   IconReportAnalytics,
   IconRotateClockwise,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 import { ApiError } from "../api/http";
 import { useAdmin } from "../auth";
@@ -37,7 +38,7 @@ import JobScheduledNote from "../components/JobScheduledNote";
 import JobStateBadge from "../components/JobStateBadge";
 import PageHeader from "../components/PageHeader";
 import SyncJobsTable from "../components/SyncJobsTable";
-import { dataSourceInspectPath, dataSourceMetricsConfigPath, dataSourceProfilePath, dataSourcesPath } from "../utils/dataSourceLinks";
+import { dataSourceIdentitiesPath, dataSourceInspectPath, dataSourceMetricsConfigPath, dataSourceProfilePath, dataSourcesPath } from "../utils/dataSourceLinks";
 import { dataSourceStateColor, formatEpochMillis } from "../utils/dataSourceState";
 import { CONTENT_MAX_WIDTH } from "../utils/layout";
 import { loadErrorMessage, saveErrorMessage } from "../utils/saveError";
@@ -383,6 +384,18 @@ export default function DataSourceDetails() {
             >
               {t("dataSources.profile.title")}
             </Button>
+            {/* The identity links are the code layer's: 409 for a Jira source. */}
+            {connection.kind === "GITLAB" && (
+              <Button
+                component={RouterLink}
+                to={dataSourceIdentitiesPath(id)}
+                variant="subtle"
+                size="xs"
+                leftSection={<IconUsersGroup size={14} />}
+              >
+                {t("codeIdentities.title")}
+              </Button>
+            )}
             {jiraKind && (
               <>
                 <Button

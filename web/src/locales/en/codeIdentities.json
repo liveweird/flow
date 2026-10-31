@@ -1,0 +1,83 @@
+{
+  "title": "Identities",
+  "intro": "Link GitLab users and commit addresses to Jira people. Proposals match by e-mail; only confirmed decisions attribute code activity.",
+  "tableAria": "GitLab identities",
+  "tab": {
+    "PROPOSED": "Proposed",
+    "UNMAPPED": "Unmapped",
+    "LINKED": "Linked",
+    "IGNORED_OR_BOT": "Ignored & bots"
+  },
+  "column": {
+    "identity": "GitLab identity",
+    "emails": "Addresses",
+    "state": "State",
+    "person": "Jira person",
+    "decidedAt": "Decided"
+  },
+  "kind": {
+    "email": "Commit e-mail only"
+  },
+  "ghost": "GitLab user #{{id}}",
+  "state": {
+    "deleted": "Deleted",
+    "bot": "Bot",
+    "unseen": "Not seen",
+    "unseenHint": "No data source on this GitLab instance still has this identity."
+  },
+  "person": {
+    "bot": "Bot",
+    "ignored": "Ignored",
+    "proposedHint": "Proposed by e-mail",
+    "proposedInstead": "Proposed: {{what}}",
+    "none": "—"
+  },
+  "search": "Search name, username or address",
+  "clearSearch": "Clear search",
+  "action": {
+    "confirm": "Confirm proposal",
+    "link": "Link to a Jira person…",
+    "bot": "Mark as bot",
+    "ignore": "Ignore",
+    "remove": "Remove decision"
+  },
+  "confirmAll": "Confirm all proposals ({{count}})",
+  "confirmAllTitle": "Confirm all proposals",
+  "confirmAllBody": "Link every proposed identity to its matching Jira person and mark the proposed bots — {{count}} decisions. Each can be changed or removed later.",
+  "confirmAllFilterHint": "Clear the search to confirm all proposals.",
+  "toast": {
+    "confirmed": "{{linked}} linked, {{bots}} marked as bots",
+    "linked": "Linked",
+    "ignored": "Ignored",
+    "bot": "Marked as bot",
+    "removed": "Decision removed"
+  },
+  "removeTitle": "Remove decision",
+  "removeBody": "Remove the decision for {{name}}? The identity goes back to proposed or unmapped.",
+  "removeFailed": "The decision could not be removed",
+  "actionFailed": "The action failed",
+  "error": {
+    "notFound": "The identity or its decision no longer exists. Reload the list.",
+    "invalid": "The request was rejected. Check the Jira person and try again.",
+    "conflict": "This data source is not a GitLab source.",
+    "failedStatus": "Action failed ({{status}})",
+    "failed": "Action failed. Check your connection and try again."
+  },
+  "modal": {
+    "title": "Link to a Jira person",
+    "person": "Jira person",
+    "pick": "Pick a person",
+    "hint": "The whole site directory; type to search.",
+    "nothingFound": "No matching people",
+    "loading": "Searching people"
+  },
+  "empty": {
+    "PROPOSED": "No proposals — every matching address is decided.",
+    "UNMAPPED": "Nothing unmapped.",
+    "LINKED": "No linked identities yet.",
+    "IGNORED_OR_BOT": "Nothing ignored."
+  },
+  "loadFailed": "The identities could not be loaded",
+  "notFound": "This data source does not exist or is not a GitLab source.",
+  "back": "Back to the data source"
+}

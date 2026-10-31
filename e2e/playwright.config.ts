@@ -13,11 +13,11 @@ export const MAILPIT_URL = process.env.E2E_MAILPIT_URL ?? "http://localhost:8028
 // plain run starts `reports.spec.ts` (the longest chain: its own sync, then 32 tests) last and ends with it alone on one worker. Three
 // projects with the same browser put the long chains first and the filler last; they are NOT isolation boundaries (all share one stack,
 // the rulebook in README "Parallel execution" is unchanged) and nothing depends on the names.
-//  - `first`: `accessibility` (the longest file that needs no data, so the sync waits of the others overlap it) and `reports`.
+//  - `first`: `accessibility` (the longest file that needs no data, so the sync waits of the others overlap it), `reports` and `code-identities` (it owns a GitLab sync).
 //  - `chromium`: every other file, alphabetical.
 //  - `last`: `accessibility-data`, split into four groups (its describe is `parallel`): it needs the shared fixture, which is long ready by
 //    the time a worker reaches it, and four ~equal groups are what fills the tail of the run evenly.
-const FIRST = /[\\/](accessibility|reports)\.spec\.ts$/;
+const FIRST = /[\\/](accessibility|reports|code-identities)\.spec\.ts$/;
 const LAST = /[\\/]accessibility-data\.spec\.ts$/;
 const desktopChrome = { ...devices["Desktop Chrome"] };
 
