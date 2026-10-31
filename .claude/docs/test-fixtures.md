@@ -37,6 +37,15 @@ synced fixture with the dropped keys INJECTED (normalizing the trimmed injected 
 `JiraUserReferenceSlimmingTest` scripts a full-user, dropped-keys answer for one private issue id (a WireMock override, removed in `@AfterTest`) to prove the
 ISSUES, CHANGELOGS and WORKLOGS streams store it trimmed.
 
+**The GitLab stub (`GitLabStubServer`, `GitLabStubServerTest`).** `server/src/test/kotlin/GitLabStubServer.kt` is `JiraStubServer`'s twin over
+`sample-data/gitlab-stub` (a `by lazy` WireMock singleton, request journal disabled, `resetScenarios`/`setScenarioState`/`addOverride`/`removeOverride`,
+the `gitlab-day2` scenario name as a constant). `GitLabStubServerTest` drives it with plain `java.net.http` (no app, no Postgres) and takes every
+figure from `sample-data/gitlab/expected.json`; a test that flips `gitlab-day2` resets it in a `finally` and a `@Before` resets it for the next. The
+generator's own checks are `node --test sample-data/gitlab/generate.test.mjs` (determinism, the committed stub equals a fresh run, every diff counts
+to its ground truth, the Jira-email alignment against `jira/expected.json`'s team roster): run it after any generator change and commit the
+regenerated `gitlab-stub/` and `gitlab/expected.json`. A connector fixture (`SyncedGitLabFixture`, one SYNC per fork) arrives with the COMMITS PR and
+follows the "warm it in `@BeforeClass`" rule below.
+
 **Shared synced fixture (`SyncedStubFixture`, `server/src/test/kotlin/SyncedStubFixture.kt`).**
 `NormalizationPipelineTest`, `JiraSyncPipelineTest` and `DataProfileTest` each used to drive a
 COMPLETE `JiraConnector` SYNC of the ~1,200-issue stub from scratch per test — most of them only to

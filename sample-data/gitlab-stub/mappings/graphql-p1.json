@@ -1,0 +1,27 @@
+{
+  "priority": 6,
+  "request": {
+    "method": "POST",
+    "urlPath": "/api/graphql",
+    "bodyPatterns": [
+      {
+        "contains": "platform/gateway"
+      },
+      {
+        "contains": "diffStatsSummary"
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json",
+      "RateLimit-Limit": "2000",
+      "RateLimit-Observed": "10",
+      "RateLimit-Remaining": "1990",
+      "RateLimit-Reset": "1788220860",
+      "RateLimit-ResetTime": "Tue, 01 Sep 2026 00:01:00 GMT"
+    },
+    "bodyFileName": "graphql-p1.json"
+  }
+}
