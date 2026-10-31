@@ -10,9 +10,11 @@ import ch.nokillswit.ingest.RawUpsertOutcome
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
+import org.jetbrains.exposed.v1.core.CustomLongFunction
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.longLiteral
 import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
@@ -106,8 +108,7 @@ internal class GitLabMrWrites(private val database: R2dbcDatabase) {
         val mr = row.input
         val key = (MergeRequests.connectionId eq connectionId) and (MergeRequests.mrId eq row.key)
         MergeRequests.update({ key }) {
-            it[projectId] = mr.projectId
-            it[iid] = mr.iid
+            // project_id and iid are the row's identity (GitLab never moves a merge request): the unique index would refuse a change.
             it[state] = cutText(mr.state, GitLabRawStore.MAX_STATE)
             it[draft] = mr.draft
             it[authorId] = mr.authorId
@@ -136,41 +137,34 @@ internal class GitLabMrWrites(private val database: R2dbcDatabase) {
     }
 
     /**
-     * Replaces the merge request's events: every old row goes, the fresh set goes in (`ON CONFLICT DO NOTHING`: a note a page shift listed
-     * twice is one row). Meant to run in the caller's transaction beside [stampMrDetails], so a run cut anywhere keeps the old set whole.
+     * Settles one merge request's details read in ONE transaction, so the events and the stamp can never disagree (a stamp without its
+     * events would take the merge request out of the backlog with the old set, or none). The row is locked first, `FOR NO KEY UPDATE`
+     * (the key never changes, and the events reference it: "Row locks vs. FK locks"), which also keeps a concurrent PURGE from deleting it
+     * between the read of its project and the insert of its events; a row that is gone settles nothing (returns false).
+     *
+     * A complete read ([MrDetailsOutcome.error] null) REPLACES the events (every old row goes, [events] go in `ON CONFLICT DO NOTHING`: a
+     * note a page shift listed twice is one row), writes `notes_capped` and the diff stats (null on a GraphQL gap), and clears
+     * `details_error`. A terminal error writes no events and leaves the stored events, stats and cap as they were - structurally:
+     * [events] must then be empty. The stamp is `details_synced_at = GREATEST(now, changed_at)`: a clock that did not advance past the
+     * change (the same millisecond, or a worker clock behind the database writer's) still takes the row out of the backlog instead of
+     * re-selecting it forever. `project_id` of the events is the row's own. PROCESS is flagged either way.
      */
-    suspend fun replaceMrEvents(connectionId: UInt, mrId: Long, projectId: Long, events: List<RawGitLabMrEvent>) {
-        suspendTransaction(database) {
-            MrEvents.deleteWhere { (MrEvents.connectionId eq connectionId) and (MrEvents.mrId eq mrId) }
-            MrEvents.insertRowsIgnoringConflicts(events) {
-                this[MrEvents.connectionId] = connectionId
-                this[MrEvents.mrId] = mrId
-                this[MrEvents.eventSource] = it.source.name
-                this[MrEvents.sourceId] = it.sourceId
-                this[MrEvents.projectId] = projectId
-                this[MrEvents.actorId] = it.actorId
-                this[MrEvents.eventAt] = it.eventAt
-                this[MrEvents.system] = it.system
-                this[MrEvents.noteType] = it.noteType?.let { type -> cutText(type, GitLabRawStore.MAX_NOTE_TYPE) }
-                this[MrEvents.action] = cutText(it.action, GitLabRawStore.MAX_ACTION)
-                this[MrEvents.targets] = targetsJson(it.targets)
-            }
-        }
-    }
-
-    private fun targetsJson(targets: List<String>): String? =
-        targets.distinct().take(MAX_TARGETS).map { cutText(it, MAX_TARGET_CHARS) }.takeIf { it.isNotEmpty() }
-            ?.let { canonicalJson(JsonArray(it.map(::JsonPrimitive))) }
-
-    /**
-     * Stamps the merge request's details read: `details_synced_at = now`, `details_error` as [outcome] says (cleared by a complete
-     * read), and - ONLY for a complete read - the diff stats (null on a GraphQL gap) and `notes_capped`; a terminal error leaves both
-     * as they were. PROCESS is flagged either way.
-     */
-    suspend fun stampMrDetails(connectionId: UInt, mrId: Long, now: Long, outcome: MrDetailsOutcome) {
-        suspendTransaction(database) {
-            MergeRequests.update({ (MergeRequests.connectionId eq connectionId) and (MergeRequests.mrId eq mrId) }) {
-                it[detailsSyncedAt] = now
+    suspend fun settleMrDetails(
+        connectionId: UInt,
+        mrId: Long,
+        events: List<RawGitLabMrEvent>,
+        now: Long,
+        outcome: MrDetailsOutcome,
+    ): Boolean {
+        require(outcome.error == null || events.isEmpty()) { "a terminal details error writes no events" }
+        return suspendTransaction(database) {
+            val key = (MergeRequests.connectionId eq connectionId) and (MergeRequests.mrId eq mrId)
+            val projectId = MergeRequests.select(MergeRequests.projectId).where { key }
+                .forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate).toList().singleOrNull()?.get(MergeRequests.projectId)
+                ?: return@suspendTransaction false
+            if (outcome.error == null) replaceEvents(connectionId, mrId, projectId, events)
+            MergeRequests.update({ key }) {
+                it[detailsSyncedAt] = CustomLongFunction("GREATEST", longLiteral(now), MergeRequests.changedAt)
                 it[detailsError] = outcome.error
                 if (outcome.error == null) {
                     it[notesCapped] = outcome.notesCapped
@@ -180,6 +174,29 @@ internal class GitLabMrWrites(private val database: R2dbcDatabase) {
                 }
                 it[needsProcessing] = true
             }
+            true
         }
     }
+
+    private suspend fun replaceEvents(connectionId: UInt, mrId: Long, projectId: Long, events: List<RawGitLabMrEvent>) {
+        MrEvents.deleteWhere { (MrEvents.connectionId eq connectionId) and (MrEvents.mrId eq mrId) }
+        MrEvents.insertRowsIgnoringConflicts(events) {
+            this[MrEvents.connectionId] = connectionId
+            this[MrEvents.mrId] = mrId
+            this[MrEvents.eventSource] = it.source.name
+            this[MrEvents.sourceId] = it.sourceId
+            this[MrEvents.projectId] = projectId
+            this[MrEvents.actorId] = it.actorId
+            this[MrEvents.eventAt] = it.eventAt
+            this[MrEvents.system] = it.system
+            this[MrEvents.noteType] = it.noteType?.let { type -> cutText(type, GitLabRawStore.MAX_NOTE_TYPE) }
+            this[MrEvents.action] = cutText(it.action, GitLabRawStore.MAX_ACTION)
+            this[MrEvents.targets] = targetsJson(it.targets)
+        }
+    }
+
+    /** Usernames cut to their width FIRST, then empties dropped and the rest made distinct (long names share a cut), ≤[MAX_TARGETS]. */
+    private fun targetsJson(targets: List<String>): String? =
+        targets.map { cutText(it, MAX_TARGET_CHARS) }.filter { it.isNotEmpty() }.distinct().take(MAX_TARGETS).takeIf { it.isNotEmpty() }
+            ?.let { canonicalJson(JsonArray(it.map(::JsonPrimitive))) }
 }

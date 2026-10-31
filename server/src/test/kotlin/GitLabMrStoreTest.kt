@@ -87,6 +87,19 @@ class GitLabMrStoreTest {
         }
     }
 
+    /** One settle at [now] (default after every upsert's clock): the events and the stamp of one merge request. */
+    private suspend fun settle(
+        connId: UInt,
+        mrId: Long,
+        outcome: MrDetailsOutcome = MrDetailsOutcome(),
+        now: Long = 2_000,
+        events: List<RawGitLabMrEvent> = emptyList(),
+    ): Boolean = store.settleMrDetails(connId, mrId, events, now, outcome)
+
+    private fun exec(sql: String) {
+        PostgresTestSupport.connect().use { c -> c.createStatement().use { it.executeUpdate(sql) } }
+    }
+
     /** Tombstones a merge request the way RECONCILE (PR 9) will: `deleted_at` set, nothing else. */
     private fun tombstone(connId: UInt, iid: Long) {
         PostgresTestSupport.connect().use { c ->
@@ -129,8 +142,8 @@ class GitLabMrStoreTest {
     fun `a tombstoned merge request seen again is resurrected, and a NOT_FOUND stamp clears only on a change`() = runBlocking<Unit> {
         val connId = connection()
         store.upsertMergeRequests(connId, listOf(mr(1), mr(2), mr(3)), now = 1_000)
-        for (n in 1L..3L) store.stampMrDetails(connId, 1_000 + n, 2_000, MrDetailsOutcome(error = DETAILS_ERROR_NOT_FOUND))
-        store.stampMrDetails(connId, 1_003, 2_000, MrDetailsOutcome(error = DETAILS_ERROR_LIMIT_EXCEEDED))
+        for (n in 1L..3L) settle(connId, 1_000 + n, MrDetailsOutcome(error = DETAILS_ERROR_NOT_FOUND))
+        settle(connId, 1_003, MrDetailsOutcome(error = DETAILS_ERROR_LIMIT_EXCEEDED), now = 2_000)
         tombstone(connId, iid = 1)
 
         // Unchanged live row keeps its NOT_FOUND stamp: the listing says nothing new about it.
@@ -156,7 +169,8 @@ class GitLabMrStoreTest {
         val outcomes = store.upsertMergeRequests(connId, listOf(mr(1), mr(1), long), now = 1_000)
         assertEquals(listOf(RawUpsertOutcome.INSERTED, RawUpsertOutcome.UNCHANGED, RawUpsertOutcome.INSERTED), outcomes)
         assertEquals(emoji.repeat(255), row(connId, 2)[MergeRequests.title], "255 code points, no half a surrogate pair")
-        assertEquals("a b", cutText("a\u0000b", 10).replace('�', ' ').replace(' ', ' '))
+        assertEquals("a\uFFFDb", cutText("a\u0000b", 10), "NUL is replaced, not dropped")
+        assertFailsWith<IllegalArgumentException> { cutText("x", -1) }
         assertEquals(emoji.repeat(2), cutText(emoji.repeat(5), 2))
         assertEquals(emoji, cutText(emoji.repeat(5), 5, maxBytes = 7), "a byte cap stops on a code-point boundary")
     }
@@ -176,8 +190,8 @@ class GitLabMrStoreTest {
         store.upsertMergeRequests(connId, listOf(mr(1), mr(2)), now = 1_000)
         val review = note(7, "REVIEW_REQUESTED", targets = listOf("alice", "bob", "alice"), system = true)
         val reviewer = RawGitLabMrEvent(MrEventSource.REVIEWER, 3, 3, 40, false, null, "REVIEWED")
-        store.replaceMrEvents(connId, 1_001, 1, listOf(note(5), note(5), review, approval(3), reviewer))
-        store.replaceMrEvents(connId, 1_002, 1, listOf(note(5)))
+        settle(connId, 1_001, events = listOf(note(5), note(5), review, approval(3), reviewer))
+        settle(connId, 1_002, events = listOf(note(5)))
         val rows = store.mrEventRows(connId, 1_001)
         assertEquals(4, rows.size, "a note listed twice is one row; APPROVAL and REVIEWER rows of the same user id coexist")
         assertEquals("[\"alice\", \"bob\"]", rows.single { it[MrEvents.sourceId] == 7L }[MrEvents.targets])
@@ -185,7 +199,7 @@ class GitLabMrStoreTest {
         assertEquals(1, rows.count { it[MrEvents.eventSource] == "APPROVAL" })
         assertNull(rows.single { it[MrEvents.eventSource] == "APPROVAL" }[MrEvents.eventAt])
 
-        store.replaceMrEvents(connId, 1_001, 1, listOf(note(6, "MERGED", system = true)))
+        settle(connId, 1_001, events = listOf(note(6, "MERGED", system = true)))
         assertEquals(listOf(6L), store.mrEventRows(connId, 1_001).map { it[MrEvents.sourceId] }, "the set is replaced, not merged")
         assertEquals(1, store.mrEventRows(connId, 1_002).size, "another merge request is untouched")
         assertEquals(2L, store.mrCounts(connId).mrEvents, "every merge request's events are counted")
@@ -196,7 +210,7 @@ class GitLabMrStoreTest {
         val connId = connection()
         store.upsertMergeRequests(connId, listOf(mr(1)), now = 1_000)
         val many = (1..30).map { "user$it" }
-        store.replaceMrEvents(connId, 1_001, 1, listOf(note(1, "REVIEW_REQUEST_REMOVED", targets = many + "x".repeat(300), system = true)))
+        settle(connId, 1_001, events = listOf(note(1, "REVIEW_REQUEST_REMOVED", targets = many + "x".repeat(300), system = true)))
         val stored = Json.parseToJsonElement(store.mrEventRows(connId, 1_001).single()[MrEvents.targets]!!).toString()
         assertEquals(20, Regex("user").findAll(stored).count())
         assertFailsWith<IllegalArgumentException> { note(2, "COMMENT", targets = listOf("alice")) }
@@ -210,15 +224,15 @@ class GitLabMrStoreTest {
     }
 
     @Test
-    fun `the details stamp writes stats, records a gap, and leaves stats alone on a terminal error`() = runBlocking<Unit> {
+    fun `settling writes stats, records a gap, and leaves stats and events alone on a terminal error`() = runBlocking<Unit> {
         val connId = connection()
         store.upsertProjects(connId, listOf(project(1)), now = 1_000)
         store.upsertMergeRequests(connId, listOf(mr(1), mr(2), mr(3)), now = 1_000)
         assertEquals(3, store.countStaleMergeRequests(connId))
 
-        store.stampMrDetails(connId, 1_001, 2_000, MrDetailsOutcome(notesCapped = true, stats = GitLabDiffStats(10, 2, 3)))
-        store.stampMrDetails(connId, 1_002, 2_000, MrDetailsOutcome(stats = null))
-        store.stampMrDetails(connId, 1_003, 2_000, MrDetailsOutcome(error = DETAILS_ERROR_NOT_FOUND))
+        settle(connId, 1_001, MrDetailsOutcome(notesCapped = true, stats = GitLabDiffStats(10, 2, 3)), now = 2_000)
+        settle(connId, 1_002, MrDetailsOutcome(stats = null), now = 2_000)
+        settle(connId, 1_003, MrDetailsOutcome(error = DETAILS_ERROR_NOT_FOUND), now = 2_000)
         val withStats = row(connId, 1)
         val stats = listOf(withStats[MergeRequests.additions], withStats[MergeRequests.deletions], withStats[MergeRequests.fileCount])
         assertEquals(listOf(10, 2, 3), stats)
@@ -233,7 +247,7 @@ class GitLabMrStoreTest {
         assertEquals(0L, counts.mrDetailsPending)
 
         // A later terminal error keeps the stats a complete read wrote.
-        store.stampMrDetails(connId, 1_001, 3_000, MrDetailsOutcome(error = DETAILS_ERROR_LIMIT_EXCEEDED))
+        settle(connId, 1_001, MrDetailsOutcome(error = DETAILS_ERROR_LIMIT_EXCEEDED), now = 3_000)
         val kept = row(connId, 1)
         assertEquals(10, kept[MergeRequests.additions])
         assertTrue(kept[MergeRequests.notesCapped])
@@ -241,6 +255,86 @@ class GitLabMrStoreTest {
         // A change makes the details stale again.
         store.upsertMergeRequests(connId, listOf(mr(1, updatedAt = 99_000)), now = 4_000)
         assertEquals(1, store.countStaleMergeRequests(connId))
+    }
+
+    @Test
+    fun `a terminal error writes no events and keeps the old ones, and a missing row settles nothing`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertMergeRequests(connId, listOf(mr(1)), now = 1_000)
+        assertTrue(settle(connId, 1_001, events = listOf(note(1), note(2))))
+        assertTrue(settle(connId, 1_001, MrDetailsOutcome(error = DETAILS_ERROR_LIMIT_EXCEEDED), now = 3_000))
+        assertEquals(listOf(1L, 2L), store.mrEventRows(connId, 1_001).map { it[MrEvents.sourceId] }, "the old events stay")
+        assertFailsWith<IllegalArgumentException> {
+            settle(connId, 1_001, MrDetailsOutcome(error = DETAILS_ERROR_NOT_FOUND), events = listOf(note(3)))
+        }
+        assertEquals(false, settle(connId, 9_999, events = listOf(note(1))), "a row that is gone (purged) settles nothing")
+        assertTrue(store.mrEventRows(connId, 9_999).isEmpty())
+    }
+
+    @Test
+    fun `a failing stamp rolls the replaced events back`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertMergeRequests(connId, listOf(mr(1)), now = 1_000)
+        settle(connId, 1_001, MrDetailsOutcome(stats = GitLabDiffStats(1, 1, 1)), events = listOf(note(1), note(2)))
+        exec("ALTER TABLE raw.gitlab_merge_requests ADD CONSTRAINT chk_test_file_count CHECK (file_count IS NULL OR file_count < 100)")
+        try {
+            val tooMany = MrDetailsOutcome(stats = GitLabDiffStats(1, 1, 500))
+            assertFailsWith<Exception> { settle(connId, 1_001, tooMany, now = 3_000, events = listOf(note(7))) }
+        } finally {
+            exec("ALTER TABLE raw.gitlab_merge_requests DROP CONSTRAINT chk_test_file_count")
+        }
+        assertEquals(listOf(1L, 2L), store.mrEventRows(connId, 1_001).map { it[MrEvents.sourceId] }, "the events were not replaced")
+        assertEquals(1, row(connId, 1)[MergeRequests.fileCount], "nor the stamp")
+        assertEquals(2_000L, row(connId, 1)[MergeRequests.detailsSyncedAt])
+    }
+
+    @Test
+    fun `the stamp never trails changed_at, so a constant or lagging clock leaves the backlog`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertProjects(connId, listOf(project(1)), now = 1_000)
+        store.upsertMergeRequests(connId, listOf(mr(1), mr(2)), now = 5_000)
+        settle(connId, 1_001, now = 5_000)
+        assertEquals(5_000L, row(connId, 1)[MergeRequests.detailsSyncedAt], "the same millisecond as the change")
+        settle(connId, 1_002, now = 1_000)
+        assertEquals(5_000L, row(connId, 2)[MergeRequests.detailsSyncedAt], "a clock behind the change")
+        assertEquals(0, store.countStaleMergeRequests(connId))
+        // A real later change is stale again, and the same constant clock settles that too.
+        store.upsertMergeRequests(connId, listOf(mr(1, updatedAt = 99_000)), now = 5_000)
+        assertEquals(0, store.countStaleMergeRequests(connId), "a change in the same millisecond as the stamp is not told apart: accepted")
+        store.upsertMergeRequests(connId, listOf(mr(1, updatedAt = 99_001)), now = 6_000)
+        assertEquals(1, store.countStaleMergeRequests(connId))
+        settle(connId, 1_001, now = 6_000)
+        assertEquals(0, store.countStaleMergeRequests(connId))
+    }
+
+    @Test
+    fun `a changed merge request is pending, not a missing-stats gap, and loses its NOT_FOUND stamp`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertProjects(connId, listOf(project(1)), now = 1_000)
+        store.upsertMergeRequests(connId, listOf(mr(1), mr(2)), now = 1_000)
+        settle(connId, 1_001, MrDetailsOutcome(stats = null))
+        settle(connId, 1_002, MrDetailsOutcome(error = DETAILS_ERROR_NOT_FOUND))
+        assertEquals(1L, store.mrCounts(connId).mrDiffStatsMissing)
+        store.upsertMergeRequests(connId, listOf(mr(1, updatedAt = 50_000), mr(2, updatedAt = 50_000)), now = 3_000)
+        val counts = store.mrCounts(connId)
+        assertEquals(2L, counts.mrDetailsPending)
+        assertEquals(0L, counts.mrDiffStatsMissing, "pending rows are not counted as gaps")
+        assertNull(row(connId, 2)[MergeRequests.detailsError], "a plain CHANGED clears NOT_FOUND")
+        assertEquals(2_000L, row(connId, 2)[MergeRequests.detailsSyncedAt], "the old stamp stays, older than changed_at")
+        settle(connId, 1_001, MrDetailsOutcome(stats = null), now = 4_000)
+        assertEquals(1L, store.mrCounts(connId).mrDiffStatsMissing)
+    }
+
+    @Test
+    fun `usernames are cut first, then empties dropped and the rest made distinct`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertMergeRequests(connId, listOf(mr(1)), now = 1_000)
+        val targets = listOf("", "x".repeat(300), "x".repeat(301), "bob")
+        settle(connId, 1_001, events = listOf(note(1, "REVIEW_REQUESTED", targets = targets, system = true)))
+        val stored = Json.parseToJsonElement(store.mrEventRows(connId, 1_001).single()[MrEvents.targets]!!).toString()
+        assertEquals("""["${"x".repeat(255)}","bob"]""", stored)
+        settle(connId, 1_001, events = listOf(note(1, "REVIEW_REQUESTED", targets = listOf("", ""), system = true)))
+        assertNull(store.mrEventRows(connId, 1_001).single()[MrEvents.targets])
     }
 
     @Test
@@ -261,7 +355,7 @@ class GitLabMrStoreTest {
         assertEquals(listOf(2L, 3L), store.staleMergeRequests(connId, 2).map { it.iid })
         val first = store.staleMergeRequests(connId, 1).single()
         assertEquals(listOf(1_002L, 1L, 2L), listOf(first.mrId, first.projectId, first.iid))
-        store.stampMrDetails(connId, 1_002, 4_000, MrDetailsOutcome())
+        settle(connId, 1_002, MrDetailsOutcome(), now = 4_000)
         assertEquals(listOf(3L, 5L, 1L), store.staleMergeRequests(connId, 10).map { it.iid })
         assertEquals(3, store.countStaleMergeRequests(connId))
         assertTrue(store.staleMergeRequests(GitLabFixtures.createConnection().also { connections += it }, 10).isEmpty(), "per connection")
@@ -279,14 +373,31 @@ class GitLabMrStoreTest {
     }
 
     @Test
+    fun `a path's group id comes from its live projects, the latest seen first, never from a moved-out one`() = runBlocking<Unit> {
+        val connId = connection()
+        // Project 1 sits under an older group id and was seen LAST, but it moved out; project 2 is live under the current id.
+        store.upsertProjects(connId, listOf(project(2, groupId = 7)), now = 1_000)
+        store.upsertProjects(connId, listOf(project(1, groupId = 5)), now = 5_000)
+        exec("UPDATE raw.gitlab_projects SET moved_out_at = 6000 WHERE project_id = 1 AND connection_id = $connId")
+        assertEquals(mapOf("platform" to 7L), store.configuredGroupIds(connId))
+        // Two live rows: the most recently seen one wins, a tie goes to the greater id.
+        store.upsertProjects(connId, listOf(project(3, groupId = 6)), now = 9_000)
+        assertEquals(mapOf("platform" to 6L), store.configuredGroupIds(connId))
+        store.upsertProjects(connId, listOf(project(4, groupId = 8)), now = 9_000)
+        assertEquals(mapOf("platform" to 8L), store.configuredGroupIds(connId))
+        // A path whose projects all left is absent: nothing to list for it.
+        exec("UPDATE raw.gitlab_projects SET deleted_at = 1 WHERE connection_id = $connId")
+        assertTrue(store.configuredGroupIds(connId).isEmpty())
+    }
+
+    @Test
     fun `the status counts are the live, merged, event, pending and missing-stats figures`() = runBlocking<Unit> {
         val connId = connection()
         store.upsertProjects(connId, listOf(project(1)), now = 1_000)
         store.upsertMergeRequests(connId, listOf(mr(1, state = "merged"), mr(2), mr(3)), now = 1_000)
         tombstone(connId, iid = 3)
-        store.stampMrDetails(connId, 1_001, 2_000, MrDetailsOutcome(stats = GitLabDiffStats(1, 1, 1)))
-        store.stampMrDetails(connId, 1_002, 2_000, MrDetailsOutcome())
-        store.replaceMrEvents(connId, 1_001, 1, listOf(note(1), note(2)))
+        settle(connId, 1_001, MrDetailsOutcome(stats = GitLabDiffStats(1, 1, 1)), events = listOf(note(1), note(2)))
+        settle(connId, 1_002)
         val counts = store.mrCounts(connId)
         val figures = listOf(
             counts.mergeRequests, counts.mergeRequestsMerged, counts.mrEvents, counts.mrDetailsPending, counts.mrDiffStatsMissing,
@@ -300,9 +411,9 @@ class GitLabMrStoreTest {
         val other = connection()
         store.upsertProjects(connId, listOf(project(1)), now = 1_000)
         store.upsertMergeRequests(connId, (1L..7L).map { mr(it) }, now = 1_000)
-        for (n in 1L..7L) store.replaceMrEvents(connId, 1_000 + n, 1, listOf(note(n), approval(n)))
+        for (n in 1L..7L) settle(connId, 1_000 + n, events = listOf(note(n), approval(n)))
         store.upsertMergeRequests(other, listOf(mr(1)), now = 1_000)
-        store.replaceMrEvents(other, 1_001, 1, listOf(note(1)))
+        settle(other, 1_001, events = listOf(note(1)))
 
         assertEquals(3, store.purgeMergeRequestsBatch(connId, batchSize = 3))
         assertEquals(4, store.mrEventRows(connId).map { it[MrEvents.mrId] }.distinct().size, "the events of the deleted ones cascaded")

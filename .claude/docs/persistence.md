@@ -381,7 +381,7 @@ place:
 The "is this team there and active" check every one of those reads runs is ONE function, `teams/TeamActive.kt` `Teams.requireActive(teamId) { failure }` (the caller picks
 the status: `Teams.requireActiveOrNotFound` for a path team, a `400` for the reports' `teamId` filter); the row-locking twin is `lockActiveForWrite`.
 - `ingest/SyncStatusRoutes.kt` (the ADMIN status view) READS `gitlab/GitLabRawStore.counts(connectionId)` (V41/V42: row COUNTS of `raw.gitlab_projects` /
-  `raw.gitlab_users` / `raw.gitlab_commits` by their markers - live, merge, tombstoned, files pending - and, from V43, the merge-request counts: live, merged, events, details pending, diff stats missing - never a payload, a commit's title, author or path, or a merge request's title, branch or username) for a GITLAB connection, through the store published as `GitLabRawStoreKey` (absent when GitLab is off
+  `raw.gitlab_users` / `raw.gitlab_commits` by their markers - live, merge, tombstoned, files pending - and, once the status DTO carries them (PR 8, A5; the store already counts them, `mrCounts`), the merge-request counts: live, merged, events, details pending, diff stats missing - never a payload, a commit's title, author or path, or a merge request's title, branch or username) for a GITLAB connection, through the store published as `GitLabRawStoreKey` (absent when GitLab is off
   in the process: `counts.gitlab` is then null). `gitlab/GitLabConnector` WRITES only `raw.gitlab_*` and its two `sync_cursors` streams, and READS the
   connection through `DataSourceService.readGitLabForSync` (the decrypted token, for the connector alone).
 
@@ -1360,13 +1360,20 @@ canonicalised later), `authored_at`/`committed_at`, `parent_count`, `additions`/
   queryable columns duplicate the payload (`state`, `draft`, authors, times, branches, `title`, the three SHAs - stored only when a full 40/64-hex id -,
   `reviewer_ids` / `assignee_ids` as sorted distinct JSON arrays, `user_notes_count`). The page's key load is `SELECT ... FOR NO KEY UPDATE` (keys sorted),
   never `FOR UPDATE`: the key never changes and `raw.gitlab_mr_events` is inserted into by the details transactions ("Row locks vs. FK locks").
+  No FK to `raw.gitlab_projects` (as `raw.gitlab_commits`, and `raw.jira_issues` to its project): the stream skips a merge request of an unstored
+  project, and a project that moved out or was deleted keeps its merge requests. A change does not rewrite `project_id` / `iid` (a merge request never moves).
 - **The stale-details rule** (one stamp for everything the details stream reads): `details_synced_at IS NULL OR details_synced_at < changed_at`, on a live
   merge request of a live project (`MR_DETAILS_BACKLOG`, the `FILES_BACKLOG` shape), newest `updated_at` first. The partial index
   `idx_raw_gitlab_mrs_details_backlog` has exactly that predicate; it contains no constant and the query renders no bind parameter for it (a
-  parameter in a partial-index predicate defeats a cached generic plan, the V42 lesson; `GitLabMrStoreTest` pins the rendered SQL). `stampMrDetails`
-  sets `details_synced_at`, `details_error` (`NOT_FOUND`: the notes answered 404; `LIMIT_EXCEEDED`: a notes page over the response ceiling) and, ONLY for
-  a complete read, `additions` / `deletions` / `file_count` (GraphQL's `diffStatsSummary`; null = a gap, never a job failure) and `notes_capped` (the
-  1,000-note cap cut the events); a terminal error leaves them as they were. The outcome type (`MrDetailsOutcome`) refuses the either/or violation.
+  parameter in a partial-index predicate defeats a cached generic plan, the V42 lesson; `GitLabMrStoreTest` pins the rendered SQL). The ONE write
+  of a details read is `settleMrDetails` (events AND stamp in one transaction, the row locked `FOR NO KEY UPDATE` first, which also keeps a PURGE from
+  deleting it mid-write): a complete read REPLACES the events, writes `notes_capped` and `additions` / `deletions` / `file_count` (GraphQL's
+  `diffStatsSummary`; null = a gap, never a job failure) and clears `details_error`; a terminal error (`NOT_FOUND`: the notes answered 404;
+  `LIMIT_EXCEEDED`: a notes page over the response ceiling) writes NO events and leaves events, stats and cap as they were (the method refuses events
+  with an error). The stamp is `details_synced_at = GREATEST(now, changed_at)`: a clock that did not pass the change (the same millisecond, or a worker
+  clock behind the writer's) still leaves the backlog instead of re-selecting the row forever; a change made in the very millisecond of the stamp is
+  not told apart (accepted). `mrDiffStatsMissing` counts the gaps of SETTLED rows only (`details_synced_at >= changed_at`): a changed row is pending, not a
+  gap. The outcome type (`MrDetailsOutcome`) refuses the either/or violation.
 - **Nothing here tombstones.** `deleted_at` exists for RECONCILE (PR 9), which tombstones only on a positive per-MR 404 while the project answers; a
   listing that omits a row (it is filtered by `updated_after`) and a notes 404 are no evidence.
 - **`raw.gitlab_mr_events`**: PK `(connection_id, mr_id, source, source_id)`, composite FK to the merge request `ON DELETE CASCADE`. `source` is `NOTE`
@@ -1374,10 +1381,14 @@ canonicalised later), `authored_at`/`committed_at`, `parent_count`, `additions`/
   time) or `REVIEWER` (`/reviewers`, `action` = the state). A note is reduced to an action code (`COMMENT`, `DIFF_COMMENT`, `APPROVAL`, `UNAPPROVAL`,
   `CHANGES_REQUESTED`, `REVIEW_REQUESTED`, `REVIEW_REQUEST_REMOVED`, `COMMITS_ADDED`, `MERGED`, `CLOSED`, `REOPENED`, `DRAFT`, `READY`, `OTHER_SYSTEM`);
   `targets` (JSONB, ≤20 usernames of ≤255 characters) is kept for the two review-request actions of a NOTE only (`RawGitLabMrEvent` refuses it
-  elsewhere) - the only record of WHO was asked and WHEN. The set is REPLACED on every details refresh (`replaceMrEvents`: delete the merge request's
-  rows, insert the fresh set `ON CONFLICT DO NOTHING`, in the transaction of the stamp), so no PK holds upstream text: `source` is a fixed code.
+  elsewhere) - the only record of WHO was asked and WHEN. The set is REPLACED on every complete details read (`settleMrDetails`: delete the merge request's
+  rows, insert the fresh set `ON CONFLICT DO NOTHING`, in the transaction of the stamp; `project_id` is the merge request row's own), so no PK holds upstream
+  text: `source` is a fixed code. `targets` are cut to their width first, then empties dropped and the rest made distinct.
 - **Text cut** (`GitLabText.kt`'s `cutText`, which `cutPath` now uses): NUL replaced, then cut by code points (never half a surrogate pair, which
   `String.take` leaves) to the column width; a byte cap exists for a column inside a B-tree key and defaults to none.
+- **The group id of a configured path** (`configuredGroupIds`, the MERGE REQUESTS listing's `/groups/:id`) is read from the LIVE stored projects only (not moved
+  out, not deleted): a path whose group was deleted and re-created carries two ids across the rows, and the one on the most recently seen live row wins
+  (ties: the greater id). A path with no live project is absent and lists nothing.
 - **PURGE**: `GitLabRawPurge.purgeMergeRequestsBatch` deletes batches of 20 MERGE REQUESTS (`GITLAB_PURGE_MRS_BATCH_SIZE`); the batch counts merge requests,
   not rows, and each cascades up to 1,000 notes plus its approvers and reviewers (~1,100 rows), so 20 bounds one statement to ~22,000 cascaded rows
   (the commits' budget, ~25,000; 500 would be ~550,000). `GitLabRawStore.purgeAll` drains commits, merge requests, users, then projects.

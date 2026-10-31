@@ -10,6 +10,7 @@ import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.exists
+import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
@@ -53,7 +54,10 @@ internal class GitLabMrReads(private val database: R2dbcDatabase) {
         MergeRequests.selectAll().where { pending(connectionId) }.count()
     }
 
-    /** The five figures as database-side `count(*)`s: no row is loaded. */
+    /**
+     * The five figures as database-side `count(*)`s: no row is loaded. `mrDiffStatsMissing` counts the gaps of settled rows only (stamped
+     * at or after the last change, no error): a changed row is pending, and a pending row's stats are not yet asked again.
+     */
     suspend fun mrCounts(connectionId: UInt): MrCounts = suspendTransaction(database) {
         suspend fun mrs(extra: Op<Boolean>) =
             MergeRequests.selectAll().where { (MergeRequests.connectionId eq connectionId) and extra }.count()
@@ -64,19 +68,23 @@ internal class GitLabMrReads(private val database: R2dbcDatabase) {
             mrEvents = MrEvents.selectAll().where { MrEvents.connectionId eq connectionId }.count(),
             mrDetailsPending = mrs(MR_DETAILS_BACKLOG),
             mrDiffStatsMissing = mrs(
-                live and MergeRequests.detailsSyncedAt.isNotNull() and MergeRequests.detailsError.isNull() and
-                    MergeRequests.additions.isNull(),
+                live and MergeRequests.detailsSyncedAt.isNotNull() and (MergeRequests.detailsSyncedAt greaterEq MergeRequests.changedAt) and
+                    MergeRequests.detailsError.isNull() and MergeRequests.additions.isNull(),
             ),
         )
     }
 
-    /** `group_path` to `group_id` of the stored projects; a path with two ids (impossible by construction) takes the smaller. */
+    /**
+     * `group_path` to `group_id` of the LIVE stored projects (not moved out, not deleted): PROJECTS stamps the group a project was listed
+     * under, so a path whose group was deleted and re-created carries two ids across the rows - the one the most recently seen row
+     * carries wins (ties: the greater id, the newer group). A path with no live project is absent (nothing to list for it).
+     */
     suspend fun configuredGroupIds(connectionId: UInt): Map<String, Long> = suspendTransaction(database) {
-        Projects.select(Projects.groupPath, Projects.groupId).withDistinct().where { Projects.connectionId eq connectionId }
-            .orderBy(Projects.groupPath to SortOrder.ASC, Projects.groupId to SortOrder.DESC)
+        Projects.select(Projects.groupPath, Projects.groupId, Projects.lastSeenAt)
+            .where { (Projects.connectionId eq connectionId) and Projects.movedOutAt.isNull() and Projects.deletedAt.isNull() }
             .toList()
-            // Ascending by path, descending by id: the last entry of a path wins, which is its smallest id.
-            .associate { it[Projects.groupPath] to it[Projects.groupId] }
+            .groupBy { it[Projects.groupPath] }
+            .mapValues { (_, rows) -> rows.maxWith(compareBy({ it[Projects.lastSeenAt] }, { it[Projects.groupId] }))[Projects.groupId] }
     }
 
     suspend fun storedProjectIds(connectionId: UInt): Set<Long> = suspendTransaction(database) {

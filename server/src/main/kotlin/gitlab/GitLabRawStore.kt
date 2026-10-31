@@ -296,13 +296,18 @@ class GitLabRawStore(database: R2dbcDatabase) {
     suspend fun upsertMergeRequests(connectionId: UInt, mrs: List<RawGitLabMergeRequest>, now: Long): List<RawUpsertOutcome> =
         mrWrites.upsertMergeRequests(connectionId, mrs, now)
 
-    /** Replaces the merge request's events with [events]; run it in [stampMrDetails]'s transaction so a cut keeps the old set whole. */
-    suspend fun replaceMrEvents(connectionId: UInt, mrId: Long, projectId: Long, events: List<RawGitLabMrEvent>) =
-        mrWrites.replaceMrEvents(connectionId, mrId, projectId, events)
-
-    /** Stamps the merge request's details read (stats and cap only for a complete read, see [MrDetailsOutcome]). */
-    suspend fun stampMrDetails(connectionId: UInt, mrId: Long, now: Long, outcome: MrDetailsOutcome) =
-        mrWrites.stampMrDetails(connectionId, mrId, now, outcome)
+    /**
+     * Settles one merge request's details read in one transaction: a complete read replaces its events and writes the stats and cap, a
+     * terminal error writes no events ([events] must be empty); the stamp never trails `changed_at`. False when the row is gone.
+     */
+    suspend fun settleMrDetails(
+        connectionId: UInt,
+        mrId: Long,
+        events: List<RawGitLabMrEvent>,
+        now: Long,
+        outcome: MrDetailsOutcome,
+    ): Boolean =
+        mrWrites.settleMrDetails(connectionId, mrId, events, now, outcome)
 
     /** The MR DETAILS backlog, newest `updated_at` first: up to [limit] live merge requests of live projects whose details are stale. */
     suspend fun staleMergeRequests(connectionId: UInt, limit: Int): List<StaleMergeRequest> =

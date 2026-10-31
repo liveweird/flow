@@ -21,6 +21,7 @@ private fun utf8Size(codePoint: Int): Int = when {
  * insert; 1,024 characters alone can reach 4,096 bytes), and defaults to no byte cap for the columns that are not.
  */
 internal fun cutText(text: String, maxChars: Int, maxBytes: Int = Int.MAX_VALUE): String {
+    require(maxChars >= 0 && maxBytes >= 0) { "a cut cannot be negative" }
     val clean = text.replaceNul()
     var end = 0
     var chars = 0
