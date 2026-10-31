@@ -1,5 +1,7 @@
 package ch.nokillswit
 
+import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.fetch.halvedBatchSize
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.jira.ChangelogsCursor
@@ -7,7 +9,6 @@ import ch.nokillswit.jira.HttpJiraClient
 import ch.nokillswit.jira.JiraChangelogPage
 import ch.nokillswit.jira.JiraChangelogStream
 import ch.nokillswit.jira.JiraClient
-import ch.nokillswit.jira.JiraFetchException
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraWorklogStream
 import ch.nokillswit.jira.MAX_ANSWER_CHARS
@@ -15,7 +16,6 @@ import ch.nokillswit.jira.MAX_ANSWER_HISTORIES
 import ch.nokillswit.jira.MAX_ANSWER_PAGES
 import ch.nokillswit.jira.RawIssueInput
 import ch.nokillswit.jira.SkipBudget
-import ch.nokillswit.jira.halvedBatchSize
 import com.github.tomakehurst.wiremock.client.MappingBuilder
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
@@ -350,7 +350,7 @@ class JiraOversizedBatchTest {
         val connId = connection()
         seedIssues(connId, *(1L..12L).toList().toLongArray())
         val client = EndlessClient(recordingClient(), endlessPerIssue = true)
-        val failure = assertFailsWith<JiraFetchException> { runChangelogs(connId, client, bulkSize = 4, maxAnswerPages = 2) }
+        val failure = assertFailsWith<FetchException> { runChangelogs(connId, client, bulkSize = 4, maxAnswerPages = 2) }
         assertEquals("LIMIT_EXCEEDED", failure.code)
         assertTrue(failure.message.orEmpty().contains("answer ceiling"), failure.message)
         // [1..4] and [1, 2] take 2 pages each and halve; then each of 11 issues takes 2 bulk and 2 per-issue pages and is skipped.
@@ -428,7 +428,7 @@ class JiraOversizedBatchTest {
         val client = recordingClient()
         val mappings = listOf(override(bulkFor(listOf(1, 2)).willReturn(aResponse().withStatus(500))))
         try {
-            val failure = assertFailsWith<JiraFetchException> { runChangelogs(connId, client, bulkSize = 2) }
+            val failure = assertFailsWith<FetchException> { runChangelogs(connId, client, bulkSize = 2) }
             assertEquals("UPSTREAM_UNAVAILABLE", failure.code)
             assertEquals(500, failure.status)
             assertEquals(listOf(2), client.bulkSizes, "no halving, no retry within the stream")
@@ -450,7 +450,7 @@ class JiraOversizedBatchTest {
             perIssueChangelog(1, aResponse().withStatus(401)),
         )
         try {
-            val failure = assertFailsWith<JiraFetchException> { runChangelogs(connId, client, bulkSize = 1) }
+            val failure = assertFailsWith<FetchException> { runChangelogs(connId, client, bulkSize = 1) }
             assertEquals("AUTHENTICATION_FAILED", failure.code)
             assertNull(changelogSyncedAt(connId, 1))
         } finally {
@@ -496,7 +496,7 @@ class JiraOversizedBatchTest {
         )
         try {
             val context = context(connId)
-            val failure = assertFailsWith<JiraFetchException> { JiraChangelogStream(client, store, 12).run(context) }
+            val failure = assertFailsWith<FetchException> { JiraChangelogStream(client, store, 12).run(context) }
             assertEquals("LIMIT_EXCEEDED", failure.code)
             assertTrue("CHANGELOGS skipped 11 of 11 issues over jira.maxResponseBytes" in failure.message.orEmpty(), failure.message)
             assertEquals(11L, context.progressSnapshot()["changelogsSkipped"], "the 11th skip is the one past the allowance of 10")
@@ -521,14 +521,14 @@ class JiraOversizedBatchTest {
     fun `the skip budget allows ten skips, then a tenth of the ids attempted`() {
         val small = SkipBudget("CHANGELOGS", "issues")
         repeat(10) { small.skip() }
-        val failure = assertFailsWith<JiraFetchException> { small.skip() }
+        val failure = assertFailsWith<FetchException> { small.skip() }
         assertEquals("LIMIT_EXCEEDED", failure.code)
         assertTrue("CHANGELOGS skipped 11 of 11 issues" in failure.message.orEmpty())
 
         val large = SkipBudget("WORKLOGS", "issues")
         large.settled(200)
         repeat(22) { large.skip() } // 22 of 222 is under a tenth (22.2): still fine
-        val over = assertFailsWith<JiraFetchException> { large.skip() } // 23 of 223 is over the 22 allowed
+        val over = assertFailsWith<FetchException> { large.skip() } // 23 of 223 is over the 22 allowed
         assertTrue("WORKLOGS skipped 23 of 223 issues" in over.message.orEmpty(), over.message)
     }
 
@@ -642,7 +642,7 @@ class JiraOversizedBatchTest {
         val client = recordingClient()
         val mappings = feeds(11, 12) + listOf(override(listFor(listOf(11, 12)).willReturn(aResponse().withStatus(401))))
         try {
-            val failure = assertFailsWith<JiraFetchException> { runWorklogs(connId, client) }
+            val failure = assertFailsWith<FetchException> { runWorklogs(connId, client) }
             assertEquals("AUTHENTICATION_FAILED", failure.code)
             assertEquals(listOf(2), client.listSizes, "no halving")
             assertNull(cursors.get(connId, "worklogs"))
@@ -659,7 +659,7 @@ class JiraOversizedBatchTest {
         val client = recordingClient()
         val mappings = feeds() + override(get(urlPathMatching(".*/rest/api/3/issue/1/worklog")).willReturn(aResponse().withStatus(500)))
         try {
-            val failure = assertFailsWith<JiraFetchException> { runWorklogs(connId, client) }
+            val failure = assertFailsWith<FetchException> { runWorklogs(connId, client) }
             assertEquals("UPSTREAM_UNAVAILABLE", failure.code)
             assertNull(worklogsSyncedAt(connId, 1))
         } finally {
@@ -682,7 +682,7 @@ class JiraOversizedBatchTest {
         val failing = override(get(urlPathMatching(".*/rest/api/3/issue/2/worklog")).willReturn(aResponse().withStatus(500)))
         val mappings = (feeds() + page(1) + failing).toMutableList()
         try {
-            val failure = assertFailsWith<JiraFetchException> { runWorklogs(connId, client) }
+            val failure = assertFailsWith<FetchException> { runWorklogs(connId, client) }
             assertEquals("UPSTREAM_UNAVAILABLE", failure.code)
             assertEquals(1L, store.countWorklogs(connId), "issue 1 was fetched before the failure and is kept")
             assertNotNull(worklogsSyncedAt(connId, 1))
@@ -708,7 +708,7 @@ class JiraOversizedBatchTest {
         val mappings = feeds() + override(get(urlPathMatching(".*/rest/api/3/issue/\\d+/worklog")).willReturn(oversized))
         try {
             val context = context(connId)
-            val failure = assertFailsWith<JiraFetchException> { JiraWorklogStream(client, store).run(context) }
+            val failure = assertFailsWith<FetchException> { JiraWorklogStream(client, store).run(context) }
             assertEquals("LIMIT_EXCEEDED", failure.code)
             assertTrue("WORKLOGS skipped 11 of 11 issues over jira.maxResponseBytes" in failure.message.orEmpty(), failure.message)
             assertEquals(11L, context.progressSnapshot()["worklogsIssuesSkipped"])
@@ -726,7 +726,7 @@ class JiraOversizedBatchTest {
             override(post(urlPathMatching(".*/rest/api/3/worklog/list")).willReturn(oversized))
         try {
             val context = context(connId)
-            val failure = assertFailsWith<JiraFetchException> { JiraWorklogStream(client, store).run(context) }
+            val failure = assertFailsWith<FetchException> { JiraWorklogStream(client, store).run(context) }
             assertEquals("LIMIT_EXCEEDED", failure.code)
             assertTrue("WORKLOGS skipped 11 of 11 listed worklogs over jira.maxResponseBytes" in failure.message.orEmpty(), failure.message)
             assertEquals(11L, context.progressSnapshot()["worklogsSkipped"])

@@ -1,5 +1,6 @@
 package ch.nokillswit.jira
 
+import ch.nokillswit.fetch.defaultMaxResponseNodes
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred

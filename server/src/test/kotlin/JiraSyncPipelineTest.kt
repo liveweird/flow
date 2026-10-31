@@ -1,5 +1,7 @@
 package ch.nokillswit
 
+import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.fetch.SourceHttp
 import ch.nokillswit.ingest.DataSourceKind
 import ch.nokillswit.ingest.DataSourceRequest
 import ch.nokillswit.ingest.DataSourceService
@@ -18,13 +20,12 @@ import ch.nokillswit.jira.IssuesCursor
 import ch.nokillswit.jira.JiraClient
 import ch.nokillswit.jira.JiraConnector
 import ch.nokillswit.jira.JiraEntityKind
-import ch.nokillswit.jira.JiraFetchException
-import ch.nokillswit.jira.JiraHttp
 import ch.nokillswit.jira.JiraIssuesStream
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraReferenceStream
 import ch.nokillswit.jira.JiraSyncDependencies
 import ch.nokillswit.jira.JiraWorklogStream
+import ch.nokillswit.jira.createJiraHttp
 import ch.nokillswit.norm.WorkItemStore
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.equalTo
@@ -137,7 +138,7 @@ class JiraSyncPipelineTest {
         ),
     )
 
-    private fun buildJiraHttp(maxRetries: Int = 4): JiraHttp {
+    private fun buildJiraHttp(maxRetries: Int = 4): SourceHttp {
         val httpClient = HttpClient(OkHttp) {
             engine { preconfigured = okhttp3.OkHttpClient() }
             expectSuccess = false
@@ -147,7 +148,7 @@ class JiraSyncPipelineTest {
                 connectTimeoutMillis = 10_000
             }
         }
-        return JiraHttp(httpClient, maxRetries, maxResponseBytes = 33_554_432L, maxConcurrentRequests = 4)
+        return createJiraHttp(httpClient, maxRetries, maxResponseBytes = 33_554_432L, maxConcurrentRequests = 4)
     }
 
     /** A ready [JiraClient] (its ONE unauthenticated `resolveCloudId()` call already made) against the shared [JiraStubServer]. */
@@ -400,7 +401,7 @@ class JiraSyncPipelineTest {
                 .willReturn(aResponse().withStatus(500)),
         )
         try {
-            assertFailsWith<JiraFetchException> { stream.run(context) }
+            assertFailsWith<FetchException> { stream.run(context) }
         } finally {
             JiraStubServer.removeOverride(fault)
         }
@@ -666,7 +667,7 @@ class JiraSyncPipelineTest {
                     .willReturn(aResponse().withStatus(401)),
             )
             try {
-                val failure = assertFailsWith<JiraFetchException> {
+                val failure = assertFailsWith<FetchException> {
                     stream.run(StreamContext(connId, 1u, sharedDatabaseForTests(), cursorService, jobHeartbeat = { _, _ -> true }))
                 }
                 assertEquals("AUTHENTICATION_FAILED", failure.code)

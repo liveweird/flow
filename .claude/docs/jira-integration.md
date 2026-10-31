@@ -33,10 +33,31 @@ See `.claude/docs/security.md` "Outbound HTTP calls" for the full guard shape
 (`api.atlassian.com`, a genuine `*.atlassian.net` tenant, or — dev only — the stub host) plus the
 address-range check ported from Toadie as defense in depth.
 
+## The shared transport (`fetch/`)
+
+The transport and everything built to bound it is source-agnostic and lives in `fetch/` (package `ch.nokillswit.fetch`), so a second
+connector reuses it instead of copying it: `SourceHttp` (retry, permits, tenant pause, request deadline, bounded read, node ceiling,
+serialised big parses; formerly `JiraHttp`), `FetchException` (formerly `JiraFetchException`), `Backoff`, `CallTally` (the progress key
+strings stay `jiraRateLimited` etc.: they are persisted in `sync_jobs.progress` and read by the web), `NodeCeiling.kt`, `Ceilings.kt`
+(`AnswerCeiling`/`PageCeiling`/`BoundedAnswer`/`RunCeiling`/`RunBudget`, `halvedBatchSize`, `isOversized`) and `PageTokenGuard`. Nothing in
+`fetch/` names a connector: what differs per upstream is one `FetchSource` value (`label`, `maxResponseBytesSetting`, `rateLimitSignal`).
+`jira/JiraHttp.kt` holds Jira's: `JIRA_SOURCE` (`"Jira"`, `jira.maxResponseBytes`, `JiraNearLimitSignal`), `createJiraHttp(...)` (the
+`SourceHttp` constructor with `JIRA_SOURCE` filled in, what `configureJira` and the tests call) and `jiraAuthHeader`. The label keeps every
+Jira message and log line as it was (`Jira fetch failed: ...`, `A Jira response was refused ...`); every ceiling class and `FetchException`
+takes the `FetchSource` as its first argument. `RateLimitSignal.pauseMillisAfter(headers)` is the strategy for an upstream's "slow down"
+header on a successful response: a pause in milliseconds or null, slept holding the permit and counted by the tally (Jira: 1 s on
+`X-RateLimit-NearLimit: true`). `PackageBoundaryTest`: `fetch` references no connector or feature package, and `jira` and `gitlab` never
+reference each other. Still in `jira/` (lifted when a second connector needs them): the heap-fit and heap-share maths
+(`JiraHeapFit.kt`, `JiraHeapShare.kt`), `JiraStoredCeilings.kt`, `JiraFetchAhead.kt`, `SkipBudget` (`JiraOversized.kt`) and every
+Jira endpoint constant and entity map (`JiraPagingCeilings.kt`).
+
+Two diagnostic strings changed with the move and nothing else: the exception class in `sync_jobs.error_detail` reads `FetchException: Jira fetch failed: ...`
+(was `JiraFetchException: ...`), and the transport logs as `ch.nokillswit.fetch.SourceHttp` (was `ch.nokillswit.jira.JiraHttp`).
+
 ## Rate limits and backoff
 
-`jira/JiraHttp.kt` retries 429/5xx/IOException up to `jira.maxRetries`, backing off
-`min(30s, 2s·2^n) × U(0.7,1.3)` (`JiraBackoff`, pure and clock/random-injectable —
+`fetch/SourceHttp.kt` retries 429/5xx/IOException up to `jira.maxRetries`, backing off
+`min(30s, 2s·2^n) × U(0.7,1.3)` (`Backoff`, pure and clock/random-injectable —
 `JiraBackoffTest`), honouring a `Retry-After` header when present (clamped to 120s, taking
 precedence over the exponential formula). The IOException retry covers a DNS failure too (an allow-listed host the resolver
 cannot resolve is a plain `UnknownHostException`, not a guard rejection - `security.md` "Outbound HTTP calls"): with the default
@@ -44,15 +65,15 @@ cannot resolve is a plain `UnknownHostException`, not a guard rejection - `secur
 `UPSTREAM_UNAVAILABLE`; every retry goes back through `GuardedDns` (the JVM caches a failed lookup for 10s,
 `networkaddress.cache.negative.ttl`, so the first fresh DNS query is the retry after ~14s). An `X-RateLimit-NearLimit: true` response header makes the call sleep
 1s before it reads that response body, holding its permit and its connection (the one wait that holds a permit). A `Semaphore(jira.maxConcurrentRequests)` caps concurrent in-flight
-calls per process (default 4; one `JiraHttp` serves every connection and job). It is THE concurrency limit: a stream that fetches several
+calls per process (default 4; one `SourceHttp` serves every connection and job). It is THE concurrency limit: a stream that fetches several
 items at once (today only the WORKLOGS per-issue backfill, "Batched raw writes" below) just launches the calls and lets the semaphore
 admit them, sizing its look-ahead from `JiraClient.maxConcurrentRequests` - it adds no limit of its own. Each call retries, backs off and
 honours `Retry-After` on its own (an HTTP-date `Retry-After` parses as no header, so the computed backoff applies), AND a 429 (or a 5xx
-that carries `Retry-After`) sets a **per-tenant shared pause**: `JiraHttp` records, for the call's tenant, `notBefore = max(current, now +
+that carries `Retry-After`) sets a **per-tenant shared pause**: `SourceHttp` records, for the call's tenant, `notBefore = max(current, now +
 the wait that call is about to take)` - `Retry-After` clamped to 120s, else the computed backoff - even when that call itself gives up
 (retries or deadline exhausted), and every other call of the SAME tenant waits until that instant before it STARTS a request. The key is
 the cloud id (`HttpJiraClient` passes its gateway base), never the host: Atlassian limits per tenant, `api.atlassian.com` is shared by all
-of them, and one `JiraHttp` serves every connection, so tenant A's 429 must not stall tenant B's sync or a "Test connection" probe. A call
+of them, and one `SourceHttp` serves every connection, so tenant A's 429 must not stall tenant B's sync or a "Test connection" probe. A call
 without a key (the unauthenticated `tenant_info` lookup) neither sets nor obeys a pause. **A call holds a semaphore permit only while a
 request runs** (the permit is process-wide): it takes one when its tenant is not paused (a fresh call waits for the pause first; a call
 that queued and then meets a pause hands the permit back and waits), and it hands the permit back during its own retry backoff and
@@ -64,9 +85,9 @@ not for a first attempt. Requests already on the wire are not interrupted; a net
 concurrent WORKLOGS backfill never keeps firing siblings into a rate limit (`JiraHttpSharedPauseTest`). A response body is read bounded at `jira.maxResponseBytes` (default 8 MiB, "Response size cap" below;
 Covenant's `ToadieGraphqlClient` shape) and refused before it is parsed when it carries too many structural tokens ("Node and depth ceiling") — `LIMIT_EXCEEDED` past either (the batch streams' answers: "Oversized issue page (`LIMIT_EXCEEDED`)" and "Oversized changelog/worklog batch" below).
 
-**The rate-limit tally (`jira/JiraCallTally.kt`, `JiraHttpTallyTest`, `JiraTallyProgressTest`).** What Jira's throttling cost one sync job is counted by a
-`JiraCallTally`, a coroutine-context element `JiraHttp.request` reads once per call (no parameter threads through the clients or the streams).
-`JiraConnector.runSync`/`runReconcile` wrap the run, `resolveCloudId` included, in `withContext(JiraCallTally())`, so the streams' fetch-ahead children (`async`
+**The rate-limit tally (`fetch/CallTally.kt`, `JiraHttpTallyTest`, `JiraTallyProgressTest`).** What Jira's throttling cost one sync job is counted by a
+`CallTally`, a coroutine-context element `SourceHttp.request` reads once per call (no parameter threads through the clients or the streams).
+`JiraConnector.runSync`/`runReconcile` wrap the run, `resolveCloudId` included, in `withContext(CallTally())`, so the streams' fetch-ahead children (`async`
 inherits the context) count into the same tally; REPROCESS never calls Jira and takes none, and a call outside any tally (the Test-connection probes) counts
 nothing. Four counters: `jiraRateLimited` (every 429 response, the final one that gives up included), `jiraBackoffMs` (the back-off a call is about to sleep,
 `Retry-After` or the computed one), `jiraTenantPausedMs` (the tenant pause a call waits out that another call set) and `jiraNearLimitPauses` (each
@@ -205,7 +226,7 @@ project's field scheme carries, so the editor lists those by default.
 
 - **Endpoint.** `JiraClient.projectFields(projectId, workTypeIds, startAt, maxResults)`; `projectId` and `workTypeId`
   (an issue-type id) are REQUIRED and the latter REPEATS (`?projectId=11562&workTypeId=11434&workTypeId=10000`), so
-  `JiraHttp.request` has a `repeatedQuery: List<Pair<String, String>>` beside its `Map` query (values are appended
+  `SourceHttp.request` has a `repeatedQuery: List<Pair<String, String>>` beside its `Map` query (values are appended
   through Ktor's parameter builder and kept across retries; nothing is concatenated into the URL, so errors and logs
   still carry host+path only). Observed shape (real tenant, 2026-10-08): the common `startAt` envelope
   (`JiraStartAtPage`: `self`, `nextPage`, `maxResults`, `startAt`, `total`, `isLast`, `values`), one row per
@@ -230,7 +251,7 @@ project's field scheme carries, so the editor lists those by default.
   earlier in the same pass: the project id from the `PROJECT` entity of that key, the issue-type ids from that key's
   `PROJECT_STATUSES` payload (one array entry per issue type).
 - **Optional by design.** A project's step is SKIPPED, never failing the SYNC, when its inputs are missing, when the call
-  fails with ANY `JiraFetchException` except `BLOCKED_HOST` (401/403 — a missing scope is a 401 on a scoped token —, 404
+  fails with ANY `FetchException` except `BLOCKED_HOST` (401/403 — a missing scope is a 401 on a scoped token —, 404
   endpoint withdrawn, `INVALID_RESPONSE` for any other 4xx / a body that is not the envelope / a row without a string
   `fieldId`, and also 5xx after retries, `TIMEOUT`, `RATE_LIMITED`, `REDIRECT`, `LIMIT_EXCEEDED`, `CURSOR_EXPIRED`), or when the
   response lists no field at all (any page's bad row discards the whole project: the previous entity is never merged with a
@@ -323,7 +344,7 @@ window past the last watermark described above).
 
 ### Oversized issue page (`LIMIT_EXCEEDED`)
 
-A page of heavy issues (`ISSUE_SEARCH_FIELDS`) can exceed `jira.maxResponseBytes` (`JiraHttp.readBounded` throws
+A page of heavy issues (`ISSUE_SEARCH_FIELDS`) can exceed `jira.maxResponseBytes` (`SourceHttp.readBounded` throws
 `LIMIT_EXCEEDED`, never retried; so does a body past the node or depth ceiling, "Node and depth ceiling", which a page of 100 issues
 answers the same way). `JiraIssuesStream` answers by re-requesting the SAME page, with the same
 `nextPageToken` and JQL but `maxResults` halved (`size / 2`, floor 1), as often as needed. The smaller size lasts for the
@@ -421,7 +442,7 @@ The same failure shape on the two batch calls: a `changelog/bulkfetch` answer fo
 issue ids, or a `worklog/list` answer for up to 1000 worklog ids, over `jira.maxResponseBytes`. Both streams answer
 like the ISSUES page, with the batch size run-local (never in the cursor; the next run starts at the configured size) and one
 WARN per halving (data source id, old and new size; `JiraChangelogStream`/`JiraWorklogStream`; shared helpers
-`halvedBatchSize`/`isOversized` in `JiraOversized.kt`):
+`halvedBatchSize`/`isOversized` in `fetch/Ceilings.kt`):
 
 - **CHANGELOGS.** The batch is claimed afresh at the halved size (`staleChangelogIssueIds(.., limit)`; nothing was marked
   synced, so the first half is exactly the ids just asked and the second half is claimed next), `size = max(1, min(size,
@@ -434,7 +455,7 @@ WARN per halving (data source id, old and new size; `JiraChangelogStream`/`JiraW
   Each page is now kept only as the rows it will store (`RawChangelogInput`), and one batch's answer, or one issue's per-issue
   answer, stops at the first of `MAX_ANSWER_CHARS` (16 Mi characters of history text), `MAX_ANSWER_HISTORIES` (50,000 rows: a
   host can pack ~500k minimal histories into 16 Mi characters, and each row costs ~700 B of objects on its way into Postgres) and
-  `MAX_ANSWER_PAGES` (200 pages, for an endless token or `total`) (`BoundedAnswer` in `JiraOversized.kt`, shared with WORKLOGS: "Worklog answer ceilings" below). The three are sized
+  `MAX_ANSWER_PAGES` (200 pages, for an endless token or `total`) (`BoundedAnswer` in `fetch/Ceilings.kt`, shared with WORKLOGS: "Worklog answer ceilings" below). The three are sized
   against the worker heap, not against `jira.maxResponseBytes` (a configured cap does not move them): 16 Mi characters is up to
   32 MiB as UTF-16 (Polish text is not Latin-1), held twice while written, plus the rows, ~100 MiB per worker slot at worst. Past
   any it is `LIMIT_EXCEEDED`: halved, then per issue, then the issue skipped, exactly as above; the WARNs and the skip-budget
@@ -460,7 +481,7 @@ progress counter and left out of THIS run. What "left out" costs differs by path
 Under the threshold the job still ends SUCCEEDED; the counters on the sync status are the operator's signal.
 
 **Fail-safe: too many skips is a too-small cap, not an outlier.** A stream that skips MORE than `max(10, 10% of the ids it
-attempted this run)` stops and fails with the existing `LIMIT_EXCEEDED` (`JiraFetchException`, so the job ends FAILED and
+attempted this run)` stops and fails with the existing `LIMIT_EXCEEDED` (`FetchException`, so the job ends FAILED and
 `sync_jobs.error_detail` reads e.g. `Jira fetch failed: LIMIT_EXCEEDED: CHANGELOGS skipped 37 of 120 issues over
 jira.maxResponseBytes or an answer ceiling - the WARNs name which`). Without it a mis-set `jira.maxResponseBytes` (where every response is
 oversized) would skip everything and the job would SUCCEED. "Attempted" is the ids that finished plus the ones skipped, so a
@@ -494,10 +515,10 @@ the answer ceiling's cases script the client in-process).
 
 `jira.maxResponseBytes` bounds one PAGE; a loop that holds several pages of one answer, or follows a host's paging, needs a whole-answer
 and a page ceiling of its own, or a compromised (or buggy) host behind the allow-list can exhaust the worker heap or keep a job and the
-database growing. CHANGELOGS has had them since #360; the WORKLOGS loops adopt the same lever (`JiraOversized.kt`: `AnswerCeiling`,
+database growing. CHANGELOGS has had them since #360; the WORKLOGS loops adopt the same lever (`fetch/Ceilings.kt`: `AnswerCeiling`,
 `BoundedAnswer<T>`, `PageCeiling`; the WORKLOGS figures and `requirePlausible` in `JiraWorklogCeilings.kt`, injectable as
 `WorklogCeilings` so a test can use small ones). A ceiling is `LIMIT_EXCEEDED` (the feed's far-future `until` and its non-advancing page
-are `INVALID_RESPONSE`), a typed `JiraFetchException` whose text reads `answer ceiling: ...`, so `sync_jobs.error_detail` and the
+are `INVALID_RESPONSE`), a typed `FetchException` whose text reads `answer ceiling: ...`, so `sync_jobs.error_detail` and the
 data-source status page show which limit tripped; none is a silent truncation.
 
 | Loop | Ceiling | Past it |
@@ -527,7 +548,7 @@ worklogs) is skipped every run, loudly (`worklogsIssuesSkipped`, one WARN naming
 tenant has one. A foreign (out-of-scope) worklog of the instance-wide feed is still dropped unread: its text counts toward the ceiling, but
 it is only parsed for `id`/`updated` when its issue is in scope.
 
-**For a new paging loop:** build a `BoundedAnswer<T>(endpoint, AnswerCeiling(...), unit)` (or a bare `PageCeiling` for a loop that
+**For a new paging loop:** build a `BoundedAnswer<T>(JIRA_SOURCE, endpoint, AnswerCeiling(...), unit)` (or a bare `PageCeiling` for a loop that
 holds nothing), call `nextPage()`/`next()` before each page and `add(item, chars)` per kept item; the `LIMIT_EXCEEDED` it throws takes the
 loop's existing oversized path, or ends the stream when the loop has none. Every loop that follows a host's paging has adopted it
 (next section).
@@ -535,8 +556,8 @@ loop's existing oversized path, or ends the stream when the loop has none. Every
 ### Paging ceilings (REFERENCE, PROJECT_FIELDS, ISSUES, RECONCILE)
 
 The remaining loops that trusted the host to stop (the 2026-10-25 security audit's MEDIUM findings) carry ceilings on the same lever
-(`JiraOversized.kt`: `PageCeiling`, `BoundedAnswer`, plus `RunCeiling`/`RunBudget` for a run that writes every page; the figures and
-`PageTokenGuard` in `JiraPagingCeilings.kt`, injectable as constructor parameters so a test uses small ones). They are constants, not
+(`fetch/Ceilings.kt`: `PageCeiling`, `BoundedAnswer`, plus `RunCeiling`/`RunBudget` for a run that writes every page; the figures and
+`PageTokenGuard` in `fetch/PageTokenGuard.kt`, injectable as constructor parameters so a test uses small ones). They are constants, not
 configuration: sized against the real tenant with wide headroom, never against `jira.maxResponseBytes` or a page size. Every check runs
 AFTER the page is fetched and BEFORE its transaction (the page count before the fetch), so a trip leaves the cursor on the token (or
 `startAt`) that asks the refused page; the failure is `LIMIT_EXCEEDED` with text `answer ceiling: ...` (`INVALID_RESPONSE` for a bad token
@@ -570,7 +591,7 @@ page at 1,000) and shares the issue figure, so a scope too big for one is too bi
 
 **Bytes a run (`RunCeiling.maxBytes`, ISSUES and RECONCILE).** The page and row figures alone let a host send 8 MiB pages for 10,000
 pages (80 GB read, parsed and written) or 500,000 fat issues, so `RunBudget.add` also sums the WIRE bytes of the pages
-(`JiraSearchPage.wireBytes`, set by `HttpJiraClient.searchJql` from the size `JiraHttp` read). Wire bytes, not the parsed or the
+(`JiraSearchPage.wireBytes`, set by `HttpJiraClient.searchJql` from the size `SourceHttp` read). Wire bytes, not the parsed or the
 re-serialised text: whitespace padding, unused members and empty containers cost what they cost on the wire, so a page of `{}`s padded to
 8 MiB cannot be read for free (`JiraPagingCeilingTest` pins a padded page being charged in full). REFERENCE's small steps leave it at
 `UNBOUNDED_BYTES`. The real evidence ("Response size cap" below) is ~1.3 MB a 100-issue page on average (~13 KB an issue) and 4.3 MB for
@@ -627,7 +648,7 @@ document through any of them. Four levers close it (`jira/JiraStoredCeilings.kt`
 - **A stored-size ceiling on the raw writers** (`RawUpsertOutcome.REFUSED`, nothing written, a stored row only touched; "A stored item over its
   ceiling is refused, loudly" in `ingestion.md`): an issue or entity over `jira.maxStoredPayloadBytes` (2 MiB, bounds 256 KiB to 8 MiB), a history
   over `MAX_STORED_HISTORY_BYTES` (512 KiB) and a worklog over `MAX_STORED_WORKLOG_BYTES` (16 KiB), each measured as the text arrived (before any
-  parse; the constants follow the answer-ceiling precedent of `JiraOversized.kt`) PLUS the plain digits PostgreSQL will render for its
+  parse; the constants follow the answer-ceiling precedent of `fetch/Ceilings.kt`) PLUS the plain digits PostgreSQL will render for its
   exponent numbers (`String.renderedBytes`: `jsonb` keeps a number as a `numeric` and `payload::text` writes it in plain digits, so
   `'[1e131071]'::jsonb` is 22 bytes stored but 131,074 as text - the very `octet_length(payload::text)` PROCESS's claim and the inspector measure).
   An exponent alone refuses nothing (`1.0E7` costs seven digits; exponent-looking text inside a string costs none): only an item whose estimate
@@ -655,7 +676,7 @@ document through any of them. Four levers close it (`jira/JiraStoredCeilings.kt`
 is `4 x jira.processPageBytes + denseTree(jira.maxStoredPayloadBytes) + denseTree(512 KiB)` = 32 + 84 + 21 = 137 MiB at the defaults (the page's
 strings as read at UTF-16's worst case, 2x, plus the `customFieldsJson` copies the normalizer builds from them, 2x; a reference chunk is smaller and
 covered). **CHANGELOGS and WORKLOGS keep their accumulated TEXT but no page tree beside it:** each page is converted to its trimmed item texts INSIDE the
-client call, under the big-parse lock (`JiraHttp.requestAs`, `JiraClient.*As`, `JiraPageTexts.kt`), so the previous page's tree is garbage before the next
+client call, under the big-parse lock (`SourceHttp.requestAs`, `JiraClient.*As`, `JiraPageTexts.kt`), so the previous page's tree is garbage before the next
 is parsed (measured before this: ~5 trees of ~108 MiB per WORKLOGS slot from the fetch-ahead window, ~206 MiB per CHANGELOGS slot, build-times WHY 48).
 Their own terms are the text at UTF-16: CHANGELOGS `2 x MAX_ANSWER_CHARS` = 32 MiB; WORKLOGS `2 x ((jira.maxConcurrentRequests + 1) x 4 Mi characters +
 the 4 Mi flush bound)` = 48 MiB **plus the rows its flush keeps and writes, `WorklogCeilings.batchBytes()` = 14.27 MiB** (build-times WHY 51): a batch is the
@@ -695,7 +716,7 @@ held ~3-5x its size for a realistic document (the JSON tree of a normal Jira pay
 host behind the allow-list could still OOM one worker with a dense document, which "Node and depth ceiling" below narrows but does
 not close**. It is not an answer ceiling and the answer ceilings do not move with it. **What a response over it does:** an ISSUES page
 halves, a CHANGELOGS/WORKLOGS batch halves, then the id is skipped (the sections above); a one-shot or per-id response that cannot shrink
-fails or skips its unit. `JiraHttp` logs one WARN (constant text, the two sizes) whenever a response passes half the cap, so a one-shot
+fails or skips its unit. `SourceHttp` logs one WARN (constant text, the two sizes) whenever a response passes half the cap, so a one-shot
 list (`GET /field`) nearing it is seen before it fails. Evidence it fits every real response (dev
 database, aggregate sizes only, 2026-10-27; wire size estimated as the stored size + ~2.5 KB an issue for the three embedded users `trimIssue` slims):
 
@@ -713,11 +734,11 @@ Two knobs interact: `jira.changelogPageSize` near its 10,000 maximum asks ~14 MB
 halves the ISSUE count, not the page size (above), so keep the default or raise the cap together. A tenant whose own responses are bigger
 raises `JIRA_MAX_RESPONSE_BYTES` (1 KiB..128 MiB); the worker's heap is the budget (`k8s/worker-deployment.yaml`).
 
-#### Node and depth ceiling (`JiraNodeCeiling.kt`)
+#### Node and depth ceiling (`fetch/NodeCeiling.kt`)
 
 The byte cap bounds the wire, not the tree: a document of minimal objects or one-byte scalars parses to ~30x its size, and a deeply
 nested one overflows the stack of the parser (and of `toString()` and the canonical-JSON writer) with a `StackOverflowError`,
-an `Error` that no `catch (Exception)` between `JiraHttp` and `IngestWorker.runJob` sees. `JiraHttp` therefore scans the body BEFORE it
+an `Error` that no `catch (Exception)` between `SourceHttp` and `IngestWorker.runJob` sees. `SourceHttp` therefore scans the body BEFORE it
 is parsed (`jsonCeilingBreach`: one allocation-free pass over the UTF-8 bytes, stopping at the first breach, not a validator)
 and refuses it as `LIMIT_EXCEEDED` with a constant text and one WARN that carries the text and the two numbers, never the body:
 
@@ -732,7 +753,7 @@ and refuses it as `LIMIT_EXCEEDED` with a constant text and one WARN that carrie
 It is the failure an over-cap body is, so every stream answers it the same way: an ISSUES page halves, a CHANGELOGS/WORKLOGS batch
 halves, then the id is skipped, a one-shot call fails. **The node ceiling is derived from the cap, not a second knob** (a fixed count
 would trip a legitimate response the moment an operator raised `JIRA_MAX_RESPONSE_BYTES`); there is no configuration key, and the
-`JiraHttp` constructor takes `maxResponseNodes` only for tests. As a belt-and-braces `IngestWorker.runJob` also turns a
+`SourceHttp` constructor takes `maxResponseNodes` only for tests. As a belt-and-braces `IngestWorker.runJob` also turns a
 `StackOverflowError` that still escapes (a path this scan does not cover) into an ordinary failed job (`JobStackOverflowException`,
 constant text, `RUN_FAILED`, the `sync_job.failed` audit event, the back-off); no other `Error` is handled (an `OutOfMemoryError` is a
 worker exit).
@@ -770,7 +791,7 @@ response in flight: the body bytes (up to 8 MiB) and the buffer copy `readBounde
 (`Json.decodeFromStream` over a `ByteArrayInputStream`), so there is no decoded String (it was 8 MiB for an ASCII body, 16 MiB with a
 non-Latin-1 character).
 
-**Serialised big parses.** The parse of a body over 1 MiB (`BIG_BODY_BYTES`) runs behind one `Mutex` in `JiraHttp`; smaller
+**Serialised big parses.** The parse of a body over 1 MiB (`BIG_BODY_BYTES`) runs behind one `Mutex` in `SourceHttp`; smaller
 bodies take no lock, so at most one potentially hostile big tree is being built at a time. The lock is taken inside `attemptOnce`, after
 the body is read, so **a call waiting for it KEEPS its permit, its body bytes and its open response**: up to three of the four
 permits can sit idle for the length of the parse ahead of them (~90-105 ms for an 8 MiB page on the shipped C1 JVM, ~19 % slower than the old String path, measured in build-times WHY 51; ~23 ms for 4 MB, ~7-9 ms for 1.3 MB per queued
@@ -1071,7 +1092,7 @@ Landed with the RECONCILE stream (plan §7/§12 item 7, plan commit 7, V12 — s
 ## `CURSOR_EXPIRED` detection
 
 Landed with the ISSUES stream (plan commit 6): `HttpJiraClient.searchJql` passes
-`statusCodeOverrides = mapOf(400 to "CURSOR_EXPIRED", 410 to "CURSOR_EXPIRED")` to `JiraHttp`, but
+`statusCodeOverrides = mapOf(400 to "CURSOR_EXPIRED", 410 to "CURSOR_EXPIRED")` to `SourceHttp`, but
 ONLY when the request carries a `nextPageToken` — a bare first page's own 400/410 is a genuine
 `INVALID_RESPONSE` (there was no token to have expired). `JiraIssuesStream` catches exactly this
 code and restarts the run from the last completed watermark (`freshRun`), up to
@@ -1079,7 +1100,7 @@ code and restarts the run from the last completed watermark (`freshRun`), up to
 The error-codes table below is updated accordingly; `CURSOR_EXPIRED` is no longer a reserved,
 undetected code.
 
-## Error codes (`JiraFetchException`)
+## Error codes (`FetchException`)
 
 `AUTHENTICATION_FAILED` (401) · `FORBIDDEN_SCOPE` (403) · `NOT_FOUND` (404) · `RATE_LIMITED` (429,
 retries exhausted, OR a `Retry-After` whose wait alone would cross the remaining
@@ -1133,7 +1154,7 @@ backs off or waits out its tenant's pause, so the deadline bounds the call's own
   raw-cast `IllegalArgumentException` anywhere becomes an `INVALID_RESPONSE` row rather than an
   uncaught crash, a genuine coroutine cancellation is never swallowed as a row, and a probe honours
   the REMAINING 30s total budget, not just its own fixed 10s cap.
-- `JiraClientTest` — `JiraHttp`/`HttpJiraClient` against a Ktor `MockEngine`: status→code mapping,
+- `JiraClientTest` — `SourceHttp`/`HttpJiraClient` against a Ktor `MockEngine`: status→code mapping,
   429-then-`RATE_LIMITED`, the byte cap, malformed JSON, a refused redirect, `nextPageToken`
   paging, and both auth header shapes.
 - `JiraStubServer` — the shared in-JVM WireMock fixture over `sample-data/jira-stub` (the SAME
@@ -1153,7 +1174,7 @@ backs off or waits out its tenant's pause, so the deadline bounds the call's own
   index-gap fetch skips the same still-bad issue (`indexGapSkipped`) and completes. An already-stored issue whose update fails keeps
   its old row (stale) until a later edit or a full resync.
 - `JiraPagingCeilingTest` — "Paging ceilings": a `MockEngine` host that never stops paging, cycles or over-lengthens its `nextPageToken`, or packs a giant boards answer, against the REFERENCE, PROJECT_FIELDS, ISSUES and RECONCILE loops with small ceilings: the typed failure, exact call counts, committed rows and the cursor left at the last committed page (a resumed ISSUES run completes; no RECONCILE anti-join on an incomplete sweep).
-- `JiraRequestAsTest` — `JiraHttp.requestAs`: concurrent big fetches never overlap their transforms (at most one big tree), a source scan that the changelog and worklog streams use only the `As` calls, a failing transform propagates and frees the lock.
+- `JiraRequestAsTest` — `SourceHttp.requestAs`: concurrent big fetches never overlap their transforms (at most one big tree), a source scan that the changelog and worklog streams use only the `As` calls, a failing transform propagates and frees the lock.
 - `JiraHeapFitTest` — "Node and depth ceiling" boot check: the pure `heapFitVerdict` (the shipped defaults need 439.3 MiB against the 448 MiB old generation of `-Xmx512m -Xmn64m`, read from `application.yaml`, `k8s/worker-deployment.yaml` and `server/build.gradle.kts`; more slots, a bigger cap or more requests without heap fail with a message naming the knobs of the dominating term and the `-Xmx`; the dense-tree, PROCESS-slot and CHANGELOGS-slot arithmetic and which term dominates), one boot per role (`worker`/`all` refuse, `web` warns once and boots).
 - `JiraStoredCeilingTest` / `JiraProcessBudgetTest` — "Stored-size ceilings": a padded item per page (stub overrides) for the issue, entity, history and worklog writers (REFUSED, the row touched not changed, the counters, the cursor advanced, the rest stored, the WARN without the payload; inclusive at the ceiling), the full stub SYNC refusing nothing, the PROCESS claim by stored bytes (page splits, an always-fitting first issue, the oversized skip, PROCESS over reference kinds spanning many chunks writing the very rows an unchunked read does, a 2,100-entity USER kind tripping nothing, PROJECT_FIELDS storing every project at a 1 KiB chunk), the rendered-size estimate (70 x `1e131071` refused, `1.0E7` stored, the estimate never below PostgreSQL's own rendering).
 - `JiraWorklogCeilingTest` — "Worklog answer ceilings": a Ktor `MockEngine` host that never stops paging (`total`, `lastPage=false`), packs a giant answer or
@@ -1183,11 +1204,11 @@ backs off or waits out its tenant's pause, so the deadline bounds the call's own
   one call's 429 + `Retry-After: 5` leaves the tenant's queued calls without a request until the deadline (then they start at or after it);
   a 5xx with `Retry-After`, a 429 without it and an HTTP-date `Retry-After` pause the next call for the header / the computed backoff, a plain 5xx
   pauses nobody; a paused tenant's waiting call holds no permit (another tenant, and a keyless call, proceed at once with a limit of 1) and
-  cancelling it sends no request; `HttpJiraClient` keys by cloud id (tenant A's 429 never delays tenant B on the same `JiraHttp`); a retry
+  cancelling it sends no request; `HttpJiraClient` keys by cloud id (tenant A's 429 never delays tenant B on the same `SourceHttp`); a retry
   whose backoff plus extended pause outlast the call's deadline is not sent.
 - `JiraFetchAheadTest` and `JiraWorklogConcurrencyTest` — the concurrent per-issue worklog fetch: `fetchAheadInOrder` (consumption in list order whatever order
   the fetches finish in, the window bound, the worklog budget holding the window back, a failure at its own position, the earlier failure in list order winning, cancellation reaching
-  the in-flight fetches and never becoming an "outcome"); and the whole stream over the real `HttpJiraClient`/`JiraHttp` on a Ktor `MockEngine`
+  the in-flight fetches and never becoming an "outcome"); and the whole stream over the real `HttpJiraClient`/`SourceHttp` on a Ktor `MockEngine`
   that counts calls in flight at the wire (never more than `maxConcurrentRequests`, a limit of 1 strictly sequential, a mid-batch failure leaving
   the sequential loop's rows and stamps and the claim-order error, job cancellation and a lost lease cancelling the calls in flight).
 - `JiraRawStoreTest` — `JiraRawStore`'s own write paths in isolation (incl. a NUL in an issue, entity, worklog or changelog payload: stored with U+FFFD, a re-write

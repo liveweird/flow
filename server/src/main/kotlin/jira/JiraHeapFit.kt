@@ -1,5 +1,7 @@
 package ch.nokillswit.jira
 
+import ch.nokillswit.fetch.RESPONSE_BYTES_PER_NODE
+import ch.nokillswit.fetch.defaultMaxResponseNodes
 import ch.nokillswit.ingest.readWorkerSlots
 import ch.nokillswit.plugins.runsWorker
 import io.ktor.server.application.Application

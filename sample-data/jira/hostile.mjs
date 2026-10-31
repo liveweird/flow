@@ -45,8 +45,8 @@ import path from "node:path";
 const CLOUD_ID = "b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c"; // the normal stub's fixed gateway cloudId
 const GATEWAY = `/ex/jira/${CLOUD_ID}/rest/api/3`;
 const ISSUE_SEARCH_FIELDS = "*all,-comment,-worklog,-description,-attachment,-subtasks,-environment"; // jira/JiraIssuesStream.kt
-const BYTES_PER_NODE = 8; // jira/JiraNodeCeiling.kt RESPONSE_BYTES_PER_NODE
-const MAX_DEPTH = 512; // jira/JiraNodeCeiling.kt MAX_RESPONSE_DEPTH
+const BYTES_PER_NODE = 8; // fetch/NodeCeiling.kt RESPONSE_BYTES_PER_NODE
+const MAX_DEPTH = 512; // fetch/NodeCeiling.kt MAX_RESPONSE_DEPTH
 const DEFAULT_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 /** Tokens kept below the ceiling, so the document is "just under" without an off-by-one risk. */
 const TOKEN_MARGIN = 64;
@@ -60,7 +60,7 @@ const HOSTILE_ID_REGEX = "^9[0-9]{5}$";
 const TOKEN_PREFIX = "Hostile-page-";
 
 // ---------------------------------------------------------------------------------------------
-// The ceiling scan: a port of `jsonCeilingBreach` (jira/JiraNodeCeiling.kt). Structural tokens are every `{`, `[`, `:` and `,`
+// The ceiling scan: a port of `jsonCeilingBreach` (fetch/NodeCeiling.kt). Structural tokens are every `{`, `[`, `:` and `,`
 // outside a string; depth is the open containers outside strings.
 // ---------------------------------------------------------------------------------------------
 export function scanTokens(text) {

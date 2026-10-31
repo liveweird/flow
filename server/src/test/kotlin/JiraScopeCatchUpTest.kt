@@ -1,10 +1,11 @@
 package ch.nokillswit
 
+import ch.nokillswit.fetch.FetchException
 import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.jira.ISSUE_SEARCH_FIELDS
 import ch.nokillswit.jira.IssuesCursor
+import ch.nokillswit.jira.JIRA_SOURCE
 import ch.nokillswit.jira.JiraClient
-import ch.nokillswit.jira.JiraFetchException
 import ch.nokillswit.jira.JiraIssuesStream
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraReconcileStream
@@ -351,7 +352,7 @@ class JiraScopeCatchUpTest {
         val client = CapturingIssuesClient { _, token ->
             when {
                 token == null && !expiredOnce -> pageOf("tok-2")
-                token == "tok-2" -> { expiredOnce = true; throw JiraFetchException("CURSOR_EXPIRED", 400) }
+                token == "tok-2" -> { expiredOnce = true; throw FetchException(JIRA_SOURCE, "CURSOR_EXPIRED", 400) }
                 else -> pageOf(null)
             }
         }

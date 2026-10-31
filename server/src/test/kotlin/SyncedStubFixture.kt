@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.fetch.SourceHttp
 import ch.nokillswit.infra.crypto.DEV_DATA_ENCRYPTION_KEY
 import ch.nokillswit.infra.crypto.FieldCipher
 import ch.nokillswit.ingest.DataSourceKind
@@ -16,9 +17,9 @@ import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.jira.HttpJiraClient
 import ch.nokillswit.jira.JiraClient
 import ch.nokillswit.jira.JiraConnector
-import ch.nokillswit.jira.JiraHttp
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraSyncDependencies
+import ch.nokillswit.jira.createJiraHttp
 import ch.nokillswit.norm.WorkItemStore
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
@@ -121,7 +122,7 @@ object SyncedStubFixture {
         )
     }
 
-    fun buildJiraHttp(maxRetries: Int = 4, maxResponseBytes: Long = 33_554_432L): JiraHttp {
+    fun buildJiraHttp(maxRetries: Int = 4, maxResponseBytes: Long = 33_554_432L): SourceHttp {
         val httpClient = HttpClient(OkHttp) {
             engine { preconfigured = okhttp3.OkHttpClient() }
             expectSuccess = false
@@ -131,7 +132,7 @@ object SyncedStubFixture {
                 connectTimeoutMillis = 10_000
             }
         }
-        return JiraHttp(httpClient, maxRetries, maxResponseBytes, maxConcurrentRequests = 4)
+        return createJiraHttp(httpClient, maxRetries, maxResponseBytes, maxConcurrentRequests = 4)
     }
 
     /** A ready [JiraClient] (its ONE unauthenticated `resolveCloudId()` call already made) against [JiraStubServer]. */
