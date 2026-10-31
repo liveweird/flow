@@ -44,4 +44,19 @@ data class SyncCounts(
     val worklogs: Long,
     val entitiesByKind: Map<String, Long>,
     val needsProcessing: Long,
+    /** A GITLAB connection's counts; null for a Jira one (and when GitLab is off in this process, with no store to count). */
+    val gitlab: GitLabSyncCounts? = null,
+)
+
+/**
+ * Raw-layer row counts of one GitLab connection (V41): live projects, projects moved out of scope or deleted, live users and
+ * deleted users.
+ */
+@Serializable
+data class GitLabSyncCounts(
+    val projects: Long,
+    val projectsMovedOut: Long,
+    val projectsDeleted: Long,
+    val users: Long,
+    val usersDeleted: Long,
 )

@@ -1,8 +1,12 @@
 package ch.nokillswit
 
+import ch.nokillswit.fetch.OutboundPermitsKey
+import ch.nokillswit.gitlab.GitLabConnectorKey
 import ch.nokillswit.gitlab.GitLabHostsKey
 import ch.nokillswit.gitlab.GitLabHttpClientKey
+import ch.nokillswit.gitlab.GitLabRawStoreKey
 import ch.nokillswit.gitlab.GitLabSettingsKey
+import ch.nokillswit.ingest.jobHandlerRegistry
 import io.ktor.client.HttpClient
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
@@ -186,6 +190,59 @@ class GitLabBootTest {
                 startApplication()
                 assertTrue(application.attributes[GitLabHttpClientKey].isActive, "production starts with a valid configuration")
             }
+        }
+    }
+
+    @Test
+    fun `the retry, deadline and users-refresh keys have defaults and are bounds-checked`() {
+        testApplication {
+            configureApp()
+            startApplication()
+            val settings = application.attributes[GitLabSettingsKey]
+            assertEquals(4, settings.maxRetries)
+            assertEquals(180L, settings.requestDeadlineSeconds)
+            assertEquals(24, settings.usersRefreshHours)
+            assertEquals(24L * 3_600_000L, settings.usersRefreshMillis)
+        }
+        testApplication {
+            configureApp("gitlab.maxRetries" to "0", "gitlab.requestDeadlineSeconds" to "1", "gitlab.usersRefreshHours" to "0")
+            startApplication()
+            val settings = application.attributes[GitLabSettingsKey]
+            assertEquals(0, settings.maxRetries)
+            assertEquals(1_000L, settings.requestDeadlineMillis)
+            assertEquals(0L, settings.usersRefreshMillis, "0 = every SYNC")
+        }
+        for ((key, bad) in listOf(
+            "gitlab.maxRetries" to "11", "gitlab.maxRetries" to "-1", "gitlab.requestDeadlineSeconds" to "0",
+            "gitlab.requestDeadlineSeconds" to "1801", "gitlab.usersRefreshHours" to "169", "gitlab.usersRefreshHours" to "x",
+        )) {
+            assertDevelopmentRefuses(key, key to bad)
+        }
+    }
+
+    @Test
+    fun `the connector, its raw store and the base-URL policy exist with GitLab on, and only the policy with it off`() {
+        testApplication {
+            configureApp()
+            startApplication()
+            val attributes = application.attributes
+            assertFalse(attributes.contains(GitLabConnectorKey))
+            assertFalse(attributes.contains(GitLabRawStoreKey))
+            assertNotNull(application.jobHandlerRegistry().gitLabBaseUrlPolicy,
+                "a disabled GitLab still answers gitlab-disabled through the policy")
+        }
+        testApplication {
+            configureApp("gitlab.stubBaseUrl" to "http://gitlab-stub:8095")
+            startApplication()
+            val attributes = application.attributes
+            assertNotNull(attributes[GitLabConnectorKey])
+            assertNotNull(attributes[GitLabRawStoreKey])
+            assertNotNull(application.jobHandlerRegistry().gitLabBaseUrlPolicy)
+            assertEquals(
+                "http://gitlab-stub:8095",
+                application.jobHandlerRegistry().gitLabBaseUrlPolicy!!.canonicalOrigin("http://gitlab-stub:8095/"),
+            )
+            assertTrue(attributes.contains(OutboundPermitsKey), "GitLab draws on the pool configureJira published")
         }
     }
 }

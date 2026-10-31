@@ -1,6 +1,7 @@
 package ch.nokillswit.fetch
 
 import io.ktor.http.Headers
+import io.ktor.http.HttpHeaders
 
 // What distinguishes one upstream from another for the shared transport (`SourceHttp`) and the failures and ceilings built around
 // it: the name its messages use, the setting that caps its responses, and how it signals "slow down". Nothing here knows a
@@ -23,12 +24,14 @@ fun interface RateLimitSignal {
 /**
  * One upstream as the shared fetch machinery names it. [label] opens every failure message ("Jira fetch failed: ...") and the
  * operator log lines ("A Jira response was refused ..."); [maxResponseBytesSetting] is the configuration key the half-cap warning
- * tells the operator to raise; [rateLimitSignal] is the upstream's own pause rule.
+ * tells the operator to raise; [rateLimitSignal] is the upstream's own pause rule; [authHeaderName] is the request header the call's
+ * `authHeader` value travels in (`Authorization`, or GitLab's `PRIVATE-TOKEN`).
  */
 class FetchSource(
     val label: String,
     val maxResponseBytesSetting: String,
     val rateLimitSignal: RateLimitSignal = RateLimitSignal.NONE,
+    val authHeaderName: String = HttpHeaders.Authorization,
 )
 
 /**

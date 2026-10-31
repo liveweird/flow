@@ -5,6 +5,7 @@ import ch.nokillswit.fetch.FetchException
 import ch.nokillswit.fetch.RunBudget
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
+import ch.nokillswit.ingest.isChange
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject

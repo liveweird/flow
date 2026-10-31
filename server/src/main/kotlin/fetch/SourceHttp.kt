@@ -10,6 +10,7 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
+import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.contentType
@@ -85,8 +86,13 @@ class SourceHttp(
     private val clock: () -> Long = System::currentTimeMillis,
     /** The most structural tokens one response may carry (`NodeCeiling.kt`); by default a fixed density of [maxResponseBytes]. */
     private val maxResponseNodes: Long = defaultMaxResponseNodes(maxResponseBytes),
+    /**
+     * A permit pool shared with other [SourceHttp]s (`OutboundPermits.kt`); null = a pool of [maxConcurrentRequests] of its own. The
+     * pool's size, not this argument, then caps the in-flight calls of every transport that shares it.
+     */
+    permits: OutboundPermits? = null,
 ) {
-    private val semaphore = Semaphore(maxConcurrentRequests)
+    private val semaphore = permits?.semaphore ?: Semaphore(maxConcurrentRequests)
 
     /** Held while a body over [BIG_BODY_BYTES] is parsed: at most one big tree is under construction at a time. */
     private val bigParses = Mutex()
@@ -113,12 +119,30 @@ class SourceHttp(
     )
 
     /**
+     * [requestAs] whose [transform] also sees the response headers (GitLab pages by `X-Next-Page`). The transform must COPY what it
+     * needs: the response is released when the call's `execute` returns, so no `Headers` object may escape it.
+     */
+    suspend fun <T> requestAsWithHeaders(
+        method: HttpMethod,
+        url: String,
+        query: Map<String, String> = emptyMap(),
+        jsonBody: JsonElement? = null,
+        authHeader: String? = null,
+        statusCodeOverrides: Map<Int, String> = emptyMap(),
+        repeatedQuery: List<Pair<String, String>> = emptyList(),
+        pauseKey: String? = null,
+        onWireBytes: ((Int) -> Unit)? = null,
+        transform: (JsonElement, Headers) -> T,
+    ): T = execute(
+        method, url, query, jsonBody, authHeader, statusCodeOverrides, repeatedQuery, pauseKey, onWireBytes, transform,
+    )
+
+    /**
      * [request] that hands the parsed tree to [transform] and returns only ITS result. For a body over [BIG_BODY_BYTES] the
      * transform runs while the big-parse permit is still held, so the tree is garbage before the next big body is decoded:
      * across every stream and slot, at most ONE big tree exists at a time, even when the caller keeps the small result (trimmed
      * item texts, paging fields) for a long time. A failure in [transform] propagates as it is (it is not retried).
      */
-    @Suppress("UNCHECKED_CAST") // `Done.value` holds exactly what `transform` returned for this call; the cast restores its type.
     suspend fun <T> requestAs(
         method: HttpMethod,
         url: String,
@@ -130,6 +154,22 @@ class SourceHttp(
         pauseKey: String? = null,
         onWireBytes: ((Int) -> Unit)? = null,
         transform: (JsonElement) -> T,
+    ): T = execute(
+        method, url, query, jsonBody, authHeader, statusCodeOverrides, repeatedQuery, pauseKey, onWireBytes,
+    ) { json, _ -> transform(json) }
+
+    @Suppress("UNCHECKED_CAST") // `Done.value` holds exactly what `transform` returned for this call; the cast restores its type.
+    private suspend fun <T> execute(
+        method: HttpMethod,
+        url: String,
+        query: Map<String, String>,
+        jsonBody: JsonElement?,
+        authHeader: String?,
+        statusCodeOverrides: Map<Int, String>,
+        repeatedQuery: List<Pair<String, String>>,
+        pauseKey: String?,
+        onWireBytes: ((Int) -> Unit)?,
+        transform: (JsonElement, Headers) -> T,
     ): T {
         val tally = currentCoroutineContext()[CallTally]
         val call = PendingCall(
@@ -216,7 +256,7 @@ class SourceHttp(
         val statement = client.prepareRequest(call.url) {
             this.method = call.method
             call.query.forEach { (key, value) -> parameter(key, value) }
-            call.authHeader?.let { header(HttpHeaders.Authorization, it) }
+            call.authHeader?.let { header(source.authHeaderName, it) }
             header(HttpHeaders.Accept, "application/json")
             // [LOW-4] Ported from Toadie's `UrlFetch.kt`: request the identity encoding so
             // maxResponseBytes counts the SAME bytes actually read off the wire — OkHttp otherwise
@@ -286,9 +326,9 @@ class SourceHttp(
         // a hostile host cannot make the worker build several dense trees at once. A small body takes no lock.
         // A caller's transform runs inside the same lock, so the tree it was built from is unreachable once the lock is released.
         val value = if (bytes.size > BIG_BODY_BYTES) {
-            bigParses.withLock { call.transform(parse(bytes, status, url)) }
+            bigParses.withLock { call.transform(parse(bytes, status, url), response.headers) }
         } else {
-            call.transform(parse(bytes, status, url))
+            call.transform(parse(bytes, status, url), response.headers)
         }
         call.onWireBytes?.invoke(bytes.size)
         return Done(value)

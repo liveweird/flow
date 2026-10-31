@@ -6,8 +6,8 @@ import ch.nokillswit.infra.db.lazyStatements
 import ch.nokillswit.infra.db.maxRowsPerStatement
 import ch.nokillswit.infra.db.StatementProbe
 import ch.nokillswit.infra.db.payloadChunkSizes
+import ch.nokillswit.ingest.RawUpsertOutcome
 import ch.nokillswit.jira.JiraRawStore
-import ch.nokillswit.jira.RawUpsertOutcome
 import ch.nokillswit.jira.RawWorklogInput
 import ch.nokillswit.norm.WorkItemStore
 import kotlinx.coroutines.flow.toList

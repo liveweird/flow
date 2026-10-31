@@ -365,10 +365,10 @@ class IngestWorker internal constructor(
     }
 
     private suspend fun onFailed(claim: SyncJobClaim, cause: Exception) {
-        // A ceiling trip (`SyncPause.kt`) has a closed code of its own; a kind with no connector is CONNECTOR_UNAVAILABLE; else RUN_FAILED.
+        // A ceiling trip (`SyncPause.kt`) and a connector failure (`connectorFailureCode`) have closed codes; else RUN_FAILED.
         val trip = cause as? CeilingTripException
         val reported = trip?.underlying ?: cause
-        val errorCode = trip?.code ?: if (cause is ConnectorUnavailableException) CONNECTOR_UNAVAILABLE else "RUN_FAILED"
+        val errorCode = trip?.code ?: connectorFailureCode(cause) ?: "RUN_FAILED"
         val detail = failureDetail(reported)
         // `fail` also records the SYNC/RECONCILE back-off in the same transaction, so a closed job never leaves the connection due;
         // `failTripped` adds the trip counter and the pause to it.

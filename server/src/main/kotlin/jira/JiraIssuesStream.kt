@@ -5,8 +5,10 @@ import ch.nokillswit.fetch.PageTokenGuard
 import ch.nokillswit.fetch.RunBudget
 import ch.nokillswit.fetch.RunCeiling
 import ch.nokillswit.infra.catchingFailures
+import ch.nokillswit.ingest.RawUpsertOutcome
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
+import ch.nokillswit.ingest.isChange
 import org.slf4j.LoggerFactory
 
 /** What [JiraIssuesStream.writeIssuesOneByOne] did: issues skipped for a bad value, refused by the stored-size ceiling, and any change. */

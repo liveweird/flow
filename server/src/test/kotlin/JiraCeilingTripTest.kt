@@ -24,7 +24,7 @@ import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraSearchPage
 import ch.nokillswit.jira.JiraSyncDependencies
 import ch.nokillswit.jira.backfillFromEpochMillis
-import ch.nokillswit.jira.ceilingTripOf
+import ch.nokillswit.ingest.ceilingTripOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray

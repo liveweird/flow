@@ -1,11 +1,19 @@
 package ch.nokillswit.gitlab
 
+import ch.nokillswit.fetch.OutboundPermitsKey
+import ch.nokillswit.infra.db.R2dbcDatabaseKey
 import ch.nokillswit.infra.outbound.SelfManagedHosts
 import ch.nokillswit.infra.outbound.TlsTrust
 import ch.nokillswit.infra.outbound.guardedKtorClient
 import ch.nokillswit.infra.outbound.guardedOkHttpClient
+import ch.nokillswit.ingest.DataSourceServiceKey
+import ch.nokillswit.ingest.GitLabBaseUrlPolicy
+import ch.nokillswit.ingest.SyncCursorsServiceKey
+import ch.nokillswit.ingest.connectorRegistry
+import ch.nokillswit.ingest.jobHandlerRegistry
 import io.ktor.client.HttpClient
 import io.ktor.server.application.*
+import io.ktor.server.plugins.BadRequestException
 import io.ktor.util.AttributeKey
 import java.net.InetAddress
 import okhttp3.EventListener
@@ -19,19 +27,25 @@ val GitLabHostsKey = AttributeKey<SelfManagedHosts>("GitLabHosts")
 /** The ONE guarded GitLab client — published ONLY when GitLab is enabled, closed on [ApplicationStopped]. */
 val GitLabHttpClientKey = AttributeKey<HttpClient>("GitLabHttpClient")
 
+/** The GitLab connector - published ONLY when GitLab is enabled (it is then also in the connector registry). */
+val GitLabConnectorKey = AttributeKey<GitLabConnector>("GitLabConnector")
+
 /**
- * Wires the outbound side of the GitLab connector (`.claude/docs/gitlab-integration.md` "Outbound calls to a self-managed host"):
- * validates `gitlab.*` (a malformed host, CIDR or CA bundle, a stub in production, or a response ceiling above Jira's refuses
- * startup) and builds ONE guarded `HttpClient(OkHttp)`. It makes no GitLab call and registers no connector or route; the
- * data-source kind uses it later. Runs in EVERY role: Test connection is a web-role call, a sync a worker-role one.
- * Registered right after `configureJira` in `application.yaml`.
+ * Wires the GitLab connector (`.claude/docs/gitlab-integration.md`): validates `gitlab.*` (a malformed host, CIDR or CA bundle, a stub in
+ * production, or a response ceiling above Jira's refuses startup), registers the base-URL policy the data-source writes validate
+ * against, and - only when GitLab is enabled - builds ONE guarded `HttpClient(OkHttp)` for the self-managed host, the raw store and the
+ * `GITLAB` connector (registered in the connector registry). It runs in EVERY role: Test connection is a web-role call, a sync a
+ * worker-role one. Registered right after `configureJira` in `application.yaml` (it draws on Jira's `OutboundPermits`).
  *
- * With no host listed and no development stub, GitLab is DISABLED: the settings and hosts are published, no client is built.
+ * With no host listed and no development stub, GitLab is DISABLED: the settings and hosts are published, the policy answers
+ * `gitlab-disabled` to every GitLab write, and no client, store or connector exists.
  */
 fun Application.configureGitLab() {
     val settings = readGitLabSettings(environment.config, developmentMode)
     attributes.put(GitLabSettingsKey, settings)
     attributes.put(GitLabHostsKey, settings.hosts)
+    // Always: a disabled GitLab must answer the data-source writes `gitlab-disabled`, not look unregistered.
+    jobHandlerRegistry().registerGitLabBaseUrlPolicy(baseUrlPolicy(settings))
     if (!settings.enabled) return
     val client = buildGuardedGitLabHttpClient(
         hosts = settings.hosts,
@@ -42,6 +56,33 @@ fun Application.configureGitLab() {
     // Like the Jira client: ONE long-lived client, closed on stop so its dispatcher and pool threads do not leak.
     attributes.put(GitLabHttpClientKey, client)
     monitor.subscribe(ApplicationStopped) { client.close() }
+    val http = createGitLabHttp(client, settings, attributes[OutboundPermitsKey])
+    val rawStore = GitLabRawStore(attributes[R2dbcDatabaseKey])
+    attributes.put(GitLabRawStoreKey, rawStore)
+    val connector = GitLabConnector(
+        newClient = { baseUrl, token -> HttpGitLabClient(http, baseUrl, token) },
+        sync = GitLabSyncDependencies(
+            dataSources = attributes[DataSourceServiceKey],
+            rawStore = rawStore,
+            cursors = attributes[SyncCursorsServiceKey],
+            database = attributes[R2dbcDatabaseKey],
+            usersRefreshMillis = settings.usersRefreshMillis,
+        ),
+    )
+    attributes.put(GitLabConnectorKey, connector)
+    connectorRegistry().register(connector)
+}
+
+/** The data-source writes' base-URL rule: [validateGitLabBaseUrl] against the operator's list, its refusal code in a 400. */
+private fun baseUrlPolicy(settings: GitLabSettings) = GitLabBaseUrlPolicy { raw ->
+    if (!settings.enabled) {
+        throw BadRequestException("GitLab data sources are disabled on this server (${GitLabBaseUrlProblem.DISABLED.code})")
+    }
+    try {
+        validateGitLabBaseUrl(raw, settings.hosts, settings.devStub).toString()
+    } catch (refused: GitLabBaseUrlException) {
+        throw BadRequestException("baseUrl is not an allowed GitLab origin (${refused.code})", refused)
+    }
 }
 
 /**

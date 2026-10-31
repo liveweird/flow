@@ -1,5 +1,6 @@
 package ch.nokillswit.fetch
 
+import io.ktor.http.Headers
 import io.ktor.http.HttpMethod
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.serialization.json.JsonElement
@@ -19,8 +20,11 @@ internal class PendingCall(
     val tally: CallTally?,
     /** Told the size of the response body on the wire, once it is read (the size a character-per-run ceiling charges). */
     val onWireBytes: ((Int) -> Unit)?,
-    /** Applied to the parsed tree while the big-parse lock is still held (`SourceHttp.requestAs`); identity for a plain request. */
-    val transform: (JsonElement) -> Any?,
+    /**
+     * Applied to the parsed tree (and the response headers) while the big-parse lock is still held (`SourceHttp.requestAs`);
+     * identity for a plain request.
+     */
+    val transform: (JsonElement, Headers) -> Any?,
 )
 
 /** One attempt's verdict: the parsed body, or "try again" with what the backoff decision needs. */

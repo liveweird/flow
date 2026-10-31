@@ -56,7 +56,10 @@ fun validateGitLabBaseUrl(raw: String, hosts: SelfManagedHosts, devStub: GitLabD
         throw GitLabBaseUrlException(GitLabBaseUrlProblem.INVALID)
     }
     val effectivePort = explicitPort ?: if (scheme == "https") DEFAULT_HTTPS_PORT else DEFAULT_HTTP_PORT
-    if (devStub != null && devStub.matchesOrigin(scheme, host, effectivePort)) return origin(scheme, host, explicitPort)
+    if (devStub != null && devStub.matchesOrigin(scheme, host, effectivePort)) {
+        val defaultPort = if (scheme == "https") DEFAULT_HTTPS_PORT else DEFAULT_HTTP_PORT
+        return origin(scheme, host, explicitPort?.takeIf { it != defaultPort })
+    }
     if (scheme != "https") throw GitLabBaseUrlException(GitLabBaseUrlProblem.SCHEME)
     if (!hosts.enabled) throw GitLabBaseUrlException(GitLabBaseUrlProblem.DISABLED)
     if (!hosts.originListed(scheme, host, effectivePort)) {

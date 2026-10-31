@@ -118,10 +118,10 @@ class ReportRoutesTest {
             val text = client.get("/api/v1/reports/filters").bodyAsText()
             val connections = Json.parseToJsonElement(text).jsonObject.getValue("connections").jsonArray.map { it.jsonObject }
             val mine = assertNotNull(connections.singleOrNull { it.getValue("id").jsonPrimitive.int == connId.toInt() })
-            assertEquals(stored.jira.siteUrl, mine.getValue("siteUrl").jsonPrimitive.content)
-            assertTrue(stored.jira.siteUrl.startsWith("https://") && !stored.jira.siteUrl.endsWith("/"))
+            assertEquals(stored.jira!!.siteUrl, mine.getValue("siteUrl").jsonPrimitive.content)
+            assertTrue(stored.jira!!.siteUrl.startsWith("https://") && !stored.jira!!.siteUrl.endsWith("/"))
             connections.forEach { assertEquals(setOf("id", "name", "siteUrl"), it.keys, "a connection is id, name and siteUrl only") }
-            assertFalse(stored.jira.email in text, "the service-account email never travels")
+            assertFalse(stored.jira!!.email in text, "the service-account email never travels")
         } finally {
             dataSources.delete(connId)
         }

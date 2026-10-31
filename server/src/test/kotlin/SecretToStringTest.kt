@@ -15,7 +15,11 @@ import ch.nokillswit.flowusers.FlowUserRole
 import ch.nokillswit.flowusers.PasswordUpdateRequest
 import ch.nokillswit.infra.maskedSecret
 import ch.nokillswit.ingest.DataSourceService
+import ch.nokillswit.ingest.DataSourceRequest
+import ch.nokillswit.ingest.DataSourceTestRequest
+import ch.nokillswit.ingest.GitLabConnectionRequest
 import ch.nokillswit.ingest.JiraAuthScheme
+import ch.nokillswit.ingest.StoredGitLabConnection
 import ch.nokillswit.plugins.JwtConfig
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -100,5 +104,20 @@ class SecretToStringTest {
             backfillFrom = "2024-01-01",
         )
         assertMasked(stored.toString(), "https://example.atlassian.net")
+        val storedGitLab = StoredGitLabConnection(
+            baseUrl = "https://gitlab.example.test", token = secret, groupPaths = listOf("acme/platform"), backfillFrom = "2024-01-01",
+        )
+        assertMasked(storedGitLab.toString(), "https://gitlab.example.test")
+    }
+
+    @Test
+    fun `GitLab request and target shapes mask the token`() {
+        val request = GitLabConnectionRequest("https://gitlab.example.test", secret, listOf("acme"))
+        assertMasked(request.toString(), "https://gitlab.example.test")
+        assertEquals("GitLabConnectionRequest(baseUrl=https://gitlab.example.test, token=null, groupPaths=[acme])",
+            request.copy(token = null).toString())
+        val wrapped = DataSourceRequest("Name", true, 60, null, 3, gitlab = request)
+        assertFalse(secret in wrapped.toString(), "DataSourceRequest embeds the GitLab block and must not leak it either")
+        assertFalse(secret in DataSourceTestRequest(gitlab = request).toString())
     }
 }

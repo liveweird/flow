@@ -2,8 +2,10 @@ package ch.nokillswit.ingest
 
 import ch.nokillswit.authz.ConflictException
 import ch.nokillswit.authz.NotFoundException
+import ch.nokillswit.gitlab.GitLabSettings
 import ch.nokillswit.ingest.DataSourceService.Connections
 import org.jetbrains.exposed.v1.core.Op
+import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.v1.core.inList
 
 /*
@@ -20,6 +22,9 @@ fun Connections.derivesMetrics(): Op<Boolean> = kind inList DataSourceKind.entri
 
 /** The Jira connections alone: the scope rules and every other Jira-only list. */
 fun Connections.isJira(): Op<Boolean> = kind inList listOf(DataSourceKind.JIRA_CLOUD.name)
+
+/** The GitLab connections alone: the GitLab scope rules and every other GitLab-only list. */
+fun Connections.isGitLab(): Op<Boolean> = kind inList listOf(DataSourceKind.GITLAB.name)
 
 /** The RFC 7807 `type` of [DataSourceKindUnsupportedException]. */
 const val DATA_SOURCE_KIND_UNSUPPORTED = "urn:flow:problem:data-source-kind-unsupported"
@@ -40,3 +45,31 @@ suspend fun DataSourceService.requireMetricsConnection(id: UInt) = requireKind(i
 /** 404 when [id] is not an active data source; 409 `data-source-kind-unsupported` unless it is a Jira connection. */
 suspend fun DataSourceService.requireJiraConnection(id: UInt, what: String) =
     requireKind(id, what) { it == DataSourceKind.JIRA_CLOUD }
+
+/**
+ * One connector kind as the admin UI's kind picker needs it (`GET /api/v1/data-sources/kinds`): whether a data source of the kind can
+ * be created on this server, and the origins an operator allows. A bounded, admin-curated set, so the plain `{items}` wrapper.
+ */
+@Serializable
+data class DataSourceKindInfo(val kind: DataSourceKind, val enabled: Boolean, val allowedOrigins: List<String>)
+
+@Serializable
+data class DataSourceKindsResponse(val items: List<DataSourceKindInfo>)
+
+/**
+ * Every [DataSourceKind], in enum order: Jira Cloud is always available (its allow-list is the Atlassian shape, not an operator list);
+ * GitLab is enabled when the operator listed a host or a development stub is set, and its origins are exactly those the base-URL
+ * validator would accept (`https://host[:port]` per listed host, plus the stub's own origin). Nothing here is a secret.
+ */
+fun dataSourceKinds(gitlab: GitLabSettings): DataSourceKindsResponse = DataSourceKindsResponse(
+    DataSourceKind.entries.map { kind ->
+        when (kind) {
+            DataSourceKind.JIRA_CLOUD -> DataSourceKindInfo(kind, enabled = true, allowedOrigins = emptyList())
+            DataSourceKind.GITLAB -> DataSourceKindInfo(
+                kind,
+                enabled = gitlab.enabled,
+                allowedOrigins = if (gitlab.enabled) gitlab.hosts.origins() + listOfNotNull(gitlab.devStub?.origin()) else emptyList(),
+            )
+        }
+    },
+)

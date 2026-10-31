@@ -24,26 +24,32 @@ internal fun dataSourcePredicate(filter: DataSourceListFilter): Op<Boolean> {
     return op
 }
 
-/** The row as the API returns it - the stored secret is reduced to `hasApiToken`, never read out. */
+/** The row as the API returns it - the stored secret is reduced to `hasApiToken`/`hasToken`, never read out. */
 internal fun ResultRow.toDataSourceResponse(): DataSourceResponse {
-    val settings = jiraSettings()
+    val settings = connectionSettings()
+    val hasSecret = this[Connections.secret].isNotEmpty()
     return DataSourceResponse(
         id = this[Connections.id].value,
-        kind = DataSourceKind.valueOf(this[Connections.kind]),
+        kind = dataSourceKind(),
         name = this[Connections.name],
         enabled = this[Connections.enabled],
         syncIntervalMinutes = this[Connections.syncIntervalMinutes],
         backfillFrom = this[Connections.backfillFrom],
         reconcileHourUtc = this[Connections.reconcileHourUtc],
         configRevision = this[Connections.configRevision],
-        jira = JiraConnectionResponse(
-            siteUrl = settings.siteUrl,
-            email = settings.email,
-            hasApiToken = this[Connections.secret].isNotEmpty(),
-            projectKeys = settings.projectKeys,
-            authScheme = settings.authScheme,
-            cloudId = settings.cloudId,
-        ),
+        jira = (settings as? JiraConnectionSettings)?.let {
+            JiraConnectionResponse(
+                siteUrl = it.siteUrl,
+                email = it.email,
+                hasApiToken = hasSecret,
+                projectKeys = it.projectKeys,
+                authScheme = it.authScheme,
+                cloudId = it.cloudId,
+            )
+        },
+        gitlab = (settings as? GitLabConnectionSettings)?.let {
+            GitLabConnectionResponse(baseUrl = it.baseUrl, hasToken = hasSecret, groupPaths = it.groupPaths)
+        },
         status = toDataSourceStatus(),
         createdAt = this[Connections.createdAt],
         updatedAt = this[Connections.updatedAt],
@@ -87,6 +93,33 @@ internal fun ResultRow.toStoredJiraConnection(cipher: FieldCipher): DataSourceSe
         projectKeys = settings.projectKeys,
         authScheme = settings.authScheme,
         backfillFrom = this[Connections.backfillFrom],
+    )
+}
+
+/** The decrypted in-process shape of a GitLab row (`readGitLabForSync`): the token goes nowhere but the connector. */
+internal fun ResultRow.toStoredGitLabConnection(cipher: FieldCipher): StoredGitLabConnection {
+    val settings = connectionSettings() as GitLabConnectionSettings
+    return StoredGitLabConnection(
+        baseUrl = settings.baseUrl,
+        token = cipher.decrypt(this[Connections.secret]),
+        groupPaths = settings.groupPaths,
+        backfillFrom = this[Connections.backfillFrom],
+    )
+}
+
+/** The row as a Test-connection target of its own kind, the token decrypted (`readForTest`). */
+internal fun ResultRow.toConnectionTarget(cipher: FieldCipher): ConnectionTarget = when (val settings = connectionSettings()) {
+    is JiraConnectionSettings -> ConnectionTarget.Jira(
+        siteUrl = settings.siteUrl,
+        email = settings.email,
+        apiToken = cipher.decrypt(this[Connections.secret]),
+        projectKeys = settings.projectKeys,
+        authScheme = settings.authScheme,
+    )
+    is GitLabConnectionSettings -> ConnectionTarget.GitLab(
+        baseUrl = settings.baseUrl,
+        token = cipher.decrypt(this[Connections.secret]),
+        groupPaths = settings.groupPaths,
     )
 }
 

@@ -5,10 +5,10 @@ import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.orNotFound
 import ch.nokillswit.infra.db.orVanished
 import ch.nokillswit.authz.requireAdmin
+import ch.nokillswit.gitlab.GitLabSettingsKey
 import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.infra.paging.parsePaging
 import ch.nokillswit.infra.paging.toPage
-import ch.nokillswit.jira.JiraConnectorKey
 import ch.nokillswit.jira.JiraHeapShare
 import ch.nokillswit.jira.JiraHeapShareKey
 import ch.nokillswit.plugins.RateLimits
@@ -46,10 +46,14 @@ class DataSourcesRoute {
     @Serializable
     @Resource("test")
     class Test(val parent: DataSourcesRoute = DataSourcesRoute())
+
+    @Serializable
+    @Resource("kinds")
+    class Kinds(val parent: DataSourcesRoute = DataSourcesRoute())
 }
 
 /**
- * ADMIN-only CRUD for Jira Cloud connections (v0.2.0 plan §9). Shaped after Covenant's
+ * ADMIN-only CRUD for Jira Cloud and GitLab connections (v0.2.0 plan §9). Shaped after Covenant's
  * `toadie/ToadieRoutes.kt`: `requireAdmin` runs BEFORE `call.receive()` on every mutation, so a
  * non-admin's malformed body still 403s. Test-connection, sync-jobs, status and profile endpoints
  * arrive with the Jira client and the sync-job queue (plan commits 4-9) — this commit is CRUD
@@ -60,13 +64,18 @@ fun Application.configureDataSourceRoutes() {
     if (!servesApi()) return
 
     val service = attributes[DataSourceServiceKey]
-    val connector = attributes[JiraConnectorKey]
+    val connectors = connectorRegistry()
     val heapShare = attributes[JiraHeapShareKey]
     val syncJobs = attributes[SyncJobsServiceKey]
+    val gitLabSettings = attributes[GitLabSettingsKey]
 
     routing {
         authenticate {
-            testConnectionRoutes(service, connector, heapShare)
+            testConnectionRoutes(service, connectors, heapShare)
+            get<DataSourcesRoute.Kinds> {
+                requireAdmin(call.caller())
+                call.respond(HttpStatusCode.OK, dataSourceKinds(gitLabSettings))
+            }
             get<DataSourcesRoute> {
                 val caller = call.caller()
                 requireAdmin(caller)
@@ -82,14 +91,15 @@ fun Application.configureDataSourceRoutes() {
                 requireAdmin(caller)
                 val policy = service.backfillPolicy() // read ONCE: the blank default and the floor must come from the same horizon
                 val request = sanitizedDataSourceRequest(call.receive(), policy.defaultFrom)
-                validateDataSource(request, apiTokenRequired = true)
+                validateDataSource(request, apiTokenRequired = true, service.gitLabBaseUrlPolicy)
                 val id = auditingScopeRejection(caller.userId, dataSourceId = null) { service.create(request, policy) }
                 audit(
                     "data_source.created",
                     "byUserId" to caller.userId.toLong(),
                     "dataSourceId" to id.toLong(),
+                    "kind" to request.kindOrBadRequest().name,
                     "name" to request.name,
-                    "siteHost" to siteHost(request.jira.siteUrl),
+                    "host" to request.host(service.gitLabBaseUrlPolicy),
                 )
                 call.response.header(HttpHeaders.Location, call.application.href(DataSourcesRoute.Id(id = id)))
                 call.respond(HttpStatusCode.Created, service.read(id).orVanished("Data source", id))
@@ -106,15 +116,16 @@ fun Application.configureDataSourceRoutes() {
                 requireAdmin(caller)
                 val policy = service.backfillPolicy() // read ONCE, as on create
                 val request = sanitizedDataSourceRequest(call.receive(), policy.defaultFrom)
-                validateDataSource(request, apiTokenRequired = false)
+                validateDataSource(request, apiTokenRequired = false, service.gitLabBaseUrlPolicy)
                 val outcome = auditingScopeRejection(caller.userId, dataSourceId = route.id) { service.update(route.id, request, policy) }
                     .orNotFound("Data source")
                 audit(
                     "data_source.updated",
                     "byUserId" to caller.userId.toLong(),
                     "dataSourceId" to route.id.toLong(),
+                    "kind" to outcome.kind.name,
                     "name" to request.name,
-                    "siteHost" to outcome.siteHost,
+                    "host" to outcome.host,
                 )
                 outcome.resumed.forEach { auditResumed(caller.userId, route.id, "UPDATE", it) }
                 if (outcome.tokenRotated) {
@@ -139,56 +150,43 @@ fun Application.configureDataSourceRoutes() {
 /**
  * The rate-limited (`DATA_SOURCE_TEST`) ad-hoc and stored Test-connection endpoints — split out of
  * `configureDataSourceRoutes` (`LongMethod`). Each probe run parses up to one full response tree, so it holds the WHOLE web heap share
- * (`jira/JiraHeapShare.kt`: one Test connection = one tree, and it excludes the raw-issue inspector meanwhile); only the connector call is
- * inside the hold, and the call's own 30 s budget starts inside it, so waiting for the share never turns into TIMEOUT rows.
+ * (`jira/JiraHeapShare.kt`: one Test connection = one tree, and it excludes the raw-issue inspector meanwhile; GitLab's trees are
+ * capped at or below Jira's, so the same hold covers them); only the connector call is inside the hold, and the call's own 30 s budget
+ * starts inside it, so waiting for the share never turns into TIMEOUT rows. The connector is the registry's entry for the target's
+ * kind; a kind nobody registered (GitLab switched off) is a 409 `data-source-kind-unsupported`.
  */
-private fun Route.testConnectionRoutes(service: DataSourceService, connector: Connector, heapShare: JiraHeapShare) {
+private fun Route.testConnectionRoutes(service: DataSourceService, connectors: ConnectorRegistry, heapShare: JiraHeapShare) {
+    suspend fun probe(target: ConnectionTarget): ConnectionTestResult {
+        val connector = connectors.connectorFor(target.kind) ?: throw DataSourceKindUnsupportedException(target.kind,
+            "registered connector")
+        return heapShare.withShare(heapShare.capacityBytes) { connector.testConnection(target) }
+    }
     rateLimit(RateLimitName(RateLimits.DATA_SOURCE_TEST)) {
         post<DataSourcesRoute.Test> {
             val caller = call.caller()
             requireAdmin(caller)
-            val jira = sanitizedJiraConnectionRequest(call.receive<DataSourceTestRequest>().jira)
-            validateJira(jira, apiTokenRequired = true)
-            val result = heapShare.withShare(heapShare.capacityBytes) {
-                connector.testConnection(
-                    ConnectionTarget.Jira(
-                        siteUrl = jira.siteUrl,
-                        email = jira.email,
-                        apiToken = checkNotNull(jira.apiToken) { "apiToken is required on the ad-hoc test" },
-                        projectKeys = jira.projectKeys,
-                        authScheme = jira.authScheme,
-                    ),
-                )
-            }
-            auditConnectionTest(caller.userId, siteHost(jira.siteUrl), result)
+            val target = call.receive<DataSourceTestRequest>().toTarget(service.gitLabBaseUrlPolicy)
+            val result = probe(target)
+            auditConnectionTest(caller.userId, target.kind, target.host(), result)
             call.respond(HttpStatusCode.OK, result)
         }
         post<DataSourcesRoute.Id.Test> { route ->
             val caller = call.caller()
             requireAdmin(caller)
-            val stored = service.readForTest(route.parent.id).orNotFound("Data source")
-            val result = heapShare.withShare(heapShare.capacityBytes) {
-                connector.testConnection(
-                    ConnectionTarget.Jira(
-                        siteUrl = stored.siteUrl,
-                        email = stored.email,
-                        apiToken = stored.apiToken,
-                        projectKeys = stored.projectKeys,
-                        authScheme = stored.authScheme,
-                    ),
-                )
-            }
+            val target = service.readForTest(route.parent.id).orNotFound("Data source")
+            val result = probe(target)
             result.cloudId?.let { service.persistCloudId(route.parent.id, it) }
-            auditConnectionTest(caller.userId, siteHost(stored.siteUrl), result)
+            auditConnectionTest(caller.userId, target.kind, target.host(), result)
             call.respond(HttpStatusCode.OK, result)
         }
     }
 }
 
 /**
- * Runs a create/update and, when the scope rules reject it (one Jira site, no project in two data sources —
- * `DataSourceScope.kt`), emits `data_source.scope_rejected` before rethrowing the 409 for the error mapper. The event
- * carries the requested site's host and the shared keys, never the token or a full URL.
+ * Runs a create/update and, when the scope rules reject it (one Jira site and no project in two data sources, one GitLab instance
+ * and no overlapping group path — `DataSourceScope.kt`, `GitLabScope.kt`), emits `data_source.scope_rejected` before rethrowing the
+ * 409 for the error mapper. The event carries the kind, the requested host and the shared keys or group paths, never the token or
+ * a full URL.
  */
 private suspend fun <T> auditingScopeRejection(byUserId: UInt, dataSourceId: UInt?, block: suspend () -> T): T =
     try {
@@ -198,10 +196,12 @@ private suspend fun <T> auditingScopeRejection(byUserId: UInt, dataSourceId: UIn
             "data_source.scope_rejected",
             "byUserId" to byUserId.toLong(),
             "dataSourceId" to dataSourceId?.toLong(),
+            "kind" to rejected.reason.kind.name,
             "reason" to rejected.reason.name,
             "conflictingDataSourceId" to rejected.conflictingId.toLong(),
-            "siteHost" to rejected.siteHost,
-            "projectKeys" to rejected.keys,
+            "host" to rejected.host,
+            "projectKeys" to rejected.keys.takeIf { rejected.reason.kind == DataSourceKind.JIRA_CLOUD }.orEmpty(),
+            "groupPaths" to rejected.keys.takeIf { rejected.reason.kind == DataSourceKind.GITLAB }.orEmpty(),
         )
         throw rejected
     }
@@ -214,15 +214,16 @@ private fun DataSourceResponse.withRunningJobId(runningJobId: UInt?): DataSource
     copy(status = status.copy(runningJobId = runningJobId))
 
 /**
- * `data_source.tested` (v0.2.0 plan §9): siteHost, overall ok and the failed probe names — NEVER the token. `ok` is judged on the
+ * `data_source.tested` (v0.2.0 plan §9): kind, host, overall ok and the failed probe names — NEVER the token. `ok` is judged on the
  * REQUIRED rows only (what the UI calls a pass); `failedEndpoints` lists every failed row, optional ones included.
  */
-private fun auditConnectionTest(byUserId: UInt, siteHost: String, result: ConnectionTestResult) {
+private fun auditConnectionTest(byUserId: UInt, kind: DataSourceKind, host: String, result: ConnectionTestResult) {
     val failedEndpoints = result.rows.filterNot { it.ok }.map { it.name }
     audit(
         "data_source.tested",
         "byUserId" to byUserId.toLong(),
-        "siteHost" to siteHost,
+        "kind" to kind.name,
+        "host" to host,
         "ok" to result.rows.none { it.required && !it.ok },
         "failedEndpoints" to failedEndpoints,
     )

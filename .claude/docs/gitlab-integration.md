@@ -5,7 +5,7 @@ one GraphQL query), stored raw in `raw.gitlab_*`, processed into the connector-a
 the Jira people through admin-confirmed identity links. The queue, worker, cursors and PROCESS/PROFILE mechanics it plugs
 into are in `.claude/docs/ingestion.md`; the Jira connector it sits beside is `.claude/docs/jira-integration.md`.
 
-**Status: being built (1.34.0 → 1.38.0).** Until a section's PR lands, the section is the design that PR implements; when it
+**Status: being built (1.34.0 → 1.38.0; 1.34.0 landed: data sources, PROJECTS and USERS).** Until a section's PR lands, the section is the design that PR implements; when it
 lands, the section is rewritten as the as-built reference (file names, tests). The PR sequence is at the end. Reports over
 `norm.code_*` are a separate, later plan: nothing here derives metrics.
 
@@ -23,8 +23,11 @@ lands, the section is rewritten as the as-built reference (file names, tests). T
 - **Scope = whole groups, subgroups included.** Archived projects are excluded. A project moved out of the configured groups
   is marked out of scope; its rows stay.
 - **Token = an admin-issued, read-only personal access token** (a bot user with `read_api`). Admin, so that user emails are
-  visible to the identity proposals. The token is refused if it carries `api`, any `write_*` or `sudo` scope, at Test
-  connection and again at every SYNC (`TOKEN_SCOPE_TOO_BROAD`, the job fails closed).
+  visible to the identity proposals. The token is refused unless EVERY scope starts with `read_` or is `admin_mode` (needed by an admin token on an instance
+  with Admin Mode on, and read-only beside `read_*`; an allow-list: `api`, `sudo`, `write_*`,
+  `create_runner`, `manage_runner`, `k8s_proxy`, `self_rotate`, `ai_features` and any scope GitLab adds later are all `TOKEN_SCOPE_TOO_BROAD`), at Test
+  connection and again at every SYNC (the job fails closed); an answer missing `scopes` or `active` is `INVALID_RESPONSE`, never a pass, and an
+  inactive token is `TOKEN_INACTIVE`.
 - **No git mirror and no repository content.** Flow never clones and stores no code, diffs, commit bodies, MR descriptions
   or note bodies. Kept: the commit's first line and the MR title (≤255 chars, for the later Jira-key linking), branch names,
   file paths and per-file line counts. System notes become action codes; their bodies are dropped.
@@ -47,23 +50,27 @@ reference: `ingestion.md` "Connector kinds"; schema: `persistence.md` V40):
   with `CONNECTOR_UNAVAILABLE` (PURGE included), never crashing the loop.
 - `DataSourceKind(derivesMetrics)`: `JIRA_CLOUD(true)`, `GITLAB(false)`. Settings are sealed (`ConnectionSettings`): Jira's stored
   JSON unchanged, plus `GitLabConnectionSettings(baseUrl, groupPaths, pathExclusions?)`; the decoder picks the shape by the row's
-  kind, and `ResultRow.jiraSettings()` throws on any other kind. **PR 6 fills in the GitLab shape and validation.**
+  kind, and `ResultRow.jiraSettings()` throws on any other kind. PR 6 filled in the GitLab shape and validation (below).
 - **Kind-leak guards**, each pinned by a `KindLeakTest` case (a GITLAB row inserted over `sharedDatabaseForTests()`, `GitLabRowFixture`):
   the Jira scope check (`DataSourceScope.kt`, Jira rows only), `IngestWorker.onSucceeded` (DERIVE chaining only when
   `derivesMetrics`; a DERIVE job for a non-metrics kind fails), the `enabledActiveConnections()` fan-out behind
   `MetricsSettingsService.bumpRevision`, the report and Home connection scopes (`resolveConnectionScope`, `/reports/filters`,
   `fetchHomeConnections`, the report ETag stamp), the metrics-config routes and the raw-issue inspector (`409
   data-source-kind-unsupported`; the profile route decodes nothing Jira-shaped and stays per-kind-later).
-- **Interim wire behaviour (PR 3 to PR 6).** `DataSourceResponse` still carries only `jira`, so `DataSourceService.list/read/update/
-  readForTest/persistCloudId` serve Jira rows only: a GITLAB row is absent from the list and `404` by id on the data-source, sync-job,
-  status and stored-test routes. **PR 6 adds the `gitlab` block and replaces that filter** (and decides whether the GitLab sources take
-  the history-horizon backfill floor and the `jobs`/`status` routes).
-- **Wire shape (PR 6, not yet).** `DataSourceRequest`/`Response`/`TestRequest` carry two optional blocks, `jira` and `gitlab`; exactly
-  one is present, it sets the kind, and the kind is immutable after create. No `oneOf` (the spec stays 3.0-compatible) and the Jira
-  form's JSON is unchanged.
-- **Scope rules per kind (PR 6, not yet).** Jira keeps its rules, now filtered to Jira rows. GitLab: one GitLab host across the active
-  sources (`data-source-other-instance`), and no group equal to or nested in another source's group (`data-source-group-overlap`), so
-  no project is counted twice.
+- **Wire shape (as built, PR 6).** `DataSourceRequest`/`Response`/`TestRequest` carry two optional blocks, `jira` and `gitlab`; exactly
+  one is present (else `400`), it sets the kind, and the kind is immutable after create (the other block on a PUT is `409`). No `oneOf` (the
+  spec stays 3.0-compatible) and the Jira form's JSON is unchanged. The response's `jira` became `nullable` (so `schema.ts` types it
+  `... | null`); `GitLabConnectionRequest{baseUrl, token?, groupPaths}` / `GitLabConnectionResponse{baseUrl, hasToken, groupPaths}`;
+  `pathExclusions` is NOT on the wire yet (PR 7, with PROCESS, the first reader). `DataSourceService.list/read/update/readForTest` serve
+  both kinds; the sync-job, status and stored-test routes work for a GITLAB row, which also takes the history-horizon backfill floor.
+- **Base URL and the policy seam.** `ingest/` never imports `gitlab/`'s validator: `GitLabBaseUrlPolicy` (`ingest/GitLabDataSource.kt`)
+  lives on `JobHandlerRegistry`, `configureGitLab` registers it in EVERY case (disabled GitLab answers `400 gitlab-disabled`), and it wraps
+  `validateGitLabBaseUrl` (a refusal's stable code lands in the `400` detail, never the URL). The stored `baseUrl` is the canonical origin,
+  so the identity compares exactly. `GET /api/v1/data-sources/kinds` is what the web picker reads.
+- **Scope rules per kind (as built).** Jira keeps its rules, filtered to Jira rows. GitLab (`ingest/GitLabScope.kt`): one canonical
+  `baseUrl` across the active GitLab sources (`data-source-other-instance`, create only), and no group path equal to, under or above another
+  active source's (`data-source-group-overlap`), so no project is counted twice. Jira and GitLab rows never conflict with each other. The
+  `data_source.*` audit events carry `kind` and `host` (renamed from `siteHost`).
 
 Tests: `ConnectorSeamTest` (registry additive and duplicate-refusing, the booted app's registry, `ConnectionTarget` dispatch and secret
 masking, the V40 CHECK, settings by kind and Jira's unchanged shape, `CONNECTOR_UNAVAILABLE` with a surviving worker loop, the PURGE
@@ -84,7 +91,7 @@ persisted; a rename needs a migration of `sync_jobs.progress`). `PackageBoundary
 
 **As built (PR 4).** The SSRF guard (`infra/outbound/OutboundGuard.kt`, `.claude/docs/security.md` "Outbound HTTP calls" has the
 full rule and the reason for each refusal) stays the only way out. A self-managed host usually lives on a private address, so the
-guard gains an operator-only allowance. Nothing in `gitlab/` makes a GitLab call yet: it builds the client the data source (PR 6) uses.
+guard gains an operator-only allowance. `configureGitLab` builds the client the connector uses (as built in PR 6, below).
 
 - **`GITLAB_ALLOWED_HOSTS`** (`gitlab.allowedHosts`) - exact `host[:port]` DNS names (no port = 443), no wildcards, no IP literals. Empty =
   the GitLab kind is off (no client). The admin UI cannot widen it: a data source whose base URL's host is not listed is a 400.
@@ -102,22 +109,38 @@ guard gains an operator-only allowance. Nothing in `gitlab/` makes a GitLab call
 - **Base URL:** `gitlab/GitLabBaseUrl.kt` `validateGitLabBaseUrl(raw, hosts, devStub)` - `https`, origin only (empty or `/` path, no query,
   fragment or userinfo), host[:port] on the list (443 = no port); `http` only for the dev stub's own origin. A failure is a
   `GitLabBaseUrlException` whose stable `code` (`gitlab-base-url-invalid|scheme|not-origin`, `gitlab-disabled`, `gitlab-host-not-allowed`)
-  the data-source 400 maps from. PR 6's validator calls it.
+  the data-source 400 maps from (`configureGitLab`'s `GitLabBaseUrlPolicy`, "The connector seam").
 - **Internal CA:** `GITLAB_CA_BUNDLE` (PEM, `infra/outbound/CaBundle.kt` `loadCaBundleTrust`) is added to the GitLab client's trust store
   only, alongside the JVM defaults. There is no "skip TLS" switch (`GitLabCaBundleTest` pins the `gitlab.*` key set).
 - **Kept from Jira:** no redirects, no proxy, no connection-failure retry. `Link` headers are never followed: only their page/keyset
-  parameters are read and re-applied to the configured origin (PR 6+).
+  parameters are read and re-applied to the configured origin (as built: `HttpGitLabClient`).
 - **Stub:** `gitlab.stubBaseUrl` (`GITLAB_STUB_BASE_URL`) is development-only; production refuses to start with it set, or with any
   malformed host, CIDR or CA setting (a CA bundle needs listed hosts, like the CIDRs). In development the stub host is also an allowed host and skips the address check, on its own
   origin only.
 - **Memory:** `gitlab.maxResponseBytes` (`GITLAB_MAX_RESPONSE_BYTES`) defaults, when blank, to `min(8 MiB, jira.maxResponseBytes)`; an
   explicit value is bounds-checked (1 KiB..128 MiB) and refused above `jira.maxResponseBytes` (even while GitLab is disabled; the
   message carries both values). `JiraHeapFit` sizes the per-slot response tree from the Jira ceiling, so a GitLab ceiling at or below it
-  stays inside that figure. It does **not** cover in-flight GitLab bodies: those are counted as `jira.maxConcurrentRequests x
-  jira.maxResponseBytes` of Jira requests only. **PR 6 requirement:** GitLab requests must either share Jira's request semaphore or be
-  added to the heap fit before the first GitLab stream runs. `gitlab.requestTimeoutSeconds` (1..120, default 30).
+  stays inside that figure. **In-flight GitLab bodies share Jira's permits** (resolved in PR 6): `configureJira` publishes
+  `OutboundPermits(jira.maxConcurrentRequests)` (`fetch/OutboundPermits.kt`, `OutboundPermitsKey`) and GitLab's `SourceHttp` draws on that pool,
+  so the fit's `jira.maxConcurrentRequests x jira.maxResponseBytes` in-flight term already covers GitLab and no GitLab term is added. Why not a
+  term of its own: at the defaults the fit sits at 439.3 of 448 MiB, so ANY added in-flight term (even one 8 MiB body) would refuse the default
+  `-Xmx512m` worker. The cost is that a slow GitLab host can hold permits Jira needs, and the starvation is bounded: a GitLab job holds at most ONE permit at a time
+  (its calls are sequential), so Jira is starved only if `ingest.workerSlots` >= `jira.maxConcurrentRequests` and every slot runs a GitLab job. The hold
+  is bounded by the per-attempt timeout
+  (`gitlab.requestTimeoutSeconds`, 1..120, default 30) and by the rate-limit pause's 5 s clamp, and backoff and tenant pauses already hand
+  the permit back. Also `gitlab.maxRetries` (`GITLAB_MAX_RETRIES`, 0..10, default 4), `gitlab.requestDeadlineSeconds`
+  (`GITLAB_REQUEST_DEADLINE_SECONDS`, 1..1800, default 180) and `gitlab.usersRefreshHours` (`GITLAB_USERS_REFRESH_HOURS`, 0..168, default 24).
+- **The client** (`gitlab/GitLabHttp.kt`, `GitLabClient.kt`, `GitLabModels.kt`): `GITLAB_SOURCE = FetchSource("GitLab", "gitlab.maxResponseBytes",
+  GitLabRateLimitSignal(), authHeaderName = "PRIVATE-TOKEN")`; `createGitLabHttp` builds the `SourceHttp` over the shared permits. The token is the
+  raw `PRIVATE-TOKEN` value, never `Authorization`. `GitLabRateLimitSignal`: `RateLimit-Remaining` at 5 or less pauses until `RateLimit-Reset`
+  (epoch seconds), clamped to 1..5 s (2 s when the reset is absent or unreadable), else no pause - it sleeps holding the permit, so the clamp
+  is hard. `HttpGitLabClient` builds every URL as `<baseUrl>/api/v4<path>` with the query in the `query` map; the next page comes from
+  `X-Next-Page` (a value that does not advance is `INVALID_RESPONSE`) and is re-applied to the configured origin - `Link` is never read, so a
+  server cannot steer a call to another host. Ids spliced into paths are validated numeric; a group path travels as ONE percent-encoded segment
+  (`platform%2Ftooling`; `GitLabClientTest` pins that Ktor keeps the `%2F`). The rate-limit pause key is the canonical base URL.
 - **Wiring:** `gitlab/GitLab.kt` `configureGitLab()` runs in every role, right after `configureJira`. It publishes `GitLabSettingsKey`,
-  `GitLabHostsKey` (always) and `GitLabHttpClientKey` (only when enabled: hosts listed or a dev stub; closed on `ApplicationStopped`).
+  `GitLabHostsKey` (always), registers the base-URL policy (always) and, only when enabled (hosts listed or a dev stub), `GitLabHttpClientKey`
+  (closed on `ApplicationStopped`), `GitLabRawStoreKey` and the `GITLAB` connector (`GitLabConnectorKey`, also in the connector registry).
   `buildGuardedGitLabHttpClient` is the factory tests reuse. `gitlab/GitLabConfig.kt` reads and validates `gitlab.*`.
 - **Tests:** `SelfManagedHostsTest`, `GitLabOutboundGuardTest`, `GitLabBaseUrlTest`, `GitLabCaBundleTest` (test-only CA
   `server/src/test/resources/gitlab-test-ca.pem`, no private key), `GitLabBootTest`, `PackageBoundaryTest` (`jira` and `gitlab` never
@@ -128,18 +151,44 @@ Example (neutral): `GITLAB_ALLOWED_HOSTS=gitlab.example.com`, `GITLAB_ALLOWED_CI
 
 ## Test connection
 
-Probes, in order: `GET /api/v4/version`; `GET /user` (`is_admin` false is a warning: emails will be hidden, so proposals
-degrade); `GET /personal_access_tokens/self` (refuses `api`, `write_*`, `sudo`); each configured group. The token is stored
-in the encrypted `source_connections.secret` like the Jira token and never echoed or logged.
+`GitLabConnector.testConnection(ConnectionTarget.GitLab)` runs the shared probe harness (`ingest/ConnectionProbes.kt` `ProbeRun`: at most 10 s
+per probe and 30 s in all, every outcome a `ConnectionTestRow`, never a thrown failure). Rows, in order: `version` (`/version`); `user`
+(`/user`); `user_admin` (OPTIONAL; `NOT_ADMIN` when `is_admin` is false: user emails will be hidden, so identity proposals degrade);
+`token_scopes` (`/personal_access_tokens/self`, REQUIRED; `TOKEN_SCOPE_TOO_BROAD` when any scope does not start with `read_`,
+`TOKEN_INACTIVE` when the token is not active; scope hint `read_api`); per configured path `group:<path>` and `group_projects:<path>`
+(REQUIRED; the group body's `full_path` must equal the configured path case-insensitively, else `INVALID_RESPONSE`; a group row that failed
+leaves its projects row `NOT_FOUND`); `users` (REQUIRED); `user_emails` (OPTIONAL: the token owner's `/users/:id/emails`, which tells whether
+emails are visible). The result carries no `cloudId`. Both Test connection routes build the target per kind and hold the web `JiraHeapShare`
+like Jira (one response tree at a time is what the web heap fit assumes). The token is stored in the encrypted `source_connections.secret`
+like the Jira token and never echoed or logged.
 
 ## Streams
 
 All REST except MR diff stats, which come from one batched GraphQL query (`diffStatsSummary {additions deletions fileCount}`
 for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leaves a null gap; it never fails the job.
 
-- **PROJECTS** — the groups' projects with `include_subgroups`, archived excluded: path, group, default branch.
-- **USERS** — `/users` (admin token): username, name, state, bot flag; emails from `/users/:id/emails` (primary, commit,
-  public, secondary) plus the `noreply` pattern.
+- **PROJECTS** (as built, PR 6; `gitlab/GitLabProjectsStream.kt`) - per configured group, in order: resolve it by its encoded path
+  (`/groups/:path`; a group the token cannot see fails the stream `NOT_FOUND`), then page `/groups/:id/projects?include_subgroups=true&
+  archived=false&with_shared=false&per_page=100` into `raw.gitlab_projects`, keyed by project id and stamped with the CONFIGURED group it was
+  listed under. Defensive filters for an older server: an archived project, or one whose namespace is not the group or under it, is skipped
+  (`projectsSkipped`, one WARN with ids per run). Cursor `{passStartedAt, groupIndex, page}`; the pass ends by marking the live projects not seen
+  during it `moved_out_at` (rows stay; seen again, resurrected). Budget: `RunCeiling(100 pages, 10,000 projects)` per group. The cursor also carries the configured
+  group list; a cursor written for another list (an edit mid-pass) is dropped and the pass restarts, because its index would name another
+  group. A project listed under another configured group than the stored one, or whose `default_branch` is wider than 255 characters (skipped,
+  counted in `projectsSkipped`, never truncated: PR 7 puts the branch in a URL path), is handled explicitly: the first is a CHANGE although
+  `group_path`/`group_id` are outside the hash. **Offset paging can miss an item deleted mid-pass** (every later item shifts one place), so
+  that item is marked moved out/deleted until the next pass sees it again (rows stay, and the next pass resurrects them). An ABSENT
+  `X-Next-Page` header is `INVALID_RESPONSE` (GitLab sends it, empty, on the last page): a proxy stripping it must not end a pass after page 1.
+- **USERS** (as built; `GitLabUsersStream.kt`) - `/users?per_page=100` into `raw.gitlab_users`; with an ADMIN token each user's confirmed
+  secondary emails from `/users/:id/emails` (first 100; a 403 turns the rest of the run to "no emails", a 404 skips that user), merged with the
+  list's own `email`/`commit_email`/`public_email` into the sorted, lowercased `emails` that is part of the hashed payload. Not an admin: only the
+  list's own fields, `usersEmailsSkipped`, one WARN. Skipped whole (`usersSkipped`) while every live user was seen within `gitlab.usersRefreshHours`
+  ("Sync now" never skips). The pass ends by marking the users not seen deleted. Budget: `RunCeiling(500 pages, 50,000 users)`. **One response tree at a time** (the heap fit's one-tree-per-slot): each `/users` page is slimmed to small values
+  (`GitLabUserSummary`) INSIDE the response transform, and each `/users/:id/emails` answer is reduced to its address strings inside its own, so the
+  page's tree is garbage before the first emails call is parsed.
+- **SYNC order and guards** - the job first re-probes `/personal_access_tokens/self` and `/user`: a token with a scope beyond `read_*` fails
+  the job `TOKEN_SCOPE_TOO_BROAD`, an inactive one `TOKEN_INACTIVE` (`JobRefusedException`), before anything is stored. RECONCILE and REPROCESS are accepted no-ops until PR 9/10;
+  PURGE drains both raw tables. The job runs under the shared `CallTally` (GitLab's throttling lands under the stored `jira*` progress keys).
 - **COMMITS** — first sync: `ref_name=<default>&since=<backfillFrom>&with_stats=true`. Then a range walk
   `<storedHead>..<default>` per project (a `since` cursor would miss merged commits with older dates). When the head moves,
   `merge_base` detects a force-push, which re-lists the window and tombstones commits that are gone. A renamed default branch
@@ -183,8 +232,8 @@ file then counts unless it is itself excluded (the stub's `special.tooLarge` pin
 ## Schema (V40–V45)
 
 - **V40** — `source_connections.kind` CHECK widened to `('JIRA_CLOUD','GITLAB')` (V16's constraint-swap pattern).
-- **V41** — `raw.gitlab_projects` (`commits_head_sha`, relist flag, seen/moved/deleted markers, slim payload + sha256),
-  `raw.gitlab_users` (`emails` JSONB).
+- **V41** (landed, PR 6; `persistence.md` "The GitLab raw store (V41)") — `raw.gitlab_projects` (`commits_head_sha`, relist flag, seen/moved/deleted markers, slim payload + sha256),
+  `raw.gitlab_users` (`emails` JSONB); `GitLabRawStore` is the facade over `GitLabRawWrites`/`Reads`/`Purge`.
 - **V42** — `raw.gitlab_commits` (author name/email, authored/committed time, parent count, title, stats, `files_changed`
   null = pending, `files_capped`, tombstone, processing columns, partial indexes for the files backlog and PROCESS),
   `raw.gitlab_commit_files` (cascades with its commit).
@@ -200,7 +249,7 @@ permission list.
 
 `sample-data/gitlab/generate.mjs` (zero dependencies, seeded, byte-identical; `--users/--projects/--months/--out`) writes
 `sample-data/gitlab-stub/{mappings,__files}` (1,196 mappings, ~11 MiB) and `sample-data/gitlab/expected.json`. It is served by the
-compose `gitlab-stub` (WireMock, `127.0.0.1:8095`, read-only mount, nothing points the app at it until PR 6) and the in-JVM
+compose `gitlab-stub` (WireMock, `127.0.0.1:8095`, read-only mount; `GITLAB_STUB_BASE_URL` points the app at it) and the in-JVM
 `GitLabStubServer` (`server/src/test/kotlin/`, `JiraStubServer`'s twin); `GitLabStubServerTest` pins the contract over plain HTTP and
 `node --test sample-data/gitlab/generate.test.mjs` (in `scripts/gates.sh e2e` and the CI `e2e-static` job) guards the generator.
 The full contract (every endpoint and its match rule, auth, pagination headers, 404 shapes, the day-2 deltas, the scale flags) is
@@ -228,8 +277,9 @@ so a lock file changed beside the too-large file is not credited to it. The stub
 `fallbackSubtractingCountedOthersSuperseded` the earlier "minus the other files' *counted* lines" figure, which over-attributes the
 excluded files' lines and is kept only for comparison.
 
-`SyncedGitLabFixture` (one SYNC per fork, warmed in `@BeforeClass` like the Jira fixtures) lands with the COMMITS PR (7), when a
-sync exists to run.
+PR 6's `GitLabConnectorTest` runs its own ~20-call SYNC against the in-JVM stub (`GitLabFixtures`, `GitLabTestSupport.kt`: a disabled connection per test,
+`stubClient()`, `run(...)`); `SyncedGitLabFixture` (one SYNC per fork, warmed in `@BeforeClass` like the Jira fixtures) lands with the COMMITS PR (7), when
+a sync is worth sharing. The stub's `RateLimit-*` headers are static (`Remaining: 1990`), so no test run pauses.
 
 ## PR sequence
 
@@ -240,7 +290,7 @@ sync exists to run.
 | 3 | connector seam + V40 + kind-leak guards | — | Opus |
 | 4 | self-managed outbound guard | — | security-auditor + Opus |
 | 5 | GitLab stub | — | Sonnet |
-| 6 | data source + PROJECTS/USERS (V41), web kind picker | 1.34.0 | Opus (outbound use) |
+| 6 | data source + PROJECTS/USERS (V41), web kind picker (landed) | 1.34.0 | Opus (outbound use) |
 | 7 | commits + per-file counting + exclusions (V42) | 1.35.0 | Opus (migration) |
 | 8 | merge requests + details (V43) | 1.36.0 | Opus (migration) |
 | 9 | RECONCILE | 1.36.1 | Opus |

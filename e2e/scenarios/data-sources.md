@@ -1,9 +1,9 @@
-# Data sources (the v0.2.0 Jira ingestion admin surface)
+# Data sources (the Jira ingestion admin surface, and the GitLab kind since 1.34.0)
 
 - **Spec**: [tests/data-sources.spec.ts](../tests/data-sources.spec.ts)
 - **Actors**: the seed administrator (`admin@flow.local`); one throwaway user in the second test
-- **Owns** (exclusive server-side state): its throwaway data source (unique `e2e-jira-*` name),
-  deleted at the end of the first test (the cleanup hook removes it through the API if a step fails first); its throwaway user in the second test. The synced
+- **Owns** (exclusive server-side state): its throwaway data sources (unique `e2e-jira-*` and `e2e-gitlab-*` names),
+  each deleted at the end of its test (the cleanup hook removes it through the API if a step fails first); its throwaway user in the last test. The synced
   connection's `raw.*`/`norm.*` rows are NOT deleted with it (see "Not covered here" below) — the
   compose stack's Postgres volume accumulates ~1,200 raw issues per run until the grace period
   purges them.
@@ -39,6 +39,29 @@ the two never run at the same time, whatever the dispatch order.
 9. Back on the Data sources list, they delete the connection from its row menu.
    - *Expected*: the row is gone.
 
+## Scenario: admin connects the GitLab stub, syncs it, and reads back its projects and users
+
+1. The admin signs in, opens **New data source**, fills a unique name and picks **GitLab** in the **Kind** control.
+   - *Expected*: the form swaps to the GitLab fields (Base URL, Access token, Group paths); the option is
+     enabled because the compose stack sets `GITLAB_STUB_BASE_URL`.
+2. They enter the base URL `http://gitlab-stub:8080` (the stub's own origin is the only one the server accepts
+   while `GITLAB_ALLOWED_HOSTS` is blank), an access token (any non-empty value works against the stub) and the
+   group paths `platform` and `apps`.
+3. They click **Test connection**.
+   - *Expected*: every REQUIRED probe row reports **OK** and no Cloud ID is shown (it is a Jira-only figure).
+4. They click **Create**.
+   - *Expected*: the modal closes; the new connection appears in the filtered list.
+5. They open the new data source's details page.
+   - *Expected*: the connection table names the kind **GitLab** and the groups `platform, apps`; there is no **Data
+     profile**, **Raw issue inspector** or **Metrics configuration** link and no **Reprocess** button (they are Jira-only;
+     the server answers `409` for them on a GitLab source).
+6. They click **Sync now**.
+   - *Expected*: eventually (a reload each attempt) a **Sync** job row reads **Succeeded** and the raw-store counts show
+     **Projects: 4** and **Users: 8** - the stub's in-scope projects (`sample-data/gitlab/expected.json`
+     `projects.inScopeIds`) and its users (`users.list`).
+7. Back on the Data sources list, they delete the connection from its row menu.
+   - *Expected*: the row is gone.
+
 ## Scenario: admin cannot move a backfill date before the history horizon
 
 1. The admin signs in and opens **New data source**.
@@ -62,6 +85,9 @@ the two never run at the same time, whatever the dispatch order.
 
 ## Not covered here (and why)
 
+- **GitLab day-2 deltas and the token-scope refusal** (a project moved out of the groups, `TOKEN_SCOPE_TOO_BROAD`,
+  `TOKEN_INACTIVE`, `NOT_ADMIN`) - pinned by the server's `GitLabConnectorTest` and the editor's component tests; the journey drives
+  the day-zero happy path only. Commits and merge requests are not read yet (a later version).
 - **Validation and conflicts** (a malformed site URL, a duplicate name, a fixed site URL on
   update, `FORBIDDEN_SCOPE`/`AUTHENTICATION_FAILED` test-connection rows) — pinned by the
   server's `DataSourceRoutesTest`/`DataSourceTestConnectionTest` and the SPA's

@@ -1,10 +1,12 @@
 package ch.nokillswit.gitlab
 
+import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.infra.outbound.SelfManagedHosts
 import ch.nokillswit.infra.outbound.TlsTrust
 import ch.nokillswit.infra.outbound.loadCaBundleTrust
 import ch.nokillswit.infra.outbound.parseSelfManagedHosts
+import ch.nokillswit.infra.time.MILLIS_PER_HOUR
 import io.ktor.server.config.ApplicationConfig
 import java.net.URI
 import java.net.URISyntaxException
@@ -16,6 +18,12 @@ import java.net.URISyntaxException
  */
 class GitLabDevStub(val scheme: String, val host: String, val port: Int) {
     fun matchesHost(candidate: String): Boolean = candidate.equals(host, ignoreCase = true)
+
+    /** The stub's origin as the base-URL validator canonicalises it: `scheme://host`, the port only when it is not the scheme's default. */
+    fun origin(): String {
+        val defaultPort = if (scheme == "https") DEFAULT_HTTPS_PORT else DEFAULT_HTTP_PORT
+        return if (port == defaultPort) "$scheme://$host" else "$scheme://$host:$port"
+    }
 
     fun matchesOrigin(candidateScheme: String, candidateHost: String, candidatePort: Int): Boolean =
         candidateScheme == scheme && matchesHost(candidateHost) && candidatePort == port
@@ -29,7 +37,16 @@ class GitLabSettings(
     val tls: TlsTrust?,
     val requestTimeoutSeconds: Long,
     val maxResponseBytes: Long,
+    /** Retries on 429/5xx/IOException before a call fails terminally (`SourceHttp`). */
+    val maxRetries: Int,
+    /** The total budget of one logical call across every attempt and backoff, in seconds. */
+    val requestDeadlineSeconds: Long,
+    /** How old (hours) the stored GitLab users may get before a SYNC fetches them again; 0 = every SYNC. */
+    val usersRefreshHours: Int,
 ) {
+    val requestDeadlineMillis: Long get() = requestDeadlineSeconds * MILLIS_PER_SECOND
+    val usersRefreshMillis: Long get() = usersRefreshHours * MILLIS_PER_HOUR
+
     /** False means "GitLab disabled": no client is built and no data source of the GitLab kind can be created. */
     val enabled: Boolean get() = hosts.enabled || devStub != null
 }
@@ -43,12 +60,12 @@ private fun ApplicationConfig.trimmed(key: String): String = propertyOrNull(key)
  *  - `caBundle`: [loadCaBundleTrust], checked whenever set, and refused without `allowedHosts` (like the CIDRs: it is only ever
  *    for a listed host);
  *  - `stubBaseUrl`: development mode only, an origin with a host and nothing else;
- *  - `requestTimeoutSeconds`;
+ *  - `requestTimeoutSeconds`, `maxRetries`, `requestDeadlineSeconds`, `usersRefreshHours`: bounds-checked like their `jira.*` twins;
  *  - `maxResponseBytes`: blank = `min(8 MiB, jira.maxResponseBytes)`; an explicit value is bounds-checked and may not exceed
  *    `jira.maxResponseBytes` (refused even while GitLab is disabled). `jira/JiraHeapFit.kt` sizes the per-slot response tree from the
- *    Jira ceiling, so a GitLab ceiling at or below it keeps a GitLab response tree inside that figure. It does NOT count GitLab's
- *    in-flight bodies: those are `jira.maxConcurrentRequests x jira.maxResponseBytes` of JIRA requests only, so GitLab requests must
- *    either share Jira's request semaphore or be added to the fit before a GitLab stream exists (`gitlab-integration.md`, PR 6).
+ *    Jira ceiling, so a GitLab ceiling at or below it keeps a GitLab response tree inside that figure. GitLab's calls draw on the
+ *    SAME permit pool as Jira's (`fetch/OutboundPermits.kt`, published by `configureJira`), so the fit's in-flight term
+ *    (`jira.maxConcurrentRequests x jira.maxResponseBytes`) already covers them and no GitLab term is added.
  */
 fun readGitLabSettings(config: ApplicationConfig, developmentMode: Boolean): GitLabSettings {
     val stubRaw = config.trimmed("gitlab.stubBaseUrl")
@@ -66,7 +83,13 @@ fun readGitLabSettings(config: ApplicationConfig, developmentMode: Boolean): Git
     val tls = if (caBundle.isEmpty()) null else loadCaBundleTrust(caBundle, "gitlab.caBundle")
     val timeout = requireConfigLong(config, "gitlab.requestTimeoutSeconds", MIN_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS)
     val maxResponseBytes = readMaxResponseBytes(config)
-    return GitLabSettings(hosts, stubRaw.takeIf { it.isNotEmpty() }?.let(::parseDevStub), tls, timeout, maxResponseBytes)
+    val maxRetries = requireConfigInt(config, "gitlab.maxRetries", MIN_RETRIES, MAX_RETRIES)
+    val deadline = requireConfigLong(config, "gitlab.requestDeadlineSeconds", MIN_DEADLINE_SECONDS, MAX_DEADLINE_SECONDS)
+    val usersRefreshHours = requireConfigInt(config, "gitlab.usersRefreshHours", MIN_USERS_REFRESH_HOURS, MAX_USERS_REFRESH_HOURS)
+    return GitLabSettings(
+        hosts, stubRaw.takeIf { it.isNotEmpty() }?.let(::parseDevStub), tls, timeout, maxResponseBytes, maxRetries, deadline,
+            usersRefreshHours,
+    )
 }
 
 private fun readMaxResponseBytes(config: ApplicationConfig): Long {
@@ -99,6 +122,13 @@ private const val DEFAULT_HTTPS_PORT = 443
 private const val DEFAULT_HTTP_PORT = 80
 private const val MIN_TIMEOUT_SECONDS = 1L
 private const val MAX_TIMEOUT_SECONDS = 120L
+private const val MIN_RETRIES = 0
+private const val MAX_RETRIES = 10
+private const val MIN_DEADLINE_SECONDS = 1L
+private const val MAX_DEADLINE_SECONDS = 1_800L
+private const val MIN_USERS_REFRESH_HOURS = 0
+private const val MAX_USERS_REFRESH_HOURS = 168
+private const val MILLIS_PER_SECOND = 1_000L
 private const val MIN_RESPONSE_BYTES = 1_024L
 private const val MAX_RESPONSE_BYTES = 128L * 1024 * 1024
 private const val DEFAULT_RESPONSE_BYTES = 8L * 1024 * 1024

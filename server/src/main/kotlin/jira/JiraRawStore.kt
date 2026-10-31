@@ -3,6 +3,7 @@ package ch.nokillswit.jira
 import ch.nokillswit.infra.db.jsonb
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.ingest.DataSourceService
+import ch.nokillswit.ingest.RawUpsertOutcome
 import io.ktor.util.AttributeKey
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -38,13 +39,6 @@ data class RawIssueInput(
      */
     val payload: JsonElement,
 )
-
-/**
- * What a raw write did. [REFUSED]: the item is over its stored-size ceiling ([JiraStoredCeilings]) and nothing was written - an existing
- * row is only touched (`fetched_at`/`last_seen_at`, so REFERENCE's end-of-pass sweep never tombstones it), never changed - and it is no
- * change for a heartbeat's progress signal ([isChange]).
- */
-enum class RawUpsertOutcome { INSERTED, UNCHANGED, CHANGED, RESURRECTED, REFUSED }
 
 /**
  * The Jira raw store (v0.2.0 plan §4/§7, V10): `raw.jira_issues`/`raw.jira_entities`/`raw.jira_changelogs`/

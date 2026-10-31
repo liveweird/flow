@@ -124,7 +124,10 @@ class GitLabCaBundleTest {
         val block = yaml.drop(start + 1).takeWhile { it.isBlank() || it.startsWith(" ") || it.startsWith("#") }
         val keys = block.filter { it.startsWith("  ") && !it.trimStart().startsWith("#") }.map { it.trim().substringBefore(':') }
         assertEquals(
-            setOf("allowedHosts", "allowedCidrs", "caBundle", "stubBaseUrl", "requestTimeoutSeconds", "maxResponseBytes"),
+            setOf(
+                "allowedHosts", "allowedCidrs", "caBundle", "stubBaseUrl", "requestTimeoutSeconds", "maxResponseBytes", "maxRetries",
+                "requestDeadlineSeconds", "usersRefreshHours",
+            ),
             keys.toSet(),
             "a new gitlab.* key is a reviewed decision",
         )

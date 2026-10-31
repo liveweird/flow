@@ -278,8 +278,8 @@ class DeriveDebounceTest {
                     name = before.name + "-renamed", enabled = true, syncIntervalMinutes = before.syncIntervalMinutes,
                     backfillFrom = before.backfillFrom, reconcileHourUtc = before.reconcileHourUtc,
                     jira = JiraConnectionRequest(
-                        siteUrl = before.jira.siteUrl, email = before.jira.email, projectKeys = before.jira.projectKeys,
-                        authScheme = before.jira.authScheme,
+                        siteUrl = before.jira!!.siteUrl, email = before.jira!!.email, projectKeys = before.jira!!.projectKeys,
+                        authScheme = before.jira!!.authScheme,
                     ),
                 ),
             )

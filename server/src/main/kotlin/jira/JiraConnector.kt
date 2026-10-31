@@ -1,30 +1,19 @@
 package ch.nokillswit.jira
 
-import ch.nokillswit.fetch.CallTally
-import ch.nokillswit.fetch.FetchException
-import ch.nokillswit.fetch.SourceHttp
 import ch.nokillswit.ingest.ConnectionTarget
 import ch.nokillswit.ingest.ConnectionTestResult
-import ch.nokillswit.ingest.ConnectionTestRow
 import ch.nokillswit.ingest.Connector
+import ch.nokillswit.ingest.ConnectorRun
 import ch.nokillswit.ingest.DataSourceKind
 import ch.nokillswit.ingest.JiraAuthScheme
+import ch.nokillswit.ingest.ProbeRun
 import ch.nokillswit.ingest.PurgeStep
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
-import ch.nokillswit.ingest.SyncJobClaim
 import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.norm.purgeAll
-import ch.nokillswit.infra.catchingFailures
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -33,12 +22,9 @@ import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger(JiraConnector::class.java)
 
-private const val PROBE_TIMEOUT_MS = 10_000L
-private const val TOTAL_BUDGET_MS = 30_000L
-
 /**
  * `testConnection` (v0.2.0 plan §6): probes each endpoint in SEQUENCE, at most 10s each and 30s
- * total, never throwing — every outcome becomes a [ConnectionTestRow]. Order: tenant_info →
+ * total, never throwing — every outcome becomes a [ch.nokillswit.ingest.ConnectionTestRow]. Order: tenant_info →
  * myself → search → field → statuses → projects (+ each key) → bulkfetch (optional) + per-issue
  * changelog → per-issue worklog (A1) → worklog/updated → users → boards + configuration
  * + sprints (required: a SYNC's REFERENCE stream fetches all three), then the OPTIONAL `field_search` (informational: logs
@@ -128,49 +114,12 @@ class JiraConnector(
     }
 
     /**
-     * Runs [block] with the job's [StreamContext] inside a fresh [CallTally] (the job's Jira rate-limiting cost,
-     * `fetch/CallTally.kt`): every [SourceHttp] call under it - the streams' fetch-ahead children included - counts into it, and the
-     * context's heartbeats flush it onto `sync_jobs.progress`. REPROCESS never calls Jira, so it takes none.
-     *
-     * A RETRIED attempt (attempt > 1) starts from the sticky keys the previous attempt flushed ([STICKY_PROGRESS_KEYS]: the tally's
-     * counters, which add up, and `backfill`), because its first heartbeat replaces the job's `progress`. An attempt that FAILS makes
-     * one last best-effort heartbeat before the failure propagates (under [NonCancellable]; a lost lease or a database error is
-     * swallowed; also for a `StackOverflowError`, the one `Error` handled), so the throttling that caused a `RATE_LIMITED` give-up is on
-     * the job row; a cancellation propagates untouched. A `LIMIT_EXCEEDED` failure leaves as a
-     * [ch.nokillswit.ingest.CeilingTripException] ([ceilingTripOf]); the job's wall clock already is one,
-     * graceful (between pages) or hard ([StreamContext.withHardStop], which wraps the whole run here: a call or page still in flight at
-     * the budget plus its grace is cancelled and the run leaves as the same `TIME_EXCEEDED` trip).
+     * Runs [block] inside the job's [ch.nokillswit.fetch.CallTally] and hard stop (`ingest/ConnectorRun.kt`, the body Jira and GitLab
+     * share); Jira's sticky
+     * progress keys are [STICKY_PROGRESS_KEYS] (the tally's counters plus `backfill`).
      */
-    private suspend fun withTally(deps: JiraSyncDependencies, context: SyncJobRunContext, block: suspend (StreamContext) -> Unit) {
-        val carried = carriedProgress(context.claim)
-        val tally = CallTally(carried)
-        val backfill = carried.filterKeys { it == BACKFILL_PROGRESS_KEY }
-        val streamContext = StreamContext(
-            context.claim.connectionId, context.claim.id, deps.database, deps.cursors, context.heartbeat, now,
-            extraProgress = { backfill + tally.snapshot() }, maxRunMillis = context.maxRunMillis,
-            deadlineExemptStreams = LOCAL_STREAMS, hardStopMillis = context.hardStopMillis,
-        )
-        // A StackOverflowError (an Error, which `catchingFailures` leaves alone) is flushed and rethrown like any failure.
-        val failure = try {
-            catchingFailures<Throwable?>({ withContext(tally) { streamContext.withHardStop { block(streamContext) } }; null }) { it }
-        } catch (overflow: StackOverflowError) {
-            overflow
-        }
-        if (failure != null) {
-            // Typed BEFORE the last heartbeat below, which is no change; the worker closes the job on the typed trip (`SyncPause.kt`).
-            val thrown = (failure as? Exception)?.ceilingTripOf(streamContext) ?: failure
-            withContext(NonCancellable) { catchingFailures({ streamContext.heartbeat(changed = false) }) { } }
-            throw thrown
-        }
-    }
-
-    /** The sticky counters the claim's previous attempt flushed (see [withTally]); empty on a first attempt. */
-    private fun carriedProgress(claim: SyncJobClaim): Map<String, Long> {
-        val prior = claim.priorProgress?.takeIf { claim.attempt > 1 } ?: return emptyMap()
-        val parsed = catchingFailures({ Json.parseToJsonElement(prior) as? JsonObject }) { null } ?: return emptyMap()
-        return parsed.filterKeys { it in STICKY_PROGRESS_KEYS }
-            .mapNotNull { (key, value) -> (value as? JsonPrimitive)?.longOrNull?.let { key to it } }.toMap()
-    }
+    private suspend fun withTally(deps: JiraSyncDependencies, context: SyncJobRunContext, block: suspend (StreamContext) -> Unit) =
+        ConnectorRun.withTally(context, deps.database, deps.cursors, now, LOCAL_STREAMS, STICKY_PROGRESS_KEYS, block)
 
     private fun reprocessContext(deps: JiraSyncDependencies, context: SyncJobRunContext) = StreamContext(
         context.claim.connectionId, context.claim.id, deps.database, deps.cursors, context.heartbeat, now,
@@ -234,7 +183,7 @@ class JiraConnector(
         authScheme: JiraAuthScheme,
     ): ConnectionTestResult {
         val client = newClient(siteUrl, email, apiToken, authScheme)
-        val rows = mutableListOf<ConnectionTestRow>()
+        val run = ProbeRun(now)
         var cloudId: String? = null
         var firstIssueId: String? = null
         var fieldCount: Int? = null
@@ -242,46 +191,9 @@ class JiraConnector(
         var firstProjectTypeId: Long? = null
         var firstBoardId: Long? = null
         var firstScrumBoardId: Long? = null
-        val deadline = now() + TOTAL_BUDGET_MS
 
-        suspend fun probe(name: String, path: String, required: Boolean, scopeHint: String? = null, block: suspend () -> Unit) {
-            // [LOW-1] The remaining TOTAL budget, not just [PROBE_TIMEOUT_MS] — a budget checked
-            // only ONCE per probe (before it starts) never shrinks the probe's OWN timeout, so a
-            // run of several near-the-cap probes could together run well past the documented 30s
-            // (each individually within its own 10s allowance). `withTimeout` below is always the
-            // SMALLER of the two.
-            val remaining = deadline - now()
-            if (remaining <= 0) {
-                rows += ConnectionTestRow(name, path, required, ok = false, code = "TIMEOUT", scopeHint = scopeHint)
-                return
-            }
-            try {
-                withTimeout(minOf(PROBE_TIMEOUT_MS, remaining)) { block() }
-                rows += ConnectionTestRow(name, path, required, ok = true, scopeHint = scopeHint)
-            } catch (_: TimeoutCancellationException) {
-                rows += ConnectionTestRow(name, path, required, ok = false, code = "TIMEOUT", scopeHint = scopeHint)
-            } catch (cause: CancellationException) {
-                // [MED-4] A GENUINE coroutine cancellation (the caller's scope was cancelled) is
-                // not a probe outcome — it must propagate, never get folded into a row. Distinct
-                // from TimeoutCancellationException above, which IS this function's own bounded
-                // wait expiring and is deliberately reported as a TIMEOUT row.
-                throw cause
-            } catch (cause: FetchException) {
-                rows += ConnectionTestRow(name, path, required, ok = false, status = cause.status, code = cause.code, scopeHint = scopeHint)
-            } catch (_: IllegalStateException) {
-                // A prior REQUIRED probe (tenant_info) never resolved the gateway (e.g. it
-                // itself timed out or failed) — every probe downstream of it is unreachable,
-                // not a distinct failure of ITS OWN endpoint.
-                rows += ConnectionTestRow(name, path, required, ok = false, code = "NOT_FOUND", scopeHint = scopeHint)
-            } catch (_: RuntimeException) {
-                // [MED-4] A raw `.jsonObject`/`.jsonArray`/`.jsonPrimitive` cast (here, or one a
-                // future client implementation forgets to route through its own decode helper)
-                // throws `IllegalArgumentException` on a shape mismatch — without this catch-all
-                // that crashed the WHOLE `testConnection` call (and 500'd the route), instead of
-                // reporting the one malformed probe as a row like every other failure mode.
-                rows += ConnectionTestRow(name, path, required, ok = false, code = "INVALID_RESPONSE", scopeHint = scopeHint)
-            }
-        }
+        suspend fun probe(name: String, path: String, required: Boolean, scopeHint: String? = null, block: suspend () -> Unit) =
+            run.probe(name, path, required, scopeHint, block)
 
         probe("tenant_info", "/_edge/tenant_info", required = true) { cloudId = client.resolveCloudId() }
         probe("myself", "/rest/api/3/myself", required = true, scopeHint = "read:jira-user") { client.myself() }
@@ -368,7 +280,7 @@ class JiraConnector(
                 client.projectFields(fieldsProjectId, listOf(fieldsTypeId), maxResults = 1)
             }
         }
-        return ConnectionTestResult(rows, cloudId)
+        return ConnectionTestResult(run.rows, cloudId)
     }
 
     private fun JsonObject.boardId(): Long? = get("id")?.jsonPrimitive?.longOrNull

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: flow-api
-  version: 1.33.0
+  version: 1.34.0
   description: |
     JWT-authenticated REST API for Flow — a developer-intelligence tool that reads Jira Cloud, stores the raw data
     incrementally and derives flow metrics (cycle and lead time, throughput, WIP, flow efficiency, work-item age),
@@ -1161,8 +1161,9 @@ paths:
       operationId: listDataSources
       summary: List data sources
       description: |
-        ADMIN only. An ADMIN-managed connection to an external issue tracker — Jira Cloud today
-        (`kind: JIRA_CLOUD`).
+        ADMIN only. An ADMIN-managed connection to an external system — Jira Cloud (`kind: JIRA_CLOUD`, the `jira` block)
+        or a self-managed GitLab instance (`kind: GITLAB`, the `gitlab` block). Rows of both kinds are listed, whether or not
+        the kind is enabled on this server (`GET /api/v1/data-sources/kinds`).
 
         - Sortable fields: `id`, `name`, `createdAt`, `updatedAt`. Default `id` ascending.
         - Filters: `name` (case- and accent-insensitive substring).
@@ -1203,6 +1204,18 @@ paths:
         (`/api/v1/data-sources/{id}`) as `instance`; a soft-deleted source holds nothing. A
         `backfillFrom` before the history horizon's first day (`historyHorizonFrom` on the metrics
         settings) is `400`; a blank one becomes today minus 24 months, or that day when it is later.
+
+        **GitLab.** Exactly one of `jira` and `gitlab` is present (anything else is `400`); the block sets the kind, which
+        never changes. `gitlab.baseUrl` is the instance origin (`https://host[:port]`, no path, query or credentials):
+        it is canonicalised (lowercase host, default port dropped) and must be on the operator's `GITLAB_ALLOWED_HOSTS`
+        (`400` whose `detail` names the refusal code `gitlab-host-not-allowed`, or `gitlab-disabled` when the kind is off on
+        this server). `gitlab.token` is the read-only personal access token, required here, write-only, never echoed
+        (the response carries `gitlab.hasToken` only). `gitlab.groupPaths` are 1-10 full group paths, trimmed, stripped of
+        leading/trailing `/`, lowercased and de-duplicated; a path equal to or nested in another of the same request is `400`.
+        Two scope rules are `409` as well: every active GitLab data source reads the SAME instance (a different `baseUrl`
+        answers `urn:flow:problem:data-source-other-instance`), and no group path equals, sits under or contains one of
+        another active GitLab data source (`urn:flow:problem:data-source-group-overlap`). Jira and GitLab sources never
+        conflict with each other.
       requestBody:
         required: true
         content:
@@ -1226,17 +1239,43 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/kinds:
+    get:
+      tags: [data-sources]
+      operationId: listDataSourceKinds
+      summary: The data-source kinds this server can create
+      description: |
+        ADMIN only. One entry per `DataSourceKind`, in enum order, so the editor can offer only kinds that can work: Jira Cloud
+        is always enabled; GitLab is enabled when the operator listed at least one host in `GITLAB_ALLOWED_HOSTS` (or runs
+        a development stub). `allowedOrigins` are the origins a GitLab `baseUrl` may name (`https://host[:port]`, port
+        omitted when 443; the development stub's origin too), empty when the kind is disabled and for Jira. A bounded,
+        operator-curated set, so the plain `{items}` wrapper (no paging).
+      responses:
+        '200':
+          description: The kinds
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSourceKindsResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/data-sources/test:
     post:
       tags: [data-sources]
       operationId: testDataSourceAdHoc
-      summary: Test a Jira connection before saving it
+      summary: Test a connection before saving it
       description: |
         ADMIN only (guarded before the body decodes), rate-limited (10/min per IP, bucket
-        `data-source-test`). Probes each Jira endpoint the ingestion pipeline needs in sequence
+        `data-source-test`). Exactly one of `jira` and `gitlab` (else `400`; a GitLab block is validated like a create,
+        so a base URL off the operator's list is `400`). Probes each endpoint the ingestion pipeline needs in sequence
         (at most 10s each, 30s total) and NEVER answers `502` — every probe outcome is a row in
-        the response, `ok: false` included. `jira.apiToken` is required here (an ad-hoc test
-        before the connection is saved).
+        the response, `ok: false` included. The block's token (`jira.apiToken`, `gitlab.token`) is required here (an
+        ad-hoc test before the connection is saved). GitLab's rows, in order: `version`, `user`, `user_admin` (optional;
+        `code` `NOT_ADMIN` when the token's owner is no admin, so user emails will be hidden), `token_scopes` (a token with any scope that does not start
+        with `read_` and is not `admin_mode` fails it with `TOKEN_SCOPE_TOO_BROAD`, an inactive one with `TOKEN_INACTIVE`; an answer missing `scopes` or `active` is `INVALID_RESPONSE`),
+        then `group:<path>` and `group_projects:<path>` per configured path, `users` and `user_emails` (optional). A GitLab
+        result carries no `cloudId`.
       requestBody:
         required: true
         content:
@@ -1266,8 +1305,10 @@ paths:
       summary: Test a saved data source's connection
       description: |
         ADMIN only, rate-limited (10/min per IP, bucket `data-source-test`). Uses the STORED,
-        decrypted token — no request body. A successful `tenant_info` probe persists the
-        resolved `cloudId` on the connection.
+        decrypted token — no request body — and probes the data source's own kind (see the ad-hoc test for GitLab's rows). A
+        successful `tenant_info` probe persists the resolved `cloudId` on a Jira connection. A GitLab data source whose kind is
+        switched off on this server (no `GITLAB_ALLOWED_HOSTS`) answers `409`
+        `urn:flow:problem:data-source-kind-unsupported`.
       responses:
         '200':
           description: The probe results
@@ -1279,6 +1320,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/data-sources/{id}:
@@ -1306,10 +1348,14 @@ paths:
       operationId: updateDataSource
       summary: Update a data source (full replace)
       description: |
-        ADMIN only, guard before the id lookup (uniform 403). A changed `jira.siteUrl` is `409`
-        — it is the connection's identity; create a new data source instead. Omitting OR
-        blanking `jira.apiToken` keeps the current token; any other value rotates it (audited
-        separately as `data_source.token_rotated`). Any successful update bumps
+        ADMIN only, guard before the id lookup (uniform 403). A changed `jira.siteUrl` (or, for GitLab, a `gitlab.baseUrl`
+        whose canonical origin differs from the stored one) is `409`
+        — it is the connection's identity; create a new data source instead. So is a block of the other kind: the kind is fixed
+        at create. Omitting OR
+        blanking the token (`jira.apiToken`, `gitlab.token`) keeps the current token; any other value rotates it (audited
+        separately as `data_source.token_rotated`). A GitLab update is validated like a create (`400` for a base URL off the
+        operator's list or while the kind is off on this server, `gitlab-disabled`); a `gitlab.groupPaths` entry equal to, under or
+        above a group path of ANOTHER active GitLab data source is `409` `urn:flow:problem:data-source-group-overlap`. Any successful update bumps
         `configRevision`. A case-insensitive name clash with another active data source is `409`.
         So is a `jira.projectKeys` entry already in ANOTHER active data source (`type`
         `urn:flow:problem:data-source-project-overlap`; `detail` names that data source and the
@@ -4588,9 +4634,52 @@ components:
       type: string
       enum: [BASIC, BEARER]
       default: BASIC
+    DataSourceKind:
+      type: string
+      enum: [JIRA_CLOUD, GITLAB]
+      description: The connector kind; fixed at create by which request block is present.
+    GitLabConnectionRequest:
+      type: object
+      required: [baseUrl, groupPaths]
+      properties:
+        baseUrl:
+          type: string
+          maxLength: 300
+          description: >-
+            The GitLab instance origin, `https://host[:port]` (no path, query, fragment or credentials; a trailing `/` is dropped).
+            It must be on the operator's `GITLAB_ALLOWED_HOSTS`, or the development stub's origin. Stored canonical; fixed at
+            create (a PUT naming another origin is `409`).
+        token:
+          type: string
+          maxLength: 1000
+          nullable: true
+          description: >-
+            Write-only personal access token, sent as `PRIVATE-TOKEN`; Flow needs `read_api` only and refuses a token with any scope that does not
+            start with `read_` (`api`, `sudo`, `write_*`, `create_runner`, ...), `admin_mode` aside (an Admin-Mode instance needs it for emails). Required (non-blank) on create. On update, omitted OR blank keeps the current token; any
+            other value rotates it. Never echoed back in any response.
+        groupPaths:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items: { type: string, maxLength: 255 }
+          description: >-
+            Full group paths whose projects (subgroups included, archived and shared ones not) are read. Trimmed, stripped of
+            leading/trailing `/`, lowercased and de-duplicated before validation (so the request accepts any case); each normalised path must then be
+            `/`-separated segments of `[a-z0-9_][a-z0-9_.-]*` (else `400`), and none may equal or nest in another.
+    GitLabConnectionResponse:
+      type: object
+      required: [baseUrl, hasToken, groupPaths]
+      properties:
+        baseUrl: { type: string }
+        hasToken:
+          type: boolean
+          description: The token itself is never returned.
+        groupPaths:
+          type: array
+          items: { type: string }
     DataSourceRequest:
       type: object
-      required: [name, syncIntervalMinutes, jira]
+      required: [name, syncIntervalMinutes]
       properties:
         name: { type: string, minLength: 1, maxLength: 100 }
         enabled: { type: boolean, default: true }
@@ -4607,7 +4696,13 @@ components:
             only floors the default, it never widens it).
         reconcileHourUtc: { type: integer, minimum: 0, maximum: 23, default: 3 }
         jira:
-          $ref: '#/components/schemas/JiraConnectionRequest'
+          allOf: [{ $ref: '#/components/schemas/JiraConnectionRequest' }]
+          nullable: true
+          description: The Jira Cloud connection. Exactly one of `jira` and `gitlab` must be present (else `400`); it sets the kind.
+        gitlab:
+          allOf: [{ $ref: '#/components/schemas/GitLabConnectionRequest' }]
+          nullable: true
+          description: The self-managed GitLab connection. Exactly one of `jira` and `gitlab` must be present (else `400`); it sets the kind.
     JiraConnectionResponse:
       type: object
       required: [siteUrl, email, hasApiToken, projectKeys, authScheme]
@@ -4697,13 +4792,13 @@ components:
         - backfillFrom
         - reconcileHourUtc
         - configRevision
-        - jira
         - status
         - createdAt
         - updatedAt
       properties:
         id: { type: integer, format: int32, minimum: 0 }
-        kind: { type: string, enum: [JIRA_CLOUD] }
+        kind:
+          $ref: '#/components/schemas/DataSourceKind'
         name: { type: string }
         enabled: { type: boolean }
         syncIntervalMinutes: { type: integer }
@@ -4711,7 +4806,13 @@ components:
         reconcileHourUtc: { type: integer }
         configRevision: { type: integer, format: int64 }
         jira:
-          $ref: '#/components/schemas/JiraConnectionResponse'
+          allOf: [{ $ref: '#/components/schemas/JiraConnectionResponse' }]
+          nullable: true
+          description: Present exactly for a `JIRA_CLOUD` data source, null otherwise.
+        gitlab:
+          allOf: [{ $ref: '#/components/schemas/GitLabConnectionResponse' }]
+          nullable: true
+          description: Present exactly for a `GITLAB` data source, null otherwise.
         status:
           $ref: '#/components/schemas/DataSourceStatus'
         createdAt: { type: integer, format: int64, description: Epoch millis }
@@ -4730,18 +4831,45 @@ components:
           type: integer
           format: int64
           minimum: 0
+    DataSourceKindInfo:
+      type: object
+      required: [kind, enabled, allowedOrigins]
+      properties:
+        kind:
+          $ref: '#/components/schemas/DataSourceKind'
+        enabled:
+          type: boolean
+          description: Whether a data source of this kind can be created on this server.
+        allowedOrigins:
+          type: array
+          items: { type: string }
+          description: >-
+            The origins a `baseUrl` of this kind may name (`https://host[:port]`); empty for Jira Cloud (its allow-list is the
+            Atlassian site shape) and for a disabled kind.
+    DataSourceKindsResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DataSourceKindInfo'
     DataSourceTestRequest:
       type: object
-      required: [jira]
+      description: Exactly one of `jira` and `gitlab` must be present (else `400`); the token inside it is required.
       properties:
         jira:
-          $ref: '#/components/schemas/JiraConnectionRequest'
+          allOf: [{ $ref: '#/components/schemas/JiraConnectionRequest' }]
+          nullable: true
+        gitlab:
+          allOf: [{ $ref: '#/components/schemas/GitLabConnectionRequest' }]
+          nullable: true
     ConnectionTestRow:
       type: object
       required: [name, path, required, ok]
       properties:
         name: { type: string, description: "The probe's short identifier (e.g. myself, project_statuses:ENG)." }
-        path: { type: string, description: The Jira endpoint path probed. }
+        path: { type: string, description: The endpoint path probed. }
         required: { type: boolean, description: Whether a real sync depends on this endpoint. }
         ok: { type: boolean }
         status: { type: integer, nullable: true, description: "The upstream HTTP status, when the probe ran." }
@@ -4764,7 +4892,7 @@ components:
         cloudId:
           type: string
           nullable: true
-          description: Resolved once the `tenant_info` probe succeeds.
+          description: Jira only - resolved once the `tenant_info` probe succeeds; null for a GitLab result.
 
     SyncJobKind:
       type: string
@@ -4865,10 +4993,25 @@ components:
             The stream's own raw persisted cursor JSON — an opaque, per-stream-owned diagnostic
             string, not reparsed here.
         lastCompletedAt: { type: integer, format: int64, nullable: true, description: Epoch millis }
+    GitLabSyncCounts:
+      type: object
+      required: [projects, projectsMovedOut, projectsDeleted, users, usersDeleted]
+      properties:
+        projects: { type: integer, format: int64, minimum: 0, description: Live projects of the configured groups. }
+        projectsMovedOut: { type: integer, format: int64, minimum: 0, description: Projects no longer listed under any configured group (rows kept). }
+        projectsDeleted: { type: integer, format: int64, minimum: 0, description: Projects marked deleted by a reconcile. }
+        users: { type: integer, format: int64, minimum: 0, description: Live users of the instance. }
+        usersDeleted: { type: integer, format: int64, minimum: 0, description: Users no longer listed. }
     SyncCounts:
       type: object
+      description: >-
+        Raw-layer row counts. For a `GITLAB` connection the Jira integers are 0 and `gitlab` carries its counts (null when this
+        process has no GitLab store, i.e. the kind is off here).
       required: [rawIssues, tombstonedDeleted, tombstonedMovedOut, changelogs, worklogs, entitiesByKind, needsProcessing]
       properties:
+        gitlab:
+          allOf: [{ $ref: '#/components/schemas/GitLabSyncCounts' }]
+          nullable: true
         rawIssues: { type: integer, format: int64, minimum: 0 }
         tombstonedDeleted: { type: integer, format: int64, minimum: 0 }
         tombstonedMovedOut: { type: integer, format: int64, minimum: 0 }
@@ -8316,7 +8459,8 @@ components:
           default: about:blank
           description: >-
             A URI reference identifying the problem type. `about:blank` for almost every problem; the data-source
-            scope `409`s carry `urn:flow:problem:data-source-other-site` or `urn:flow:problem:data-source-project-overlap`
+            scope `409`s carry `urn:flow:problem:data-source-other-site`, `urn:flow:problem:data-source-project-overlap`
+            (Jira), `urn:flow:problem:data-source-other-instance` or `urn:flow:problem:data-source-group-overlap` (GitLab)
             (their `instance` is then the conflicting data source's path, not the request path); a route that does not
             serve the data source's kind (the metrics-config routes and the raw-issue inspector on a GitLab source)
             answers `409` with `urn:flow:problem:data-source-kind-unsupported`.

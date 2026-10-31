@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.ingest.RawUpsertOutcome
 import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.jira.JIRA_SOURCE
 import ch.nokillswit.jira.JiraChangelogPage
@@ -14,7 +15,6 @@ import ch.nokillswit.jira.JiraWorklogIdsPage
 import ch.nokillswit.jira.JiraWorklogStartAtPage
 import ch.nokillswit.jira.RawIssueInput
 import ch.nokillswit.jira.MAX_CURSOR_RESTARTS
-import ch.nokillswit.jira.RawUpsertOutcome
 import ch.nokillswit.jira.backfillFromEpochMillis
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking

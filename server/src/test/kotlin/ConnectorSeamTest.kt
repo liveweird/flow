@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.ingest.ConnectionTarget
 import ch.nokillswit.ingest.ConnectionTestResult
+import ch.nokillswit.gitlab.GitLabConnector
 import ch.nokillswit.ingest.Connector
 import ch.nokillswit.ingest.ConnectorRegistry
 import ch.nokillswit.ingest.DataSourceKind
@@ -100,15 +101,27 @@ class ConnectorSeamTest {
     }
 
     @Test
-    fun `the booted app registers JIRA_CLOUD in the registry and nothing else`() = testApplication {
-        configureApp()
-        application {
-            val registry = connectorRegistry()
-            assertTrue(registry.connectorFor(DataSourceKind.JIRA_CLOUD) is JiraConnector)
-            assertNull(registry.connectorFor(DataSourceKind.GITLAB), "no GitLab connector exists before its own release")
-            assertEquals(1, registry.connectors().size)
+    fun `the booted app registers JIRA_CLOUD only without GitLab configured, and both with the GitLab stub configured`() {
+        testApplication {
+            configureApp()
+            application {
+                val registry = connectorRegistry()
+                assertTrue(registry.connectorFor(DataSourceKind.JIRA_CLOUD) is JiraConnector)
+                assertNull(registry.connectorFor(DataSourceKind.GITLAB), "GitLab is off: no host listed, no stub")
+                assertEquals(1, registry.connectors().size)
+            }
+            startApplication()
         }
-        startApplication()
+        testApplication {
+            configureApp("gitlab.stubBaseUrl" to GitLabStubServer.start())
+            application {
+                val registry = connectorRegistry()
+                assertTrue(registry.connectorFor(DataSourceKind.JIRA_CLOUD) is JiraConnector)
+                assertTrue(registry.connectorFor(DataSourceKind.GITLAB) is GitLabConnector)
+                assertEquals(2, registry.connectors().size)
+            }
+            startApplication()
+        }
     }
 
     @Test

@@ -1,5 +1,7 @@
 package ch.nokillswit.jira
 
+import ch.nokillswit.fetch.OutboundPermits
+import ch.nokillswit.fetch.OutboundPermitsKey
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.infra.db.R2dbcDatabaseKey
@@ -94,12 +96,17 @@ fun Application.configureJira() {
     // starts and stops hundreds), like the database pool's own ApplicationStopped disposal.
     attributes.put(JiraHttpClientKey, httpClient)
     monitor.subscribe(ApplicationStopped) { httpClient.close() }
+    // The in-flight permits are published for the other connectors: GitLab draws on the same pool, so the heap fit above (which
+    // counts jira.maxConcurrentRequests bodies of up to jira.maxResponseBytes in flight) already covers its calls.
+    val permits = OutboundPermits(maxConcurrentRequests)
+    attributes.put(OutboundPermitsKey, permits)
     val jiraHttp = createJiraHttp(
         httpClient,
         maxRetries,
         maxResponseBytes,
         maxConcurrentRequests,
         requestDeadlineMillis = requestDeadlineSeconds * MILLIS_PER_SECOND,
+        permits = permits,
     )
     // JiraRawStore (V10) lives next to the feature it serves rather than in infra/db/Database.kt's
     // generic composition root — it only needs the R2dbcDatabase configureDatabase already

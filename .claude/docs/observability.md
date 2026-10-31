@@ -130,21 +130,22 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   (it is `X-Forwarded-For`-derived behind a proxy, i.e. attacker-chosen text; the ingress log has it), and neither is the
   query string. The per-account lockout's 429s are their own `login.lockout`/`login.rejected_locked` events and do not
   emit this),
-- `data_source.created` (byUserId/dataSourceId/name/siteHost — HOST only, never the full
-  `siteUrl`, and never the API token) / `.updated` (byUserId/dataSourceId/name/siteHost) /
+- `data_source.created` (byUserId/dataSourceId/kind `JIRA_CLOUD`|`GITLAB`/name/host — HOST only (Jira's site host, the GitLab origin's host),
+  never the full URL, and never the token; renamed from `siteHost` in 1.34.0 when GitLab joined) / `.updated` (byUserId/dataSourceId/kind/name/host) /
   `.token_rotated` (byUserId/dataSourceId — its own event, separate from `.updated`, so the audit
   trail can tell a credential rotation from an ordinary settings edit without ever naming the
   token) / `.deleted` (byUserId/dataSourceId) — the v0.2.0 data-sources CRUD (V8) /
-  `.scope_rejected` (byUserId/dataSourceId - null on a create/reason `OTHER_SITE`|`PROJECT_OVERLAP`/
-  conflictingDataSourceId/siteHost - the REQUESTED site's host/projectKeys - the shared keys, empty for `OTHER_SITE`; emitted when
-  the scope rules 409 a create or update, `ingest/DataSourceScope.kt`, never a token) /
+  `.scope_rejected` (byUserId/dataSourceId - null on a create/kind/reason `OTHER_SITE`|`PROJECT_OVERLAP`|`OTHER_INSTANCE`|`GROUP_OVERLAP`/
+  conflictingDataSourceId/host - the REQUESTED site's or instance's host/projectKeys - the shared keys, empty for a GitLab reason and
+  for `OTHER_SITE`/groupPaths - the clashing group paths, empty for a Jira reason and for `OTHER_INSTANCE`; emitted when
+  the scope rules 409 a create or update, `ingest/DataSourceScope.kt`, `GitLabScope.kt`, never a token) /
   `.paused` (dataSourceId/jobId/job `SYNC`|`RECONCILE`/reason - the trip code `LIMIT_EXCEEDED`|`TIME_EXCEEDED`/limitTrips - emitted by the worker once, when the Nth
   consecutive SYNC ceiling trip without progress, or the Nth consecutive RECONCILE ceiling trip without a durable change, pauses that job's scheduling, `ingest/SyncPauseAnnouncement.kt`; one event name for both, told apart by `job`; with it ONE
   ERROR line in logger `ch.nokillswit.ingest.SyncPause`, constant text plus the data source id, the code, the count and the threshold - never
   exception or host text) /
   `.resumed` (byUserId/dataSourceId/via `SYNC_NOW`|`RECONCILE_NOW`|`UPDATE`/job `SYNC`|`RECONCILE`/reason/limitTrips - an ADMIN's "Sync now" (the SYNC pause), "Reconcile now" (the RECONCILE pause) or config PUT (each pause it lifted, one event per `job`) lifted a pause; nothing is
   emitted when that job was not paused) /
-  `.tested` (byUserId/siteHost/ok/failedEndpoints — emitted by both `POST /api/v1/data-sources/test`
+  `.tested` (byUserId/kind/host/ok/failedEndpoints — emitted by both `POST /api/v1/data-sources/test`
   and `.../{id}/test`; `ok` is true when every REQUIRED probe row passed, as the UI shows it, an optional row failing never clears it;
   `failedEndpoints` names every probe row that failed, optional ones included, never a token or the
   full request),
@@ -153,7 +154,7 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   (byUserId/dataSourceId/jobId — `POST .../sync-jobs/{jobId}/cancel`) — the web-role surface
   (`ingest/SyncJobRoutes.kt`); `.started` (jobId/dataSourceId/kind/attempt/workerId — a job the
   worker just claimed) / `.succeeded` (jobId/dataSourceId/kind) / `.failed`
-  (jobId/dataSourceId/kind/errorCode — `RUN_FAILED`, `CONNECTOR_UNAVAILABLE` (the job's kind has no registered connector), or the ceiling-trip code `LIMIT_EXCEEDED`/`TIME_EXCEEDED` (`ingestion.md` "Ceiling trips and the pause"), plus `resumable = true` ONLY on a SYNC wall-clock stop that stored pages (no failure was recorded and the log line is an INFO without a stack trace; the job row is still `FAILED`, so the telemetry panel's `sync.failures` series counts it - tell it apart by `error_code`), plus `hardStop = true` ONLY on a `TIME_EXCEEDED` where the hard stop cancelled the run in flight rather than the graceful check between pages (`ingestion.md` "Ceiling trips and the pause"); the exception message itself
+  (jobId/dataSourceId/kind/errorCode — `RUN_FAILED`, `CONNECTOR_UNAVAILABLE` (the job's kind has no registered connector), `TOKEN_SCOPE_TOO_BROAD`/`TOKEN_INACTIVE` (a GitLab token with a non-`read_` scope, or an inactive one, `JobRefusedException`), or the ceiling-trip code `LIMIT_EXCEEDED`/`TIME_EXCEEDED` (`ingestion.md` "Ceiling trips and the pause"), plus `resumable = true` ONLY on a SYNC wall-clock stop that stored pages (no failure was recorded and the log line is an INFO without a stack trace; the job row is still `FAILED`, so the telemetry panel's `sync.failures` series counts it - tell it apart by `error_code`), plus `hardStop = true` ONLY on a `TIME_EXCEEDED` where the hard stop cancelled the run in flight rather than the graceful check between pages (`ingestion.md` "Ceiling trips and the pause"); the exception message itself
   goes to `error_detail` on the row as `<ExceptionClass>: <message>` (U+0000 replaced by U+FFFD: PostgreSQL `text` cannot store it), not the audit line; the worker also logs a
   WARN `Sync job {id} ({kind}) for data source {id} failed` with the stack trace, each cause reduced to its class name
   by `LoggedFailure`, because a transport cause's message can embed a request URL with its query string) / `.released`

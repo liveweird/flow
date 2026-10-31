@@ -16,6 +16,9 @@ import ch.nokillswit.ingest.IngestWorker
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JiraConnectionRequest
 import ch.nokillswit.ingest.JobHandlerRegistry
+import ch.nokillswit.ingest.JobRefusedException
+import ch.nokillswit.ingest.TOKEN_INACTIVE
+import ch.nokillswit.ingest.TOKEN_SCOPE_TOO_BROAD
 import ch.nokillswit.ingest.SyncJobClaim
 import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobListFilter
@@ -681,6 +684,28 @@ class IngestWorkerTest {
     }
 
     @Test
+    fun `a connector's JobRefusedException closes the job and the connection with its own error code`() = runBlocking {
+        for (code in listOf(TOKEN_SCOPE_TOO_BROAD, TOKEN_INACTIVE)) assertRefusalClosesWith(code)
+    }
+
+    private suspend fun assertRefusalClosesWith(code: String) {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds, syncIntervalMinutes = 30, enabled = true)
+        val connector = FakeConnector { throw JobRefusedException(code, "the token was refused ($code)") }
+        val worker = IngestWorker(
+            jobs, ds, handlers(ds), mapOf(DataSourceKind.JIRA_CLOUD to connector), testConfig(workerSlots = 500), fixedEarlyMorningClock(),
+        )
+
+        withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS) { coroutineScope { worker.tick(this) } }
+
+        val job = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single()
+        assertEquals(SyncJobStatus.FAILED, job.status)
+        assertEquals(code, job.errorCode)
+        assertEquals(code, assertNotNull(ds.read(connId)).status.lastSyncErrorCode, "$code is inside the closed vocabulary, not RUN_FAILED")
+    }
+
+    @Test
     fun `a NUL in the failure message is replaced so the failure write lands and the job ends FAILED`() = runBlocking {
         val ds = dataSources()
         val jobs = syncJobs()
@@ -1334,11 +1359,11 @@ class IngestWorkerTest {
             backfillFrom = stored.backfillFrom,
             reconcileHourUtc = stored.reconcileHourUtc,
             jira = JiraConnectionRequest(
-                siteUrl = stored.jira.siteUrl,
-                email = stored.jira.email,
+                siteUrl = stored.jira!!.siteUrl,
+                email = stored.jira!!.email,
                 apiToken = null,
-                projectKeys = stored.jira.projectKeys,
-                authScheme = stored.jira.authScheme,
+                projectKeys = stored.jira!!.projectKeys,
+                authScheme = stored.jira!!.authScheme,
             ),
         )
     }
@@ -1357,7 +1382,7 @@ class IngestWorkerTest {
 
         // A rotated token (any save bumps config_revision, so it lifts the back-off with it).
         val put = ds.putRequest(connId)
-        assertNotNull(ds.update(connId, put.copy(jira = put.jira.copy(apiToken = "rotated-${UUID.randomUUID()}"))))
+        assertNotNull(ds.update(connId, put.copy(jira = put.jira!!.copy(apiToken = "rotated-${UUID.randomUUID()}"))))
 
         assertEquals(SyncState(0, null, "RUN_FAILED"), syncState(connId), "the last error stays; the streak and schedule are cleared")
         assertEquals(ReconcileState(0, null, null), reconcileState(connId))

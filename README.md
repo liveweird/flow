@@ -223,7 +223,9 @@ Jira call to the stub in development mode (`JIRA_STUB_BASE_URL`; see `sample-dat
 
 The compose stack routes **every** Jira call to that bundled stub, so a real `*.atlassian.net`
 connection would silently talk to the stub. To connect a real tenant, start the stack with the
-reroute turned off: `JIRA_STUB_BASE_URL= docker compose up` (an explicitly empty value, not unset).
+reroute turned off: `JIRA_STUB_BASE_URL= docker compose up` (an explicitly empty value, not unset). The same holds for GitLab:
+the stack points `GITLAB_STUB_BASE_URL` at the bundled `gitlab-stub`, which turns the GitLab data-source kind on with `http://gitlab-stub:8080` as the
+only accepted base URL; `GITLAB_STUB_BASE_URL= docker compose up` turns that off. For a real instance, list its host in `GITLAB_ALLOWED_HOSTS` (and, on a private address, its range in `GITLAB_ALLOWED_CIDRS`); compose forwards both, while an internal CA (`GITLAB_CA_BUNDLE`) needs a volume mount for the PEM file.
 
 ## Configuration (environment variables)
 
@@ -302,9 +304,12 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive (`.claude/
 | `GITLAB_ALLOWED_HOSTS` | *(blank)* | Self-managed GitLab hosts Flow may call: comma-separated exact DNS names, `host` or `host:port` (no port = 443); no wildcards, no IP literals. Blank = the GitLab kind is off. Only the operator can widen it; a malformed entry refuses startup. |
 | `GITLAB_ALLOWED_CIDRS` | *(blank)* | Private ranges a *listed* GitLab host may resolve to (e.g. `10.20.0.0/16`), comma-separated IPv4/IPv6 CIDRs. Startup refuses `/0`, IPv4 wider than /8, IPv6 wider than /32, anything overlapping loopback, link-local (incl. the cloud metadata address), any-local, multicast, 6to4, Teredo, IPv4-mapped or NAT64 space, and CIDRs without `GITLAB_ALLOWED_HOSTS`. |
 | `GITLAB_CA_BUNDLE` | *(blank)* | Path to a PEM file of internal CA certificates, added to the GitLab client's trust ALONGSIDE the JVM default CAs (the Jira client is untouched). Startup refuses an unreadable or certificate-less file, and a bundle without `GITLAB_ALLOWED_HOSTS`. There is no skip-TLS setting. |
-| `GITLAB_STUB_BASE_URL` | *(blank)* | Reroutes GitLab calls to the in-JVM/compose GitLab stub - development only; production refuses a non-blank value. |
+| `GITLAB_STUB_BASE_URL` | *(blank)* | Reroutes GitLab calls to the in-JVM/compose GitLab stub - development only; production refuses a non-blank value. With `GITLAB_ALLOWED_HOSTS` blank it enables the GitLab kind and accepts only the stub's origin as a base URL (the compose file sets it to `http://gitlab-stub:8080`). |
 | `GITLAB_REQUEST_TIMEOUT_SECONDS` | `30` | Per-attempt request and connect timeout of the GitLab client (1..120). |
-| `GITLAB_MAX_RESPONSE_BYTES` | *(min of 8 MiB and `JIRA_MAX_RESPONSE_BYTES`)* | Bounded-read ceiling on one GitLab response body (1 KiB..128 MiB). Leave it blank and it follows Jira's ceiling when that is lower; an explicit value may not exceed `JIRA_MAX_RESPONSE_BYTES` (startup refuses otherwise). |
+| `GITLAB_MAX_RESPONSE_BYTES` | *(min of 8 MiB and `JIRA_MAX_RESPONSE_BYTES`)* | Bounded-read ceiling on one GitLab response body (1 KiB..128 MiB). Leave it blank and it follows Jira's ceiling when that is lower; an explicit value may not exceed `JIRA_MAX_RESPONSE_BYTES` (startup refuses otherwise). GitLab calls share Jira's `JIRA_MAX_CONCURRENT_REQUESTS` permits, so the worker's heap check already covers them. |
+| `GITLAB_MAX_RETRIES` | `4` | Retries (0..10) on 429/5xx/IOException before a GitLab call fails terminally. |
+| `GITLAB_REQUEST_DEADLINE_SECONDS` | `180` | Total budget (1..1800 s) for one logical GitLab call across every retry/backoff attempt. |
+| `GITLAB_USERS_REFRESH_HOURS` | `24` | How old (hours, 0..168) a GitLab data source's stored users may get before a SYNC fetches them again; `0` = every SYNC. "Sync now" always refreshes. |
 | `INGEST_SCHEDULER_TICK_SECONDS` | `15` | How often the `worker`-role scan loop runs: enqueue due jobs, prune old rows, claim+run. |
 | `INGEST_WORKER_SLOTS` | `2` | Cap on concurrently RUNNING sync jobs for this worker instance. Each slot may keep one worst-case Jira response tree (~112 MiB at the default response cap), so raising it means raising the worker's `-Xmx`: the worker refuses to start otherwise (see the `JAVA_OPTS` paragraph above). |
 | `INGEST_LEASE_SECONDS` | `300` | A claimed job's lease lifetime; heartbeated at `leaseSeconds/3`. An expired lease is reclaimable by any worker. |
