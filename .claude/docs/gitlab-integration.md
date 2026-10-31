@@ -194,8 +194,8 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
   (`GitLabUserSummary`) INSIDE the response transform, and each `/users/:id/emails` answer is reduced to its address strings inside its own, so the
   page's tree is garbage before the first emails call is parsed.
 - **SYNC order and guards** - the job first re-probes `/personal_access_tokens/self` and `/user`: a token with a scope beyond `read_*` fails
-  the job `TOKEN_SCOPE_TOO_BROAD`, an inactive one `TOKEN_INACTIVE` (`JobRefusedException`), before anything is stored. REPROCESS is an accepted no-op until PR 10; RECONCILE is below;
-  PURGE drains all six raw tables. The streams run PROJECTS -> USERS -> COMMITS -> COMMIT FILES. The job runs under the shared `CallTally` (GitLab's throttling lands under the stored `jira*` progress keys).
+  the job `TOKEN_SCOPE_TOO_BROAD`, an inactive one `TOKEN_INACTIVE` (`JobRefusedException`), before anything is stored. REPROCESS re-flags both raw tables and rebuilds the code layer ("PROCESS / PROFILE"); RECONCILE is below;
+  PURGE drains all six raw tables, then the five `norm.code_*` tables. The streams run PROJECTS -> USERS -> COMMITS -> COMMIT FILES. The job runs under the shared `CallTally` (GitLab's throttling lands under the stored `jira*` progress keys).
 - **COMMITS** (as built, PR 7; `GitLabCommitsStream.kt` + `GitLabCommitsSweep.kt`, cursor `{passStartedAt, lastCompletedProjectId, walk}`) - per live project in id order
   (`moved_out_at`/`deleted_at` null), the commits of the DEFAULT branch into `raw.gitlab_commits` (no hash, a commit is immutable by SHA; the stored
   whitelist is `title`, author name/email, authored/committed time, parent count and `stats`: never the body, the committer or a diff). What a
@@ -345,14 +345,33 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
   Daily cost at scale (~200 projects, 60k in-window commits, 20k merge requests): ~1,000-1,100 calls, 1-2 minutes at 10-20 calls/s, far inside `ingest.maxJobMinutes`. Progress keys:
   `projectsDeleted`, `projectsArchived`, `projectsProbed`, `projectProbesFailed`, `mrReconcileCandidates`, `mrReconcileKept`, `mrReconcileUnconfirmed`, `mrReconcileDeferred`, `mergeRequestsDeleted`,
   `mrStatsRefilled`, `mrGraphqlBreaker`, `mrDetailsRetried`, plus the listings' own (`pages`, `commits`, `commitsRelisted`, `commitsTombstoned`, `commitsSweep*`, `commitsProjectsSkipped`,
-  `mergeRequestsChanged`, `mrSkipped`, `mrGroupsSkipped`, `mrGroupsNotFound`). The two new outbound GETs go through the same guarded client as every call. REPROCESS stays a no-op until PR 10.
-- **PROCESS / PROFILE** — into `norm.code_*` under `CODE_PROCESSING_VERSION`, separate from Jira's `PROCESSING_VERSION`, so
-  neither side reprocesses the other.
+  `mergeRequestsChanged`, `mrSkipped`, `mrGroupsSkipped`, `mrGroupsNotFound`). The two new outbound GETs go through the same guarded client as every call.
+- **PROCESS / PROFILE (as built, PR 10)** — into `norm.code_*` (V44) under `CODE_PROCESSING_VERSION`, separate from Jira's `PROCESSING_VERSION`, so
+  neither side reprocesses the other (a bump claims every raw row again). Local SQL, no GitLab call, deadline-exempt (`GITLAB_LOCAL_STREAMS`).
+  **Job orders:** SYNC ends `code_process` → `code_profile`; RECONCILE ends `code_process` (a tombstone or refilled stat is mirrored in the same job,
+  never PROFILE); REPROCESS re-flags everything then runs both under a plain `StreamContext` (no tally, no token probe). **`code_process`**: (1) the
+  *fingerprints* - one `sync_cursors` row holds `{exclusionsSha256, identityMapSha256, usernameMapSha256}`; a different exclusion list or
+  address map re-flags every COMMIT, a different username map the merge requests too, stored in the same transaction (an absent or undecodable row
+  re-flags all), so an operator's change, a release that changes the defaults and an address or user added later all take effect at the next run
+  with no refetch, and **Reprocess** applies one at once; (2) the *reference rows* are rebuilt wholesale (projects; identities: one USER row per raw
+  user, a ghost USER row per user id the facts name without a users row, one EMAIL row per live author address that matches no user, named by its newest
+  commit); (3) *commits* then *merge requests* in keyset pages of 50, ONE transaction per page, rows read `FOR NO KEY UPDATE`. A failing page is
+  bounded (counted, its rows stay flagged, the pass continues; more than 3 failed pages in a run fails the job) and every failure leaves as stage +
+  raw keys + the cause's class, never a bound value. **Counted lines** (`countLines`): `files_counted` is the stored files no glob matches
+  (**distinct stored paths, not `/diff` entries** - a delete plus a re-add of one path is one stored file, so the stub oracle's `counted.files` can
+  exceed it by those pairs while the lines agree), the additions/deletions of the included files with known lines plus the `too_large` remainder (above);
+  a merge commit, a pending or unavailable diff leaves them null (unknown, never zero); a `files_capped` commit counts its 1,000 stored files and
+  gets no remainder. **Identity:** see "Identity". **Events:** NOTE actions COMMENT / DIFF_COMMENT / APPROVAL / CHANGES_REQUESTED / REVIEW_REQUESTED
+  map to the same-named kind (targets resolved to `u<id>`, unresolved dropped), a legacy APPROVAL row only when no NOTE approval by the same actor
+  exists, a `/reviewers` REVIEWED entry becomes REVIEWED at the entry's `created_at` (when the reviewer was added: approximate), REQUESTED_CHANGES
+  becomes CHANGES_REQUESTED unless a note already says so, everything else is no event; ordered by time (nulls last), kind, actor, raw source;
+  only a READ merge request carries events (`details_state` PENDING / UNREADABLE = none). **PROFILE** stores the `gitlab` section of the data
+  profile (`ingestion.md` "Data profile"). **PURGE** drains the raw tables, then the code layer (events, merge requests, commits in batches; identities
+  and projects outright); the profile column stays. Progress keys: `ingestion.md` "Progress counters".
 
 ## Path exclusions
 
-A per-data-source glob list, `gitlab.pathExclusions` in the settings JSONB, edited on the data source (on the wire since PR 7, **applied only
-from PR 10**: until then it is stored and echoed, nothing reads it). **Wire and storage:** the request's `pathExclusions` is nullable;
+A per-data-source glob list, `gitlab.pathExclusions` in the settings JSONB, edited on the data source (on the wire since PR 7, applied by PROCESS since PR 10). **Wire and storage:** the request's `pathExclusions` is nullable;
 omitted on create stores null = "follow the built-in defaults" (so an untouched source follows a release that changes the list), omitted on
 update keeps the stored value, a list replaces it (an empty list = exclude nothing, not the defaults). The response always carries the
 EFFECTIVE list (`effectivePathExclusions`), and `GET /api/v1/data-sources/kinds` carries `defaultPathExclusions` per kind (GitLab: the 14
@@ -363,7 +382,7 @@ matches the file name at any depth, one with `/` the whole path; `**` crosses `/
 rides `data_source.updated` (host only; the patterns are never logged). Defaults:
 `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `go.sum`, `Cargo.lock`, `Gemfile.lock`, `poetry.lock`, `composer.lock`,
 `*.min.js`, `*.min.css`, `**/vendor/**`, `**/node_modules/**`, `**/dist/**`, `**/generated/**`. Applied at PROCESS, never at
-fetch, so a change is a code-layer REPROCESS without refetching. Each `norm` commit row carries `files_counted`,
+fetch, so a change never refetches: PROCESS compares the list's fingerprint with the stored one and re-flags every commit at the next run (Reprocess applies it at once). Each `norm` commit row carries `files_counted`,
 `additions_counted` and `deletions_counted` beside the raw totals; for a `too_large` file its lines are the commit's `stats`
 minus the RAW lines of its other files (excluded ones included, so a lock file beside it is not credited to it), and the
 file then counts unless it is itself excluded (the stub's `special.tooLarge` pins both figures). A `files_capped` commit gets NO such remainder (its `stats` include
@@ -399,8 +418,8 @@ the stored files (U2). MR line counts (GraphQL totals) are not exclusion-aware.
   `raw.gitlab_commit_files` (cascades with its commit; paths cut to 1,024 characters and 2,000 bytes). The ADMIN status view
   (`GET /api/v1/data-sources/{id}/status`, `counts.gitlab`) carries `commits`, `commitsMerge`, `commitsDeleted` and `commitFilesPending`, and (V43) `mergeRequests`, `mergeRequestsMerged`, `mrEvents`, `mrDetailsPending`, `mrDiffStatsMissing` and (PR 9) `mergeRequestsDeleted` and `mrDetailsUnread` (live merge requests of live projects with a `details_error` stamp) (counts only; the pending figure reuses the stream's backlog predicate).
 - **V43** — `raw.gitlab_merge_requests` (details watermark, tombstone `deleted_at` set by RECONCILE only), `raw.gitlab_mr_events` (NOTE / APPROVAL / REVIEWER).
-- **V44** — `norm.code_projects`, `code_identities`, `code_commits`, `code_merge_requests`, `code_mr_events` (COMMENT /
-  DIFF_COMMENT / APPROVAL / REVIEW_REQUESTED / REVIEWED / CHANGES_REQUESTED).
+- **V44** (landed, PR 10; `persistence.md` "The normalized code layer (V44)") — `norm.code_projects`, `code_identities`, `code_commits`, `code_merge_requests`, `code_mr_events` (COMMENT /
+  DIFF_COMMENT / APPROVAL / REVIEW_REQUESTED / REVIEWED / CHANGES_REQUESTED); `CodeActivityStore` is the facade, FK-free between norm tables, `_counted` null = unknown.
 - **V45** — `public.code_identity_links`.
 
 Each lands with its `MigrationChecksumTest` pin and its `persistence.md` section; new cross-feature reads go on that doc's
@@ -451,6 +470,8 @@ commit files or merge-request details, and it is soft-deleted after the SYNC so 
 that mutates (a second SYNC, the day-2 scenario, a head or budget change) makes its own connection. The sweep's `merge_base(<commit>, <branch>)` answers for the
 force-pushed project's old commits and its divergence commit are in the stub too (`p1-merge-base-candidate-*`). The stub's `RateLimit-*` headers are static (`Remaining: 1990`), so no test run pauses. The day-2-only merge request (project 7) carries id 41060: the generator once left it without an `id`, which the first consumer of the group listing (PR 8's client) rightly refused.
 
+**PR 10 tests.** The fixture's SYNC now ends with PROCESS and PROFILE, so it also carries `norm.code_*` rows, the `code_process` cursor and a stored profile, and its tripwire adds 300 live norm commits, 60 live norm merge requests and no flagged rows. `GitLabProcessStreamTest` pins the code layer against the stub's independent oracle (every commit's counted lines and the identity counts per key; events; the REPROCESS = incremental digest, `GitLabFixtures.codeDigest`; tombstones and refills; the exclusion, address and username fingerprints; poisoned pages; the page lock; progress and heartbeats), `GitLabProfileTest` the profile section (computed and over HTTP), `GitLabPurgeTest` the PURGE drains, `GitLabRawPayloadWhitelistTest` the privacy whitelist of all eleven GitLab tables (exact columns, slim payload keys, no stub description / note body / commit message body / URL stored), `GitLabNormalizerTest` and `CodeNormalizationTest` the pure rules. Every mutating test clones its own connection (`SyncedGitLabFixture.cloneRawData` / `cloneProcessedData`, over `CloneSupport`).
+
 ## PR sequence
 
 | # | PR | Version | Review |
@@ -464,7 +485,7 @@ force-pushed project's old commits and its divergence commit are in the stub too
 | 7 | commits + per-file counting + exclusions (V42) | 1.35.0 | Opus (migration) |
 | 8 | merge requests + details (V43) | 1.36.0 | Opus (migration) |
 | 9 | RECONCILE (landed) | 1.36.1 | Opus |
-| 10 | `norm.code_*` + PURGE + profile (V44) | 1.37.0 | Opus (migration) |
+| 10 | `norm.code_*` + PURGE + profile (V44) (landed) | 1.37.0 | Opus (migration) |
 | 11 | identity mapping (V45, `identities/`) | 1.38.0 | Opus + authorization |
 | 12 | scaled-world performance run (`build-times.md` WHY) + real-instance smoke checklist | — | — |
 
@@ -477,6 +498,13 @@ force-pushed project's old commits and its divergence commit are in the stub too
 - **First backfill:** ~110k calls (commit files + MR details), spread over several runs by the budgets — about 45 min at
   ~40 req/s, longer with instance rate limits on.
 - **Commit ↔ MR linking:** only merge and squash SHAs are stored for now.
+- **Code layer, open points (PR 10):** MR line counts (GraphQL totals) stay exclusion-blind and `generated_file` is stored raw and not applied. `REVIEWED`'s
+  time is the reviewer entry's `created_at` (approximate) - on the PR 12 smoke list. **A reports plan must count approvals as distinct merge requests per
+  person**: an approve / unapprove / approve sequence leaves two NOTE `APPROVAL` events by one actor (kept as history; only the legacy endpoint row is
+  de-duplicated against the notes). **Identity rows come from LIVE commits only**: a tombstoned commit under an address no live commit uses has an `e`
+  key without an identity row. A user added to GitLab re-flags every merge request (the username map is fingerprinted) and any address change every commit:
+  one first-run-sized local pass, deadline-exempt. Ghost USER rows (an id with no users row, e.g. deleted before the first sync) are counted separately
+  (`identities.ghosts`).
 - **First-sync ordering:** `since` with out-of-order dates may stop early (see COMMITS, "RELIST and the `since` caveat"); RECONCILE's `since`-less re-list catches up (the 14-day stop is a residual, below).
 - **RECONCILE smoke list** (PR 12): `GET /projects/:id` answers 404 for a project the token cannot see (a deletion mark is then wrong-but-recoverable: PROJECTS resurrects it); the
   per-merge-request 404 of a project whose merge-request feature is off while the project answers 200 (those ARE tombstoned); `updated_after` at the floor (inclusive or exclusive);
