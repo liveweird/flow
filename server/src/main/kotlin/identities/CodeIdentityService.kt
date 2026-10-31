@@ -3,8 +3,6 @@ package ch.nokillswit.identities
 import ch.nokillswit.authz.ConflictException
 import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.infra.paging.PageRequest
-import ch.nokillswit.infra.paging.SortField
-import ch.nokillswit.ingest.DataSourceListFilter
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.norm.CodeActivityStore
 import ch.nokillswit.norm.NormCodeIdentity
@@ -134,21 +132,10 @@ class CodeIdentityService(
         }
 
     /** The ids of the OTHER active (not deleted, enabled or not) GitLab data sources on [host]: the instance the orphan rule spans. */
-    private suspend fun peerConnections(connectionId: UInt, host: String): List<UInt> {
-        val peers = ArrayList<UInt>()
-        var page = 1
-        while (true) {
-            val batch = dataSources.list(DataSourceListFilter(), PageRequest(page, PEER_PAGE_SIZE, listOf(SortField("id", false)))).items
-            batch.filter { it.id != connectionId && it.gitlab?.let { gitlab -> sourceHostOf(gitlab.baseUrl) } == host }
-                .mapTo(peers) { it.id }
-            if (batch.size < PEER_PAGE_SIZE) return peers
-            page++
-        }
-    }
+    private suspend fun peerConnections(connectionId: UInt, host: String): List<UInt> =
+        dataSources.activeGitLabBaseUrls().filter { (id, baseUrl) -> id != connectionId && sourceHostOf(baseUrl) == host }.keys.toList()
 }
 
-/** The page size [CodeIdentityService.peerConnections] reads the data sources in (the list's own maximum). */
-private const val PEER_PAGE_SIZE = 100
 
 /** The link now stored, the one it replaced (if any) and whether the PUT wrote anything. */
 private data class Written(val stored: IdentityLink, val previous: IdentityLink?, val changed: Boolean)

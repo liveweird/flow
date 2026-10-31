@@ -1,5 +1,6 @@
 package ch.nokillswit.ingest
 
+import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.infra.crypto.EncryptedAtRest
 import ch.nokillswit.infra.crypto.FieldCipher
 import ch.nokillswit.infra.crypto.reencryptRows
@@ -119,6 +120,17 @@ class DataSourceService(
     /** An active data source of any kind, null when there is none. */
     suspend fun read(id: UInt): DataSourceResponse? = suspendTransaction(database) {
         activeConnection(id)?.toDataSourceResponse()
+    }
+
+    /**
+     * The active (not soft-deleted, enabled or not) GitLab data sources' ids and stored base URLs. Only GitLab rows are read, and a
+     * row whose settings do not decode is skipped, as the GitLab scope check skips it: the set `identities/` spans one instance with.
+     */
+    suspend fun activeGitLabBaseUrls(): Map<UInt, String> = suspendTransaction(database) {
+        Connections.selectAll().where { Connections.active() and Connections.isGitLab() }.toList().mapNotNull { row ->
+            catchingFailures({ (row.connectionSettings() as GitLabConnectionSettings).baseUrl }) { null }
+                ?.let { row[Connections.id].value to it }
+        }.toMap()
     }
 
     /** The kind of an active (not soft-deleted) data source, or null when there is none: what the routes branch on for a typed 409. */
