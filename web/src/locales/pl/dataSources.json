@@ -191,7 +191,12 @@
       "commits": "Commity",
       "commitsMerge": "Commity scalające",
       "commitsDeleted": "Commity usunięte",
-      "commitFilesPending": "Commity czekające na szczegóły plików"
+      "commitFilesPending": "Commity czekające na szczegóły plików",
+      "mergeRequests": "Merge requesty",
+      "mergeRequestsMerged": "Scalone merge requesty",
+      "mrEvents": "Zdarzenia MR (notatki, zatwierdzenia, stany recenzentów)",
+      "mrDetailsPending": "Merge requesty czekające na szczegóły",
+      "mrDiffStatsMissing": "Merge requesty bez statystyk rozmiaru"
     },
     "jobsTitle": "Zadania synchronizacji",
     "jobsLoadFailed": "Nie udało się wczytać zadań synchronizacji",
