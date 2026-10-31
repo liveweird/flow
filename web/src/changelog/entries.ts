@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.34.0",
+    date: "2026-10-31",
+    en: `**Data sources: a GitLab instance can be connected.**
+
+- A data source now has a kind: Jira Cloud, or a self-managed GitLab instance (its address, a read-only access token and the groups to read; subgroups are included, archived projects are not).
+- Test connection checks the instance version, the token's owner and scopes (a token that could write is refused) and each group; a sync stores the groups' projects and the instance's users. Commits and merge requests follow in a later version.
+- The data source list and details show each source's kind; the Jira-only pages (data profile, raw issue inspector, metrics configuration) stay with Jira sources.`,
+    pl: `**Źródła danych: można podłączyć instancję GitLab.**
+
+- Źródło danych ma teraz rodzaj: Jira Cloud albo własna instancja GitLab (jej adres, token dostępu tylko do odczytu i grupy do odczytania; podgrupy są uwzględniane, zarchiwizowane projekty nie).
+- Test połączenia sprawdza wersję instancji, właściciela/właścicielkę tokenu i jego zakresy (token, który mógłby zapisywać, jest odrzucany) oraz każdą grupę; synchronizacja zapisuje projekty grup i użytkowników/użytkowniczki instancji. Commity i merge requesty pojawią się w kolejnej wersji.
+- Lista i szczegóły źródeł danych pokazują rodzaj każdego źródła; strony tylko dla Jiry (profil danych, inspektor surowych zgłoszeń, konfiguracja metryk) pozostają przy źródłach Jira.`,
+  },
+  {
     version: "1.33.0",
     date: "2026-10-30",
     en: `**Epic progress: an epic that changed domain is split between its domains.**

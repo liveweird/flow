@@ -1,17 +1,19 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Button, Modal, NumberInput, PasswordInput, Select, Stack, Switch, TagsInput, TextInput } from "@mantine/core";
+import { Button, Modal, NumberInput, Stack, Switch, TextInput } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import type { ParseKeys } from "i18next";
 import { ApiError } from "../api/http";
 import { getMetricsSettings } from "../api/metrics";
 import {
   createDataSource,
+  getDataSourceKinds,
   testDataSourceAdHoc,
   testDataSourceStored,
   updateDataSource,
   type ConnectionTestResult,
+  type DataSourceKind,
   type DataSourceResponse,
 } from "../api/dataSources";
 import {
@@ -20,20 +22,20 @@ import {
   dataSourceSaveErrorMessage,
   EMPTY_DATA_SOURCE_FORM,
   fromDataSourceResponse,
-  MAX_API_TOKEN_LENGTH,
   MAX_DATA_SOURCE_NAME_LENGTH,
-  MAX_PROJECT_KEYS,
   MAX_RECONCILE_HOUR_UTC,
   MAX_SYNC_INTERVAL_MINUTES,
   MIN_RECONCILE_HOUR_UTC,
   MIN_SYNC_INTERVAL_MINUTES,
   testConnectionErrorMessage,
   toDataSourceRequest,
+  toGitLabConnectionRequest,
   toJiraConnectionRequest,
   type DataSourceFormValues,
 } from "../utils/dataSourceForm";
 import { showSuccessToast } from "../utils/toast";
 import ConnectionTestResults from "./ConnectionTestResults";
+import { DataSourceKindPicker, GitLabConnectionFields, JiraConnectionFields } from "./DataSourceKindFields";
 import RegistryEditorActions from "./RegistryEditorActions";
 import FormErrorAlert from "./FormErrorAlert";
 
@@ -42,12 +44,26 @@ const CONFLICT_MESSAGE_KEYS: Record<ReturnType<typeof dataSourceConflictField>, 
   name: "dataSources.saveConflict",
   siteUrl: "dataSources.saveConflictSite",
   projectKeys: "dataSources.saveConflictProjects",
+  baseUrl: "dataSources.saveConflictInstance",
+  groupPaths: "dataSources.saveConflictGroups",
+};
+
+/** The connection fields each kind's Test connection needs (the rest of the form may be incomplete). */
+const PROBE_FIELDS: Record<DataSourceKind, ("siteUrl" | "email" | "apiToken" | "projectKeys" | "baseUrl" | "token" | "groupPaths")[]> = {
+  JIRA_CLOUD: ["siteUrl", "email", "apiToken", "projectKeys"],
+  GITLAB: ["baseUrl", "token", "groupPaths"],
+};
+
+/** The values a kind switch empties: the OTHER kind's connection fields, so nothing typed for one kind lingers under the other. */
+const KIND_RESETS: Record<DataSourceKind, Partial<DataSourceFormValues>> = {
+  JIRA_CLOUD: { baseUrl: "", token: "", groupPaths: [] },
+  GITLAB: { siteUrl: "", email: "", apiToken: "", projectKeys: [], authScheme: "BASIC" },
 };
 
 /**
  * Create (target null) / edit (target set) — a port of Covenant's `ToadieConnectionEditorModal`
- * (the site URL is the connection's identity, so it disables like Toadie's `baseUrl` once a
- * connection exists). Adds the Test-connection button the Toadie modal has no counterpart for:
+ * (the site URL / GitLab base URL is the connection's identity, so it disables like Toadie's `baseUrl`
+ * once a connection exists, and so does the kind). Adds the Test-connection button the Toadie modal has no counterpart for:
  * it probes with the CURRENT form values (an ad-hoc call) unless editing with a blank token
  * field, which probes with the stored, already-saved token instead.
  */
@@ -73,10 +89,23 @@ export default function DataSourceEditorModal({
   const settings = useQuery({ queryKey: ["metrics-settings"], queryFn: getMetricsSettings });
   const horizonFrom = settings.data?.historyHorizonFrom ?? null;
   const backfillContext = { horizonFrom, storedBackfillFrom: target?.backfillFrom };
+  // What this server can create (GitLab needs an operator allow-list): until the read answers, GitLab is not offered.
+  const kinds = useQuery({ queryKey: ["dataSourceKinds"], queryFn: getDataSourceKinds });
+  const gitlabInfo = kinds.data?.items.find((item) => item.kind === "GITLAB");
+  const gitlabEnabled = gitlabInfo?.enabled === true;
+  const allowedOrigins = gitlabInfo?.allowedOrigins ?? [];
   const form = useForm<DataSourceFormValues>({
     initialValues: target ? fromDataSourceResponse(target) : EMPTY_DATA_SOURCE_FORM,
-    validate: dataSourceFormValidation(t, isEdit, backfillContext),
+    validate: dataSourceFormValidation(t, isEdit, backfillContext, allowedOrigins),
   });
+  const kind = form.values.kind;
+
+  function selectKind(next: DataSourceKind) {
+    form.setValues({ kind: next, ...KIND_RESETS[next] });
+    form.clearErrors();
+    setTestError(null);
+    setTestResult(null);
+  }
 
   async function save(values: DataSourceFormValues) {
     setError(null);
@@ -103,30 +132,35 @@ export default function DataSourceEditorModal({
     }
   }
 
-  /** Validates only the Jira connection fields the probe needs — the rest of the form may be incomplete. */
-  function jiraFieldsValid(): boolean {
-    const rules = dataSourceFormValidation(t, isEdit, backfillContext);
-    const errors = {
-      siteUrl: rules.siteUrl(form.values.siteUrl),
-      email: rules.email(form.values.email),
-      apiToken: rules.apiToken(form.values.apiToken),
-      projectKeys: rules.projectKeys(form.values.projectKeys),
-    };
-    for (const [field, message] of Object.entries(errors)) {
+  /** Validates only the active kind's connection fields the probe needs — the rest of the form may be incomplete. */
+  function connectionFieldsValid(): boolean {
+    const rules = dataSourceFormValidation(t, isEdit, backfillContext, allowedOrigins);
+    const values = form.values;
+    const messages = PROBE_FIELDS[kind].map((field) => {
+      // The rule's value type differs per field (string / string[]), so the lookup is by name over the whole values.
+      const rule = rules[field] as (value: unknown, all: DataSourceFormValues) => string | null;
+      const message = rule(values[field], values);
       form.setFieldError(field, message ?? undefined);
-    }
-    return Object.values(errors).every((message) => !message);
+      return message;
+    });
+    return messages.every((message) => !message);
   }
 
   async function runTest() {
     setTestError(null);
-    if (!jiraFieldsValid()) return;
+    if (!connectionFieldsValid()) return;
     setTesting(true);
     setTestResult(null);
     try {
-      const result = target && form.values.apiToken.trim() === ""
+      // Editing with the secret left blank probes the STORED connection (and its decrypted token), either kind.
+      const secretBlank = (kind === "GITLAB" ? form.values.token : form.values.apiToken).trim() === "";
+      const result = target && secretBlank
         ? await testDataSourceStored(target.id)
-        : await testDataSourceAdHoc({ jira: toJiraConnectionRequest(form.values) });
+        : await testDataSourceAdHoc(
+            kind === "GITLAB"
+              ? { gitlab: toGitLabConnectionRequest(form.values) }
+              : { jira: toJiraConnectionRequest(form.values) },
+          );
       setTestResult(result);
     } catch (err) {
       setTestError(testConnectionErrorMessage(err, t));
@@ -152,28 +186,19 @@ export default function DataSourceEditorModal({
             data-autofocus
             {...form.getInputProps("name")}
           />
-          <TextInput
-            label={t("dataSources.field.siteUrl")}
-            description={t("dataSources.field.siteUrlHint")}
-            placeholder="https://your-tenant.atlassian.net"
+          <DataSourceKindPicker
+            value={kind}
+            onChange={selectKind}
             disabled={isEdit}
-            {...form.getInputProps("siteUrl")}
+            gitlabEnabled={gitlabEnabled}
+            kindsKnown={kinds.isSuccess}
+            kindsFailed={kinds.isError}
           />
-          <TextInput label={t("dataSources.field.email")} {...form.getInputProps("email")} />
-          <PasswordInput
-            label={t("dataSources.field.apiToken")}
-            description={isEdit ? t("dataSources.field.apiTokenKeep") : undefined}
-            maxLength={MAX_API_TOKEN_LENGTH}
-            autoComplete="new-password"
-            {...form.getInputProps("apiToken")}
-          />
-          <TagsInput
-            label={t("dataSources.field.projectKeys")}
-            description={t("dataSources.field.projectKeysHint")}
-            maxTags={MAX_PROJECT_KEYS}
-            {...form.getInputProps("projectKeys")}
-            onChange={(values) => form.setFieldValue("projectKeys", values.map((value) => value.toUpperCase()))}
-          />
+          {kind === "GITLAB" ? (
+            <GitLabConnectionFields form={form} isEdit={isEdit} allowedOrigins={allowedOrigins} />
+          ) : (
+            <JiraConnectionFields form={form} isEdit={isEdit} />
+          )}
           <TextInput
             label={t("dataSources.field.backfillFrom")}
             description={
@@ -197,15 +222,6 @@ export default function DataSourceEditorModal({
             max={MAX_RECONCILE_HOUR_UTC}
             allowDecimal={false}
             {...form.getInputProps("reconcileHourUtc")}
-          />
-          <Select
-            label={t("dataSources.field.authScheme")}
-            data={[
-              { value: "BASIC", label: t("dataSources.authScheme.BASIC") },
-              { value: "BEARER", label: t("dataSources.authScheme.BEARER") },
-            ]}
-            allowDeselect={false}
-            {...form.getInputProps("authScheme")}
           />
           <Switch label={t("dataSources.field.enabled")} {...form.getInputProps("enabled", { type: "checkbox" })} />
 

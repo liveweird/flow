@@ -4,6 +4,10 @@ import { ApiError } from "../api/http";
 import type { DataSourceResponse } from "../api/dataSources";
 import {
   backfillFloorIso,
+  dataSourceHost,
+  dataSourceScope,
+  normalizeGroupPaths,
+  toGitLabConnectionRequest,
   DATA_SOURCE_PROBLEM_TYPES,
   dataSourceConflictField,
   dataSourceFormValidation,
@@ -30,9 +34,34 @@ const VALID: DataSourceFormValues = {
   projectKeys: ["ENG"],
 };
 
+const GITLAB: DataSourceFormValues = {
+  ...EMPTY_DATA_SOURCE_FORM,
+  kind: "GITLAB",
+  name: "Acme GitLab",
+  baseUrl: "https://gitlab.acme.com",
+  token: "glpat-token",
+  groupPaths: ["platform", "apps/web"],
+};
+
+type Rules = ReturnType<typeof dataSourceFormValidation>;
+
+/** The kind-gated rules take the whole form (Mantine passes it); the Jira/GitLab fields are bound to one fixed `values` here. */
+function bound(rules: Rules, values: DataSourceFormValues) {
+  return {
+    ...rules,
+    siteUrl: (v: string) => rules.siteUrl(v, values),
+    email: (v: string) => rules.email(v, values),
+    apiToken: (v: string) => rules.apiToken(v, values),
+    projectKeys: (v: string[]) => rules.projectKeys(v, values),
+    baseUrl: (v: string) => rules.baseUrl(v, values),
+    token: (v: string) => rules.token(v, values),
+    groupPaths: (v: string[]) => rules.groupPaths(v, values),
+  };
+}
+
 describe("dataSourceFormValidation", () => {
-  const rulesCreate = dataSourceFormValidation(t, false);
-  const rulesEdit = dataSourceFormValidation(t, true);
+  const rulesCreate = bound(dataSourceFormValidation(t, false), VALID);
+  const rulesEdit = bound(dataSourceFormValidation(t, true), VALID);
 
   test("name: rejects blank/too-long, accepts a normal value", () => {
     expect(rulesCreate.name("")).toBe("Name must be 1–100 characters");
@@ -241,6 +270,10 @@ describe("fromDataSourceResponse", () => {
       updatedAt: 2,
     };
     expect(fromDataSourceResponse(response)).toEqual({
+      kind: "JIRA_CLOUD",
+      baseUrl: "",
+      token: "",
+      groupPaths: [],
       name: "Acme Jira",
       enabled: true,
       syncIntervalMinutes: 60,
@@ -252,6 +285,160 @@ describe("fromDataSourceResponse", () => {
       projectKeys: ["ENG", "OPS"],
       authScheme: "BEARER",
     });
+  });
+});
+
+describe("the GitLab kind", () => {
+  const ORIGINS = ["https://gitlab.acme.com", "https://gitlab.other.org:8443"];
+  const create = bound(dataSourceFormValidation(t, false, {}, ORIGINS), GITLAB);
+  const edit = bound(dataSourceFormValidation(t, true, {}, ORIGINS), GITLAB);
+
+  test("the Jira rules bind only a Jira form and the GitLab rules only a GitLab form", () => {
+    const rules = dataSourceFormValidation(t, false, {}, ORIGINS);
+    expect(rules.siteUrl("not a url", GITLAB)).toBeNull();
+    expect(rules.email("nope", GITLAB)).toBeNull();
+    expect(rules.apiToken("", GITLAB)).toBeNull();
+    expect(rules.projectKeys([], GITLAB)).toBeNull();
+    expect(rules.siteUrl("not a url", VALID)).not.toBeNull();
+    expect(rules.baseUrl("ftp://nope", VALID)).toBeNull();
+    expect(rules.token("", VALID)).toBeNull();
+    expect(rules.groupPaths([], VALID)).toBeNull();
+  });
+
+  test("baseUrl: an origin only - http(s), a host, an optional port, one trailing slash tolerated", () => {
+    const msg = "Base URL must be an origin such as https://gitlab.example.com (no path)";
+    expect(create.baseUrl("https://gitlab.acme.com")).toBeNull();
+    expect(create.baseUrl("  https://gitlab.acme.com/ ")).toBeNull();
+    expect(create.baseUrl("HTTPS://GITLAB.ACME.COM")).toBeNull();
+    expect(create.baseUrl("https://gitlab.acme.com/group")).toBe(msg);
+    expect(create.baseUrl("https://gitlab.acme.com//")).toBe(msg);
+    expect(create.baseUrl("ftp://gitlab.acme.com")).toBe(msg);
+    expect(create.baseUrl("gitlab.acme.com")).toBe(msg);
+    expect(create.baseUrl("https://user@gitlab.acme.com")).toBe(msg);
+    expect(create.baseUrl("")).toBe(msg);
+    expect(create.baseUrl(`https://${"a".repeat(300)}.com`)).toBe(msg);
+    // The pattern passes these; the URL parser does not, and the rule answers instead of throwing.
+    expect(create.baseUrl("https://gitlab.acme.com:99999")).toBe(msg);
+    expect(create.baseUrl("https://999.1.1.1")).toBe(msg);
+  });
+
+  test("baseUrl: must be on the allow-list when the server named one, with the origins in the message", () => {
+    expect(create.baseUrl("https://gitlab.other.org:8443")).toBeNull();
+    expect(create.baseUrl("https://gitlab.acme.com:443")).toBeNull();
+    expect(create.baseUrl("https://evil.example.com")).toBe(
+      "This instance is not on the server's allow-list. Allowed: https://gitlab.acme.com, https://gitlab.other.org:8443",
+    );
+    expect(bound(dataSourceFormValidation(t, false), GITLAB).baseUrl("https://anything.example.com")).toBeNull();
+  });
+
+  test("token: required on create, blank keeps the current one on edit, capped at 1000", () => {
+    expect(create.token("")).toBe("An access token is required");
+    expect(create.token("   ")).toBe("An access token is required");
+    expect(edit.token("")).toBeNull();
+    expect(create.token("a".repeat(MAX_API_TOKEN_LENGTH + 1))).toBe("Access token must be at most 1000 characters");
+    expect(create.token("glpat-secret")).toBeNull();
+  });
+
+  test("groupPaths: 1-10 normalised paths", () => {
+    expect(create.groupPaths([])).toBe("Enter 1–10 group paths");
+    expect(create.groupPaths(Array.from({ length: 11 }, (_, i) => `g${i}`))).toBe("Enter 1–10 group paths");
+    expect(create.groupPaths(Array.from({ length: 10 }, (_, i) => `g${i}`))).toBeNull();
+    // Normalisation first: duplicates collapse before the count, slashes and case are folded.
+    expect(create.groupPaths(["Platform", "/platform/", " PLATFORM "])).toBeNull();
+    expect(create.groupPaths(["/", "  "])).toBe("Invalid group path:  (lowercase letters, digits, _ . - and / between subgroups)");
+  });
+
+  test("groupPaths: each segment must match the server pattern", () => {
+    const bad = (path: string) => `Invalid group path: ${path} (lowercase letters, digits, _ . - and / between subgroups)`;
+    expect(create.groupPaths(["platform/tooling", "a_b.c-d"])).toBeNull();
+    expect(create.groupPaths(["-bad"])).toBe(bad("-bad"));
+    expect(create.groupPaths([".hidden"])).toBe(bad(".hidden"));
+    expect(create.groupPaths(["a b"])).toBe(bad("a b"));
+    expect(create.groupPaths(["a//b"])).toBe(bad("a//b"));
+    expect(create.groupPaths(["a/é"])).toBe(bad("a/é"));
+    expect(create.groupPaths(["a".repeat(256)])).toBe(bad("a".repeat(256)));
+  });
+
+  test("groupPaths: a path nested inside another is refused, a name sharing a prefix is not", () => {
+    expect(create.groupPaths(["platform", "platform/tooling"])).toBe(
+      "Group path platform/tooling is inside another listed group — subgroups are included automatically",
+    );
+    expect(create.groupPaths(["platform/tooling", "platform"])).toBe(
+      "Group path platform/tooling is inside another listed group — subgroups are included automatically",
+    );
+    expect(create.groupPaths(["platform", "platformx", "platform-two"])).toBeNull();
+  });
+
+  test("normalizeGroupPaths trims, strips slashes, lowercases and de-duplicates in order", () => {
+    expect(normalizeGroupPaths([" /Platform/ ", "apps/Web", "PLATFORM"])).toEqual(["platform", "apps/web"]);
+  });
+
+  test("toGitLabConnectionRequest trims, drops the trailing slash and a blank token, normalises paths", () => {
+    expect(
+      toGitLabConnectionRequest({ ...GITLAB, baseUrl: " https://gitlab.acme.com/ ", token: "  ", groupPaths: ["/Platform/", "apps/web", "platform"] }),
+    ).toEqual({ baseUrl: "https://gitlab.acme.com", token: undefined, groupPaths: ["platform", "apps/web"] });
+    expect(toGitLabConnectionRequest({ ...GITLAB, token: " glpat-x " }).token).toBe("glpat-x");
+  });
+
+  test("toDataSourceRequest emits exactly one connection block, by kind", () => {
+    const gitlab = toDataSourceRequest(GITLAB);
+    expect(gitlab.gitlab).toEqual({ baseUrl: "https://gitlab.acme.com", token: "glpat-token", groupPaths: ["platform", "apps/web"] });
+    expect(gitlab).not.toHaveProperty("jira");
+    expect(gitlab.name).toBe("Acme GitLab");
+    const jira = toDataSourceRequest(VALID);
+    expect(jira.jira?.siteUrl).toBe("https://acme.atlassian.net");
+    expect(jira).not.toHaveProperty("gitlab");
+  });
+
+  const STORED_GITLAB: DataSourceResponse = {
+    id: 5,
+    kind: "GITLAB",
+    name: "Acme GitLab",
+    enabled: false,
+    syncIntervalMinutes: 30,
+    backfillFrom: "2024-02-01",
+    reconcileHourUtc: 4,
+    configRevision: 1,
+    jira: null,
+    gitlab: { baseUrl: "https://gitlab.acme.com", hasToken: true, groupPaths: ["platform", "apps/web"] },
+    status: {
+      state: "NEVER_SYNCED",
+      consecutiveFailures: 0,
+      limitTrips: 0,
+      reconcileLimitTrips: 0,
+    },
+    createdAt: 1,
+    updatedAt: 2,
+  };
+
+  test("fromDataSourceResponse fills the GitLab fields, leaves the Jira ones empty and the token blank (write-only)", () => {
+    expect(fromDataSourceResponse(STORED_GITLAB)).toEqual({
+      kind: "GITLAB",
+      name: "Acme GitLab",
+      enabled: false,
+      syncIntervalMinutes: 30,
+      backfillFrom: "2024-02-01",
+      reconcileHourUtc: 4,
+      siteUrl: "",
+      email: "",
+      apiToken: "",
+      projectKeys: [],
+      authScheme: "BASIC",
+      baseUrl: "https://gitlab.acme.com",
+      token: "",
+      groupPaths: ["platform", "apps/web"],
+    });
+  });
+
+  test("dataSourceHost and dataSourceScope read the kind's own block", () => {
+    expect(dataSourceHost(STORED_GITLAB)).toBe("gitlab.acme.com");
+    expect(dataSourceScope(STORED_GITLAB)).toEqual(["platform", "apps/web"]);
+    const jira = { ...STORED_GITLAB, kind: "JIRA_CLOUD", gitlab: null, jira: { siteUrl: "https://acme.atlassian.net", email: "a@b.c", hasApiToken: true, projectKeys: ["ENG"], authScheme: "BASIC" } } as DataSourceResponse;
+    expect(dataSourceHost(jira)).toBe("acme.atlassian.net");
+    expect(dataSourceScope(jira)).toEqual(["ENG"]);
+    const neither = { ...STORED_GITLAB, gitlab: null, jira: null } as DataSourceResponse;
+    expect(dataSourceHost(neither)).toBe("");
+    expect(dataSourceScope(neither)).toEqual([]);
   });
 });
 
@@ -287,6 +474,8 @@ describe("dataSourceConflictField", () => {
   test("the problem type picks the field; anything else is the name clash", () => {
     expect(dataSourceConflictField(new ApiError(409, { type: DATA_SOURCE_PROBLEM_TYPES.otherSite }))).toBe("siteUrl");
     expect(dataSourceConflictField(new ApiError(409, { type: DATA_SOURCE_PROBLEM_TYPES.projectOverlap }))).toBe("projectKeys");
+    expect(dataSourceConflictField(new ApiError(409, { type: DATA_SOURCE_PROBLEM_TYPES.otherInstance }))).toBe("baseUrl");
+    expect(dataSourceConflictField(new ApiError(409, { type: DATA_SOURCE_PROBLEM_TYPES.groupOverlap }))).toBe("groupPaths");
     expect(dataSourceConflictField(new ApiError(409, { type: "about:blank" }))).toBe("name");
     expect(dataSourceConflictField(new ApiError(409, null))).toBe("name");
   });

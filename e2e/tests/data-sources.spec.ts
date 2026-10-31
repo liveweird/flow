@@ -2,9 +2,11 @@
 // reroutes every Jira call to the jira-stub service via JIRA_STUB_BASE_URL, so no real Jira
 // tenant is ever touched), test-connects it, syncs it end to end, and reads back what landed —
 // the sync-jobs history, the raw-store counts, the data profile and the raw issue inspector.
-// A regular user sees no trace of the surface at all. Owns: its throwaway data source (unique
-// `e2e-jira-*` name) — deleted at the end of its test (and by the afterEach below when a step fails first) — and, in the second test, a throwaway
-// user. The synced connection's raw/normalized rows are NOT purged by the delete (see
+// The 1.34.0 GitLab kind does the same against the gitlab-stub service (GITLAB_STUB_BASE_URL; the
+// only accepted base URL is the stub's own origin, http://gitlab-stub:8080) and reads back its
+// projects and users. A regular user sees no trace of the surface at all. Owns: its throwaway data
+// sources (unique `e2e-jira-*` / `e2e-gitlab-*` names) — deleted at the end of their test (and by
+// the afterEach below when a step fails first) — and, in the last test, a throwaway user. The synced connection's raw/normalized rows are NOT purged by the delete (see
 // scenarios/data-sources.md "Not covered here").
 import { createUserViaUi, deleteUserRow, deleteViaApi, expect, login, openFilters, REPORTS_EXCLUSIVE_LOCKS, rowOperation, signOut, test, uniqueText } from "./helpers";
 
@@ -112,6 +114,88 @@ test("admin connects the Jira stub, syncs it, and inspects the result", async ({
   await expect(page.getByText("Enter a valid issue key (e.g. ENG-123) or numeric id")).toBeVisible();
   await expect(keyInput).toBeEditable();
   await expect(page.getByRole("button", { name: "Look up" })).toBeEnabled();
+
+  // Delete from the list's row menu.
+  await page.goto("/data-sources");
+  await openFilters(page);
+  await page.getByLabel("Name", { exact: true }).fill(name);
+  await rowOperation(page, name, `Delete ${name}`);
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "DELETE" && /\/api\/v1\/data-sources\/\d+$/.test(r.url()) && r.ok()),
+    page.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click(),
+  ]);
+  await expect(page.getByRole("link", { name: `Open ${name}` })).toHaveCount(0);
+});
+
+test("admin connects the GitLab stub, syncs it, and reads back its projects and users", async ({ page }) => {
+  test.setTimeout(300_000);
+  await login(page);
+  const name = uniqueText("e2e-gitlab");
+
+  // Create through the modal: pick the GitLab kind, then test the connection against the GitLab stub first.
+  await page.goto("/data-sources");
+  await page.getByRole("button", { name: "New data source" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Name").fill(name);
+  await dialog.getByRole("radiogroup", { name: "Kind" }).getByText("GitLab", { exact: true }).click();
+  // The compose stack's GITLAB_STUB_BASE_URL makes the stub's exact origin the only accepted base URL.
+  await dialog.getByLabel("Base URL").fill("http://gitlab-stub:8080");
+  await dialog.getByLabel("Access token").fill("e2e-fake-token");
+  const groupPaths = dialog.getByRole("combobox", { name: "Group paths" });
+  for (const path of ["platform", "apps"]) {
+    await groupPaths.click();
+    await groupPaths.pressSequentially(path);
+    await groupPaths.press("Enter");
+  }
+
+  await dialog.getByRole("button", { name: "Test connection" }).click();
+  // Every REQUIRED probe row (version, user, token scopes, each group and its projects, users) is OK against the stub
+  // (the server's GitLabConnectorTest pins it); the optional user_admin / user_emails rows may vary. A GitLab result has no Cloud ID.
+  const requiredRows = dialog.locator("table tbody tr", { hasText: "Required" });
+  await expect(requiredRows.first()).toBeVisible({ timeout: 35_000 });
+  const requiredCount = await requiredRows.count();
+  for (let i = 0; i < requiredCount; i++) {
+    await expect(requiredRows.nth(i)).toContainText("OK");
+  }
+  await expect(dialog.getByText(/Cloud ID/)).toHaveCount(0);
+
+  const [createResponse] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith("/api/v1/data-sources") && r.request().method() === "POST" && r.ok()),
+    dialog.getByRole("button", { name: "Create", exact: true }).click(),
+  ]);
+  teardown.push(`/api/v1/data-sources/${(await createResponse.json()).id as number}`);
+  await expect(dialog).toHaveCount(0);
+
+  // Filter the list down to the new row and open its details page.
+  await openFilters(page);
+  await page.getByLabel("Name", { exact: true }).fill(name);
+  const openLink = page.getByRole("link", { name: `Open ${name}` });
+  await expect(openLink).toBeVisible();
+  await openLink.click();
+  await expect(page).toHaveURL(/\/data-sources\/\d+$/);
+  await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+
+  // The connection table names the kind and the groups; the Jira-only pages and actions are not offered for GitLab.
+  const connection = page.getByRole("table", { name: "Connection", exact: true });
+  await expect(connection).toContainText("GitLab");
+  await expect(connection).toContainText("platform, apps");
+  for (const link of ["Data profile", "Raw issue inspector", "Metrics configuration"]) {
+    await expect(page.getByRole("link", { name: link })).toHaveCount(0);
+  }
+  await expect(page.getByRole("button", { name: "Reprocess" })).toHaveCount(0);
+
+  // Sync now, then poll (reloading each attempt) until the SYNC job succeeded and the counts show the stub's in-scope world:
+  // 4 projects (sample-data/gitlab/expected.json `projects.inScopeIds`) and 8 users (`users.list`). Scope the job row to the "Sync"
+  // kind so a co-occurring Reconcile row's own "Succeeded" is never what we matched.
+  await page.getByRole("button", { name: "Sync now" }).click();
+  const syncJobRow = page.getByRole("row").filter({ hasText: "Sync" }).filter({ hasText: "Succeeded" });
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+    await expect(syncJobRow.first()).toBeVisible();
+    await expect(page.getByRole("row", { name: /^Projects \d+$/ })).toContainText("4");
+    await expect(page.getByRole("row", { name: /^Users \d+$/ })).toContainText("8");
+  }).toPass({ timeout: 280_000, intervals: [10_000] });
 
   // Delete from the list's row menu.
   await page.goto("/data-sources");
