@@ -81,6 +81,7 @@
   "field": {
     "kind": "Kind",
     "kindDisabledHint": "GitLab is not enabled on this server (GITLAB_ALLOWED_HOSTS)",
+    "kindUnknownHint": "Could not check which kinds this server offers; GitLab stays off until the page is reloaded",
     "siteUrl": "Site URL",
     "siteUrlHint": "https://<tenant>.atlassian.net — fixed once the connection is created.",
     "email": "Service-account email",

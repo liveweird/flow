@@ -81,6 +81,7 @@
   "field": {
     "kind": "Rodzaj",
     "kindDisabledHint": "GitLab nie jest włączony na tym serwerze (GITLAB_ALLOWED_HOSTS)",
+    "kindUnknownHint": "Nie udało się sprawdzić, jakie rodzaje oferuje ten serwer; GitLab pozostaje wyłączony do ponownego załadowania strony",
     "siteUrl": "Adres URL witryny",
     "siteUrlHint": "https://<tenant>.atlassian.net — ustalony przy tworzeniu połączenia.",
     "email": "E-mail konta serwisowego",
@@ -89,8 +90,8 @@
     "projectKeys": "Klucze projektów",
     "projectKeysHint": "Klucze projektów Jira, wielkimi literami (np. ENG, OPS) — dodany projekt zostanie pobrany przy następnej synchronizacji; zadania usuniętego projektu zostaną ukryte.",
     "baseUrl": "Adres instancji",
-    "baseUrlHint": "Adres (origin) instancji (https://gitlab.example.com) — ustalony przy tworzeniu. Dozwolone: {{origins}}",
-    "baseUrlHintOpen": "Adres (origin) instancji (https://gitlab.example.com) — ustalony przy tworzeniu.",
+    "baseUrlHint": "Adres źródłowy instancji (https://gitlab.example.com) — ustalony przy tworzeniu. Dozwolone: {{origins}}",
+    "baseUrlHintOpen": "Adres źródłowy instancji (https://gitlab.example.com) — ustalony przy tworzeniu.",
     "token": "Token dostępu",
     "tokenHint": "Osobisty token dostępu wyłącznie z zakresem read_api — token, który mógłby zapisywać, jest odrzucany.",
     "tokenKeep": "Zostaw puste, aby zachować obecny token",

@@ -143,7 +143,17 @@ export function fromDataSourceResponse(dataSource: DataSourceResponse): DataSour
 
 /** The host a data source lives on (the list's Site column): the Jira site or the GitLab instance. */
 export function dataSourceHost(dataSource: DataSourceResponse): string {
-  return new URL(dataSource.jira?.siteUrl ?? dataSource.gitlab?.baseUrl ?? "").host;
+  const url = dataSource.jira?.siteUrl ?? dataSource.gitlab?.baseUrl;
+  return url ? (parsedUrl(url)?.host ?? url) : "";
+}
+
+/** `new URL` without the throw: a malformed or out-of-range value (`:99999`, `999.1.1.1`) is `null`, never a render crash. */
+function parsedUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
 }
 
 /** What a data source reads: the Jira project keys or the GitLab group paths. */
@@ -183,8 +193,11 @@ function gitlabBaseUrlRule(t: TFunction, allowedOrigins: string[]) {
   return (value: string) => {
     const v = trimmedBaseUrl(value);
     if (v.length > MAX_GITLAB_BASE_URL_LENGTH || !GITLAB_BASE_URL_PATTERN.test(v)) return t("dataSources.validation.baseUrlInvalid");
-    // `URL.origin` lowercases the host and drops a default port, the canonical form the server compares.
-    const origin = new URL(v).origin.toLowerCase();
+    // `URL.origin` lowercases the host and drops a default port, the canonical form the server compares; a port or octet
+    // out of range passes the pattern but not the parser.
+    const parsed = parsedUrl(v);
+    if (parsed === null) return t("dataSources.validation.baseUrlInvalid");
+    const origin = parsed.origin.toLowerCase();
     const allowed = allowedOrigins.map((entry) => entry.toLowerCase());
     return allowed.length === 0 || allowed.includes(origin)
       ? null

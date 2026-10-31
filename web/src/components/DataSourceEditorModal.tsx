@@ -192,6 +192,7 @@ export default function DataSourceEditorModal({
             disabled={isEdit}
             gitlabEnabled={gitlabEnabled}
             kindsKnown={kinds.isSuccess}
+            kindsFailed={kinds.isError}
           />
           {kind === "GITLAB" ? (
             <GitLabConnectionFields form={form} isEdit={isEdit} allowedOrigins={allowedOrigins} />

@@ -364,5 +364,32 @@ describe("DataSourceEditorModal", () => {
       await vi.waitFor(() => expect(calls.some((call) => call.url.endsWith("/api/v1/data-sources/9/test"))).toBe(true));
       expect(calls.find((call) => call.url.endsWith("/data-sources/9/test"))?.body).toBeUndefined();
     });
+
+    test("saving an edited GitLab source with a blank token PUTs the gitlab block without a token and no jira key", async () => {
+      const calls = serve();
+      const user = userEvent.setup();
+      const onSaved = vi.fn().mockResolvedValue(undefined);
+      renderWithProviders(<DataSourceEditorModal target={STORED_GITLAB} onClose={vi.fn()} onSaved={onSaved} />);
+      const modal = screen.getByRole("dialog");
+
+      await user.click(within(modal).getByRole("button", { name: /^save$/i }));
+
+      await vi.waitFor(() => expect(onSaved).toHaveBeenCalled());
+      const put = calls.find((call) => call.method === "PUT");
+      expect(put?.body).not.toHaveProperty("jira");
+      expect(put?.body).toHaveProperty("gitlab.baseUrl", "http://gitlab-stub:8080");
+      expect(put?.body).not.toHaveProperty("gitlab.token");
+    });
+
+    test("a failed kinds read keeps GitLab off and says the server could not be asked", async () => {
+      mockFetch.mockImplementation((url: string) =>
+        Promise.resolve(url.includes("/api/v1/data-sources/kinds") ? jsonResponse(500, {}) : jsonResponse(200, { historyHorizonFrom: null })),
+      );
+      renderWithProviders(<DataSourceEditorModal target={null} onClose={vi.fn()} onSaved={vi.fn()} />);
+      const modal = screen.getByRole("dialog");
+
+      expect(await within(modal).findByText(/Could not check which kinds this server offers/)).toBeInTheDocument();
+      expect(within(modal).getByRole("radio", { name: "GitLab" })).toBeDisabled();
+    });
   });
 });

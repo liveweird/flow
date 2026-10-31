@@ -11,7 +11,7 @@ const KINDS: DataSourceKind[] = ["JIRA_CLOUD", "GITLAB"];
 /**
  * The kind picker: chosen at create, then fixed (the server answers a changed kind with 409). A kind this server cannot offer
  * (GitLab without an operator allow-list, or while the `/kinds` read is pending or failed) is disabled, with the reason under
- * the control once the read has answered.
+ * the control once the read has answered, or a "could not check" note when it failed.
  */
 export function DataSourceKindPicker({
   value,
@@ -19,19 +19,24 @@ export function DataSourceKindPicker({
   disabled,
   gitlabEnabled,
   kindsKnown,
+  kindsFailed,
 }: {
   value: DataSourceKind;
   onChange: (kind: DataSourceKind) => void;
   disabled: boolean;
   gitlabEnabled: boolean;
   kindsKnown: boolean;
+  kindsFailed: boolean;
 }) {
   const { t } = useTranslation();
+  let hint: string | undefined;
+  if (kindsFailed) hint = t("dataSources.field.kindUnknownHint");
+  else if (kindsKnown && !gitlabEnabled) hint = t("dataSources.field.kindDisabledHint");
   return (
     <Input.Wrapper
       labelElement="div"
       label={t("dataSources.field.kind")}
-      description={kindsKnown && !gitlabEnabled ? t("dataSources.field.kindDisabledHint") : undefined}
+      description={hint}
     >
       <SegmentedControl
         fullWidth

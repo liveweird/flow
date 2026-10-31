@@ -128,6 +128,11 @@ services:
       # the base URL a data source types) the only one accepted. No depends_on on gitlab-stub, and the same `-` default: an explicitly
       # EMPTY `GITLAB_STUB_BASE_URL=` turns the reroute (and, with no allowed hosts, the GitLab kind) off.
       GITLAB_STUB_BASE_URL: ${GITLAB_STUB_BASE_URL-http://gitlab-stub:8080}
+      # A real self-managed instance: its exact host[:port] (comma-separated) and, for a private address, the CIDRs it resolves into
+      # (`gitlab.allowedHosts`/`allowedCidrs`, `.claude/docs/gitlab-integration.md`). Empty by default; the stub above stays allowed.
+      # An internal CA (`GITLAB_CA_BUNDLE`) is a file path, so it needs a volume mount of its own.
+      GITLAB_ALLOWED_HOSTS: ${GITLAB_ALLOWED_HOSTS:-}
+      GITLAB_ALLOWED_CIDRS: ${GITLAB_ALLOWED_CIDRS:-}
       # How long a configuration change waits for further changes before its DERIVE starts (V27, the
       # debounce); the e2e workflow lowers it so the suite never waits out the 45 s default per edit.
       INGEST_DERIVE_QUIET_SECONDS: ${INGEST_DERIVE_QUIET_SECONDS:-45}

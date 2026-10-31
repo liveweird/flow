@@ -317,6 +317,9 @@ describe("the GitLab kind", () => {
     expect(create.baseUrl("https://user@gitlab.acme.com")).toBe(msg);
     expect(create.baseUrl("")).toBe(msg);
     expect(create.baseUrl(`https://${"a".repeat(300)}.com`)).toBe(msg);
+    // The pattern passes these; the URL parser does not, and the rule answers instead of throwing.
+    expect(create.baseUrl("https://gitlab.acme.com:99999")).toBe(msg);
+    expect(create.baseUrl("https://999.1.1.1")).toBe(msg);
   });
 
   test("baseUrl: must be on the allow-list when the server named one, with the origins in the message", () => {
@@ -433,6 +436,9 @@ describe("the GitLab kind", () => {
     const jira = { ...STORED_GITLAB, kind: "JIRA_CLOUD", gitlab: null, jira: { siteUrl: "https://acme.atlassian.net", email: "a@b.c", hasApiToken: true, projectKeys: ["ENG"], authScheme: "BASIC" } } as DataSourceResponse;
     expect(dataSourceHost(jira)).toBe("acme.atlassian.net");
     expect(dataSourceScope(jira)).toEqual(["ENG"]);
+    const neither = { ...STORED_GITLAB, gitlab: null, jira: null } as DataSourceResponse;
+    expect(dataSourceHost(neither)).toBe("");
+    expect(dataSourceScope(neither)).toEqual([]);
   });
 });
 
