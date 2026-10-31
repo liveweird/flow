@@ -319,25 +319,27 @@ class GitLabMrStreamsTest {
     }
 
     @Test
-    fun `a GraphQL outage leaves every diff stat a gap and the run succeeds, and the gaps are not asked again`() = runBlocking<Unit> {
-        val connId = fresh()
-        overrides += GitLabStubServer.addOverride(
-            post(urlPathEqualTo("/api/graphql")).atPriority(1).willReturn(aResponse().withStatus(500)),
-        )
-        val total = expected.at("mergeRequests", "total").int().toLong()
-        val outage = run(connId)
-        assertEquals(total, outage.details["mrDiffStatsGaps"])
-        assertEquals(total, store.mrCounts(connId).mrDiffStatsMissing)
-        assertEquals(0L, store.countStaleMergeRequests(connId), "every merge request is stamped, gap or not")
-        assertTrue(rows(connId).values.all { it[MergeRequests.additions] == null })
+    fun `a GraphQL outage stops the details with everything pending and no gap, and the next run reads them all with their stats`() =
+        runBlocking<Unit> {
+            val connId = fresh()
+            overrides += GitLabStubServer.addOverride(
+                post(urlPathEqualTo("/api/graphql")).atPriority(1).willReturn(aResponse().withStatus(500)),
+            )
+            val total = expected.at("mergeRequests", "total").int().toLong()
+            val outage = run(connId)
+            assertEquals(1L, outage.details["mrGraphqlBreaker"])
+            assertNull(outage.details["mrDetails"])
+            assertEquals(total, outage.details["mrDetailsPending"])
+            assertEquals(0L, store.mrCounts(connId).mrDiffStatsMissing, "an outage makes no permanent gap")
+            assertEquals(total, store.countStaleMergeRequests(connId))
 
-        overrides.forEach(GitLabStubServer::removeOverride)
-        overrides.clear()
-        val again = run(connId)
-        assertNull(again.details["mrDetails"], "nothing is stale: the gaps stay until the merge request changes")
-        assertNull(again.details["mrDiffStatsGaps"])
-        assertEquals(total, store.mrCounts(connId).mrDiffStatsMissing)
-    }
+            overrides.forEach(GitLabStubServer::removeOverride)
+            overrides.clear()
+            val again = run(connId)
+            assertEquals(total, again.details["mrDetails"])
+            assertEquals(1L, store.mrCounts(connId).mrDiffStatsMissing, "only the stub's own null-stats merge request")
+            assertEquals(0L, store.countStaleMergeRequests(connId))
+        }
 
     @Test
     fun `a notes 404 stamps the merge request NOT_FOUND with no events - a changed listing brings them back`() = runBlocking<Unit> {

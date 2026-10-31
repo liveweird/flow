@@ -1356,7 +1356,7 @@ canonicalised later), `authored_at`/`committed_at`, `parent_count`, `additions`/
 - **`raw.gitlab_merge_requests`**: PK `(connection_id, mr_id)` (GitLab's global id); unique `(connection_id, project_id, iid)` (the GraphQL answer and
   RECONCILE's per-project re-list read by iid). A merge request is MUTABLE, so it is hashed like `raw.gitlab_projects`: `payload` (the slim projection) is
   canonicalized and sha256'd, `diffPage` (`GitLabRawDiff.kt`, the ONE page rule of every hashed GitLab table) decides `INSERTED / UNCHANGED / CHANGED /
-  RESURRECTED`, and a change sets `changed_at` and `needs_processing` and clears a `NOT_FOUND` `details_error` (seeing it again disproves "gone"). The
+  RESURRECTED`, and a change sets `changed_at` and `needs_processing` and clears a `NOT_FOUND` or `FETCH_FAILED` `details_error` (seeing it again disproves "gone" and it is read afresh). The
   queryable columns duplicate the payload (`state`, `draft`, authors, times, branches, `title`, the three SHAs - stored only when a full 40/64-hex id -,
   `reviewer_ids` / `assignee_ids` as sorted distinct JSON arrays, `user_notes_count`). The page's key load is `SELECT ... FOR NO KEY UPDATE` (keys sorted),
   never `FOR UPDATE`: the key never changes and `raw.gitlab_mr_events` is inserted into by the details transactions ("Row locks vs. FK locks").
@@ -1369,7 +1369,7 @@ canonicalised later), `authored_at`/`committed_at`, `parent_count`, `additions`/
   of a details read is `settleMrDetails` (events AND stamp in one transaction, the row locked `FOR NO KEY UPDATE` first, which also keeps a PURGE from
   deleting it mid-write): a complete read REPLACES the events, writes `notes_capped` and `additions` / `deletions` / `file_count` (GraphQL's
   `diffStatsSummary`; null = a gap, never a job failure) and clears `details_error`; a terminal error (`NOT_FOUND`: the notes answered 404;
-  `LIMIT_EXCEEDED`: a notes page over the response ceiling) writes NO events and leaves events, stats and cap as they were (the method refuses events
+  `LIMIT_EXCEEDED`: a page over the response ceiling; `FETCH_FAILED`: a read that kept failing `UPSTREAM_UNAVAILABLE`/`INVALID_RESPONSE`) writes NO events and leaves events, stats and cap as they were (the method refuses events
   with an error). The stamp is `details_synced_at = GREATEST(now, changed_at)`: a clock that did not pass the change (the same millisecond, or a worker
   clock behind the writer's) still leaves the backlog instead of re-selecting the row forever; a change made in the very millisecond of the stamp is
   not told apart (accepted). `mrDiffStatsMissing` counts the gaps of SETTLED rows only (`details_synced_at >= changed_at`): a changed row is pending, not a

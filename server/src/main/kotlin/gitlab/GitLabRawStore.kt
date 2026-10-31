@@ -321,6 +321,9 @@ class GitLabRawStore(database: R2dbcDatabase) {
     /** The stored projects' configured group: `group_path` to `group_id` (the MERGE REQUESTS stream lists per group id). */
     suspend fun configuredGroupIds(connectionId: UInt): Map<String, Long> = mrReads.configuredGroupIds(connectionId)
 
+    /** The live stored projects' ids per `group_path` (the MERGE REQUESTS stream notices a project that newly entered a group). */
+    suspend fun liveProjectIdsByGroup(connectionId: UInt): Map<String, List<Long>> = mrReads.liveProjectIdsByGroup(connectionId)
+
     /** The ids of every stored project, whatever its state: a merge request of any other project is not kept. */
     suspend fun storedProjectIds(connectionId: UInt): Set<Long> = mrReads.storedProjectIds(connectionId)
 

@@ -22,6 +22,9 @@ import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
 
+/** The `details_error` stamps a changed merge request sheds at once: it is read again, and the stamp described the old one. */
+private val CLEARED_ON_CHANGE = listOf(DETAILS_ERROR_NOT_FOUND, DETAILS_ERROR_FETCH_FAILED)
+
 private fun sortedIdsJson(ids: List<Long>): String = canonicalJson(JsonArray(ids.distinct().sorted().map(::JsonPrimitive)))
 
 /** A commit id is stored only as one (40 or 64 hex); anything else is dropped, never cut. */
@@ -101,8 +104,8 @@ internal class GitLabMrWrites(private val database: R2dbcDatabase) {
 
     /**
      * A genuine change (or a resurrection): refresh every column and the payload, move `changed_at` (the details are stale again) and
-     * flag PROCESS. A `NOT_FOUND` stamp is cleared - seeing the merge request again disproves "gone"; its stored details and a
-     * `LIMIT_EXCEEDED` stamp stay until the next details read replaces them.
+     * flag PROCESS. A `NOT_FOUND` or `FETCH_FAILED` stamp is cleared - seeing it again disproves "gone" and it is read afresh; its
+     * stored details and a `LIMIT_EXCEEDED` stamp stay until the next details read replaces them.
      */
     private suspend fun changeMergeRequest(connectionId: UInt, row: Prepared<RawGitLabMergeRequest>, now: Long) {
         val mr = row.input
@@ -133,7 +136,7 @@ internal class GitLabMrWrites(private val database: R2dbcDatabase) {
             it[deletedAt] = null
             it[needsProcessing] = true
         }
-        MergeRequests.update({ key and (MergeRequests.detailsError eq DETAILS_ERROR_NOT_FOUND) }) { it[detailsError] = null }
+        MergeRequests.update({ key and (MergeRequests.detailsError inList CLEARED_ON_CHANGE) }) { it[detailsError] = null }
     }
 
     /**

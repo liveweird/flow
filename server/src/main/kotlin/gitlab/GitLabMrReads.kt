@@ -87,6 +87,15 @@ internal class GitLabMrReads(private val database: R2dbcDatabase) {
             .mapValues { (_, rows) -> rows.maxWith(compareBy({ it[Projects.lastSeenAt] }, { it[Projects.groupId] }))[Projects.groupId] }
     }
 
+    /** The ids of the LIVE stored projects (not moved out, not deleted) per `group_path`: a group's current set. */
+    suspend fun liveProjectIdsByGroup(connectionId: UInt): Map<String, List<Long>> = suspendTransaction(database) {
+        Projects.select(Projects.groupPath, Projects.projectId)
+            .where { (Projects.connectionId eq connectionId) and Projects.movedOutAt.isNull() and Projects.deletedAt.isNull() }
+            .toList()
+            .groupBy({ it[Projects.groupPath] }, { it[Projects.projectId] })
+            .mapValues { (_, ids) -> ids.sorted() }
+    }
+
     suspend fun storedProjectIds(connectionId: UInt): Set<Long> = suspendTransaction(database) {
         Projects.select(Projects.projectId).where { Projects.connectionId eq connectionId }.toList()
             .mapTo(HashSet()) { it[Projects.projectId] }

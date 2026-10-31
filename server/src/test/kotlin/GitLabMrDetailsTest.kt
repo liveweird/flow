@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.gitlab.DETAILS_ERROR_FETCH_FAILED
 import ch.nokillswit.gitlab.DETAILS_ERROR_LIMIT_EXCEEDED
 import ch.nokillswit.gitlab.DETAILS_ERROR_NOT_FOUND
 import ch.nokillswit.gitlab.GITLAB_PAGE_SIZE
@@ -140,7 +141,7 @@ class GitLabMrDetailsTest {
             val connId = connection(1)
             val client = FakeClient().apply {
                 scriptAll()
-                reviewersOf = { _, _ -> throw failure("INVALID_RESPONSE") }
+                reviewersOf = { _, _ -> throw failure("RATE_LIMITED") }
             }
             assertFailsWith<FetchException> { details(client, connId) }
             assertTrue(store.mrEventRows(connId).isEmpty(), "events are written with the stamp, never before it")
@@ -179,27 +180,62 @@ class GitLabMrDetailsTest {
         }
 
     @Test
-    fun `a GraphQL outage makes every stat a gap and the run succeeds - a gap is asked again only after a change`() = runBlocking<Unit> {
-        val connId = connection(2)
+    fun `every per-answer GraphQL failure is a gap and the run goes on, each code pinned`() = runBlocking<Unit> {
+        for (code in listOf("INVALID_RESPONSE", "NOT_FOUND", "LIMIT_EXCEEDED", "REDIRECT", "FORBIDDEN_SCOPE")) {
+            val connId = connection(2)
+            val client = FakeClient().apply {
+                scriptAll()
+                diffStatsOf = { _, _ -> throw failure(code) }
+            }
+            val progress = details(client, connId)
+            assertEquals(2L, progress["mrDiffStatsGaps"], code)
+            assertNull(progress["mrGraphqlBreaker"], code)
+            assertEquals(1, client.graphqlCalls.size, code)
+            assertEquals(0L, store.countStaleMergeRequests(connId), "$code: both are stamped, gap or not")
+            assertEquals(2L, store.mrCounts(connId).mrDiffStatsMissing, code)
+        }
+    }
+
+    @Test
+    fun `the first GraphQL outage stops the stream normally with nothing gapped, costs one call, and the next run completes`() =
+        runBlocking<Unit> {
+            for (code in listOf("TIMEOUT", "UPSTREAM_UNAVAILABLE")) {
+                val connId = connection(3, otherProject = 2)
+                val client = FakeClient().apply {
+                    scriptAll()
+                    diffStatsOf = { _, _ -> throw failure(code) }
+                }
+                val progress = details(client, connId)
+                assertEquals(1L, progress["mrGraphqlBreaker"], code)
+                assertEquals(1, client.graphqlCalls.size, "$code: one GraphQL call this run, not one per project")
+                assertEquals(0, client.restCalls, "$code: the stats come first, so no REST read was wasted")
+                assertNull(progress["mrDetails"], code)
+                assertNull(progress["mrDiffStatsGaps"], code)
+                assertEquals(5L, progress["mrDetailsPending"], code)
+                assertEquals(5L, store.countStaleMergeRequests(connId), "$code: nothing was stamped, so no permanent gap")
+
+                client.scriptAll()
+                val recovered = details(client, connId)
+                assertEquals(5L, recovered["mrDetails"], code)
+                assertNull(recovered["mrDiffStatsGaps"], code)
+                assertEquals(0L, store.mrCounts(connId).mrDiffStatsMissing, code)
+            }
+        }
+
+    @Test
+    fun `an outage on a later project keeps the earlier project settled with its stats and leaves the rest pending`() = runBlocking<Unit> {
+        val connId = connection(3, otherProject = 2)
         val client = FakeClient().apply {
             scriptAll()
-            diffStatsOf = { _, _ -> throw failure("UPSTREAM_UNAVAILABLE") }
+            val ok = diffStatsOf
+            diffStatsOf = { path, iids -> if (path == "apps/p3") throw failure("UPSTREAM_UNAVAILABLE") else ok(path, iids) }
         }
         val progress = details(client, connId)
-        assertEquals(2L, progress["mrDiffStatsGaps"])
-        assertNull(progress["mrDetailsPending"])
-        assertEquals(1, client.graphqlCalls.size)
-        assertEquals(2L, store.mrCounts(connId).mrDiffStatsMissing)
-
-        client.scriptAll()
-        client.graphqlCalls.clear()
-        details(client, connId)
-        assertTrue(client.graphqlCalls.isEmpty(), "nothing is stale: the gaps stay until the merge requests change")
-
-        store.upsertMergeRequests(connId, listOf(mr(2, updatedAt = BASE + 99_000)), now = later()) // the listing sees iid 2 changed
-        details(client, connId, context = GitLabFixtures.freshContext(connId))
-        assertEquals(listOf(listOf(2L)), client.graphqlCalls.map { it.second }, "only the changed merge request is asked again")
-        assertEquals(2, rowOf(connId, 2)[MergeRequests.additions])
+        assertEquals(3L, progress["mrDetails"], "project 1's three, newest first")
+        assertEquals(1L, progress["mrGraphqlBreaker"])
+        assertEquals(2, client.graphqlCalls.size)
+        assertEquals(2L, progress["mrDetailsPending"])
+        assertEquals(3, rowOf(connId, 3)[MergeRequests.additions])
     }
 
     @Test
@@ -407,6 +443,75 @@ class GitLabMrDetailsTest {
         assertEquals(DETAILS_ERROR_LIMIT_EXCEEDED, rowOf(timed, 2)[MergeRequests.detailsError])
         assertNotNull(rowOf(timed, 1)[MergeRequests.detailsSyncedAt], "the merge request being read when the clock ran out was committed")
         assertEquals(0L, store.countStaleMergeRequests(timed))
+    }
+
+    @Test
+    fun `a merge request whose read keeps failing is stamped FETCH_FAILED at the end, the older ones are read, and a change re-reads it`() =
+        runBlocking<Unit> {
+            for (where in listOf("notes", "approvals", "reviewers")) {
+                val connId = connection(3)
+                val asked = mutableListOf<Long>()
+                val client = FakeClient().apply {
+                    scriptAll()
+                    diffStatsOf = { _, iids -> GitLabDiffStatsAnswer(emptyMap(), 0, false) } // every stat a gap
+                    val broken = { iid: Long ->
+                        if (iid == 2L) {
+                            asked += iid
+                            throw failure("UPSTREAM_UNAVAILABLE")
+                        }
+                    }
+                    val ok = notesOf
+                    notesOf = { project, iid, page ->
+                        if (where == "notes") broken(iid)
+                        ok(project, iid, page)
+                    }
+                    approvalsOf = { _, iid ->
+                        if (where == "approvals") broken(iid)
+                        emptyList()
+                    }
+                    reviewersOf = { _, iid ->
+                        if (where == "reviewers") broken(iid)
+                        emptyList()
+                    }
+                }
+                val progress = details(client, connId)
+                assertEquals(1L, progress["mrDetailsFailed"], where)
+                assertEquals(2L, progress["mrDetails"], "$where: the older merge request is read behind the bad one")
+                assertEquals(2L, progress["mrDiffStatsGaps"], "$where: gaps are counted for the stamped ones only")
+                assertEquals(1, asked.size, "$where: the bad one is not re-claimed within the run")
+                assertEquals(DETAILS_ERROR_FETCH_FAILED, rowOf(connId, 2)[MergeRequests.detailsError], where)
+                assertTrue(eventIds(connId, 2).isEmpty(), where)
+                assertEquals(0L, store.countStaleMergeRequests(connId), "$where: it left the backlog")
+
+                store.upsertMergeRequests(connId, listOf(mr(2, updatedAt = BASE + 66_000)), now = later())
+                assertNull(rowOf(connId, 2)[MergeRequests.detailsError], "$where: a change sheds the stamp")
+                client.scriptAll()
+                details(client, connId)
+                assertEquals(listOf(2L), eventIds(connId, 2), where)
+            }
+        }
+
+    @Test
+    fun `an outage across many merge requests trips the skip budget and stamps none of them`() = runBlocking<Unit> {
+        val connId = connection(12)
+        val client = FakeClient().apply {
+            scriptAll()
+            notesOf = { _, _, _ -> throw failure("UPSTREAM_UNAVAILABLE") }
+        }
+        assertEquals("LIMIT_EXCEEDED", assertFailsWith<FetchException> { details(client, connId) }.code)
+        assertTrue(store.mergeRequestRows(connId).all { it[MergeRequests.detailsError] == null })
+        assertEquals(12L, store.countStaleMergeRequests(connId))
+    }
+
+    @Test
+    fun `a rejected token on a notes call propagates and stamps nothing`() = runBlocking<Unit> {
+        val connId = connection(2)
+        val client = FakeClient().apply {
+            scriptAll()
+            notesOf = { _, _, _ -> throw failure("AUTHENTICATION_FAILED") }
+        }
+        assertEquals("AUTHENTICATION_FAILED", assertFailsWith<FetchException> { details(client, connId) }.code)
+        assertEquals(2L, store.countStaleMergeRequests(connId))
     }
 
     // --- budgets and failures --------------------------------------------------------------------------------------------------

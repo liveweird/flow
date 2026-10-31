@@ -14,13 +14,25 @@ private val log = LoggerFactory.getLogger(GitLabMrDetailsStream::class.java)
 private const val NOT_FOUND = "NOT_FOUND"
 
 /**
- * The transport failures of the ONE GraphQL call that are a GAP, not a failure: the endpoint is down, slow, missing, refused to this token
- * or answered something unreadable or too big. Everything else - a rate limit, a rejected token, a blocked host - ends the run as it would
- * for any REST call (the diff stats are a nicety; the token and the rate budget are not).
+ * The transport failures of the ONE GraphQL call that mean the ENDPOINT is TRANSIENTLY out ("outage" kind: slow or down): the first one
+ * in a run stops the stream for the rest of the run as a normal end (`mrGraphqlBreaker`), leaving the merge requests it has not settled
+ * PENDING - an outage costs one GraphQL call a run and makes no permanent gap. Everything else - a rate limit, a rejected token, a
+ * blocked host - ends the run as it would for any REST call.
  */
-private val GRAPHQL_GAP_CODES = setOf(
-    "UPSTREAM_UNAVAILABLE", "TIMEOUT", "INVALID_RESPONSE", NOT_FOUND, "LIMIT_EXCEEDED", "REDIRECT", "FORBIDDEN_SCOPE",
-)
+private val GRAPHQL_OUTAGE_CODES = setOf("TIMEOUT", "UPSTREAM_UNAVAILABLE")
+
+/**
+ * The GraphQL failures about the ANSWER, or that fail fast and are usually permanent (unreadable, too big, no such endpoint, GraphQL
+ * disabled or redirected, refused to this token): a NULL GAP for that project's merge requests. One cheap call per batch, so the REST
+ * events backlog never waits on a nicety that will not come.
+ */
+private val GRAPHQL_GAP_CODES = setOf("INVALID_RESPONSE", NOT_FOUND, "LIMIT_EXCEEDED", "REDIRECT", "FORBIDDEN_SCOPE")
+
+/** A merge request's REST read failing like this after the transport's retries is stamped [DETAILS_ERROR_FETCH_FAILED]. */
+private val MR_READ_FAILURE_CODES = setOf("UPSTREAM_UNAVAILABLE", "INVALID_RESPONSE")
+
+/** Thrown by the GraphQL call to unwind to [GitLabMrDetailsStream.drain]: the endpoint is down, stop this run's stream normally. */
+private class GraphqlOutage : Exception("the GraphQL endpoint is out")
 
 /**
  * The MR DETAILS stream (`gitlab-integration.md` "Streams"): the backlog of live merge requests (of live projects) whose details were
@@ -41,16 +53,22 @@ private val GRAPHQL_GAP_CODES = setOf(
  *  - `/approvals` or `/reviewers` alone answer `NOT_FOUND`: "none" for that merge request, `mrApprovalsUnavailable` /
  *    `mrReviewersUnavailable` (an instance lacking the endpoint must not mark every merge request gone);
  *  - a response over `gitlab.maxResponseBytes` or the node ceiling, on any of the three REST calls: `details_error = LIMIT_EXCEEDED`,
- *    `mrDetailsOversized`, stamped at the END of the run through [SkipBudget] (more than `max(10, 10 %)` of them fail the run
- *    `LIMIT_EXCEEDED` and NONE is stamped: the cap is too small, not isolated outliers). Until then they wait in memory and are excluded
- *    from this run's re-claims, which would otherwise return them forever;
- *  - the GraphQL call fails ([GRAPHQL_GAP_CODES]), answers errors, lacks the project or lacks a merge request: a NULL GAP for those merge
- *    requests (`mrDiffStatsGaps`, one WARN per run with the count and the first code), stamped complete and NOT asked again until the
- *    merge request changes.
- * Any other failure propagates after the oversized stamps are written.
+ *    `mrDetailsOversized`; one of the three failing `UPSTREAM_UNAVAILABLE` or `INVALID_RESPONSE` after the transport's retries:
+ *    `details_error = FETCH_FAILED`, `mrDetailsFailed` (a merge request that fails every time must not block the backlog behind it).
+ *    Both are stamped at the END of the run through ONE [SkipBudget] (more than `max(10, 10 %)` of them fail the run `LIMIT_EXCEEDED` and
+ *    NONE is stamped: the cap is too small, or the instance is down, not isolated outliers). Until then they wait in memory and are
+ *    excluded from this run's re-claims, which would otherwise return them forever; a change of the merge request re-reads it;
+ *  - the GraphQL call answers errors, lacks the project or a merge request, or fails with a per-answer code ([GRAPHQL_GAP_CODES]): a NULL
+ *    GAP for those merge requests (`mrDiffStatsGaps`, counted when the merge request is stamped; one WARN per run with the count and the
+ *    first code), stamped complete and NOT asked again until the merge request changes;
+ *  - the GraphQL call fails with an OUTAGE code ([GRAPHQL_OUTAGE_CODES]): the circuit breaker. The call is made BEFORE the merge
+ *    request's REST reads (memoised per project and batch), so the stream stops there - normally, `mrGraphqlBreaker` 1 - with nothing of
+ *    the failed project settled. (Only transient codes trip it: a GraphQL endpoint that is disabled, redirected or refused is a gap per
+ *    batch and never holds the REST backlog.)
+ * Any other failure propagates after the deferred stamps are written.
  *
- * Progress: `mrDetails`, `mrEvents`, `mrNotesCapped`, `mrDetailsMissing`, `mrDetailsOversized`, `mrDiffStatsGaps`,
- * `mrApprovalsUnavailable`, `mrReviewersUnavailable`, `mrDetailsPending`.
+ * Progress: `mrDetails`, `mrEvents`, `mrNotesCapped`, `mrDetailsMissing`, `mrDetailsOversized`, `mrDetailsFailed`, `mrDiffStatsGaps`,
+ * `mrGraphqlBreaker`, `mrApprovalsUnavailable`, `mrReviewersUnavailable`, `mrDetailsPending`.
  */
 internal class GitLabMrDetailsStream(
     private val client: GitLabClient,
@@ -59,10 +77,13 @@ internal class GitLabMrDetailsStream(
 ) : Stream {
     override val name: String = "mr_details"
 
-    /** Everything one run keeps: the calls spent, the oversized merge requests waiting for their stamp, and the GraphQL trouble seen. */
+    /** A merge request whose read ended in a terminal [error] and waits for the end of the run to be stamped. */
+    private class Deferred(val mr: StaleMergeRequest, val error: String)
+
+    /** Everything one run keeps: the calls spent, the merge requests waiting for their terminal stamp, and the GraphQL trouble seen. */
     private class Session(val context: StreamContext) {
         val skips = SkipBudget(GITLAB_SOURCE, "MR_DETAILS", "merge requests")
-        val oversized = mutableListOf<StaleMergeRequest>()
+        val deferred = mutableListOf<Deferred>()
         var calls = 0
         var gaps = 0L
         var graphqlProblems = 0
@@ -84,11 +105,11 @@ internal class GitLabMrDetailsStream(
             try {
                 drain(session)
             } catch (cause: FetchException) {
-                keepOversized(session, cause)
+                keepDeferred(session, cause)
             } catch (cause: CeilingTripException) {
-                keepOversized(session, cause) // the wall clock stopped the run: what was read is stored, the oversized ones stamped
+                keepDeferred(session, cause) // the wall clock stopped the run: what was read is stored, the oversized ones stamped
             }
-            stampOversized(session)
+            stampDeferred(session)
             val pending = rawStore.countStaleMergeRequests(context.connectionId)
             if (pending > 0) context.incrementProgress("mrDetailsPending", pending)
             context.heartbeat(changed = false)
@@ -100,35 +121,42 @@ internal class GitLabMrDetailsStream(
     private suspend fun drain(session: Session) {
         val connectionId = session.context.connectionId
         while (true) {
-            // The oversized merge requests of this run wait unstamped, so they still read as stale: skip them here.
-            val waiting = session.oversized.mapTo(HashSet()) { it.mrId }
+            // The deferred merge requests of this run wait unstamped, so they still read as stale: skip them here.
+            val waiting = session.deferred.mapTo(HashSet()) { it.mr.mrId }
             val claimed = rawStore.staleMergeRequests(connectionId, MR_DETAILS_BATCH + waiting.size)
                 .filter { it.mrId !in waiting }.take(MR_DETAILS_BATCH)
             if (claimed.isEmpty()) return
             val batch = Batch(claimed, rawStore.projectPaths(connectionId, claimed.map { it.projectId }))
             for (mr in claimed) {
                 if (session.calls >= callsPerRun) return
-                settle(session, batch, mr)
+                try {
+                    settle(session, batch, mr)
+                } catch (outage: GraphqlOutage) {
+                    log.warn("GitLab GraphQL endpoint unreachable, MR DETAILS stops for this run: {}", outage.message)
+                    return
+                }
             }
         }
     }
 
-    /** One merge request's outcome: its details stored with their stamp, or a terminal stamp; any other failure propagates to [run]. */
+    /** One merge request's outcome: its details stored with their stamp, or a terminal one; any other failure propagates to [run]. */
     private suspend fun settle(session: Session, batch: Batch, mr: StaleMergeRequest) {
         val context = session.context
+        // The GraphQL answer comes first (memoised per project and batch): an outage stops the stream before the REST reads.
+        val stats = diffStatsOf(session, batch, mr)
         val read = try {
             readEvents(session, mr)
         } catch (failure: FetchException) {
             val stored = when {
-                failure.isOversized() -> deferOversized(session, mr)
+                failure.isOversized() -> defer(session, mr, DETAILS_ERROR_LIMIT_EXCEEDED, "mrDetailsOversized")
                 failure.code == NOT_FOUND -> markMissing(session, mr)
+                failure.code in MR_READ_FAILURE_CODES -> defer(session, mr, DETAILS_ERROR_FETCH_FAILED, "mrDetailsFailed")
                 else -> throw failure
             }
             context.heartbeat(changed = stored)
             return
         }
         // The calls are done before the transaction opens: nothing below waits on the network while a row is locked.
-        val stats = diffStatsOf(session, batch, mr)
         val settled = rawStore.settleMrDetails(
             context.connectionId, mr.mrId, read.events, context.clock(), MrDetailsOutcome(notesCapped = read.capped, stats = stats),
         )
@@ -137,8 +165,12 @@ internal class GitLabMrDetailsStream(
             context.incrementProgress("mrDetails")
             context.incrementProgress("mrEvents", read.events.size.toLong())
             if (read.capped) context.incrementProgress("mrNotesCapped")
+            if (stats == null) {
+                session.gaps++
+                context.incrementProgress("mrDiffStatsGaps")
+            }
         }
-        context.heartbeat(changed = true)
+        context.heartbeat(changed = settled)
     }
 
     private class Read(val events: List<RawGitLabMrEvent>, val capped: Boolean)
@@ -176,15 +208,10 @@ internal class GitLabMrDetailsStream(
         }
     }
 
-    /** [mr]'s stats from the batch's answer for its project (asked on first need), or null - a gap, counted. */
+    /** [mr]'s stats from the batch's answer for its project (asked on first need), or null - a gap (counted once it is stamped). */
     private suspend fun diffStatsOf(session: Session, batch: Batch, mr: StaleMergeRequest): GitLabDiffStats? {
         val answer = batch.stats[mr.projectId] ?: askDiffStats(session, batch, mr.projectId).also { batch.stats[mr.projectId] = it }
-        val stats = answer[mr.iid]
-        if (stats == null) {
-            session.gaps++
-            session.context.incrementProgress("mrDiffStatsGaps")
-        }
-        return stats
+        return answer[mr.iid]
     }
 
     private suspend fun askDiffStats(session: Session, batch: Batch, projectId: Long): Map<Long, GitLabDiffStats> {
@@ -196,9 +223,18 @@ internal class GitLabMrDetailsStream(
             if (answer.errors > 0 || answer.projectMissing) noteGraphqlProblem(session, answer.firstErrorCode)
             answer.stats
         } catch (failure: FetchException) {
-            if (failure.code !in GRAPHQL_GAP_CODES) throw failure
-            noteGraphqlProblem(session, failure.code)
-            emptyMap()
+            when (failure.code) {
+                in GRAPHQL_GAP_CODES -> {
+                    noteGraphqlProblem(session, failure.code)
+                    emptyMap()
+                }
+                in GRAPHQL_OUTAGE_CODES -> {
+                    noteGraphqlProblem(session, failure.code)
+                    session.context.incrementProgress("mrGraphqlBreaker")
+                    throw GraphqlOutage()
+                }
+                else -> throw failure
+            }
         }
     }
 
@@ -207,15 +243,18 @@ internal class GitLabMrDetailsStream(
         if (session.firstGraphqlCode == null) session.firstGraphqlCode = code
     }
 
-    /** [mr]'s read was over a ceiling: it waits for the END of the run's stamp; a mis-set cap (too many) fails the run and stamps none. */
-    private fun deferOversized(session: Session, mr: StaleMergeRequest): Boolean {
-        log.warn("GitLab merge-request details over the response cap or a node ceiling, data source {}", session.context.connectionId)
-        session.oversized += mr
-        session.context.incrementProgress("mrDetailsOversized")
+    /**
+     * [mr]'s read ended in a terminal [error] ([counter] counts it): it waits for the END of the run's stamp; too many (a mis-set cap, an
+     * instance that is down) fail the run and stamp none.
+     */
+    private fun defer(session: Session, mr: StaleMergeRequest, error: String, counter: String): Boolean {
+        log.warn("GitLab merge-request details not readable ({}), data source {}", error, session.context.connectionId)
+        session.deferred += Deferred(mr, error)
+        session.context.incrementProgress(counter)
         try {
             session.skips.skip()
         } catch (trip: FetchException) {
-            session.oversized.clear() // a mis-set cap: leave every oversized merge request stale for after the fix
+            session.deferred.clear() // a mis-set cap or an outage: leave every deferred merge request stale for after the fix
             throw trip
         }
         return false // nothing is stored until the end of the run
@@ -232,28 +271,26 @@ internal class GitLabMrDetailsStream(
         return stamped
     }
 
-    /** Stamps what was read before [cause] ended the run, then rethrows it; a failing stamp must not hide [cause]. */
-    private suspend fun keepOversized(session: Session, cause: Exception): Nothing {
-        val stampFailure = catchingFailures<Exception?>(block = { stampOversized(session); null }, onFailure = { it })
+    /** Stamps what was deferred before [cause] ended the run, then rethrows it; a failing stamp must not hide [cause]. */
+    private suspend fun keepDeferred(session: Session, cause: Exception): Nothing {
+        val stampFailure = catchingFailures<Exception?>(block = { stampDeferred(session); null }, onFailure = { it })
         // The clock's trip was typed before the stamps; rebuilt after them, it knows they were stored (progress).
         if (cause is CeilingTripException && stampFailure == null) throw session.context.ceilingTrip(cause.code, cause.underlying)
         stampFailure?.let(cause::addSuppressed)
         throw cause
     }
 
-    /** Stamps every oversized merge request `LIMIT_EXCEEDED` in ONE transaction (their events and stats stay as they were), then clears. */
-    private suspend fun stampOversized(session: Session) {
-        if (session.oversized.isEmpty()) return
+    /** Stamps every deferred merge request with its terminal error in ONE transaction (events and stats stay as they were), then clears. */
+    private suspend fun stampDeferred(session: Session) {
+        if (session.deferred.isEmpty()) return
         val context = session.context
         context.transaction {
             val now = context.clock()
-            session.oversized.forEach {
-                rawStore.settleMrDetails(
-                    context.connectionId, it.mrId, emptyList(), now, MrDetailsOutcome(error = DETAILS_ERROR_LIMIT_EXCEEDED),
-                )
+            session.deferred.forEach {
+                rawStore.settleMrDetails(context.connectionId, it.mr.mrId, emptyList(), now, MrDetailsOutcome(error = it.error))
             }
         }
-        session.oversized.clear()
+        session.deferred.clear()
         context.heartbeat(changed = true)
     }
 

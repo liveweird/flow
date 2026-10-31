@@ -5,10 +5,13 @@ import kotlinx.serialization.json.JsonElement
 // The merge-request row shapes the raw store takes and hands back (V43): what the MERGE REQUESTS and MR DETAILS streams write and read.
 // Nothing here carries a description, a note body, a label or a URL - the store has no column for them.
 
-/** The terminal `details_error` values (V43): the notes answered 404 (RECONCILE decides, PR 9); a notes page over the response ceiling. */
+/** The terminal `details_error` values (V43): notes 404 (RECONCILE decides, PR 9); a page over the ceiling; a read that keeps failing. */
 const val DETAILS_ERROR_NOT_FOUND = "NOT_FOUND"
 const val DETAILS_ERROR_LIMIT_EXCEEDED = "LIMIT_EXCEEDED"
-private val DETAILS_ERRORS = setOf(DETAILS_ERROR_NOT_FOUND, DETAILS_ERROR_LIMIT_EXCEEDED)
+
+/** A merge request's own REST read kept failing `UPSTREAM_UNAVAILABLE` / `INVALID_RESPONSE` after the transport's retries (MR DETAILS). */
+const val DETAILS_ERROR_FETCH_FAILED = "FETCH_FAILED"
+private val DETAILS_ERRORS = setOf(DETAILS_ERROR_NOT_FOUND, DETAILS_ERROR_LIMIT_EXCEEDED, DETAILS_ERROR_FETCH_FAILED)
 
 /** The two action codes that may carry `targets` (the @usernames a review-request note names): the only place a username is kept. */
 const val MR_ACTION_REVIEW_REQUESTED = "REVIEW_REQUESTED"

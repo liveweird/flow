@@ -586,7 +586,7 @@ REPROCESS are accepted no-ops until PR 9/10, PURGE drains `raw.gitlab_*` (commit
   every listing page commits with it, a RELIST's last page sets `listingDone` (the sweep's `merge_base` calls run outside a transaction and resume from it), a
   walk for a branch other than the stored `default_branch` is dropped, cleared when the pass ends. **`commit_files`** has no cursor: the backlog (`raw.gitlab_commits`
   with `files_fetched_at` null, live, non-merge) is its state.
-- **`merge_requests`** (`MergeRequestsCursor`): `{watermarks: {groupPath: updatedAtMillis}, pass}` with `pass = {groups, groupIndex, page, updatedAfter, seenMax}` or null.
+- **`merge_requests`** (`MergeRequestsCursor`): `{watermarks: {groupPath: updatedAtMillis}, pass, projectSets: {groupPath: [projectId]}}` with `pass = {groups, groupIndex, page, updatedAfter, seenMax, projectIds}` or null (`projectSets`: the group's live project ids at its last completed pass - a newcomer re-lists the group from the floor).
   UNLIKE every other GitLab cursor it is NOT cleared at the end of a pass: the row carries the per-group watermarks (GitLab's own newest `updated_at` of the group's
   last completed pass; the next listing asks `updated_after = watermark - 15 min`), `sync_cursors.watermark_at` = the smallest watermark and `last_completed_at` the end of the last
   pass. Each page commits with it; a pass saved for another list of groups is dropped (the watermarks stay), the watermark of an unconfigured group is dropped.
@@ -1329,8 +1329,8 @@ sweep)/`commitsProjectsSkipped` (no default branch, or the branch or project is 
 `commitFilesMissing` (COMMIT FILES: commits read, their file rows, the 1,000-file cap, the terminal errors) and `commitFilesPending` (the backlog left when the run stopped,
 non-zero only; `gitlab.commitFilesPerRun` is the call budget),
 `mergeRequests` (MERGE REQUESTS: inserted)/`mergeRequestsChanged` (changed or resurrected)/`mrSkipped` (a merge request of a project that is not a stored row)/`mrGroupsSkipped` (a group with no
-live stored project, or answering `NOT_FOUND`), `mrDetails`/`mrEvents`/`mrNotesCapped`/`mrDetailsMissing`/`mrDetailsOversized`/`mrDiffStatsGaps`/`mrApprovalsUnavailable`/`mrReviewersUnavailable`
-(MR DETAILS: merge requests read, their event rows, the 1,000-note cap, the terminal errors, the GraphQL gaps, a missing `/approvals` or `/reviewers`) and `mrDetailsPending` (the backlog left when the run
+live stored project)/`mrGroupsNotFound` (a group GitLab answered `NOT_FOUND` for), `mrDetails`/`mrEvents`/`mrNotesCapped`/`mrDetailsMissing`/`mrDetailsOversized`/`mrDetailsFailed`/`mrDiffStatsGaps`/`mrGraphqlBreaker` (the GraphQL endpoint was out: the stream stopped normally)/`mrApprovalsUnavailable`/`mrReviewersUnavailable`
+(MR DETAILS: merge requests read, their event rows, the 1,000-note cap, the terminal errors (`NOT_FOUND`, `LIMIT_EXCEEDED`, `FETCH_FAILED`), the GraphQL gaps, a missing `/approvals` or `/reviewers`) and `mrDetailsPending` (the backlog left when the run
 stopped, non-zero only; `gitlab.mrDetailsPerRun` is the call budget, REST and GraphQL). `gitlab-integration.md` "Streams" has each.
 
 **Counters the connector adds (not a stream's):** `StreamContext(extraProgress = …)` is a `() -> Map<String, Long>` merged into every heartbeat's progress JSON (and

@@ -263,45 +263,61 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
   include_subgroups=true&order_by=updated_at&sort=desc&per_page=100[&updated_after]` into `raw.gitlab_merge_requests`, hash-diffed like projects
   (`upsertMergeRequests`: INSERTED / UNCHANGED / CHANGED / RESURRECTED; a change moves `changed_at`, which makes the details stale). The group id is read
   from the LIVE stored projects of the configured path (PROJECTS ran earlier in the SYNC; the most recently seen id wins); a path with no live project lists
-  nothing (`mrGroupsSkipped`). **Newest first** is deliberate: with offset paging a merge request updated mid-pass moves to the FRONT and the next page
-  re-shows one already seen (an `UNCHANGED`), whereas `sort=asc` would skip the first item of the next page - and no overlap window catches that.
+  nothing (`mrGroupsSkipped`). **Newest first** is deliberate: with offset paging a merge request UPDATED mid-pass moves to the FRONT and the next page
+  re-shows one already seen (an `UNCHANGED`), whereas `sort=asc` would skip the first item of the next page. It does NOT cover an item that DROPS OUT
+  mid-pass (a merge request deleted, or leaving the group): everything after it shifts one place earlier and the first item of the next page is skipped,
+  with an `updated_at` below the watermark. **That residual gap is closed by RECONCILE (PR 9), which re-lists every group's merge requests from the floor
+  with no watermark.**
   **Incremental per group:** a group's first pass asks `updated_after` from the backfill floor, every later pass from its WATERMARK minus
   `MR_LIST_OVERLAP_MILLIS` (15 min). The watermark is GitLab's OWN clock - the largest `updated_at` the group's pages showed, page 1's first item - and it
   moves only when the group's LAST page commits (never backwards, no Flow clock). The `sync_cursors.merge_requests` row PERSISTS between passes
-  (`MergeRequestsCursor(watermarks, pass)`; `watermark_at` = the smallest group watermark, `last_completed_at` = the end of the last pass); mid-pass it
-  holds `MergeRequestsPass(groups, groupIndex, page, updatedAfter, seenMax)` written in the page's own transaction, so a run cut anywhere resumes at the
+  (`MergeRequestsCursor(watermarks, pass, projectSets)`; `watermark_at` = the smallest group watermark, `last_completed_at` = the end of the last pass); mid-pass it
+  holds `MergeRequestsPass(groups, groupIndex, page, updatedAfter, seenMax, projectIds)` written in the page's own transaction, so a run cut anywhere resumes at the
   page it stopped on with the same `updated_after` and the running maximum. A pass saved for another list of groups is dropped and restarts (its
-  watermarks are kept; a watermark of a group no longer configured is dropped). A group GitLab answers `NOT_FOUND` for (any page) is skipped for the pass -
-  `mrGroupsSkipped`, its watermark untouched - and fails neither the SYNC nor the other groups. A merge request whose project is not a stored project row
+  watermarks are kept; a watermark of a group no longer configured is dropped; the saved list must EQUAL the configured one, order included).
+  **A project that newly enters a group** (moved or renamed into the configured groups) has older merge requests below the watermark: `projectSets` records,
+  per group, the live stored project ids the group had when its last COMPLETED pass began, and a pass that finds a live project not in that set lists from the
+  backfill floor (cheap: the rest come back `UNCHANGED`); a shrinking set forces nothing, and a group with no recorded set (an older cursor) is unknown and forces
+  nothing until its next completed pass records one. A group GitLab answers `NOT_FOUND` for (any page) is skipped for the pass -
+  `mrGroupsNotFound`, one WARN per run naming the configured paths, its watermark untouched - and fails neither the SYNC nor the other groups. A group with no
+  live stored project is `mrGroupsSkipped`. The heartbeat counts as progress whenever the page cursor advanced. A merge request whose project is not a stored project row
   (an archived one, an older server ignoring `non_archived`) is skipped and counted (`mrSkipped`, one WARN per run naming at most 20 ids); any stored
   project, moved out included, qualifies. **Nothing here tombstones:** a merge request an incremental listing omits is no evidence it is gone;
   `deleted_at` is RECONCILE's (PR 9, positive check only). Ceiling: `GitLabCeilings.mergeRequests` (1,000 pages / 100,000 items per group per run;
   `LIMIT_EXCEEDED` before the page's transaction, the cursor resumes). Stated assumptions, on the PR 12 smoke list: `updated_after` is inclusive, filters by
-  `updated_at` and is unaffected by deletions; `non_archived` defaults to true; a merge request in a project created after PROJECTS ran but listed before
-  the next PROJECTS pass is skipped and its `updated_at` may sit below the watermark (it is picked up when it changes, or by RECONCILE). Progress:
-  `pages`, `mergeRequests` (inserted), `mergeRequestsChanged`, `mrSkipped`, `mrGroupsSkipped`.
+  `updated_at` and is unaffected by deletions; `non_archived` defaults to true. A merge request in a project created after PROJECTS ran but listed before
+  the next PROJECTS pass is skipped (`mrSkipped`); the project's later arrival re-lists the group from the floor (above). Progress:
+  `pages`, `mergeRequests` (inserted), `mergeRequestsChanged`, `mrSkipped`, `mrGroupsSkipped`, `mrGroupsNotFound`.
 - **MR DETAILS** (as built, PR 8; `GitLabMrDetailsStream.kt`, cursor-less: the backlog IS its state) - the live merge requests of LIVE projects whose
   `details_synced_at` is null or older than `changed_at`, newest `updated_at` first, in claimed batches of 50, one merge request at a time (sequential: a
   GitLab job holds one permit and one parsed tree). Per merge request: its notes (`/notes?sort=asc&order_by=created_at&per_page=100`, at most 1,000 = 10
   pages; an 11th makes it `notes_capped`) reduced INSIDE the transform to action codes (`GitLabMrNotes.kt`; no body is ever kept), `/approvals` (the legacy
   object, one APPROVAL row per approver, no time) and `/reviewers` (one REVIEWER row per entry, the state upper-cased), and its diff stats from ONE
   batched GraphQL `POST <origin>/api/graphql` per project and claimed batch (`diffStatsSummary` for up to 50 iids, memoised for the batch and counted as one
-  call). The events and the stamp land in ONE transaction per merge request (`settleMrDetails`: delete the old set, insert the new, stats, cap, stamp
+  call; asked BEFORE the merge request's REST reads, so an outage wastes none). The events and the stamp land in ONE transaction per merge request (`settleMrDetails`: delete the old set, insert the new, stats, cap, stamp
   `GREATEST(now, changed_at)`), so a run cut anywhere - lease, clock, failure - has committed every merge request it finished and nothing of the one it was on.
   Budget: `gitlab.mrDetailsPerRun` REST + GraphQL CALLS per run, checked between merge requests (one may overshoot by up to twelve); reaching it is a NORMAL
   stop - no ceiling trip, no failed job - and reports `mrDetailsPending`. Outcomes that are not failures, each stamping the merge request so nothing repeats
   every run: the notes (any page) answer `NOT_FOUND` -> `details_error = NOT_FOUND`, no events, `mrDetailsMissing`, NO tombstone (a re-listed, changed merge
   request clears the stamp); `/approvals` or `/reviewers` alone answer `NOT_FOUND` -> none for that merge request (`mrApprovalsUnavailable`,
   `mrReviewersUnavailable`; an instance without the endpoint must not mark every merge request gone); a REST response over `gitlab.maxResponseBytes` or the
-  node ceiling -> `details_error = LIMIT_EXCEEDED` (`mrDetailsOversized`), stamped at the END of the run through the shared `SkipBudget` (more than
-  `max(10, 10 %)` of them fail the run `LIMIT_EXCEEDED` and NONE is stamped), and excluded from this run's re-claims until then; the GraphQL call failing
-  with `UPSTREAM_UNAVAILABLE`/`TIMEOUT`/`INVALID_RESPONSE`/`NOT_FOUND`/`LIMIT_EXCEEDED`/`REDIRECT`/`FORBIDDEN_SCOPE`, answering `errors[]`, a null project
-  or lacking a merge request -> a NULL GAP for those merge requests (`mrDiffStatsGaps`, one WARN per run with the count and the first error code),
-  stamped complete and NOT asked again until the merge request changes (RECONCILE may re-ask). Every other failure - a rate limit, a rejected token, a
-  blocked host - propagates after the oversized stamps are written. Progress: `mrDetails`, `mrEvents`, `mrNotesCapped`, `mrDetailsMissing`,
-  `mrDetailsOversized`, `mrDiffStatsGaps`, `mrApprovalsUnavailable`, `mrReviewersUnavailable`, `mrDetailsPending`.
+  node ceiling -> `details_error = LIMIT_EXCEEDED` (`mrDetailsOversized`); one of the three failing `UPSTREAM_UNAVAILABLE` or `INVALID_RESPONSE` after the
+  transport's retries -> `details_error = FETCH_FAILED` (`mrDetailsFailed`; a merge request that fails every time must not block the backlog behind it). Both
+  are stamped at the END of the run through ONE shared `SkipBudget` (more than `max(10, 10 %)` of them fail the run `LIMIT_EXCEEDED` and NONE is stamped), are
+  excluded from this run's re-claims until then, and are read again when the merge request changes (the listing sheds a `NOT_FOUND`/`FETCH_FAILED` stamp);
+  the GraphQL call answering `errors[]`, a null project or lacking a merge request, or failing with `INVALID_RESPONSE`/`NOT_FOUND`/`LIMIT_EXCEEDED`/`REDIRECT`/`FORBIDDEN_SCOPE` (answer problems, or fast and usually permanent: GraphQL disabled,
+  redirected or refused) -> a NULL
+  GAP for those merge requests (`mrDiffStatsGaps`, counted when the merge request is stamped; one WARN per run with the count and the first error code),
+  stamped complete and NOT asked again until the merge request changes (RECONCILE may re-ask). **The GraphQL circuit breaker:** the first failure of an
+  TRANSIENT-outage kind (`TIMEOUT`, `UPSTREAM_UNAVAILABLE`) stops the stream for the rest of the run as a normal end
+  (`mrGraphqlBreaker` 1): the merge requests not yet settled stay PENDING, so an outage costs one GraphQL call a run and makes no permanent gap (a
+  disabled, redirected or refused endpoint is a gap per batch instead, one fast call, and never holds the REST backlog). Every other failure - a rate limit, a rejected token, a
+  blocked host - propagates after the deferred stamps are written. Progress: `mrDetails`, `mrEvents`, `mrNotesCapped`, `mrDetailsMissing`,
+  `mrDetailsOversized`, `mrDetailsFailed`, `mrDiffStatsGaps`, `mrGraphqlBreaker`, `mrApprovalsUnavailable`, `mrReviewersUnavailable`, `mrDetailsPending`.
 - **RECONCILE** — a SHA re-list per project tombstones vanished commits; a 404 marks a project deleted; a moved project is
-  marked out of scope; an archived project keeps its data; an MR id re-list tombstones deleted MRs.
+  marked out of scope; an archived project keeps its data; an MR id re-list tombstones deleted MRs. **PR 9 must also** re-list every group's merge
+  requests from the backfill floor with NO watermark (the catch-all for an item that dropped out of the newest-first listing mid-pass and shifted a
+  neighbour out of reach), and may re-ask the GraphQL stats of gapped merge requests.
 - **PROCESS / PROFILE** — into `norm.code_*` under `CODE_PROCESSING_VERSION`, separate from Jira's `PROCESSING_VERSION`, so
   neither side reprocesses the other.
 
@@ -385,7 +401,7 @@ UTC); the legacy `/approvals` object; reviewer `state` values; the `Link` header
 actions bump a merge request's `updated_at` (an action that does not - an approval, a reviewer state change - is invisible to the incremental listing until
 the merge request next changes or RECONCILE re-reads it); `/approvals` (legacy) and `/reviewers` availability and the reviewer `state` values (any other
 value is stored as `OTHER_STATE`); GraphQL `mergeRequests(iids: [String!])` and `diffStatsSummary` on that version, and the shape of an `errors[]` entry; the
-system-note phrasings the action codes match (`GitLabMrNotes.kt`; anything unmatched is `OTHER_SYSTEM`).
+GraphQL query-complexity limit for the 50-iid batch query; the system-note phrasings the action codes match (`GitLabMrNotes.kt`; anything unmatched is `OTHER_SYSTEM`).
 
 **The `too_large` fallback.** The design formula is the commit's `stats` minus the RAW lines of its other files (see "Path exclusions"),
 so a lock file changed beside the too-large file is not credited to it. The stub's too-large commit changes a lock file on purpose;
@@ -419,6 +435,10 @@ force-pushed project's old commits and its divergence commit are in the stub too
 | 12 | scaled-world performance run (`build-times.md` WHY) + real-instance smoke checklist | — | — |
 
 ## Risks and open points
+
+- **A malformed merge request fails its listing page:** one item without a numeric `id`/`iid`/`project_id`, a `state` or readable timestamps makes the whole
+  page `INVALID_RESPONSE`, which fails the MERGE REQUESTS stream and the streams after it (COMMIT FILES, MR DETAILS) for that run. Deliberate (a silent skip
+  would hide a contract change), but a single bad item on a real instance would stall the connection until fixed.
 
 - **First backfill:** ~110k calls (commit files + MR details), spread over several runs by the budgets — about 45 min at
   ~40 req/s, longer with instance rate limits on.

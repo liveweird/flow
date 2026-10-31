@@ -211,6 +211,70 @@ class GitLabMrWalkTest {
             assertEquals(setOf("platform"), cursorOf(connId)?.second?.watermarks?.keys)
         }
 
+    @Test
+    fun `a pass saved for the same groups in another order is dropped too - the list must equal the configured one`() = runBlocking<Unit> {
+        val connId = connection()
+        val old = MergeRequestsCursor(
+            watermarks = mapOf("platform" to BASE),
+            pass = MergeRequestsPass(
+                listOf("apps", "platform"), groupIndex = 1, page = 4, updatedAfter = "2020-01-01T00:00:00Z", seenMax = BASE,
+            ),
+        )
+        cursors.put(connId, "merge_requests", encodeCursor(old))
+        val client = FakeClient().apply { script(PLATFORM_GROUP to listOf(listOf(mr(1)))) }
+        list(client, connId, groups = listOf("platform", "apps"))
+        assertEquals(
+            Triple(PLATFORM_GROUP, isoInstant(BASE - MR_LIST_OVERLAP_MILLIS), 1), client.listedMrs.first(),
+            "restarted at group 0, page 1 - not resumed at the saved index and page",
+        )
+    }
+
+    // --- a project that enters a group ------------------------------------------------------------------------------------------
+
+    @Test
+    fun `a project that newly enters a group re-lists it from the floor once, an unchanged or shrinking set keeps the watermark`() =
+        runBlocking<Unit> {
+            val connId = connection()
+            val client = FakeClient().apply { script(PLATFORM_GROUP to listOf(listOf(mr(2), mr(1)))) }
+            val groups = listOf("platform")
+            list(client, connId, groups = groups)
+            val (_, first) = assertNotNull(cursorOf(connId))
+            assertEquals(mapOf("platform" to listOf(1L)), first.projectSets, "the live set is recorded when the pass completes")
+            val watermark = mr(2).updatedAt - MR_LIST_OVERLAP_MILLIS
+
+            client.listedMrs.clear()
+            list(client, connId, groups = groups)
+            assertEquals(isoInstant(watermark), client.listedMrs.single().second, "an unchanged set keeps the watermark")
+
+            store.upsertProjects(connId, listOf(project(2, "platform", PLATFORM_GROUP)), now = 50) // moved into the group
+            client.listedMrs.clear()
+            list(client, connId, groups = groups)
+            assertEquals(isoInstant(BACKFILL), client.listedMrs.single().second, "the entrant's older merge requests are below the mark")
+            assertEquals(mapOf("platform" to listOf(1L, 2L)), cursorOf(connId)?.second?.projectSets)
+
+            client.listedMrs.clear()
+            list(client, connId, groups = groups)
+            assertEquals(isoInstant(watermark), client.listedMrs.single().second, "once recorded, the next pass is incremental again")
+
+            store.upsertProjects(connId, listOf(project(1, "platform", PLATFORM_GROUP)), now = 60)
+            store.markProjectsMovedOutNotSeenSince(connId, passStartedAt = 55, now = 70) // project 2 leaves: a shrinking set
+            client.listedMrs.clear()
+            list(client, connId, groups = groups)
+            assertEquals(isoInstant(watermark), client.listedMrs.single().second, "a shrinking set forces nothing")
+        }
+
+    @Test
+    fun `a group with no recorded project set is unknown - it forces no re-list and the set is recorded at its next completed pass`() =
+        runBlocking<Unit> {
+            val connId = connection()
+            val before = MergeRequestsCursor(watermarks = mapOf("platform" to BASE)) // written before projectSets existed
+            cursors.put(connId, "merge_requests", encodeCursor(before))
+            val client = FakeClient().apply { script(PLATFORM_GROUP to listOf(listOf(mr(1)))) }
+            list(client, connId, groups = listOf("platform"))
+            assertEquals(isoInstant(BASE - MR_LIST_OVERLAP_MILLIS), client.listedMrs.single().second)
+            assertEquals(mapOf("platform" to listOf(1L)), cursorOf(connId)?.second?.projectSets)
+        }
+
     // --- skipped groups and merge requests -------------------------------------------------------------------------------------
 
     @Test
@@ -226,14 +290,15 @@ class GitLabMrWalkTest {
             }
         }
         val progress = list(client, connId)
-        assertEquals(1L, progress["mrGroupsSkipped"])
+        assertEquals(1L, progress["mrGroupsNotFound"])
+        assertNull(progress["mrGroupsSkipped"], "that counter is for a group with no live project")
         assertEquals(setOf(1_001L, 1_002L, 3_001L), rowsOf(connId).keys, "page 1 of platform and apps' item are stored")
         val (_, state) = assertNotNull(cursorOf(connId))
         assertNull(state.pass, "the pass ended")
         assertEquals(setOf("apps"), state.watermarks.keys, "the vanished group's watermark did not move")
 
         val again = list(FakeClient().apply { groupMergeRequestsOf = { _, _, _ -> throw notFound() } }, connId)
-        assertEquals(2L, again["mrGroupsSkipped"], "every group answering NOT_FOUND is skipped, none fails the run")
+        assertEquals(2L, again["mrGroupsNotFound"], "every group answering NOT_FOUND is skipped, none fails the run")
     }
 
     @Test
