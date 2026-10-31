@@ -143,7 +143,8 @@ test("admin reviews the GitLab stub's identities: confirms the proposals, ignore
     const person = linkDialog.getByRole("combobox", { name: "Jira person" });
     await person.click();
     await person.pressSequentially("Sample User 2");
-    await linkDialog.getByRole("option", { name: /^Sample User 2 \(/ }).click();
+    // The listbox is portalled outside the dialog, so the option is found on the page.
+    await page.getByRole("option", { name: /^Sample User 2 \(/ }).click();
     await linkDialog.getByRole("button", { name: "Save", exact: true }).click();
     await expect(toast("Linked")).toBeVisible();
     await expect(linkDialog).toHaveCount(0);
