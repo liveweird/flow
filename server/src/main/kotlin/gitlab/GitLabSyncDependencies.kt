@@ -2,6 +2,7 @@ package ch.nokillswit.gitlab
 
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.SyncCursorsService
+import ch.nokillswit.norm.CodeActivityStore
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 
 /**
@@ -11,6 +12,10 @@ import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 class GitLabSyncDependencies(
     val dataSources: DataSourceService,
     val rawStore: GitLabRawStore,
+    /** The PROCESS-side reads and marks over the raw tables (V44's reader). */
+    val processStore: GitLabRawProcessStore,
+    /** The `norm.code_*` store PROCESS writes. */
+    val codeStore: CodeActivityStore,
     val cursors: SyncCursorsService,
     val database: R2dbcDatabase,
     /** `gitlab.usersRefreshHours` in ms (default 24 h): the USERS stream refetches only once the stored users are older; 0 = every SYNC. */

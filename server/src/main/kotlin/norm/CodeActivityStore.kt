@@ -297,8 +297,8 @@ data class CodeMergeRequestFigures(
 
 /**
  * The identities: [users] listed and live (bots included), [bots] among them, [usersDeleted], [usersWithEmail] (live, at least one
- * address), [ghosts] (USER rows no users row backs), [emailOnly] (EMAIL rows) and [commitsUnmatched] (live non-merge commits an EMAIL
- * identity authored).
+ * address), [ghosts] (USER rows no users row backs), [emailOnly] (EMAIL rows) and [commitsUnmatched] (live non-merge commits under an
+ * `e…` key, read from the commit's own key).
  */
 data class CodeIdentityFigures(
     val users: Long,

@@ -11,6 +11,8 @@ import ch.nokillswit.ingest.GitLabBaseUrlPolicy
 import ch.nokillswit.ingest.SyncCursorsServiceKey
 import ch.nokillswit.ingest.connectorRegistry
 import ch.nokillswit.ingest.jobHandlerRegistry
+import ch.nokillswit.norm.CodeActivityStore
+import ch.nokillswit.norm.CodeActivityStoreKey
 import io.ktor.client.HttpClient
 import io.ktor.server.application.*
 import io.ktor.server.plugins.BadRequestException
@@ -46,6 +48,9 @@ fun Application.configureGitLab() {
     attributes.put(GitLabHostsKey, settings.hosts)
     // Always: a disabled GitLab must answer the data-source writes `gitlab-disabled`, not look unregistered.
     jobHandlerRegistry().registerGitLabBaseUrlPolicy(baseUrlPolicy(settings))
+    // A database handle only: published whether or not GitLab is on, so PR 11's identity routes can read the code layer either way.
+    val codeStore = CodeActivityStore(attributes[R2dbcDatabaseKey])
+    attributes.put(CodeActivityStoreKey, codeStore)
     if (!settings.enabled) return
     val client = buildGuardedGitLabHttpClient(
         hosts = settings.hosts,
@@ -64,6 +69,8 @@ fun Application.configureGitLab() {
         sync = GitLabSyncDependencies(
             dataSources = attributes[DataSourceServiceKey],
             rawStore = rawStore,
+            processStore = GitLabRawProcessStore(attributes[R2dbcDatabaseKey]),
+            codeStore = codeStore,
             cursors = attributes[SyncCursorsServiceKey],
             database = attributes[R2dbcDatabaseKey],
             usersRefreshMillis = settings.usersRefreshMillis,

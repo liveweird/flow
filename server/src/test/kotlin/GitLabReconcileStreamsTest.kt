@@ -10,7 +10,6 @@ import ch.nokillswit.gitlab.GitLabRawStore
 import ch.nokillswit.gitlab.GitLabRawStore.Commits
 import ch.nokillswit.gitlab.GitLabRawStore.MergeRequests
 import ch.nokillswit.gitlab.GitLabRawStore.Projects
-import ch.nokillswit.gitlab.purgeAll
 import ch.nokillswit.ingest.SyncCursorsService
 import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.backfillFromEpochMillis
@@ -61,7 +60,7 @@ class GitLabReconcileStreamsTest {
         overrides.forEach(GitLabStubServer::removeOverride)
         overrides.clear()
         GitLabStubServer.resetScenarios()
-        connections.forEach { store.purgeAll(it) }
+        connections.forEach { GitLabFixtures.purgeAll(it) }
         connections.forEach { GitLabFixtures.dataSources().delete(it) }
     }
 
@@ -124,7 +123,10 @@ class GitLabReconcileStreamsTest {
         val after = mrs(connId)
         val tombstone = after.getValue(goneKey)
         assertNotNull(tombstone[MergeRequests.deletedAt])
-        assertTrue(tombstone[MergeRequests.needsProcessing])
+        // Flagged for PROCESS by the tombstone, and RECONCILE ends with PROCESS: the norm row mirrors it in the same job.
+        assertFalse(tombstone[MergeRequests.needsProcessing])
+        val mirrored = GitLabFixtures.codeStore().mergeRequestRows(connId).single { it.mrId == tombstone[MergeRequests.mrId] }
+        assertNotNull(mirrored.deletedAt)
         assertEquals(1L, progress["mergeRequestsDeleted"])
         assertEquals(1, after.values.count { it[MergeRequests.deletedAt] != null })
         val movedProject = day2.at("movedProject").at("projectId").jsonPrimitive.long

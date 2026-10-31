@@ -1,7 +1,6 @@
 package ch.nokillswit
 
 import ch.nokillswit.gitlab.GitLabRawStore
-import ch.nokillswit.gitlab.purgeAll
 import ch.nokillswit.fetch.FetchException
 import ch.nokillswit.ingest.ConnectionTarget
 import ch.nokillswit.ingest.ConnectionTestResult
@@ -46,7 +45,7 @@ class GitLabConnectorTest {
     fun cleanUp() = runBlocking<Unit> {
         overrides.forEach(GitLabStubServer::removeOverride)
         GitLabStubServer.resetScenarios()
-        connections.forEach { store.purgeAll(it) }
+        connections.forEach { GitLabFixtures.purgeAll(it) }
         connections.forEach { dataSources.delete(it) }
     }
 
@@ -329,7 +328,7 @@ class GitLabConnectorTest {
     // ------------------------------------------------------------------ the other job kinds
 
     @Test
-    fun `PURGE drains all six tables, REPROCESS is an accepted no-op, and a RECONCILE at day zero changes no row`() = runBlocking<Unit> {
+    fun `PURGE drains the raw tables, REPROCESS rebuilds every norm row, and a RECONCILE at day zero changes no row`() = runBlocking<Unit> {
         val connId = connection()
         val connector = GitLabFixtures.connector(dataSources)
         GitLabFixtures.run(connector, connId, onDemand = true)
@@ -338,10 +337,18 @@ class GitLabConnectorTest {
         assertTrue(store.commitFileRows(connId, 1, expectedSha).isNotEmpty())
         assertEquals(60, store.mergeRequestRows(connId).size)
         assertTrue(store.mrEventRows(connId).isNotEmpty())
+        val code = GitLabFixtures.codeStore()
+        assertEquals(300, code.commitRows(connId).size, "the SYNC ends with PROCESS: every commit has a norm row")
+        assertEquals(60, code.mergeRequestRows(connId).size)
+        assertEquals(0L, GitLabFixtures.processStore().countNeedsProcessing(connId))
+        val digest = GitLabFixtures.codeDigest(connId)
 
         val reconcile = mutableListOf<String>()
         GitLabFixtures.run(connector, connId, SyncJobKind.RECONCILE, progress = reconcile)
+        assertEquals(digest, GitLabFixtures.codeDigest(connId), "a RECONCILE at day zero changes no norm row")
         GitLabFixtures.run(connector, connId, SyncJobKind.REPROCESS)
+        assertEquals(digest, GitLabFixtures.codeDigest(connId), "REPROCESS rebuilds the same norm rows")
+        assertEquals(0L, GitLabFixtures.processStore().countNeedsProcessing(connId))
         assertEquals(stored,
             store.projectRows(connId).map { it[GitLabRawStore.Projects.projectId] to it[GitLabRawStore.Projects.changedAt] })
         assertEquals(0L, store.counts(connId).mergeRequestsDeleted)

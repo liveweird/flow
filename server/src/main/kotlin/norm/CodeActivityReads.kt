@@ -95,7 +95,7 @@ internal class CodeActivityReads(private val database: R2dbcDatabase) {
         return MrEventKind.entries.associateWith { found[it.name] ?: 0L }
     }
 
-    /** One statement: the identity table's own counts plus the live non-merge commits an EMAIL identity authored. */
+    /** One statement: the identity table's own counts plus the live non-merge commits under an `e…` key (no join on an identity row). */
     suspend fun identityFigures(connectionId: UInt): CodeIdentityFigures = suspendTransaction(database) {
         val rows: Flow<CodeIdentityFigures?>? = exec(
             """
@@ -107,8 +107,7 @@ internal class CodeActivityReads(private val database: R2dbcDatabase) {
               count(*) FILTER (WHERE kind = 'USER' AND username IS NULL),
               count(*) FILTER (WHERE kind = 'EMAIL'),
               (SELECT count(*) FROM norm.code_commits c
-               JOIN norm.code_identities i ON i.connection_id = c.connection_id AND i.identity_key = c.identity_key
-               WHERE c.connection_id = $connectionId AND c.deleted_at IS NULL AND NOT c.is_merge AND i.kind = 'EMAIL')
+               WHERE c.connection_id = $connectionId AND c.deleted_at IS NULL AND NOT c.is_merge AND c.identity_key LIKE 'e%')
             FROM norm.code_identities WHERE connection_id = $connectionId
             """.trimIndent(),
             explicitStatementType = StatementType.SELECT,

@@ -11,7 +11,6 @@ import ch.nokillswit.gitlab.RawGitLabMergeRequest
 import ch.nokillswit.gitlab.RawGitLabMrEvent
 import ch.nokillswit.gitlab.RawGitLabCommit
 import ch.nokillswit.gitlab.RawGitLabCommitFile
-import ch.nokillswit.gitlab.purgeAll
 import ch.nokillswit.ingest.ConnectionTestResult
 import ch.nokillswit.ingest.DATA_SOURCE_KIND_UNSUPPORTED
 import ch.nokillswit.ingest.DEFAULT_PATH_EXCLUSIONS
@@ -486,7 +485,7 @@ class GitLabDataSourceRoutesTest {
                 JsonPrimitive("SYNC")) })
             assertEquals(HttpStatusCode.Accepted, queued.status, "the job API is kind-agnostic")
         } finally {
-            runBlocking { GitLabFixtures.rawStore().purgeAll(created.id) }
+            runBlocking { GitLabFixtures.purgeAll(created.id) }
         }
     }
 
