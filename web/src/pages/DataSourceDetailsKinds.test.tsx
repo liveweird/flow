@@ -124,6 +124,7 @@ describe("DataSourceDetails page: the connection kinds", () => {
     expect(screen.getByRole("link", { name: "Data profile" })).toHaveAttribute("href", "/data-sources/1/profile");
     expect(screen.getByRole("link", { name: "Raw issue inspector" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Metrics configuration" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Identities" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reconcile now" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reprocess" })).toBeInTheDocument();
     expect(screen.getByText("Raw issues")).toBeInTheDocument();
@@ -164,6 +165,7 @@ describe("DataSourceDetails page: the connection kinds", () => {
     expect(screen.getByRole("button", { name: "Sync now" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Data profile" })).toHaveAttribute("href", "/data-sources/1/profile");
+    expect(screen.getByRole("link", { name: "Identities" })).toHaveAttribute("href", "/data-sources/1/identities");
     for (const link of ["Raw issue inspector", "Metrics configuration"]) {
       expect(screen.queryByRole("link", { name: link })).not.toBeInTheDocument();
     }
