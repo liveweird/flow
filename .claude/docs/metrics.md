@@ -37,7 +37,7 @@ configuration revision").
 
 Every config mutation bumps the ONE global, monotonic `config_revision` (above), but which connections get a `DERIVE`
 enqueued depends on who reads what the mutation changed. `bumpRevision(onlyConnectionId = null)` enqueues for EVERY
-enabled, active connection; with a connection id it enqueues for that connection alone (and nothing if it is disabled or
+enabled, active connection of a kind that derives metrics (`DataSourceKind.derivesMetrics`: never a GitLab one); with a connection id it enqueues for that connection alone (and nothing if it is disabled or
 inactive — a disabled connection is never derived). The rule per caller:
 
 | Mutation | Fan-out | Why |

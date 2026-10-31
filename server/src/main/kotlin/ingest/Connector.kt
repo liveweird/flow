@@ -1,6 +1,6 @@
 package ch.nokillswit.ingest
 
-import io.ktor.util.AttributeKey
+import ch.nokillswit.infra.maskedSecret
 
 /**
  * A connector kind's behavior (v0.2.0 plan §6/§12 item 4; Covenant's `toadie/` connector shape,
@@ -21,13 +21,8 @@ import io.ktor.util.AttributeKey
 interface Connector {
     val kind: DataSourceKind
 
-    suspend fun testConnection(
-        siteUrl: String,
-        email: String,
-        apiToken: String,
-        projectKeys: List<String>,
-        authScheme: JiraAuthScheme,
-    ): ConnectionTestResult
+    /** Probes [target]. A connector handles ONLY its own [ConnectionTarget] case (a mismatch is an internal error, never a route's). */
+    suspend fun testConnection(target: ConnectionTarget): ConnectionTestResult
 
     suspend fun run(context: SyncJobRunContext) {
         // Default for a connector without streams: every job kind succeeds trivially.
@@ -70,5 +65,25 @@ class SyncJobRunContext(
     val heartbeat: suspend (progress: String?, currentStream: String?) -> Boolean,
 )
 
-/** Every registered connector, keyed by the [DataSourceKind] it serves — populated by `jira/Jira.kt`'s `configureJira`. */
-val ConnectorRegistryKey = AttributeKey<Map<DataSourceKind, Connector>>("ConnectorRegistry")
+/**
+ * What [Connector.testConnection] probes, one case per connector kind: the in-process material of a connection (an ad-hoc request body,
+ * or a stored row with its token decrypted). Never serialized and never logged with its secret - each case masks it in `toString`.
+ */
+sealed interface ConnectionTarget {
+    /** A Jira Cloud site: exactly the fields the Jira probe has always taken. */
+    data class Jira(
+        val siteUrl: String,
+        val email: String,
+        val apiToken: String,
+        val projectKeys: List<String>,
+        val authScheme: JiraAuthScheme,
+    ) : ConnectionTarget {
+        override fun toString(): String =
+            "Jira(siteUrl=$siteUrl, email=$email, apiToken=${maskedSecret(apiToken)}, projectKeys=$projectKeys, authScheme=$authScheme)"
+    }
+
+    /** A self-managed GitLab instance: its origin, the read-only token and the group paths to read. */
+    data class GitLab(val baseUrl: String, val token: String, val groupPaths: List<String>) : ConnectionTarget {
+        override fun toString(): String = "GitLab(baseUrl=$baseUrl, token=${maskedSecret(token)}, groupPaths=$groupPaths)"
+    }
+}

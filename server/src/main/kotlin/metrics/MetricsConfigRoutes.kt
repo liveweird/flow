@@ -2,10 +2,10 @@ package ch.nokillswit.metrics
 
 import ch.nokillswit.audit.audit
 import ch.nokillswit.authz.caller
-import ch.nokillswit.authz.orNotFound
 import ch.nokillswit.authz.requireAdmin
 import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.ingest.DataSourceServiceKey
+import ch.nokillswit.ingest.requireMetricsConnection
 import ch.nokillswit.plugins.servesApi
 import io.ktor.http.HttpStatusCode
 import io.ktor.resources.Resource
@@ -31,7 +31,8 @@ class DataSourceMetricsConfigRoute(val id: UInt) {
  * "Configuration"): `GET/PUT /api/v1/data-sources/{id}/metrics-config` (ONE composite resource — a
  * PUT is a full replace, the features-PUT idiom) plus `GET .../metrics-config/options` (the
  * editor's reference data). ADMIN only, `requireAdmin` runs BEFORE the existence check, which itself
- * runs BEFORE the body decodes (the data-sources idiom — 403 wins over 404 wins over 400).
+ * runs BEFORE the body decodes (the data-sources idiom — 403 wins over 404 wins over 400). The existence check also answers 409
+ * `data-source-kind-unsupported` for an existing connection whose kind derives no metrics (`ingest/DataSourceKinds.kt`).
  */
 fun Application.configureMetricsConfigRoutes() {
     // The worker role serves only the health/ready probes (plugins/Health.kt) — see Role.kt.
@@ -47,13 +48,13 @@ fun Application.configureMetricsConfigRoutes() {
             get<DataSourceMetricsConfigRoute> { route ->
                 val caller = call.caller()
                 requireAdmin(caller)
-                dataSources.read(route.id).orNotFound("Data source")
+                dataSources.requireMetricsConnection(route.id)
                 call.respond(HttpStatusCode.OK, metricsConfig.effectiveConfig(route.id))
             }
             put<DataSourceMetricsConfigRoute> { route ->
                 val caller = call.caller()
                 requireAdmin(caller)
-                dataSources.read(route.id).orNotFound("Data source")
+                dataSources.requireMetricsConnection(route.id)
                 val request = sanitizedDataSourceMetricsConfig(call.receive())
                 val outcome = metricsConfig.replaceConfig(route.id, request)
                 if (outcome.changed) {
@@ -70,7 +71,7 @@ fun Application.configureMetricsConfigRoutes() {
                 val caller = call.caller()
                 requireAdmin(caller)
                 val connectionId = route.parent.id
-                dataSources.read(connectionId).orNotFound("Data source")
+                dataSources.requireMetricsConnection(connectionId)
                 val workCategoryField = call.request.queryParameters.optionalString("workCategoryField")
                 call.respond(HttpStatusCode.OK, metricsConfigOptions.options(connectionId, workCategoryField))
             }

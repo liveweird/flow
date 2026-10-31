@@ -877,7 +877,10 @@ CommitmentsReport {
   `fact_sprint` ones, `snapshot` is `null` and `drift` `false`. Pinned by `ReportCommitmentsTest`.
 - **Connection scope.** `connectionId` narrows to one ACTIVE connection (`400` if unknown/inactive);
   absent, defaults to every ACTIVE (not soft-deleted) connection, the same set `/reports/filters`
-  lists — a DISABLED connection only has syncing paused, and its derived data still counts.
+  lists — a DISABLED connection only has syncing paused, and its derived data still counts. **Only connections of a kind that derives
+  metrics** (`DataSourceKind.derivesMetrics`: Jira, not GitLab) are in any report scope: `/reports/filters`, Home's `freshness`, the
+  default scope and the ETag stamp's `connection:`/`retired:`/`ingest:` lines leave the others out, and an explicit `connectionId` of
+  another kind is the same `400` as an unknown one (nothing is disclosed). `KindLeakTest`.
 - **`teamId`/`sprintId` existence.** A positive, non-zero `teamId` must name an ACTIVE team (`400`
   otherwise) -- the client-supplied-FK idiom, `reports/ReportFilter.kt`'s own doc comment: structural
   parsing stays in the parser, existence checks live in the service.
@@ -1033,8 +1036,8 @@ Throughput is what is delivered over any time unit by any group of people, in MD
     Shared with the cost drill: `rankedAuthors` (`CostsDrill.kt`).
 
 Code: `reports/ThroughputReport.kt` (DTOs, pure bucket math, the queries) over `reports/
-ReportSupport.kt` (the connection scope / team-existence / sprint-row / snapshot readers extracted
-from commitments). Tests: `ReportThroughputTest` -- `DerivedStubFixture`-based: `bySprint` against `fact_sprint` and
+ReportSupport.kt` (the team-existence / sprint-row / snapshot readers extracted
+from commitments; the connection scope is `ReportScope.kt`'s `resolveConnectionScope`). Tests: `ReportThroughputTest` -- `DerivedStubFixture`-based: `bySprint` against `fact_sprint` and
 `golden.sprint.deliveredMd/Items`; `byBucket` against an independent read of `fact_task_delivery` over
 two windows; the sprint-envelope window for a `sprintId` and for `lastSprints=2`; an open/future
 sprint by `sprintId`; Σ groups at UNIT/TEAM (and the picked account's own group at USER); USER-level `bySprint` summed

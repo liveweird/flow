@@ -1523,7 +1523,8 @@ paths:
         once — its `norm.*` shape (`workItem`, `statusIntervals`, `fieldIntervals`, `anomalies`). A
         tombstoned issue (`deletedAt`/`movedOutAt` set) is still returned, never `404`. The stored text is
         embedded as it is stored (no tree is built); an issue whose stored text exceeds `jira.processPageBytes`
-        (the figure PROCESS refuses an issue at, default 8 MiB) is `413`, answered before any of it is read.
+        (the figure PROCESS refuses an issue at, default 8 MiB) is `413`, answered before any of it is read. An existing
+        data source that is not a Jira connection (GitLab) is `409` with `type` `urn:flow:problem:data-source-kind-unsupported`.
       responses:
         '200':
           description: The raw issue inspection
@@ -1535,6 +1536,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '413':
           description: >-
             The issue's stored text (payload, histories and live worklogs together) is over `jira.processPageBytes`,
@@ -1580,6 +1582,8 @@ paths:
         status category; the profile-detected story-points field for both estimate roles;
         `duedate` for the epic due date; 1:1 project → domain and issue type → activity type; no
         board → team mappings or work categories; no status defaults to WAITING or BLOCKED, which an admin maps by hand).
+        An existing data source whose kind derives no metrics (GitLab) is `409` with `type`
+        `urn:flow:problem:data-source-kind-unsupported`.
       responses:
         '200':
           description: The connection's effective metrics configuration
@@ -1591,6 +1595,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
     put:
       tags: [metrics]
@@ -1603,7 +1608,8 @@ paths:
         stored data profile (field ids), else `400`; a board mapped to a team already mapped
         elsewhere is `409` (D10: one board per team); a `domainStatusStages` override must name a
         domain the same request defines and a known status, once per (domain, status). Bumps the shared `configRevision` unless
-        the request is byte-for-byte identical to what is already stored.
+        the request is byte-for-byte identical to what is already stored. A data source whose kind derives no metrics (GitLab) is
+        `409` with `type` `urn:flow:problem:data-source-kind-unsupported`, answered before the body is read.
       requestBody:
         required: true
         content:
@@ -1634,7 +1640,8 @@ paths:
         the metrics-config editor uses. `workCategoryValues` is populated only when
         `?workCategoryField=` names a field id, from that field's own distinct observed values
         across this connection's live work items, capped at 200 (`workCategoryValuesTruncated:
-        true` when more exist).
+        true` when more exist). A data source whose kind derives no metrics (GitLab) is `409` with `type`
+        `urn:flow:problem:data-source-kind-unsupported`.
       parameters:
         - name: workCategoryField
           in: query
@@ -1651,6 +1658,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/jira-users:
     get:
@@ -8309,7 +8317,9 @@ components:
           description: >-
             A URI reference identifying the problem type. `about:blank` for almost every problem; the data-source
             scope `409`s carry `urn:flow:problem:data-source-other-site` or `urn:flow:problem:data-source-project-overlap`
-            (their `instance` is then the conflicting data source's path, not the request path).
+            (their `instance` is then the conflicting data source's path, not the request path); a route that does not
+            serve the data source's kind (the metrics-config routes and the raw-issue inspector on a GitLab source)
+            answers `409` with `urn:flow:problem:data-source-kind-unsupported`.
         title:
           type: string
           description: Short, human-readable summary of the problem type.

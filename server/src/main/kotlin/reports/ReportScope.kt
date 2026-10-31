@@ -1,7 +1,15 @@
 package ch.nokillswit.reports
 
+import ch.nokillswit.infra.db.active
+import ch.nokillswit.ingest.DataSourceService
+import ch.nokillswit.ingest.derivesMetrics
 import ch.nokillswit.metrics.MetricsSettingsResponse
 import ch.nokillswit.metrics.WorkingCalendar
+import io.ktor.server.plugins.BadRequestException
+import kotlinx.coroutines.flow.toList
+import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.r2dbc.select
 
 /** What an ITEM-anchored report (one that reads task/epic facts by a timestamp) needs before its own query. */
 internal data class ReportScope(
@@ -35,4 +43,26 @@ internal suspend fun ReportService.resolveReportScope(filter: ReportFilter, nowM
     }
     val meta = filter.toMeta(stamp.derivedAt, stamp.configRevision, settings.minSampleSize, resolvedSprintGroups(filter.period, sprintRows))
     return ReportScope(settings, calendar, connectionIds, meta, sprintRows, periodWindow(filter.period, sprintRows, nowMs))
+}
+
+/**
+ * The connections a report reads: every non-deleted connection of a kind that derives metrics (`DataSourceKind.derivesMetrics`), or the one
+ * named by [connectionId]. A connection of another kind is not in any report scope, and naming one is the same `400` as naming one that
+ * does not exist (it discloses nothing about it).
+ */
+internal suspend fun resolveConnectionScope(connectionId: UInt?): List<UInt> {
+    if (connectionId == null) {
+        return DataSourceService.Connections.select(DataSourceService.Connections.id)
+            // Every non-deleted connection, like /reports/filters: a disabled one only has syncing paused.
+            .where { DataSourceService.Connections.active() and DataSourceService.Connections.derivesMetrics() }
+            .toList().map { it[DataSourceService.Connections.id].value }
+    }
+    val exists = DataSourceService.Connections.select(DataSourceService.Connections.id)
+        .where {
+            (DataSourceService.Connections.id eq connectionId) and DataSourceService.Connections.active() and
+                DataSourceService.Connections.derivesMetrics()
+        }
+        .toList().isNotEmpty()
+    if (!exists) throw BadRequestException("Unknown or inactive connectionId: $connectionId")
+    return listOf(connectionId)
 }

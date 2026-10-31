@@ -4,6 +4,7 @@ import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
 import ch.nokillswit.ingest.CancelOutcome
 import ch.nokillswit.ingest.Connector
+import ch.nokillswit.ingest.ConnectionTarget
 import ch.nokillswit.ingest.ConnectionTestResult
 import ch.nokillswit.ingest.DataSourceKind
 import ch.nokillswit.ingest.DataSourceRequest
@@ -310,13 +311,7 @@ class IngestWorkerTest {
 
     private class FakeConnector(private val onRun: suspend (SyncJobRunContext) -> Unit = {}) : Connector {
         override val kind = DataSourceKind.JIRA_CLOUD
-        override suspend fun testConnection(
-            siteUrl: String,
-            email: String,
-            apiToken: String,
-            projectKeys: List<String>,
-            authScheme: JiraAuthScheme,
-        ): ConnectionTestResult = error("not used by IngestWorkerTest")
+        override suspend fun testConnection(target: ConnectionTarget): ConnectionTestResult = error("not used by IngestWorkerTest")
 
         override suspend fun run(context: SyncJobRunContext) = onRun(context)
     }

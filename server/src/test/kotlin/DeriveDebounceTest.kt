@@ -1,6 +1,10 @@
 package ch.nokillswit
 
 import ch.nokillswit.infra.paging.PageRequest
+import ch.nokillswit.ingest.ConnectionTarget
+import ch.nokillswit.ingest.ConnectionTestResult
+import ch.nokillswit.ingest.Connector
+import ch.nokillswit.ingest.DataSourceKind
 import ch.nokillswit.ingest.DataSourceRequest
 import ch.nokillswit.ingest.DataSourceResponse
 import ch.nokillswit.ingest.IngestConfig
@@ -55,6 +59,12 @@ class DeriveDebounceTest {
     private val workerId = "debounce-worker-${UUID.randomUUID().toString().take(8)}"
     private val derivesRun = AtomicInteger()
 
+    /** A Jira connector whose jobs succeed at once: a job of a kind with NO registered connector now fails (`CONNECTOR_UNAVAILABLE`). */
+    private object NoStreamsConnector : Connector {
+        override val kind = DataSourceKind.JIRA_CLOUD
+        override suspend fun testConnection(target: ConnectionTarget): ConnectionTestResult = error("not used by DeriveDebounceTest")
+    }
+
     private fun pagingAll() = PageRequest(page = 1, pageSize = 100, sort = emptyList())
 
     /** The connection's DERIVE jobs, minus the CANCELLED ones the setup drains ([withConnection], the fixtures' own fan-out). */
@@ -73,7 +83,7 @@ class DeriveDebounceTest {
         val config = IngestConfig(
             schedulerTickSeconds = 15, workerSlots = 2, leaseSeconds = 300, jobRetentionDays = 90, purgeGraceDays = 7, workerId = workerId,
         )
-        return IngestWorker(jobs, dataSources, handlers, emptyMap(), config) { clock.get() }
+        return IngestWorker(jobs, dataSources, handlers, mapOf(DataSourceKind.JIRA_CLOUD to NoStreamsConnector), config) { clock.get() }
     }
 
     /** What the worker's claim loop would take for [connectionId] at [at] — fenced, because the claim scan is global. */

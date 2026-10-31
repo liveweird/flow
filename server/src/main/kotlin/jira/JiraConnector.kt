@@ -3,6 +3,7 @@ package ch.nokillswit.jira
 import ch.nokillswit.fetch.CallTally
 import ch.nokillswit.fetch.FetchException
 import ch.nokillswit.fetch.SourceHttp
+import ch.nokillswit.ingest.ConnectionTarget
 import ch.nokillswit.ingest.ConnectionTestResult
 import ch.nokillswit.ingest.ConnectionTestRow
 import ch.nokillswit.ingest.Connector
@@ -219,7 +220,13 @@ class JiraConnector(
         }
     }
 
-    override suspend fun testConnection(
+    override suspend fun testConnection(target: ConnectionTarget): ConnectionTestResult {
+        // Never reachable from a route (the Jira routes build only the Jira case); a mismatch is a programming error, not a probe failure.
+        check(target is ConnectionTarget.Jira) { "JiraConnector cannot probe a ${target::class.simpleName} target" }
+        return probeJira(target.siteUrl, target.email, target.apiToken, target.projectKeys, target.authScheme)
+    }
+
+    private suspend fun probeJira(
         siteUrl: String,
         email: String,
         apiToken: String,
