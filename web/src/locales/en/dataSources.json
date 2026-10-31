@@ -98,7 +98,7 @@
     "groupPaths": "Group paths",
     "groupPathsHint": "Full group paths (e.g. platform, platform/tooling); subgroups are included, archived projects are not",
     "pathExclusions": "Excluded paths",
-    "pathExclusionsHint": "Glob patterns of files left out of the line counts (e.g. *.min.js, **/vendor/**); a name without / matches at any depth. Applied when commits are processed — the counts arrive in a later version.",
+    "pathExclusionsHint": "Glob patterns of files left out of the line counts (e.g. *.min.js, **/vendor/**); a name without / matches at any depth. A change is applied at the next sync, or at once with Reprocess.",
     "pathExclusionsReset": "Reset to defaults",
     "backfillFrom": "Backfill from",
     "backfillFromHint": "ISO date (YYYY-MM-DD) — leave blank for 24 months back (clearing it later resets to that). An earlier date re-reads the whole range once at the next sync; a later date keeps the data already downloaded, but it is no longer re-checked.",
@@ -220,7 +220,7 @@
     "reconcileNow": "Reconcile now",
     "reprocess": "Reprocess",
     "reprocessTitle": "Reprocess this data source?",
-    "reprocessBody": "Rebuilds the normalized layer from the raw store for every issue. This can take a while and never calls Jira.",
+    "reprocessBody": "Rebuilds the normalized layer from the raw store for every item. This can take a while and never calls the source.",
     "cancel": "Cancel job",
     "cancelConflict": "This job already finished — nothing to cancel.",
     "actionDisabled": "This data source is disabled — enable it first."
@@ -304,6 +304,59 @@
     "people": {
       "activeAssignees": "Active assignees",
       "unassignedPercent": "Unassigned"
+    },
+    "gitlab": {
+      "section": {
+        "projects": "Projects",
+        "commits": "Commits",
+        "mergeRequests": "Merge requests",
+        "events": "Review events",
+        "identities": "Identities"
+      },
+      "projects": {
+        "live": "Live",
+        "movedOut": "Moved out of scope",
+        "deleted": "Deleted",
+        "archived": "Archived"
+      },
+      "commits": {
+        "count": "Commits (merges excluded)",
+        "merges": "Merge commits",
+        "withCounts": "Commits with counted lines",
+        "earliest": "Earliest commit",
+        "latest": "Latest commit",
+        "filesPending": "Awaiting file details",
+        "filesUnavailable": "File details unavailable",
+        "filesCapped": "Capped at 1,000 files"
+      },
+      "mergeRequests": {
+        "withDiffStats": "With size statistics",
+        "detailsPending": "Awaiting details",
+        "detailsUnreadable": "Details unreadable"
+      },
+      "state": {
+        "merged": "Merged",
+        "opened": "Opened",
+        "closed": "Closed",
+        "locked": "Locked"
+      },
+      "event": {
+        "COMMENT": "Comments",
+        "DIFF_COMMENT": "Diff comments",
+        "APPROVAL": "Approvals",
+        "REVIEW_REQUESTED": "Review requests",
+        "REVIEWED": "Reviews",
+        "CHANGES_REQUESTED": "Changes requested"
+      },
+      "identities": {
+        "users": "GitLab users",
+        "bots": "Bots",
+        "usersDeleted": "Deleted users",
+        "ghosts": "Users missing from the listing",
+        "emailOnly": "Commit emails matching no user",
+        "usersWithEmail": "Users with a visible email",
+        "commitsUnmatched": "Commits by an unmatched email"
+      }
     }
   },
   "inspect": {

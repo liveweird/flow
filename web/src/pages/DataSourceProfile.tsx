@@ -1,7 +1,6 @@
-import { type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams } from "react-router-dom";
-import { Box, Stack, Table, Text, Title } from "@mantine/core";
+import { Box, Stack, Text } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
 import { IconReportAnalytics } from "@tabler/icons-react";
 import { ApiError } from "../api/http";
@@ -17,26 +16,12 @@ import {
 import ColumnTable, { type ColumnDef } from "../components/ColumnTable";
 import EditPageLoadState from "../components/EditPageLoadState";
 import EmptyState from "../components/EmptyState";
+import GitLabProfileSections, { MetricsTable, Section } from "../components/GitLabProfileSections";
 import PageHeader from "../components/PageHeader";
 import { dataSourcePath } from "../utils/dataSourceLinks";
-import { formatEpochMillis } from "../utils/dataSourceState";
+import { formatEpochMillis, percent } from "../utils/dataSourceState";
 import { CONTENT_MAX_WIDTH } from "../utils/layout";
 import { loadErrorMessage } from "../utils/saveError";
-
-/** One decimal place, matching the server's own rounding — never a rendered fraction. */
-function percent(value: number): string {
-  return `${value.toFixed(1)}%`;
-}
-
-/** A section heading + its body; every section is a plain table (plan §8/§10/§11 — no charts). */
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <Stack gap="xs">
-      <Title order={3} size="h4">{title}</Title>
-      {children}
-    </Stack>
-  );
-}
 
 function ProjectsSection({ projects }: { projects: ProjectProfile[] }) {
   const { t } = useTranslation();
@@ -154,22 +139,6 @@ function NoData() {
   );
 }
 
-/** The scalar-metrics tables (range/estimates/worklogs/reopens/sprints/people) — label/value rows. */
-function MetricsTable({ label, rows }: { label: string; rows: [string, ReactNode][] }) {
-  return (
-    <Table aria-label={label}>
-      <Table.Tbody>
-        {rows.map(([label, value]) => (
-          <Table.Tr key={label}>
-            <Table.Th>{label}</Table.Th>
-            <Table.Td>{value}</Table.Td>
-          </Table.Tr>
-        ))}
-      </Table.Tbody>
-    </Table>
-  );
-}
-
 function ProfileBody({ profile }: { profile: DataProfile }) {
   const { t } = useTranslation();
   const stateCountsText =
@@ -186,106 +155,112 @@ function ProfileBody({ profile }: { profile: DataProfile }) {
         {t("dataSources.profile.computedAt", { when: formatEpochMillis(profile.computedAt, t) })}
       </Text>
 
-      {profile.range && (
-        <Section title={t("dataSources.profile.section.range")}>
-          <MetricsTable label={t("dataSources.profile.section.range")}
-            rows={[
-              [t("dataSources.profile.range.earliestCreated"), formatEpochMillis(profile.range.earliestCreatedAt, t)],
-              [t("dataSources.profile.range.latestUpdated"), formatEpochMillis(profile.range.latestUpdatedAt, t)],
-            ]}
-          />
-        </Section>
+      {profile.gitlab ? (
+        <GitLabProfileSections gitlab={profile.gitlab} />
+      ) : (
+        <>
+          {profile.range && (
+            <Section title={t("dataSources.profile.section.range")}>
+              <MetricsTable label={t("dataSources.profile.section.range")}
+                rows={[
+                  [t("dataSources.profile.range.earliestCreated"), formatEpochMillis(profile.range.earliestCreatedAt, t)],
+                  [t("dataSources.profile.range.latestUpdated"), formatEpochMillis(profile.range.latestUpdatedAt, t)],
+                ]}
+              />
+            </Section>
+          )}
+
+          <Section title={t("dataSources.profile.section.projects")}>
+            <ProjectsSection projects={profile.projects ?? []} />
+          </Section>
+
+          <Section title={t("dataSources.profile.section.workflows")}>
+            <WorkflowsSection workflows={profile.workflows ?? []} />
+          </Section>
+
+          <Section title={t("dataSources.profile.section.boards")}>
+            <BoardsSection boards={profile.boards ?? []} />
+          </Section>
+
+          <Section title={t("dataSources.profile.section.customFields")}>
+            <CustomFieldsSection customFields={profile.customFields ?? []} />
+          </Section>
+
+          <Section title={t("dataSources.profile.section.estimates")}>
+            <MetricsTable label={t("dataSources.profile.section.estimates")}
+              rows={[
+                [t("dataSources.profile.estimates.totalIssues"), profile.estimates.totalIssues],
+                [
+                  t("dataSources.profile.estimates.storyPoints"),
+                  `${profile.estimates.storyPointsCount} (${percent(profile.estimates.storyPointsPercent)})`,
+                ],
+                [
+                  t("dataSources.profile.estimates.originalEstimate"),
+                  `${profile.estimates.originalEstimateCount} (${percent(profile.estimates.originalEstimatePercent)})`,
+                ],
+              ]}
+            />
+          </Section>
+
+          <Section title={t("dataSources.profile.section.worklogs")}>
+            <MetricsTable label={t("dataSources.profile.section.worklogs")}
+              rows={[
+                [t("dataSources.profile.worklogs.count"), profile.worklogs.count],
+                [t("dataSources.profile.worklogs.totalHours"), profile.worklogs.totalHours],
+                [
+                  t("dataSources.profile.worklogs.itemsWithWorklog"),
+                  `${profile.worklogs.itemsWithWorklog} (${percent(profile.worklogs.itemsWithWorklogPercent)})`,
+                ],
+                [t("dataSources.profile.worklogs.authorCount"), profile.worklogs.authorCount],
+              ]}
+            />
+          </Section>
+
+          <Section title={t("dataSources.profile.section.reopens")}>
+            <MetricsTable label={t("dataSources.profile.section.reopens")}
+              rows={[
+                [t("dataSources.profile.reopens.count"), profile.reopens.count],
+                [t("dataSources.profile.reopens.totalIssues"), profile.reopens.totalIssues],
+                [t("dataSources.profile.reopens.percent"), percent(profile.reopens.percent)],
+              ]}
+            />
+          </Section>
+
+          <Section title={t("dataSources.profile.section.sprints")}>
+            <MetricsTable label={t("dataSources.profile.section.sprints")}
+              rows={[
+                [t("dataSources.profile.sprints.count"), profile.sprints.count],
+                [
+                  t("dataSources.profile.sprints.itemsWithSprint"),
+                  `${profile.sprints.itemsWithSprint} (${percent(profile.sprints.itemsWithSprintPercent)})`,
+                ],
+                [
+                  t("dataSources.profile.sprints.carryOver"),
+                  `${profile.sprints.carryOverCount} (${percent(profile.sprints.carryOverPercent)})`,
+                ],
+                [t("dataSources.profile.sprints.stateCounts"), stateCountsText],
+              ]}
+            />
+          </Section>
+
+          <Section title={t("dataSources.profile.section.people")}>
+            <MetricsTable label={t("dataSources.profile.section.people")}
+              rows={[
+                [t("dataSources.profile.people.activeAssignees"), profile.people.activeAssignees],
+                [t("dataSources.profile.people.unassignedPercent"), percent(profile.people.unassignedPercent)],
+              ]}
+            />
+          </Section>
+
+          <Section title={t("dataSources.profile.section.anomalies")}>
+            {anomalyEntries.length === 0 ? (
+              <NoData />
+            ) : (
+              <MetricsTable label={t("dataSources.profile.section.anomalies")} rows={anomalyEntries.map(([code, count]) => [code, count])} />
+            )}
+          </Section>
+        </>
       )}
-
-      <Section title={t("dataSources.profile.section.projects")}>
-        <ProjectsSection projects={profile.projects ?? []} />
-      </Section>
-
-      <Section title={t("dataSources.profile.section.workflows")}>
-        <WorkflowsSection workflows={profile.workflows ?? []} />
-      </Section>
-
-      <Section title={t("dataSources.profile.section.boards")}>
-        <BoardsSection boards={profile.boards ?? []} />
-      </Section>
-
-      <Section title={t("dataSources.profile.section.customFields")}>
-        <CustomFieldsSection customFields={profile.customFields ?? []} />
-      </Section>
-
-      <Section title={t("dataSources.profile.section.estimates")}>
-        <MetricsTable label={t("dataSources.profile.section.estimates")}
-          rows={[
-            [t("dataSources.profile.estimates.totalIssues"), profile.estimates.totalIssues],
-            [
-              t("dataSources.profile.estimates.storyPoints"),
-              `${profile.estimates.storyPointsCount} (${percent(profile.estimates.storyPointsPercent)})`,
-            ],
-            [
-              t("dataSources.profile.estimates.originalEstimate"),
-              `${profile.estimates.originalEstimateCount} (${percent(profile.estimates.originalEstimatePercent)})`,
-            ],
-          ]}
-        />
-      </Section>
-
-      <Section title={t("dataSources.profile.section.worklogs")}>
-        <MetricsTable label={t("dataSources.profile.section.worklogs")}
-          rows={[
-            [t("dataSources.profile.worklogs.count"), profile.worklogs.count],
-            [t("dataSources.profile.worklogs.totalHours"), profile.worklogs.totalHours],
-            [
-              t("dataSources.profile.worklogs.itemsWithWorklog"),
-              `${profile.worklogs.itemsWithWorklog} (${percent(profile.worklogs.itemsWithWorklogPercent)})`,
-            ],
-            [t("dataSources.profile.worklogs.authorCount"), profile.worklogs.authorCount],
-          ]}
-        />
-      </Section>
-
-      <Section title={t("dataSources.profile.section.reopens")}>
-        <MetricsTable label={t("dataSources.profile.section.reopens")}
-          rows={[
-            [t("dataSources.profile.reopens.count"), profile.reopens.count],
-            [t("dataSources.profile.reopens.totalIssues"), profile.reopens.totalIssues],
-            [t("dataSources.profile.reopens.percent"), percent(profile.reopens.percent)],
-          ]}
-        />
-      </Section>
-
-      <Section title={t("dataSources.profile.section.sprints")}>
-        <MetricsTable label={t("dataSources.profile.section.sprints")}
-          rows={[
-            [t("dataSources.profile.sprints.count"), profile.sprints.count],
-            [
-              t("dataSources.profile.sprints.itemsWithSprint"),
-              `${profile.sprints.itemsWithSprint} (${percent(profile.sprints.itemsWithSprintPercent)})`,
-            ],
-            [
-              t("dataSources.profile.sprints.carryOver"),
-              `${profile.sprints.carryOverCount} (${percent(profile.sprints.carryOverPercent)})`,
-            ],
-            [t("dataSources.profile.sprints.stateCounts"), stateCountsText],
-          ]}
-        />
-      </Section>
-
-      <Section title={t("dataSources.profile.section.people")}>
-        <MetricsTable label={t("dataSources.profile.section.people")}
-          rows={[
-            [t("dataSources.profile.people.activeAssignees"), profile.people.activeAssignees],
-            [t("dataSources.profile.people.unassignedPercent"), percent(profile.people.unassignedPercent)],
-          ]}
-        />
-      </Section>
-
-      <Section title={t("dataSources.profile.section.anomalies")}>
-        {anomalyEntries.length === 0 ? (
-          <NoData />
-        ) : (
-          <MetricsTable label={t("dataSources.profile.section.anomalies")} rows={anomalyEntries.map(([code, count]) => [code, count])} />
-        )}
-      </Section>
     </Stack>
   );
 }

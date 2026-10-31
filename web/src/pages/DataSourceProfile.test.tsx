@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
 import DataSourceProfile from "./DataSourceProfile";
 import { jsonResponse } from "../test/http";
@@ -49,6 +49,42 @@ const FULL_PROFILE = {
   sprints: { count: 10, stateCounts: { ACTIVE: 1, CLOSED: 9 }, itemsWithSprint: 70, itemsWithSprintPercent: 70, carryOverCount: 15, carryOverPercent: 21.4 },
   people: { activeAssignees: 8, unassignedPercent: 12.3 },
   anomalyCounts: { STATUS_CHAIN_BROKEN: 2 },
+};
+
+const GITLAB_PROFILE = {
+  ...EMPTY_PROFILE,
+  computedAt: 1_700_000_000_000,
+  gitlab: {
+    projects: { live: 4, movedOut: 1, deleted: 2, archived: 0 },
+    commits: {
+      count: 281,
+      merges: 19,
+      earliestCommittedAt: 1_600_000_000_000,
+      latestCommittedAt: 1_700_000_000_000,
+      filesPending: 0,
+      filesUnavailable: 3,
+      filesCapped: 1,
+      commitsWithCounts: 270,
+    },
+    mergeRequests: {
+      byState: { locked: 2, merged: 34, closed: 8, opened: 16, draft: 5 },
+      withDiffStats: 59,
+      withDiffStatsPercent: 98.3,
+      detailsPending: 4,
+      detailsUnreadable: 6,
+    },
+    events: { byKind: { COMMENT: 269, DIFF_COMMENT: 90, APPROVAL: 0, REVIEW_REQUESTED: 76, REVIEWED: 14, CHANGES_REQUESTED: 0 } },
+    identities: {
+      users: 8,
+      bots: 1,
+      usersDeleted: 2,
+      usersWithEmail: 8,
+      usersWithEmailPercent: 100,
+      ghosts: 7,
+      emailOnly: 1,
+      commitsUnmatched: 3,
+    },
+  },
 };
 
 function serve(mockFetch: FetchMock, profile: unknown) {
@@ -152,6 +188,51 @@ describe("DataSourceProfile page", () => {
     expect(screen.queryByText("Range")).not.toBeInTheDocument();
     expect(screen.getAllByText("No data yet.").length).toBeGreaterThan(0);
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+  });
+
+  test("a GitLab profile renders the GitLab sections and none of the Jira ones", async () => {
+    serve(mockFetch, GITLAB_PROFILE);
+    renderPage();
+
+    expect(await screen.findByText("Computed at 2023-11-14 22:13")).toBeInTheDocument();
+    expect(headingOutline()).toEqual([
+      [2, "Data profile"],
+      [3, "Projects"],
+      [3, "Commits"],
+      [3, "Merge requests"],
+      [3, "Review events"],
+      [3, "Identities"],
+    ]);
+    const cell = (table: string, label: string) =>
+      within(screen.getByRole("table", { name: table })).getByText(label).closest("tr");
+    expect(cell("Projects", "Live")).toHaveTextContent("4");
+    expect(cell("Projects", "Deleted")).toHaveTextContent("2");
+    expect(cell("Commits", "Commits (merges excluded)")).toHaveTextContent("281");
+    expect(cell("Commits", "Merge commits")).toHaveTextContent("19");
+    expect(cell("Commits", "Commits with counted lines")).toHaveTextContent("270");
+    expect(cell("Commits", "Earliest commit")).toHaveTextContent("2020-09-13 12:26");
+    expect(cell("Commits", "Capped at 1,000 files")).toHaveTextContent("1");
+    expect(cell("Merge requests", "With size statistics")).toHaveTextContent("59 (98.3%)");
+    expect(cell("Merge requests", "Awaiting details")).toHaveTextContent("4");
+    expect(cell("Merge requests", "Details unreadable")).toHaveTextContent("6");
+    expect(cell("Review events", "Review requests")).toHaveTextContent("76");
+    expect(cell("Review events", "Approvals")).toHaveTextContent("0");
+    expect(cell("Identities", "GitLab users")).toHaveTextContent("8");
+    expect(cell("Identities", "Users missing from the listing")).toHaveTextContent("7");
+    expect(cell("Identities", "Commit emails matching no user")).toHaveTextContent("1");
+    expect(cell("Identities", "Users with a visible email")).toHaveTextContent("8 (100.0%)");
+    expect(screen.queryByRole("table", { name: "Estimates" })).not.toBeInTheDocument();
+    expect(screen.queryByText("No data yet.")).not.toBeInTheDocument();
+  });
+
+  test("a Jira profile (gitlab: null) renders the Jira sections and no GitLab heading", async () => {
+    serve(mockFetch, { ...FULL_PROFILE, gitlab: null });
+    renderPage();
+
+    await screen.findByText("Computed at 2023-11-14 22:13");
+    expect(screen.getByRole("table", { name: "Estimates" })).toBeInTheDocument();
+    expect(screen.queryByText("Review events")).not.toBeInTheDocument();
+    expect(screen.queryByText("Identities")).not.toBeInTheDocument();
   });
 
   test("a data source not found by id shows the not-found message", async () => {
