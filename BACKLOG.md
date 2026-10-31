@@ -95,7 +95,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     (`gitlab-integration.md` "Outbound calls", Memory) does not cover, so it needs the fit extended and a re-measure beside a Jira job
     (the worker's old generation peaked at 86 of 448 MiB in the pair).
   - Wait for the real-instance smoke run's per-call cost before deciding: at 12 ms it is minutes, at 100 ms it is hours.
-- [new] **Reports over `norm.code_*`.** The later plan the GitLab work left open (`gitlab-integration.md` "Status"): nothing derives
+- [next] **Reports over `norm.code_*`.** The later plan the GitLab work left open (`gitlab-integration.md` "Status"): nothing derives
   metrics from the code layer yet.
   - The entry point is `identities/IdentityResolver` (`accountsByKey` / `keysByAccount`, LINKED decisions only); the team at an instant is
     `metrics/`'s `teamAt`, which `identities/` must not import.
