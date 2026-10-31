@@ -3,6 +3,7 @@ package ch.nokillswit.reports
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.ingest.DataSourceService
+import ch.nokillswit.ingest.derivesMetrics
 import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.TeamMembershipService
@@ -159,7 +160,7 @@ class ReportService(
         // `settings` is read for ONE key (`siteUrl`, the Jira origin a report links its issue keys to) and dropped at once.
         val connections = DataSourceService.Connections
             .select(DataSourceService.Connections.id, DataSourceService.Connections.name, DataSourceService.Connections.settings)
-            .where { DataSourceService.Connections.active() }
+            .where { DataSourceService.Connections.active() and DataSourceService.Connections.derivesMetrics() }
             .orderBy(DataSourceService.Connections.name)
             .toList()
             .map {

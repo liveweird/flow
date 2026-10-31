@@ -10,8 +10,7 @@ import ch.nokillswit.infra.outbound.isAllowedJiraHost
 import ch.nokillswit.infra.outbound.isAllowedJiraOrigin
 import ch.nokillswit.infra.outbound.publicAddressesOnly
 import ch.nokillswit.infra.time.MILLIS_PER_HOUR
-import ch.nokillswit.ingest.ConnectorRegistryKey
-import ch.nokillswit.ingest.DataSourceKind
+import ch.nokillswit.ingest.connectorRegistry
 import ch.nokillswit.ingest.DataSourceServiceKey
 import ch.nokillswit.ingest.SyncCursorsServiceKey
 import ch.nokillswit.norm.WorkItemStore
@@ -130,9 +129,9 @@ fun Application.configureJira() {
         ),
     )
     attributes.put(JiraConnectorKey, connector)
-    // The Connector registry (ingest/Connector.kt) — IngestWorker's claim loop dispatches a
-    // claimed job to its connector by DataSourceKind; a GitLab connector adds its own entry later.
-    attributes.put(ConnectorRegistryKey, mapOf(DataSourceKind.JIRA_CLOUD to connector))
+    // The Connector registry (ingest/ConnectorRegistry.kt) — IngestWorker's claim loop dispatches a claimed job to its
+    // connector by DataSourceKind. Additive: this registers JIRA_CLOUD and leaves any other kind's entry alone.
+    connectorRegistry().register(connector)
 }
 
 /**

@@ -26,7 +26,7 @@ internal fun dataSourcePredicate(filter: DataSourceListFilter): Op<Boolean> {
 
 /** The row as the API returns it - the stored secret is reduced to `hasApiToken`, never read out. */
 internal fun ResultRow.toDataSourceResponse(): DataSourceResponse {
-    val settings = decodeSettings(this[Connections.settings])
+    val settings = jiraSettings()
     return DataSourceResponse(
         id = this[Connections.id].value,
         kind = DataSourceKind.valueOf(this[Connections.kind]),
@@ -79,7 +79,7 @@ internal fun ResultRow.toDataSourceStatus(now: Long = nowMillis()): DataSourceSt
 
 /** The decrypted in-process shape (`readForTest`/`readForSync`): the token is decrypted here and goes nowhere but the connector. */
 internal fun ResultRow.toStoredJiraConnection(cipher: FieldCipher): DataSourceService.StoredJiraConnection {
-    val settings = decodeSettings(this[Connections.settings])
+    val settings = jiraSettings()
     return DataSourceService.StoredJiraConnection(
         siteUrl = settings.siteUrl,
         email = settings.email,

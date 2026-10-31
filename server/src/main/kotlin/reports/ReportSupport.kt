@@ -1,7 +1,5 @@
 package ch.nokillswit.reports
 
-import ch.nokillswit.infra.db.active
-import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.metrics.MD_SCALE
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.teams.TeamService
@@ -78,20 +76,6 @@ internal data class SnapshotRow(
 internal fun resolvedSprintGroups(period: ReportPeriod, sprintRows: List<SprintRow>): List<ResolvedSprintGroup> = when (period) {
     is ReportPeriod.DateRange -> emptyList()
     else -> sprintRows.groupBy { it.teamId }.map { (teamId, rows) -> ResolvedSprintGroup(teamId, rows.map { it.sprintId }) }
-}
-
-internal suspend fun resolveConnectionScope(connectionId: UInt?): List<UInt> {
-    if (connectionId == null) {
-        return DataSourceService.Connections.select(DataSourceService.Connections.id)
-            // Every non-deleted connection, like /reports/filters: a disabled one only has syncing paused.
-            .where { DataSourceService.Connections.active() }
-            .toList().map { it[DataSourceService.Connections.id].value }
-    }
-    val exists = DataSourceService.Connections.select(DataSourceService.Connections.id)
-        .where { (DataSourceService.Connections.id eq connectionId) and DataSourceService.Connections.active() }
-        .toList().isNotEmpty()
-    if (!exists) throw BadRequestException("Unknown or inactive connectionId: $connectionId")
-    return listOf(connectionId)
 }
 
 internal suspend fun requireActiveTeam(teamId: UInt) =

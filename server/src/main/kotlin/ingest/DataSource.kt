@@ -37,7 +37,15 @@ const val DEFAULT_BACKFILL_MONTHS = 24L
 /** The Jira Cloud project-key shape: one uppercase letter, then 1-9 uppercase letters/digits/underscores. */
 val PROJECT_KEY_PATTERN: Regex = Regex("^[A-Z][A-Z0-9_]{1,9}$")
 
-enum class DataSourceKind { JIRA_CLOUD }
+/**
+ * The connector kinds a data source can be. [derivesMetrics] is the ONE flag every Jira/metrics-only path gates on (DERIVE chaining and
+ * fan-out, the report and Home connection scopes, the metrics-config routes): a kind whose data never feeds the `metrics` star is
+ * `false` (`.claude/docs/ingestion.md` "Connector kinds").
+ */
+enum class DataSourceKind(val derivesMetrics: Boolean) {
+    JIRA_CLOUD(derivesMetrics = true),
+    GITLAB(derivesMetrics = false),
+}
 
 enum class JiraAuthScheme { BASIC, BEARER }
 

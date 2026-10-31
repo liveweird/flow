@@ -1,0 +1,21 @@
+{
+  "priority": 6,
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "(?i)/api/v4/projects/apps%2Fledger"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json",
+      "RateLimit-Limit": "2000",
+      "RateLimit-Observed": "10",
+      "RateLimit-Remaining": "1990",
+      "RateLimit-Reset": "1788220860",
+      "RateLimit-ResetTime": "Tue, 01 Sep 2026 00:01:00 GMT"
+    },
+    "bodyFileName": "project-4-started.json"
+  },
+  "scenarioName": "gitlab-day2",
+  "requiredScenarioState": "Started"
+}

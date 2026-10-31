@@ -63,9 +63,7 @@ fun Application.configureIngestWorker() {
     requirePoolFitsWorkerSlots(environment.config, config.workerSlots)
 
     monitor.subscribe(ApplicationStarted) { app ->
-        val connectors = app.attributes.getOrNull(IngestConnectorOverrideKey)
-            ?: app.attributes.getOrNull(ConnectorRegistryKey)
-            ?: emptyMap()
+        val connectors = app.attributes.getOrNull(IngestConnectorOverrideKey) ?: app.connectorRegistry().connectors()
         val clock = app.attributes.getOrNull(IngestClockKey) ?: System::currentTimeMillis
         val handlers = app.jobHandlerRegistry()
         // Fail closed at boot, as the direct attribute reads this registry replaced did: a worker whose
@@ -104,11 +102,8 @@ fun Application.configureIngestWorker() {
     }
 }
 
-/** The lease was reclaimed by another worker (or the job left RUNNING) — the run stops without touching cursors. */
-class LeaseLostException(jobId: UInt) : Exception("Lease lost for sync job $jobId")
-
-/** `cancel_requested_at` was set against this RUNNING job — the run stops cooperatively. */
-class JobCancelRequestedException(jobId: UInt) : Exception("Cancel requested for sync job $jobId")
+/** The job kinds whose success chains a DERIVE for the connection (when its kind derives metrics). */
+private val CHAINING_KINDS = setOf(SyncJobKind.SYNC, SyncJobKind.RECONCILE, SyncJobKind.REPROCESS)
 
 /**
  * Claims and runs sync jobs: a scheduler tick (every [IngestConfig.schedulerTickSeconds]) enqueues
@@ -191,10 +186,12 @@ class IngestWorker internal constructor(
 
     private suspend fun enqueueDue() {
         val now = clock()
-        dataSources.dueForSync(now).forEach { syncJobs.enqueueScheduled(it.id, SyncJobKind.SYNC, it.configRevision, now) }
-        dataSources.dueForReconcile(now).forEach { syncJobs.enqueueScheduled(it.id, SyncJobKind.RECONCILE, it.configRevision, now) }
-        dataSources.dueForPurge(now, config.purgeGraceDays * MILLIS_PER_DAY)
-            .forEach { syncJobs.enqueueScheduled(it.id, SyncJobKind.PURGE, it.configRevision, now) }
+        // Scheduled jobs only for kinds with a registered connector: others would fail at once and be re-enqueued every tick.
+        suspend fun enqueue(due: List<DataSourceService.DueConnection>, kind: SyncJobKind) =
+            due.filter { it.kind in connectors }.forEach { syncJobs.enqueueScheduled(it.id, kind, it.configRevision, now) }
+        enqueue(dataSources.dueForSync(now), SyncJobKind.SYNC)
+        enqueue(dataSources.dueForReconcile(now), SyncJobKind.RECONCILE)
+        enqueue(dataSources.dueForPurge(now, config.purgeGraceDays * MILLIS_PER_DAY), SyncJobKind.PURGE)
     }
 
     private suspend fun claimAvailable(scope: CoroutineScope) {
@@ -264,11 +261,14 @@ class IngestWorker internal constructor(
                 // getting its own job, see `uq_sync_jobs_open_per_kind`) is never silently lost (review
                 // round 1 fix). A DERIVE job with no registered handler is an error, never a silent success.
                 if (claim.kind == SyncJobKind.DERIVE) {
+                    // Backstop: every DERIVE enqueue is kind-gated, so a kind that derives no metrics can never be derived.
+                    check(claim.connectorKind.derivesMetrics) { "Kind ${claim.connectorKind} derives no metrics (sync job ${claim.id})" }
                     val handler = handlers.handlerFor(SyncJobKind.DERIVE)
                         ?: error("No handler registered for job kind DERIVE (sync job ${claim.id})")
                     deriveRevisionUsed = handler.run(context)
                 } else {
-                    connectors[claim.connectorKind]?.run(context)
+                    // No connector for the kind (off / not built here) fails the job, never "succeeds" (a PURGE would stamp it purged).
+                    (connectors[claim.connectorKind] ?: throw ConnectorUnavailableException(claim.connectorKind)).run(context)
                 }
                 // The generic, connector-agnostic PURGE steps (v0.3.0 M1 commit 4,
                 // `.claude/docs/ingestion.md` "PURGE"): run AFTER the connector's own `purgeSteps`
@@ -340,7 +340,8 @@ class IngestWorker internal constructor(
         // plan §2 decision 1) — coalesced by `uq_sync_jobs_open_per_kind`, so an already-pending
         // DERIVE for this connection is a no-op here, except that a DEBOUNCED one (V27 `not_before`, a
         // configuration change's) is pulled forward to run now: a chained DERIVE is never delayed.
-        if (claim.kind == SyncJobKind.SYNC || claim.kind == SyncJobKind.RECONCILE || claim.kind == SyncJobKind.REPROCESS) {
+        // Only `derivesMetrics` kinds chain (a GitLab SYNC enqueues none); `read` is Jira-only, so a future non-Jira one needs a new read.
+        if (claim.connectorKind.derivesMetrics && claim.kind in CHAINING_KINDS) {
             dataSources.read(claim.connectionId)?.let { connection ->
                 syncJobs.enqueueScheduled(claim.connectionId, SyncJobKind.DERIVE, connection.configRevision, clock())
             }
@@ -364,10 +365,10 @@ class IngestWorker internal constructor(
     }
 
     private suspend fun onFailed(claim: SyncJobClaim, cause: Exception) {
-        // A ceiling trip (`SyncPause.kt`) carries a closed code of its own and reports the failure it wraps; anything else is RUN_FAILED.
+        // A ceiling trip (`SyncPause.kt`) has a closed code of its own; a kind with no connector is CONNECTOR_UNAVAILABLE; else RUN_FAILED.
         val trip = cause as? CeilingTripException
         val reported = trip?.underlying ?: cause
-        val errorCode = trip?.code ?: "RUN_FAILED"
+        val errorCode = trip?.code ?: if (cause is ConnectorUnavailableException) CONNECTOR_UNAVAILABLE else "RUN_FAILED"
         val detail = failureDetail(reported)
         // `fail` also records the SYNC/RECONCILE back-off in the same transaction, so a closed job never leaves the connection due;
         // `failTripped` adds the trip counter and the pause to it.

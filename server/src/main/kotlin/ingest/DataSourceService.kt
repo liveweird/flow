@@ -94,22 +94,27 @@ class DataSourceService(
         val reconcilePauseReason = varchar("reconcile_pause_reason", 100).nullable()
     }
 
-    override val encryptedRowLabel = "Jira API token"
+    override val encryptedRowLabel = "data source token"
 
     override suspend fun encryptLegacyRows(reencryptAll: Boolean): Int = suspendTransaction(database) {
         cipher.reencryptRows(Connections, listOf(Connections.secret), reencryptAll)
     }
 
     suspend fun list(filter: DataSourceListFilter, paging: PageRequest): DataSourceListResult = suspendTransaction(database) {
-        val predicate = dataSourcePredicate(filter) and Connections.active()
+        // Jira rows only until the GitLab release adds its wire block: a `DataSourceResponse` carries `jira` and nothing else.
+        val predicate = dataSourcePredicate(filter) and Connections.active() and Connections.isJira()
         val total = Connections.selectAll().where { predicate }.count()
         val rows = Connections.selectAll().where { predicate }.applyPaging(paging, SORTABLE_COLUMNS).toList()
         DataSourceListResult(rows.map { it.toDataSourceResponse() }, total)
     }
 
+    /** An active Jira data source (a connection of any other kind answers null here, as if absent - see [kindOf] for the typed answer). */
     suspend fun read(id: UInt): DataSourceResponse? = suspendTransaction(database) {
-        activeConnection(id)?.toDataSourceResponse()
+        activeJiraConnection(id)?.toDataSourceResponse()
     }
+
+    /** The kind of an active (not soft-deleted) data source, or null when there is none: what the routes branch on for a typed 409. */
+    suspend fun kindOf(id: UInt): DataSourceKind? = suspendTransaction(database) { activeConnection(id)?.dataSourceKind() }
 
     /**
      * What a `backfillFrom` write may name right now (A48): the default for a blank one and the floor for a created or moved date.
@@ -168,9 +173,9 @@ class DataSourceService(
             validateDataSource(request, apiTokenRequired = false)
             takeDataSourceScopeLock(scopeRules) // before the row lock: every scope-checked writer queues here first, one order, no deadlock
             // NO KEY UPDATE, not UPDATE: DERIVE's inserts hold FOR KEY SHARE on this row (persistence.md "Row locks vs. FK locks").
-            val current = Connections.selectAll().where { (Connections.id eq id) and Connections.active() }
+            val current = Connections.selectAll().where { (Connections.id eq id) and Connections.active() and Connections.isJira() }
                 .forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate).toList().singleOrNull() ?: return@suspendTransaction null
-            val currentSettings = decodeSettings(current[Connections.settings])
+            val currentSettings = current.jiraSettings()
             if (request.jira.siteUrl != currentSettings.siteUrl) {
                 throw ConflictException("siteUrl is the data source identity; create a new connection to change it")
             }
@@ -182,7 +187,7 @@ class DataSourceService(
             val newSettings = currentSettings.copy(
                 email = request.jira.email, projectKeys = request.jira.projectKeys, authScheme = request.jira.authScheme,
             )
-            Connections.update({ (Connections.id eq id) and Connections.active() }) {
+            Connections.update({ (Connections.id eq id) and Connections.active() and Connections.isJira() }) {
                 it[name] = request.name
                 it[enabled] = request.enabled
                 it[secret] = secretValue
@@ -226,7 +231,7 @@ class DataSourceService(
     }
 
     suspend fun readForTest(id: UInt): StoredJiraConnection? = suspendTransaction(database) {
-        activeConnection(id)?.toStoredJiraConnection(cipher)
+        activeJiraConnection(id)?.toStoredJiraConnection(cipher)
     }
 
     /** The SYNC job's own read of the stored connection — same shape as [readForTest] (`jira/JiraConnector.kt`'s `run`). */
@@ -240,10 +245,10 @@ class DataSourceService(
      */
     suspend fun persistCloudId(id: UInt, cloudId: String) {
         suspendTransaction(database) {
-            val row = Connections.selectAll().where { (Connections.id eq id) and Connections.active() }
+            val row = Connections.selectAll().where { (Connections.id eq id) and Connections.active() and Connections.isJira() }
                 .forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate).toList().singleOrNull() ?: return@suspendTransaction
-            val settings = decodeSettings(row[Connections.settings]).copy(cloudId = cloudId)
-            Connections.update({ (Connections.id eq id) and Connections.active() }) {
+            val settings = row.jiraSettings().copy(cloudId = cloudId)
+            Connections.update({ (Connections.id eq id) and Connections.active() and Connections.isJira() }) {
                 it[Connections.settings] = encodeSettings(settings)
             }
         }
@@ -260,12 +265,13 @@ class DataSourceService(
     }
 
     /** A due connection's id and its CURRENT `config_revision` (stamped onto the enqueued job). */
-    data class DueConnection(val id: UInt, val configRevision: Long)
+    data class DueConnection(val id: UInt, val configRevision: Long, val kind: DataSourceKind)
 
     /**
-     * Every enabled, active connection's id and CURRENT `config_revision` (v0.3.0 M3 commit 7) —
-     * `MetricsSettingsService.bumpRevision`'s own read: a global config mutation (settings, membership, team
-     * capacity) enqueues `DERIVE` for every one of them; a per-connection one narrows it to its own connection.
+     * Every enabled, active connection's id and CURRENT `config_revision` of a kind that derives metrics
+     * ([DataSourceKind.derivesMetrics]; v0.3.0 M3 commit 7) - `MetricsSettingsService.bumpRevision`'s own read: a global config mutation
+     * (settings, membership, team capacity) enqueues `DERIVE` for every one of them; a per-connection one narrows it to its own connection.
+     * A GitLab connection is never in it: it has no DERIVE to run.
      */
     suspend fun enabledActiveConnections(): List<DueConnection> = enabledActiveConnectionRows(database)
 
@@ -324,4 +330,7 @@ class DataSourceService(
 
     private suspend fun activeConnection(id: UInt): ResultRow? =
         Connections.selectAll().where { (Connections.id eq id) and Connections.active() }.toList().singleOrNull()
+
+    private suspend fun activeJiraConnection(id: UInt): ResultRow? =
+        Connections.selectAll().where { (Connections.id eq id) and Connections.active() and Connections.isJira() }.toList().singleOrNull()
 }

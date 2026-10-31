@@ -1,0 +1,16 @@
+{
+  "priority": 9,
+  "scenarioName": "gitlab-day2",
+  "requiredScenarioState": "day2",
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "(?i)/api/v4/projects/(?!(?:1|2|3|4|5|6|7)(?:/|$))[^/]+(?:/.*)?"
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "bodyFileName": "404-project-not-found.json"
+  }
+}

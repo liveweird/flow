@@ -22,11 +22,12 @@ import org.jetbrains.exposed.v1.r2dbc.update
 
 /**
  * The error codes `source_connections.last_sync_error_code` may hold: `RUN_FAILED` (the worker's failure path), `RETRIES_EXHAUSTED`
- * (a claim closing a job past `max_attempts`) and the two ceiling-trip codes `LIMIT_EXCEEDED`/`TIME_EXCEEDED` (`SyncPause.kt`).
+ * (a claim closing a job past `max_attempts`), `CONNECTOR_UNAVAILABLE` (a job whose kind has no registered connector,
+ * `ConnectorRegistry.kt`) and the two ceiling-trip codes `LIMIT_EXCEEDED`/`TIME_EXCEEDED` (`SyncPause.kt`).
  * The column is shown to ADMINs on the data-source status and the telemetry panel, so it
  * is a closed vocabulary, never free text: [closedErrorCode] maps anything else to [GENERIC_SYNC_ERROR_CODE].
  */
-internal val SYNC_ERROR_CODES = setOf("RUN_FAILED", "RETRIES_EXHAUSTED", LIMIT_EXCEEDED_TRIP, TIME_EXCEEDED_TRIP)
+internal val SYNC_ERROR_CODES = setOf("RUN_FAILED", "RETRIES_EXHAUSTED", CONNECTOR_UNAVAILABLE, LIMIT_EXCEEDED_TRIP, TIME_EXCEEDED_TRIP)
 internal const val GENERIC_SYNC_ERROR_CODE = "RUN_FAILED"
 
 internal fun closedErrorCode(code: String?): String? = code?.let { if (it in SYNC_ERROR_CODES) it else GENERIC_SYNC_ERROR_CODE }

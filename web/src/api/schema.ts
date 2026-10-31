@@ -996,7 +996,8 @@ export interface paths {
          *     once — its `norm.*` shape (`workItem`, `statusIntervals`, `fieldIntervals`, `anomalies`). A
          *     tombstoned issue (`deletedAt`/`movedOutAt` set) is still returned, never `404`. The stored text is
          *     embedded as it is stored (no tree is built); an issue whose stored text exceeds `jira.processPageBytes`
-         *     (the figure PROCESS refuses an issue at, default 8 MiB) is `413`, answered before any of it is read.
+         *     (the figure PROCESS refuses an issue at, default 8 MiB) is `413`, answered before any of it is read. An existing
+         *     data source that is not a Jira connection (GitLab) is `409` with `type` `urn:flow:problem:data-source-kind-unsupported`.
          */
         get: operations["getRawIssue"];
         put?: never;
@@ -1048,11 +1049,13 @@ export interface paths {
          *     status category; the profile-detected story-points field for both estimate roles;
          *     `duedate` for the epic due date; 1:1 project → domain and issue type → activity type; no
          *     board → team mappings or work categories; no status defaults to WAITING or BLOCKED, which an admin maps by hand).
+         *     An existing data source whose kind derives no metrics (GitLab) is `409` with `type`
+         *     `urn:flow:problem:data-source-kind-unsupported`.
          */
         get: operations["getDataSourceMetricsConfig"];
         /**
          * Replace a data source's metrics configuration
-         * @description ADMIN only, guard before the body decode. A full replace over all seven per-connection config tables in one transaction — every id is validated against this connection's own `norm` reference rows (statuses, boards, project keys, issue types) and its stored data profile (field ids), else `400`; a board mapped to a team already mapped elsewhere is `409` (D10: one board per team); a `domainStatusStages` override must name a domain the same request defines and a known status, once per (domain, status). Bumps the shared `configRevision` unless the request is byte-for-byte identical to what is already stored.
+         * @description ADMIN only, guard before the body decode. A full replace over all seven per-connection config tables in one transaction — every id is validated against this connection's own `norm` reference rows (statuses, boards, project keys, issue types) and its stored data profile (field ids), else `400`; a board mapped to a team already mapped elsewhere is `409` (D10: one board per team); a `domainStatusStages` override must name a domain the same request defines and a known status, once per (domain, status). Bumps the shared `configRevision` unless the request is byte-for-byte identical to what is already stored. A data source whose kind derives no metrics (GitLab) is `409` with `type` `urn:flow:problem:data-source-kind-unsupported`, answered before the body is read.
          */
         put: operations["updateDataSourceMetricsConfig"];
         post?: never;
@@ -1078,7 +1081,8 @@ export interface paths {
          *     the metrics-config editor uses. `workCategoryValues` is populated only when
          *     `?workCategoryField=` names a field id, from that field's own distinct observed values
          *     across this connection's live work items, capped at 200 (`workCategoryValuesTruncated:
-         *     true` when more exist).
+         *     true` when more exist). A data source whose kind derives no metrics (GitLab) is `409` with `type`
+         *     `urn:flow:problem:data-source-kind-unsupported`.
          */
         get: operations["getDataSourceMetricsConfigOptions"];
         put?: never;
@@ -6389,7 +6393,7 @@ export interface components {
         /** @description RFC 7807 problem detail. Served as `application/problem+json`; instance is the request path without query parameters. */
         ProblemDetail: {
             /**
-             * @description A URI reference identifying the problem type. `about:blank` for almost every problem; the data-source scope `409`s carry `urn:flow:problem:data-source-other-site` or `urn:flow:problem:data-source-project-overlap` (their `instance` is then the conflicting data source's path, not the request path).
+             * @description A URI reference identifying the problem type. `about:blank` for almost every problem; the data-source scope `409`s carry `urn:flow:problem:data-source-other-site` or `urn:flow:problem:data-source-project-overlap` (their `instance` is then the conflicting data source's path, not the request path); a route that does not serve the data source's kind (the metrics-config routes and the raw-issue inspector on a GitLab source) answers `409` with `urn:flow:problem:data-source-kind-unsupported`.
              * @default about:blank
              */
             type: string;
@@ -8539,6 +8543,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             /** @description The issue's stored text (payload, histories and live worklogs together) is over `jira.processPageBytes`, so it is too large to inspect. Constant detail; nothing of the document is echoed. */
             413: {
                 headers: {
@@ -8602,6 +8607,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -8663,6 +8669,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             500: components["responses"]["InternalServerError"];
         };
     };

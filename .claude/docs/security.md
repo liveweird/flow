@@ -691,7 +691,7 @@ uniform `403`; the worker role serves no API at all):
 - **Data-source names and health:** every not-yet-purged connection's id, name (including soft-deleted ones awaiting their PURGE), enabled flag,
   size estimate, issue count, last-sync freshness and error code, queue depth, Jira 429 / back-off figures and DERIVE timings - read through
   `DataSourceService.connectionHealth()`, which selects those columns ONLY (never the site URL, email, project keys, token or profile).
-  `last_sync_error_code` is a closed vocabulary (`RUN_FAILED`, `RETRIES_EXHAUSTED`, and the ceiling-trip codes `LIMIT_EXCEEDED`, `TIME_EXCEEDED`; anything else is stored as `RUN_FAILED`), never free text; so is `pause_reason` (the two trip codes, a CHECK), which the panel shows with `pausedAt`.
+  `last_sync_error_code` is a closed vocabulary (`RUN_FAILED`, `RETRIES_EXHAUSTED`, `CONNECTOR_UNAVAILABLE`, and the ceiling-trip codes `LIMIT_EXCEEDED`, `TIME_EXCEEDED`; anything else is stored as `RUN_FAILED`), never free text; so is `pause_reason` (the two trip codes, a CHECK), which the panel shows with `pausedAt`.
 - **Route usage:** the normalised report routes (`/api/v1/reports/...`, path parameters as written, never an identifier) with their request counts,
   latencies and 5xx / 429 counts. The telemetry routes themselves and the probes are excluded.
 
