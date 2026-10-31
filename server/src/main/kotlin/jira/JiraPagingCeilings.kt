@@ -1,6 +1,7 @@
 package ch.nokillswit.jira
 
-import ch.nokillswit.infra.json.sha256Hex
+import ch.nokillswit.fetch.AnswerCeiling
+import ch.nokillswit.fetch.RunCeiling
 
 // The paging ceilings of the loops that follow a host's paging (`.claude/docs/jira-integration.md` "Paging ceilings"): what a
 // compromised or buggy host behind the allow-list can make a stream fetch, hold or write, bounded the way WORKLOGS' and CHANGELOGS'
@@ -65,7 +66,7 @@ internal data class ProjectFieldsCeilings(
 )
 
 /**
- * ISSUES' wire bytes in one run: what `JiraHttp` read for the pages it asked (`JiraSearchPage.wireBytes`), charged whole so that
+ * ISSUES' wire bytes in one run: what `SourceHttp` read for the pages it asked (`JiraSearchPage.wireBytes`), charged whole so that
  * whitespace padding or members the payload later drops cost the same as any other byte. The real dev tenant's average is ~1.3 MB
  * a 100-issue page (~13 KB an issue), its worst 100 issues together ~4.3 MB (~43 KB an issue), so the ~64k-issue production target
  * is ~0.83 GB on average and ~2.8 GB at the worst density; 4 GiB is ~5x the average and ~1.5x the worst case, and a legitimately
@@ -99,33 +100,3 @@ internal val ISSUES_RUN_CEILING = RunCeiling(maxPages = 10_000, maxItems = 500_0
  * caps an id-only page at 1,000. The ids are the rows of `raw.jira_reconcile_seen`, which the next pass drains.
  */
 internal val RECONCILE_RUN_CEILING = RunCeiling(maxPages = 500, maxItems = 500_000, maxBytes = RECONCILE_RUN_BYTES)
-
-/** The longest `nextPageToken` accepted: real ones are a few hundred characters; one goes back in a URL and into the cursor. */
-internal const val MAX_PAGE_TOKEN_CHARS = 8_192
-
-/**
- * Refuses a `nextPageToken` that cannot be a progressing cursor, BEFORE the page it came with is stored or the token persisted
- * (`INVALID_RESPONSE`, constant text): longer than [MAX_PAGE_TOKEN_CHARS], or one the host already sent in this run (the page
- * chain cycles, so the same pages would be re-fetched until a ceiling). Remembers a SHA-256 of each token, not the token; [resumed]
- * is the token a resumed run starts from. One guard per run, never shared; a token belongs to ONE query, so [restart] (the query was
- * replaced after a `CURSOR_EXPIRED`) forgets them - the run's page and item ceilings keep counting across it.
- */
-internal class PageTokenGuard(private val endpoint: String, resumed: String? = null) {
-    private val seen = HashSet<String>()
-
-    init {
-        resumed?.let { seen += sha256Hex(it) }
-    }
-
-    fun restart() = seen.clear()
-
-    fun accept(token: String?) {
-        if (token == null) return
-        if (token.length > MAX_PAGE_TOKEN_CHARS) {
-            throw JiraFetchException("INVALID_RESPONSE", null, endpoint, "a page token longer than $MAX_PAGE_TOKEN_CHARS characters")
-        }
-        if (!seen.add(sha256Hex(token))) {
-            throw JiraFetchException("INVALID_RESPONSE", null, endpoint, "a page token the host already sent in this run")
-        }
-    }
-}

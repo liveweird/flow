@@ -1,10 +1,10 @@
 package ch.nokillswit
 
+import ch.nokillswit.fetch.FetchException
 import ch.nokillswit.infra.outbound.DirectSocketFactory
 import ch.nokillswit.infra.outbound.guardedOkHttpClient
-import ch.nokillswit.jira.JiraFetchException
-import ch.nokillswit.jira.JiraHttp
 import ch.nokillswit.jira.buildGuardedJiraHttpClient
+import ch.nokillswit.jira.createJiraHttp
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpRequestTimeoutException
@@ -39,7 +39,7 @@ import kotlin.test.assertTrue
  * The transport-level guarantees of `infra/outbound/OutboundGuard.kt` that `OutboundGuardTest`
  * (allow-list, address ranges, error mapping) does not pin, each against a LOCAL socket server only
  * (`.claude/docs/security.md` "Outbound HTTP calls", "What pins what"):
- *  - the response/connection release of `jira/JiraHttp.kt` (LOW-3), with the leak window forced open by a
+ *  - the response/connection release of `fetch/SourceHttp.kt` (LOW-3), with the leak window forced open by a
  *    server that sends headers plus a first chunk of the body and then HOLDS the rest — plus the
  *    negative control that the old `client.request()` pattern is stuck in exactly that window;
  *  - [DirectSocketFactory] (LOW-4): no re-resolution, no proxy;
@@ -138,8 +138,8 @@ class OutboundTransportTest {
                 // maxRetries = 0: the 503 is terminal. The server never finishes the body, so any code that waits for
                 // the body (the old `client.request()` buffers it whole) ends in TIMEOUT after 5s instead of 503 now.
                 val error = loopbackClient().use { client ->
-                    val jiraHttp = JiraHttp(client, maxRetries = 0, maxResponseBytes = 1_000_000, maxConcurrentRequests = 1)
-                    assertFailsWith<JiraFetchException> { jiraHttp.request(HttpMethod.Get, server.probeUrl) }
+                    val jiraHttp = createJiraHttp(client, maxRetries = 0, maxResponseBytes = 1_000_000, maxConcurrentRequests = 1)
+                    assertFailsWith<FetchException> { jiraHttp.request(HttpMethod.Get, server.probeUrl) }
                 }
                 assertEquals("UPSTREAM_UNAVAILABLE", error.code)
                 assertEquals(503, error.status, "the status must surface without waiting for the held body")
@@ -153,8 +153,8 @@ class OutboundTransportTest {
         runBlocking {
             LocalHttpServer(status = 200, heldBodyBytes = 64 * 1024).use { server ->
                 val error = loopbackClient().use { client ->
-                    val jiraHttp = JiraHttp(client, maxRetries = 0, maxResponseBytes = 1_000, maxConcurrentRequests = 1)
-                    assertFailsWith<JiraFetchException> { jiraHttp.request(HttpMethod.Get, server.probeUrl) }
+                    val jiraHttp = createJiraHttp(client, maxRetries = 0, maxResponseBytes = 1_000, maxConcurrentRequests = 1)
+                    assertFailsWith<FetchException> { jiraHttp.request(HttpMethod.Get, server.probeUrl) }
                 }
                 assertEquals("LIMIT_EXCEEDED", error.code, "the cap must trip on the bytes that arrived, not wait for the 10 MB promised")
                 assertTrue(server.awaitClientClosed(), "the connection must be closed by the client, not leaked")
@@ -173,7 +173,7 @@ class OutboundTransportTest {
                     install(HttpTimeout) { requestTimeoutMillis = 700 }
                 }.use { client ->
                     // `client.request()` hands back a fully-buffered response: it waits for the whole (never-ending) body.
-                    // This is the behaviour `JiraHttp`'s prepareRequest/execute/bodyAsChannel replaced; if this test ever
+                    // This is the behaviour `SourceHttp`'s prepareRequest/execute/bodyAsChannel replaced; if this test ever
                     // stops timing out, the two tests above no longer discriminate the old pattern and must be revisited.
                     assertFailsWith<HttpRequestTimeoutException> { client.request(server.probeUrl) }
                 // The stall must be the held body, not a slow runner: the server wrote the headers plus the first

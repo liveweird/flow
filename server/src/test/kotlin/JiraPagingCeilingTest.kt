@@ -1,29 +1,30 @@
 package ch.nokillswit
 
+import ch.nokillswit.fetch.AnswerCeiling
+import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.fetch.MAX_PAGE_TOKEN_CHARS
+import ch.nokillswit.fetch.RunCeiling
+import ch.nokillswit.fetch.SourceHttp
 import ch.nokillswit.ingest.CeilingTripException
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.LIMIT_EXCEEDED_TRIP
 import ch.nokillswit.ingest.StreamContext
-import ch.nokillswit.jira.AnswerCeiling
 import ch.nokillswit.jira.HttpJiraClient
 import ch.nokillswit.jira.ISSUES_RUN_CEILING
 import ch.nokillswit.jira.IssuesCursor
 import ch.nokillswit.jira.JiraEntityKind
-import ch.nokillswit.jira.JiraFetchException
-import ch.nokillswit.jira.JiraHttp
 import ch.nokillswit.jira.JiraIssuesStream
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraReconcileStream
 import ch.nokillswit.jira.JiraReferenceStream
-import ch.nokillswit.jira.MAX_PAGE_TOKEN_CHARS
 import ch.nokillswit.jira.ProjectFieldsCeilings
 import ch.nokillswit.jira.RECONCILE_RUN_CEILING
 import ch.nokillswit.jira.ReconcileCursor
 import ch.nokillswit.jira.RawIssueInput
 import ch.nokillswit.jira.ReferenceCeilings
 import ch.nokillswit.jira.ReferenceCursor
-import ch.nokillswit.jira.RunCeiling
 import ch.nokillswit.jira.backfillFromEpochMillis
+import ch.nokillswit.jira.createJiraHttp
 import ch.nokillswit.jira.decodeCursor
 import ch.nokillswit.jira.decodeIssuesCursor
 import io.ktor.client.HttpClient
@@ -69,7 +70,7 @@ private const val HOST_TEXT = "HOSTSECRET"
  * The paging ceilings of the REFERENCE, ISSUES and RECONCILE loops (`.claude/docs/jira-integration.md` "Paging ceilings"): a Jira
  * host that never stops paging, cycles its `nextPageToken`, or packs a giant answer must end in a typed failure (or a skipped
  * project), with the cursor at the last page that COMMITTED - never unbounded work, growth or a cursor past stored data. The real
- * [HttpJiraClient], [JiraHttp] and raw store run over a Ktor `MockEngine` that plays the host; the ceilings are small so each attack
+ * [HttpJiraClient], [SourceHttp] and raw store run over a Ktor `MockEngine` that plays the host; the ceilings are small so each attack
  * is cheap. Every test owns its connection.
  */
 class JiraPagingCeilingTest {
@@ -169,7 +170,7 @@ class JiraPagingCeilingTest {
                     respond(body, HttpStatusCode.OK, JSON_HEADERS)
                 }
             }
-            val http = JiraHttp(
+            val http = createJiraHttp(
                 HttpClient(engine) { expectSuccess = false; followRedirects = false },
                 maxRetries = 0, maxResponseBytes = 32L * 1024 * 1024, maxConcurrentRequests = 1, sleeper = {},
             )
@@ -200,7 +201,7 @@ class JiraPagingCeilingTest {
     private suspend fun runReference(connId: UInt, host: Host, ceilings: ReferenceCeilings, context: StreamContext = context(connId)) =
         JiraReferenceStream(readyClient(host), store, listOf("FLO"), 0, ceilings).run(context).let { context }
 
-    private fun assertCeiling(failure: JiraFetchException, text: String) {
+    private fun assertCeiling(failure: FetchException, text: String) {
         assertEquals("LIMIT_EXCEEDED", failure.code)
         assertTrue("answer ceiling" in failure.message.orEmpty() && text in failure.message.orEmpty(), failure.message)
     }
@@ -219,7 +220,7 @@ class JiraPagingCeilingTest {
             val host = Host().apply {
                 handlers[label] = { startAt, _ -> endlessEntity(startAt, template.replace("%d", (startAt + 1).toString())) }
             }
-            val failure = assertFailsWith<JiraFetchException> { runReference(connId, host, small()) }
+            val failure = assertFailsWith<FetchException> { runReference(connId, host, small()) }
             assertCeiling(failure, "more than $PAGES pages")
             assertEquals(PAGES, host.calls(label), "$label: the chain stops at the page ceiling, however large the host's total")
             assertEquals(PAGES, entities(connId, kind), "$label: exactly the committed pages are stored")
@@ -233,7 +234,7 @@ class JiraPagingCeilingTest {
     fun `an endless users step fails at the page ceiling and its cursor resumes after the stored pages`() = runBlocking<Unit> {
         val connId = connection()
         val host = Host().apply { handlers["users"] = { startAt, _ -> """[{"accountId":"a$startAt"}]""" } }
-        val failure = assertFailsWith<JiraFetchException> { runReference(connId, host, small()) }
+        val failure = assertFailsWith<FetchException> { runReference(connId, host, small()) }
         assertCeiling(failure, "more than $PAGES pages")
         assertEquals(PAGES, host.calls("users"))
         assertEquals(PAGES, entities(connId, JiraEntityKind.USER))
@@ -248,7 +249,7 @@ class JiraPagingCeilingTest {
             handlers["sprints"] = { startAt, _ -> endlessEntity(startAt, """{"id":${startAt + 1},"name":"s"}""") }
         }
         val first = context(connId)
-        val failure = assertFailsWith<JiraFetchException> { runReference(connId, host, small(), first) }
+        val failure = assertFailsWith<FetchException> { runReference(connId, host, small(), first) }
         assertCeiling(failure, "more than $PAGES pages")
         assertEquals(PAGES, host.calls("sprints"))
         assertEquals(PAGES, entities(connId, JiraEntityKind.SPRINT))
@@ -258,7 +259,7 @@ class JiraPagingCeilingTest {
         // The pass re-pages the board from 0 and stores the same sprints again: pages commit, nothing changes, so the trip is no
         // progress and N of them in a row pause the connection (`CeilingPauseTest`) instead of reading as a still-advancing backfill.
         val second = context(connId)
-        val again = assertFailsWith<JiraFetchException> { runReference(connId, host, small(), second) }
+        val again = assertFailsWith<FetchException> { runReference(connId, host, small(), second) }
         assertCeiling(again, "more than $PAGES pages")
         assertEquals(PAGES, entities(connId, JiraEntityKind.SPRINT))
         assertFalse(second.ceilingTrip(LIMIT_EXCEEDED_TRIP, again).madeProgress, "identical sprints re-stored are not progress")
@@ -295,7 +296,7 @@ class JiraPagingCeilingTest {
             }
         }
         val rows = connection()
-        val byRows = assertFailsWith<JiraFetchException> {
+        val byRows = assertFailsWith<FetchException> {
             runReference(rows, six, small(startAt = RunCeiling(10, ROWS), boards = AnswerCeiling(1_000_000, maxItems = 3, maxPages = 100)))
         }
         assertCeiling(byRows, "more than 3 boards")
@@ -305,13 +306,13 @@ class JiraPagingCeilingTest {
         assertEquals(JiraEntityKind.BOARD_CONFIGURATION, assertNotNull(referenceCursor(rows)).step)
 
         val pages = connection()
-        val byPages = assertFailsWith<JiraFetchException> {
+        val byPages = assertFailsWith<FetchException> {
             runReference(pages, six, small(startAt = RunCeiling(10, ROWS), boards = AnswerCeiling(1_000_000, maxItems = 100, maxPages = 2)))
         }
         assertCeiling(byPages, "more than 2 pages")
 
         val chars = connection()
-        val byChars = assertFailsWith<JiraFetchException> {
+        val byChars = assertFailsWith<FetchException> {
             val boards = AnswerCeiling(maxChars = 100, maxItems = 100, maxPages = 100)
             runReference(chars, six, small(startAt = RunCeiling(10, ROWS), boards = boards))
         }
@@ -342,14 +343,14 @@ class JiraPagingCeilingTest {
                 startAtPage(startAt, listOf("""{"id":"${startAt + 1}"}""", """{"id":"${startAt + 2}"}"""), total = FOREVER, isLast = false)
             }
         }
-        val failure = assertFailsWith<JiraFetchException> { runReference(statuses, host, small(startAt = RunCeiling(100, 3))) }
+        val failure = assertFailsWith<FetchException> { runReference(statuses, host, small(startAt = RunCeiling(100, 3))) }
         assertCeiling(failure, "more than 3 entities")
         assertEquals(2, entities(statuses, JiraEntityKind.STATUS), "page 1 only: the refused page was not written")
         assertEquals(2, assertNotNull(referenceCursor(statuses)).startAt)
 
         val users = connection()
         val twoUsers = Host().apply { handlers["users"] = { startAt, _ -> """[{"accountId":"a$startAt"},{"accountId":"b$startAt"}]""" } }
-        val byUsers = assertFailsWith<JiraFetchException> { runReference(users, twoUsers, small(users = RunCeiling(100, 3))) }
+        val byUsers = assertFailsWith<FetchException> { runReference(users, twoUsers, small(users = RunCeiling(100, 3))) }
         assertCeiling(byUsers, "more than 3 users")
         assertEquals(2, entities(users, JiraEntityKind.USER))
         assertEquals(2, assertNotNull(referenceCursor(users)).startAt)
@@ -365,7 +366,7 @@ class JiraPagingCeilingTest {
             }
             handlers["sprints"] = { startAt, _ -> startAtPage(startAt, listOf("""{"id":${startAt + 1},"name":"s"}"""), total = 2) }
         }
-        val failure = assertFailsWith<JiraFetchException> { runReference(connId, host, small()) }
+        val failure = assertFailsWith<FetchException> { runReference(connId, host, small()) }
         assertCeiling(failure, "more than $PAGES pages")
         assertEquals(PAGES, host.calls("sprints"), "board 7 took two requests, board 8 one before the pass budget ran out")
         assertEquals(listOf(0, 1, 0), host.starts.getValue("sprints").toList())
@@ -373,7 +374,7 @@ class JiraPagingCeilingTest {
 
         // The row budget is shared the same way: two boards of two sprints each against a ceiling of three.
         val rows = connection()
-        val byRows = assertFailsWith<JiraFetchException> {
+        val byRows = assertFailsWith<FetchException> {
             runReference(rows, host, small(sprints = RunCeiling(100, 3)))
         }
         assertCeiling(byRows, "more than 3 sprints")
@@ -383,7 +384,7 @@ class JiraPagingCeilingTest {
     fun `a step that failed at its ceiling resumes at its stored startAt on the next run and completes the pass`() = runBlocking<Unit> {
         val connId = connection()
         val endless = Host().apply { handlers["statuses"] = { startAt, _ -> endlessEntity(startAt, """{"id":"${startAt + 1}"}""") } }
-        assertFailsWith<JiraFetchException> { runReference(connId, endless, small()) }
+        assertFailsWith<FetchException> { runReference(connId, endless, small()) }
         assertEquals(PAGES, assertNotNull(referenceCursor(connId)).startAt)
 
         // The host now ends after five entities; the next run asks from startAt 3 with a fresh budget and finishes the pass.
@@ -459,7 +460,7 @@ class JiraPagingCeilingTest {
         runBlocking<Unit> {
             val connId = connection()
             val host = Host().apply { handlers["search"] = pagedIssues() }
-            val failure = assertFailsWith<JiraFetchException> { runIssues(connId, host, RunCeiling(PAGES, 1_000)) }
+            val failure = assertFailsWith<FetchException> { runIssues(connId, host, RunCeiling(PAGES, 1_000)) }
             assertCeiling(failure, "more than $PAGES pages")
             assertEquals(PAGES, host.calls("search"), "the (n+1)th page is never asked")
             assertEquals(PAGES.toLong(), store.countIssues(connId))
@@ -480,7 +481,7 @@ class JiraPagingCeilingTest {
         runBlocking<Unit> {
             val connId = connection()
             val host = Host().apply { handlers["search"] = pagedIssues(perPage = 2) }
-            val failure = assertFailsWith<JiraFetchException> { runIssues(connId, host, RunCeiling(maxPages = 100, maxItems = 5)) }
+            val failure = assertFailsWith<FetchException> { runIssues(connId, host, RunCeiling(maxPages = 100, maxItems = 5)) }
             assertCeiling(failure, "more than 5 issues")
             assertEquals(3, host.calls("search"))
             assertEquals(4L, store.countIssues(connId), "pages 1 and 2 only: the refused page's issues are not stored")
@@ -494,7 +495,7 @@ class JiraPagingCeilingTest {
             val host = Host().apply { handlers["search"] = pagedIssues() }
             // Pages of one issue each, ids 1-9 and tokens t1-t9 of one length: three pages' wire bytes fit exactly, the fourth passes it.
             val chars = 3L * searchPage(listOf(issue(1)), "t1").length
-            val failure = assertFailsWith<JiraFetchException> { runIssues(connId, host, RunCeiling(100, 1_000, chars)) }
+            val failure = assertFailsWith<FetchException> { runIssues(connId, host, RunCeiling(100, 1_000, chars)) }
             assertCeiling(failure, "more than $chars bytes")
             assertEquals(4, host.calls("search"), "the fourth page is fetched, then refused")
             assertEquals(3L, store.countIssues(connId), "the refused page's issue is not stored")
@@ -518,7 +519,7 @@ class JiraPagingCeilingTest {
                 }
             }
         }
-        val failure = assertFailsWith<JiraFetchException> { runIssues(connId, host, ISSUES_RUN_CEILING) }
+        val failure = assertFailsWith<FetchException> { runIssues(connId, host, ISSUES_RUN_CEILING) }
         assertEquals("INVALID_RESPONSE", failure.code)
         assertTrue("page token the host already sent" in failure.message.orEmpty(), failure.message)
         assertEquals(3, host.calls("search"))
@@ -535,7 +536,7 @@ class JiraPagingCeilingTest {
         )
         cursors.put(connId, "issues", Json.encodeToString(resumed))
         val host = Host().apply { handlers["search"] = { _, _ -> searchPage(listOf(issue(1)), "resume") } }
-        val failure = assertFailsWith<JiraFetchException> { runIssues(connId, host, ISSUES_RUN_CEILING) }
+        val failure = assertFailsWith<FetchException> { runIssues(connId, host, ISSUES_RUN_CEILING) }
         assertEquals("INVALID_RESPONSE", failure.code)
         assertEquals(1, host.calls("search"))
         assertEquals(0L, store.countIssues(connId))
@@ -547,7 +548,7 @@ class JiraPagingCeilingTest {
         val connId = connection()
         val long = "x".repeat(MAX_PAGE_TOKEN_CHARS + 1)
         val host = Host().apply { handlers["search"] = { _, _ -> searchPage(listOf(issue(1)), long) } }
-        val failure = assertFailsWith<JiraFetchException> { runIssues(connId, host, ISSUES_RUN_CEILING) }
+        val failure = assertFailsWith<FetchException> { runIssues(connId, host, ISSUES_RUN_CEILING) }
         assertEquals("INVALID_RESPONSE", failure.code)
         assertTrue("longer than $MAX_PAGE_TOKEN_CHARS" in failure.message.orEmpty(), failure.message)
         assertEquals(0L, store.countIssues(connId))
@@ -600,7 +601,7 @@ class JiraPagingCeilingTest {
         val connId = connection()
         seedCandidate(connId)
         val host = Host().apply { handlers["search"] = pagedIds() }
-        val failure = assertFailsWith<JiraFetchException> { runReconcile(connId, host, RunCeiling(PAGES, 1_000)) }
+        val failure = assertFailsWith<FetchException> { runReconcile(connId, host, RunCeiling(PAGES, 1_000)) }
         assertCeiling(failure, "more than $PAGES pages")
         assertEquals(PAGES, host.calls("search"))
         assertEquals(PAGES, seen(connId), "the committed pages' ids are in the scratch table (the next pass drains it)")
@@ -613,7 +614,7 @@ class JiraPagingCeilingTest {
     fun `a sweep past the id ceiling is refused before the page's ids are written`() = runBlocking<Unit> {
         val connId = connection()
         val host = Host().apply { handlers["search"] = pagedIds(perPage = 2) }
-        val failure = assertFailsWith<JiraFetchException> { runReconcile(connId, host, RunCeiling(maxPages = 100, maxItems = 3)) }
+        val failure = assertFailsWith<FetchException> { runReconcile(connId, host, RunCeiling(maxPages = 100, maxItems = 3)) }
         assertCeiling(failure, "more than 3 ids")
         assertEquals(2, seen(connId), "page 1 only")
         assertEquals("t1", cursorToken(connId))
@@ -625,7 +626,7 @@ class JiraPagingCeilingTest {
         seedCandidate(connId)
         val host = Host().apply { handlers["search"] = pagedIds() }
         val chars = 3L * searchPage(listOf(idOnly(1)), "t1").length // the wire bytes of a page of one id
-        val failure = assertFailsWith<JiraFetchException> { runReconcile(connId, host, RunCeiling(100, 1_000, chars)) }
+        val failure = assertFailsWith<FetchException> { runReconcile(connId, host, RunCeiling(100, 1_000, chars)) }
         assertCeiling(failure, "more than $chars bytes")
         assertEquals(4, host.calls("search"))
         assertEquals(3, seen(connId), "the committed pages only")
@@ -636,17 +637,17 @@ class JiraPagingCeilingTest {
     @Test
     fun `a page padded with whitespace is charged its full wire size, in RECONCILE and in ISSUES`() = runBlocking<Unit> {
         // A hostile page that is mostly whitespace (or unused members) carries almost no text a parsed-tree count would see: the bytes
-        // `JiraHttp` read are what is charged, so 10,000 bytes of padding trip a 5,000-byte ceiling that the ~60-byte document would not.
+        // `SourceHttp` read are what is charged, so 10,000 bytes of padding trip a 5,000-byte ceiling that the ~60-byte document would not.
         val padding = " ".repeat(10_000)
         val sweep = connection()
         val ids = Host().apply { handlers["search"] = { _, _ -> padding + searchPage(listOf(idOnly(1)), null) } }
-        val bySweep = assertFailsWith<JiraFetchException> { runReconcile(sweep, ids, RunCeiling(100, 1_000, 5_000)) }
+        val bySweep = assertFailsWith<FetchException> { runReconcile(sweep, ids, RunCeiling(100, 1_000, 5_000)) }
         assertCeiling(bySweep, "more than 5000 bytes")
         assertEquals(0, seen(sweep), "nothing of the refused page is stored")
 
         val issues = connection()
         val host = Host().apply { handlers["search"] = { _, _ -> padding + searchPage(listOf(issue(1)), null) } }
-        val byIssues = assertFailsWith<JiraFetchException> { runIssues(issues, host, RunCeiling(100, 1_000, 5_000)) }
+        val byIssues = assertFailsWith<FetchException> { runIssues(issues, host, RunCeiling(100, 1_000, 5_000)) }
         assertCeiling(byIssues, "more than 5000 bytes")
         assertEquals(0L, store.countIssues(issues))
         // The same page unpadded fits the same ceiling.
@@ -663,7 +664,7 @@ class JiraPagingCeilingTest {
                 if (token == null) searchPage(listOf(idOnly(1)), "t1") else searchPage(listOf(idOnly(2)), "t1")
             }
         }
-        val failure = assertFailsWith<JiraFetchException> { runReconcile(connId, host, RECONCILE_RUN_CEILING) }
+        val failure = assertFailsWith<FetchException> { runReconcile(connId, host, RECONCILE_RUN_CEILING) }
         assertEquals("INVALID_RESPONSE", failure.code)
         assertEquals(2, host.calls("search"))
         assertEquals(1, seen(connId), "only the first page committed")
@@ -693,7 +694,7 @@ class JiraPagingCeilingTest {
     fun `a sweep id the host sends without a usable number is refused with constant text`() = runBlocking<Unit> {
         val connId = connection()
         val host = Host().apply { handlers["search"] = { _, _ -> searchPage(listOf("""{"id":"$HOST_TEXT"}"""), null) } }
-        val failure = assertFailsWith<JiraFetchException> { runReconcile(connId, host, RECONCILE_RUN_CEILING) }
+        val failure = assertFailsWith<FetchException> { runReconcile(connId, host, RECONCILE_RUN_CEILING) }
         assertEquals("INVALID_RESPONSE", failure.code)
         assertNoHostText(failure)
     }
@@ -720,7 +721,7 @@ class JiraPagingCeilingTest {
             bad.forEach { document ->
                 val connId = connection()
                 val host = Host().apply { handlers["search"] = { _, _ -> searchPage(listOf(document), null) } }
-                val failure = assertFailsWith<JiraFetchException> { runIssues(connId, host, ISSUES_RUN_CEILING) }
+                val failure = assertFailsWith<FetchException> { runIssues(connId, host, ISSUES_RUN_CEILING) }
                 assertEquals("INVALID_RESPONSE", failure.code, document)
                 assertNoHostText(failure)
                 assertEquals(0L, store.countIssues(connId))
@@ -735,7 +736,7 @@ class JiraPagingCeilingTest {
                 startAtPage(startAt, listOf("""{"id":"$HOST_TEXT","type":"scrum","location":{"projectKey":"FLO"}}"""), total = 1)
             }
         }
-        val byBoard = assertFailsWith<JiraFetchException> { runReference(board, boards, small()) }
+        val byBoard = assertFailsWith<FetchException> { runReference(board, boards, small()) }
         assertEquals("INVALID_RESPONSE", byBoard.code)
         assertNoHostText(byBoard)
 
@@ -743,7 +744,7 @@ class JiraPagingCeilingTest {
         val statuses = Host().apply {
             handlers["statuses"] = { startAt, _ -> startAtPage(startAt, listOf("""{"name":"$HOST_TEXT"}"""), total = 1) }
         }
-        val byEntity = assertFailsWith<JiraFetchException> { runReference(entity, statuses, small()) }
+        val byEntity = assertFailsWith<FetchException> { runReference(entity, statuses, small()) }
         assertEquals("INVALID_RESPONSE", byEntity.code)
         assertNoHostText(byEntity)
     }

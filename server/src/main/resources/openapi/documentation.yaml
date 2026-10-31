@@ -4740,7 +4740,7 @@ components:
         code:
           type: string
           nullable: true
-          description: A `JiraFetchException` code on failure (e.g. `AUTHENTICATION_FAILED`, `FORBIDDEN_SCOPE`).
+          description: A `FetchException` code on failure (e.g. `AUTHENTICATION_FAILED`, `FORBIDDEN_SCOPE`).
         scopeHint:
           type: string
           nullable: true

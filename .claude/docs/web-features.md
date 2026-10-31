@@ -70,7 +70,7 @@ endpoint (`requireAdmin` server-side).
   validates only the four Jira fields the probe needs (not the whole form) before calling.
   **`components/ConnectionTestResults.tsx`** renders the row table (endpoint + path / required /
   a teal-or-red result badge / a detail cell combining the upstream status, the
-  `JiraFetchException` code and a failed row's `scopeHint`) and the resolved `cloudId` once
+  `FetchException` code and a failed row's `scopeHint`) and the resolved `cloudId` once
   `tenant_info` succeeds.
 - **`pages/DataSourceDetails.tsx`** (`/data-sources/:id`, reached from the list's name link or its
   Open row action) is the connection's operational view over ONE `GET …/status` query: summary

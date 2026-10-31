@@ -457,7 +457,7 @@ Jira-calling stream is never recorded `TIME_EXCEEDED` for the local work after i
 so a healthy run never meets it, while a run that grinds for an hour is an outage or a bug worth stopping (every committed page is kept).
 The floor of 5 keeps the REFERENCE pass (about a minute at most) from eating the whole budget.
 
-**Typing.** `JiraConnector.withTally` wraps a failure carrying a `LIMIT_EXCEEDED` `JiraFetchException` (anywhere in its causes, so the
+**Typing.** `JiraConnector.withTally` wraps a failure carrying a `LIMIT_EXCEEDED` `FetchException` (anywhere in its causes, so the
 run ceilings, the answer ceilings and `SkipBudget` all count) in a `CeilingTripException(code, madeProgress, underlying)`; the clock's trip
 is one already. `IngestWorker.onFailed` closes the job with the trip's code as `sync_jobs.error_code` (and the connection's
 `last_sync_error_code`) instead of `RUN_FAILED`, and the `error_detail` of the failure it wraps; the audit `sync_job.failed` carries it.
@@ -807,7 +807,7 @@ unavailable (a GA/scope gap), not a transient failure — makes that ONE batch f
 `GET /issue/{id}/changelog` (`startAt`-paged, reading the `histories` key — see
 `.claude/docs/jira-integration.md`), one issue per transaction+heartbeat instead of one transaction
 for the whole batch (finer-grained resumability, since each issue is its own sequence of HTTP
-calls). Any OTHER `JiraFetchException` status propagates rather than triggering the fallback.
+calls). Any OTHER `FetchException` status propagates rather than triggering the fallback.
 
 **Oversized batch.** A bulk answer over `jira.maxResponseBytes` or its node/depth ceiling (`LIMIT_EXCEEDED`) halves the batch (claimed afresh at the
 smaller run-local size, never persisted); a batch of one issue goes to the per-issue endpoint, and an issue over the cap
@@ -1300,7 +1300,7 @@ in a batch — see "Normalized layer" above), `referenceRowsSkipped` (PROCESS, o
 recompute pass, not a per-row counter, see "Data profile" below).
 
 **Counters the connector adds (not a stream's):** `StreamContext(extraProgress = …)` is a `() -> Map<String, Long>` merged into every heartbeat's progress JSON (and
-into `progressSnapshot()`). `JiraConnector` passes the job's `JiraCallTally` (`jiraRateLimited`, `jiraBackoffMs`, `jiraTenantPausedMs`, `jiraNearLimitPauses`; definitions
+into `progressSnapshot()`). `JiraConnector` passes the job's `CallTally` (`jiraRateLimited`, `jiraBackoffMs`, `jiraTenantPausedMs`, `jiraNearLimitPauses`; definitions
 in `jira-integration.md` "Rate limits and backoff"), only the NON-ZERO keys, so an unthrottled job carries none. **`backfill`** (value 1, set by the ISSUES stream at the
 start of its run) marks a SYNC whose ISSUES run is a first download or widens the covered scope - `!IssuesCursor.coversScope(projectKeys, backfillFrom)` on the stored cursor
 ("Covered scope and the catch-up clause": no completed run, a configured project not covered, or `coveredBackfillFrom` later than the configured date); an incremental run, a

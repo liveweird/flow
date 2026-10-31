@@ -184,7 +184,7 @@ dependencies {
     implementation(ktorLibs.server.callLogging)
     // The Jira Cloud HTTP client (v0.2.0 plan §6): Ktor's client core plus the OkHttp engine, so
     // `infra/outbound/OutboundGuard.kt`'s guarded `okhttp3.OkHttpClient` (Dns pinning, no
-    // redirects/proxy/connection-failure-retry) preconfigures the transport `jira/JiraHttp.kt` runs on.
+    // redirects/proxy/connection-failure-retry) preconfigures the transport `fetch/SourceHttp.kt` runs on.
     implementation(ktorLibs.client.core)
     implementation(ktorLibs.client.okhttp)
     implementation(ktorLibs.server.compression)
@@ -240,7 +240,7 @@ dependencies {
     // Test-only: the test HTTP clients (TestEnvironment.kt's jsonClient()/authedClient()) negotiate
     // application/json and application/problem+json bodies.
     testImplementation(ktorLibs.client.contentNegotiation)
-    // Test-only: JiraClientTest exercises HttpJiraClient/JiraHttp against a scripted Ktor
+    // Test-only: JiraClientTest exercises HttpJiraClient/SourceHttp against a scripted Ktor
     // MockEngine instead of a real socket — no network, no WireMock needed for that suite.
     testImplementation(ktorLibs.client.mock)
     // Test-only: JiraStubServer runs the real sample-data/jira-stub WireMock mappings in-JVM

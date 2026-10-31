@@ -1,5 +1,7 @@
 package ch.nokillswit.jira
 
+import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.fetch.SourceHttp
 import ch.nokillswit.infra.outbound.ATLASSIAN_GATEWAY_HOST
 import ch.nokillswit.ingest.JiraAuthScheme
 import io.ktor.http.HttpMethod
@@ -25,7 +27,7 @@ import kotlinx.serialization.json.putJsonArray
  */
 interface JiraClient {
     /**
-     * The most calls this client lets run at once (`jira.maxConcurrentRequests`, enforced by [JiraHttp]'s semaphore, not here).
+     * The most calls this client lets run at once (`jira.maxConcurrentRequests`, enforced by [SourceHttp]'s semaphore, not here).
      * A stream that fetches several items ahead sizes its look-ahead from this, so the semaphore stays the only limit. Abstract
      * on purpose: a fake must say how many calls it tolerates at once (the test fakes answer 1).
      */
@@ -100,7 +102,7 @@ private val ISSUE_KEY_PATTERN = Regex("^[A-Z][A-Z0-9_]{1,9}-[0-9]{1,10}$")
  * [resolveCloudId], which must run before any other call.
  */
 class HttpJiraClient(
-    private val http: JiraHttp,
+    private val http: SourceHttp,
     private val tenantInfoBaseUrl: String,
     private val stubBaseUrl: String?,
     email: String,
@@ -123,8 +125,8 @@ class HttpJiraClient(
         val endpoint = "/_edge/tenant_info"
         val json = http.request(HttpMethod.Get, "$tenantInfoBaseUrl$endpoint", authHeader = null)
         val rawCloudId = decode<JsonObject>(json, endpoint).primitiveOrNull("cloudId", endpoint)?.contentOrNull
-            ?: throw JiraFetchException("INVALID_RESPONSE", null, endpoint)
-        if (!CLOUD_ID_PATTERN.matches(rawCloudId)) throw JiraFetchException("INVALID_RESPONSE", null, endpoint)
+            ?: throw FetchException(JIRA_SOURCE, "INVALID_RESPONSE", null, endpoint)
+        if (!CLOUD_ID_PATTERN.matches(rawCloudId)) throw FetchException(JIRA_SOURCE, "INVALID_RESPONSE", null, endpoint)
         val cloudId = rawCloudId.lowercase()
         val gatewayHost = stubBaseUrl ?: "https://$ATLASSIAN_GATEWAY_HOST"
         gatewayBase = "$gatewayHost/ex/jira/$cloudId"
@@ -161,7 +163,7 @@ class HttpJiraClient(
         val body = buildJsonObject { put("jql", jql) }
         val json = post(endpoint, body)
         return decode<JsonObject>(json, endpoint).primitiveOrNull("count", endpoint)?.longOrNull
-            ?: throw JiraFetchException("INVALID_RESPONSE", null, endpoint)
+            ?: throw FetchException(JIRA_SOURCE, "INVALID_RESPONSE", null, endpoint)
     }
 
     override suspend fun issue(idOrKey: String, fields: String?): JsonObject {
@@ -313,7 +315,7 @@ class HttpJiraClient(
     private suspend fun post(path: String, body: JsonElement, query: Map<String, String> = emptyMap()): JsonElement =
         http.request(HttpMethod.Post, "${requireGateway()}$path", query, body, auth, pauseKey = gatewayBase)
 
-    /** [get]/[post] that convert the tree under the big-parse lock ([JiraHttp.requestAs]). */
+    /** [get]/[post] that convert the tree under the big-parse lock ([SourceHttp.requestAs]). */
     private suspend fun <T> getAs(path: String, query: Map<String, String> = emptyMap(), transform: (JsonElement) -> T): T =
         http.requestAs(HttpMethod.Get, "${requireGateway()}$path", query, null, auth, pauseKey = gatewayBase, transform = transform)
 
@@ -328,7 +330,7 @@ class HttpJiraClient(
      */
     private fun requireIssueIdOrKey(idOrKey: String, endpoint: String): String {
         if (!ISSUE_ID_PATTERN.matches(idOrKey) && !ISSUE_KEY_PATTERN.matches(idOrKey)) {
-            throw JiraFetchException("INVALID_RESPONSE", null, endpoint)
+            throw FetchException(JIRA_SOURCE, "INVALID_RESPONSE", null, endpoint)
         }
         return idOrKey
     }
@@ -350,12 +352,12 @@ private val LENIENT_JSON = Json { ignoreUnknownKeys = true }
 private inline fun <reified T> decode(json: JsonElement, endpoint: String? = null): T = try {
     LENIENT_JSON.decodeFromJsonElement(json)
 } catch (cause: Exception) {
-    throw JiraFetchException("INVALID_RESPONSE", null, endpoint).also { it.initCause(cause) }
+    throw FetchException(JIRA_SOURCE, "INVALID_RESPONSE", null, endpoint).also { it.initCause(cause) }
 }
 
 /** [MED-4] `JsonObject["key"]?.jsonPrimitive` also raw-casts on a non-primitive value — same mapping. */
 private fun JsonObject.primitiveOrNull(key: String, endpoint: String): JsonPrimitive? = try {
     this[key]?.jsonPrimitive
 } catch (cause: IllegalArgumentException) {
-    throw JiraFetchException("INVALID_RESPONSE", null, endpoint).also { it.initCause(cause) }
+    throw FetchException(JIRA_SOURCE, "INVALID_RESPONSE", null, endpoint).also { it.initCause(cause) }
 }

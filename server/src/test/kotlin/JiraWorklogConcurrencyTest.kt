@@ -1,13 +1,14 @@
 package ch.nokillswit
 
+import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.fetch.SourceHttp
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.jira.HttpJiraClient
-import ch.nokillswit.jira.JiraFetchException
-import ch.nokillswit.jira.JiraHttp
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraWorklogStream
 import ch.nokillswit.jira.RawIssueInput
+import ch.nokillswit.jira.createJiraHttp
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
@@ -48,7 +49,7 @@ private const val CALL_MILLIS = 25L
 
 /**
  * The WORKLOGS per-issue backfill fetches a claimed batch CONCURRENTLY but stores it in claim order (`jira/JiraWorklogStream.kt`
- * `fetchAndFlush`, `build-times.md` WHY 33). The real [HttpJiraClient] and [JiraHttp] (so the real semaphore) run over a Ktor
+ * `fetchAndFlush`, `build-times.md` WHY 33). The real [HttpJiraClient] and [SourceHttp] (so the real semaphore) run over a Ktor
  * `MockEngine` that counts the calls in flight at the "wire"; the raw store is the real one on the shared test database, one
  * connection per test. What must hold: never more calls in flight than `maxConcurrentRequests`, the same rows and stamps as the
  * sequential loop, a failure leaving exactly what it left before, and cancellation reaching the in-flight calls.
@@ -118,7 +119,7 @@ class JiraWorklogConcurrencyTest {
                 }
             }
         }
-        val http = JiraHttp(
+        val http = createJiraHttp(
             HttpClient(engine) { expectSuccess = false; followRedirects = false },
             maxRetries = 0, maxResponseBytes = 1_000_000, maxConcurrentRequests = limit, sleeper = {},
         )
@@ -171,7 +172,7 @@ class JiraWorklogConcurrencyTest {
                     else -> { delay(CALL_MILLIS); respond(worklogBody(id), HttpStatusCode.OK, JSON_HEADERS) }
                 }
             }
-            val failure = assertFailsWith<JiraFetchException> { run(connId, client) }
+            val failure = assertFailsWith<FetchException> { run(connId, client) }
             assertEquals("UPSTREAM_UNAVAILABLE", failure.code, "issue 3's failure, not issue 5's that arrived first")
             assertEquals(2L, store.countWorklogs(connId), "issues 1 and 2 were before the failure")
             assertNotNull(worklogsSyncedAt(connId, 1))

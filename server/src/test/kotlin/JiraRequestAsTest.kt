@@ -1,7 +1,9 @@
 package ch.nokillswit
 
-import ch.nokillswit.jira.JiraFetchException
-import ch.nokillswit.jira.JiraHttp
+import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.fetch.SourceHttp
+import ch.nokillswit.jira.JIRA_SOURCE
+import ch.nokillswit.jira.createJiraHttp
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -22,18 +24,18 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
- * `JiraHttp.requestAs` (`.claude/docs/jira-integration.md` "Stored-size ceilings"): the caller's transform runs on the parsed tree
+ * `SourceHttp.requestAs` (`.claude/docs/jira-integration.md` "Stored-size ceilings"): the caller's transform runs on the parsed tree
  * while the big-parse lock is still held, so the streams that accumulate answers (CHANGELOGS, WORKLOGS) never keep a page tree alive.
  */
 class JiraRequestAsTest {
-    private fun http(body: ByteArray, concurrent: Int = 4): JiraHttp {
+    private fun http(body: ByteArray, concurrent: Int = 4): SourceHttp {
         val client = HttpClient(
             MockEngine { respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json")) },
         ) {
             expectSuccess = false
             followRedirects = false
         }
-        return JiraHttp(client, maxRetries = 0, maxResponseBytes = 8L * 1024 * 1024, maxConcurrentRequests = concurrent, sleeper = {})
+        return createJiraHttp(client, maxRetries = 0, maxResponseBytes = 8L * 1024 * 1024, maxConcurrentRequests = concurrent, sleeper = {})
     }
 
     private val big = "[${"0,".repeat(600_000)}0]".toByteArray()
@@ -70,8 +72,10 @@ class JiraRequestAsTest {
     fun `a failing transform propagates unchanged and releases the lock`() = runBlocking<Unit> {
         val http = http(big)
         assertFailsWith<IllegalStateException> { http.requestAs<Unit>(HttpMethod.Get, "https://stub.invalid/x") { error("boom") } }
-        val failure = assertFailsWith<JiraFetchException> {
-            http.requestAs<Unit>(HttpMethod.Get, "https://stub.invalid/x") { throw JiraFetchException("INVALID_RESPONSE", null, "x") }
+        val failure = assertFailsWith<FetchException> {
+            http.requestAs<Unit>(HttpMethod.Get, "https://stub.invalid/x") {
+                throw FetchException(JIRA_SOURCE, "INVALID_RESPONSE", null, "x")
+            }
         }
         assertEquals("INVALID_RESPONSE", failure.code)
         assertEquals(600_001, http.requestAs(HttpMethod.Get, "https://stub.invalid/x") { (it as JsonArray).size })

@@ -1,5 +1,6 @@
 package ch.nokillswit.jira
 
+import ch.nokillswit.fetch.CALL_TALLY_KEYS
 import kotlinx.serialization.Serializable
 
 // The ISSUES stream's persisted cursor and the scope decisions read off it (split out of `JiraIssuesStream.kt`, which keeps the
@@ -40,6 +41,12 @@ internal const val ISSUES_STREAM_NAME = "issues"
 
 /** The progress counter (`sync_jobs.progress`, value 1) a SYNC carries when its ISSUES run is a first download or widens the scope. */
 internal const val BACKFILL_PROGRESS_KEY = "backfill"
+
+/**
+ * The progress keys a retried attempt carries over from the previous one (`JiraConnector`): the call tally's four counters and the
+ * ISSUES stream's `backfill` marker, none of which the retry would necessarily set again.
+ */
+internal val STICKY_PROGRESS_KEYS = CALL_TALLY_KEYS + BACKFILL_PROGRESS_KEY
 
 internal fun decodeIssuesCursor(text: String): IssuesCursor = decodeCursor(text)
 
