@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.38.0",
+    date: "2026-10-31",
+    en: `**GitLab identities are linked to Jira people.**
+
+- A GitLab source's new **Identities** page lists every GitLab user and commit address the sync found, proposes the matching Jira person by e-mail (a bot account is proposed as a bot), and lets an administrator confirm all proposals at once or decide row by row: link to a Jira person from the site directory, mark as bot, ignore, or remove a decision.
+- Decisions belong to the GitLab instance, not to the connection: deleting and re-creating the source, or a purge, keeps them.
+- Only confirmed links attribute code activity; the reports that read them come in a later release.`,
+    pl: `**Tożsamości GitLab są powiązane z osobami z Jiry.**
+
+- Nowa strona **Tożsamości** źródła GitLab wyświetla każdego użytkownika GitLab i adres commitu znaleziony podczas synchronizacji, proponuje pasującą osobę z Jiry po adresie e-mail (konto bota jest proponowane jako bot) i pozwala administratorowi potwierdzić wszystkie propozycje naraz albo decydować wiersz po wierszu: powiązać z osobą z katalogu witryny, oznaczyć jako bota, zignorować lub usunąć decyzję.
+- Decyzje należą do instancji GitLab, nie do połączenia: usunięcie i ponowne utworzenie źródła albo czyszczenie danych je zachowuje.
+- Tylko potwierdzone powiązania przypisują aktywność w kodzie; raporty, które je odczytują, pojawią się w późniejszym wydaniu.`,
+  },
+  {
     version: "1.37.0",
     date: "2026-10-31",
     en: `**GitLab: commits, merge requests and review activity become normalized facts.**
