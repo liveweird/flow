@@ -88,6 +88,21 @@ internal data class MergeRequestsCursor(
     val watermarks: Map<String, Long> = emptyMap(),
     val pass: MergeRequestsPass? = null,
     val projectSets: Map<String, List<Long>> = emptyMap(),
+    /** `reconcile_merge_requests` only: the pass's state beside [pass] (the watermarks and project sets stay empty there). */
+    val reconcile: MrReconcileState? = null,
+)
+
+/**
+ * RECONCILE's merge-request re-list state: [passStartedAt] (a merge request seen at or after it was shown by this pass), the group paths
+ * whose listing reached its last page ([completedGroups]: only their projects' unlisted merge requests are candidates - a group that
+ * answered `NOT_FOUND` or was skipped is absent) and [listingDone] (the probes and the refresh are what is left). Saved with every page,
+ * so a run cut anywhere resumes the same pass, across attempts and jobs.
+ */
+@Serializable
+internal data class MrReconcileState(
+    val passStartedAt: Long,
+    val completedGroups: List<String> = emptyList(),
+    val listingDone: Boolean = false,
 )
 
 /**

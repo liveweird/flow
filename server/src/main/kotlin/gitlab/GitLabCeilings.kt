@@ -46,6 +46,32 @@ internal const val MAX_SWEEP_CONFIRMATIONS = 100
  */
 internal const val RECONCILE_COMMITS_SLACK_MILLIS = 14 * MILLIS_PER_DAY
 
+/**
+ * The most moved-out projects one RECONCILE asks `GET /projects/:id` about. The set is the projects PROJECTS marked moved out and no
+ * reconcile has deleted yet - a handful in practice (a project renamed out of the groups, one deleted); 500 is a bound a runaway pass
+ * cannot pass, and anything beyond it waits for the next day.
+ */
+internal const val MAX_PROJECT_PROBES = 500
+
+/**
+ * The most merge requests one RECONCILE confirms with `GET /projects/:id/merge_requests/:iid` (one call each, plus two project probes
+ * per project). Candidates are rare - a deleted merge request, a page skipped mid-pass, a project that moved minutes ago - so 200 is
+ * generous; more are deferred (`mrReconcileDeferred`) and are candidates again the next day if they are still unlisted.
+ */
+internal const val MAX_MR_CONFIRMATIONS = 200
+
+/**
+ * The most GraphQL calls RECONCILE's stats re-ask makes (50 merge requests each, so 5,000 gaps): after a day-long GraphQL outage the
+ * whole backlog of gaps is one pass away, and a permanent gap costs one call per project per day.
+ */
+internal const val RECONCILE_STATS_CALLS = 100
+
+/**
+ * The most `details_error` stamps RECONCILE un-stamps per run. Ten is the MR DETAILS skip budget's floor (`max(10, 10 %)`), so ten that
+ * fail again can never fail the SYNC that re-reads them - an unbounded un-stamp of permanently failing merge requests would.
+ */
+internal const val RECONCILE_DETAILS_RETRIES = 10
+
 /** The pending-commit batch the COMMIT FILES stream claims from the backlog at a time. */
 internal const val COMMIT_FILES_BATCH = 50
 

@@ -13,22 +13,6 @@ private val log = LoggerFactory.getLogger(GitLabMrDetailsStream::class.java)
 
 private const val NOT_FOUND = "NOT_FOUND"
 
-/**
- * The transport failures of the ONE GraphQL call that mean the ENDPOINT is TRANSIENTLY out ("outage" kind: slow or down): the first one
- * in a run trips the circuit breaker (`mrGraphqlBreaker`): NO further GraphQL call is made for the rest of the run, and every merge
- * request settled from then on - the batch that tripped it included - is stamped with its stats GAPPED while its REST reads go on. An
- * outage costs one GraphQL call a run and never stalls the events backlog. Everything else - a rate limit, a rejected token, a blocked
- * host - ends the run as it would for any REST call.
- */
-private val GRAPHQL_OUTAGE_CODES = setOf("TIMEOUT", "UPSTREAM_UNAVAILABLE")
-
-/**
- * The GraphQL failures about the ANSWER, or that fail fast and are usually permanent (unreadable, too big, no such endpoint, GraphQL
- * disabled or redirected, refused to this token): a NULL GAP for that project's merge requests. One cheap call per batch, so the REST
- * events backlog never waits on a nicety that will not come.
- */
-private val GRAPHQL_GAP_CODES = setOf("INVALID_RESPONSE", NOT_FOUND, "LIMIT_EXCEEDED", "REDIRECT", "FORBIDDEN_SCOPE")
-
 /** A merge request's REST read failing like this after the transport's retries is stamped [DETAILS_ERROR_FETCH_FAILED]. */
 private val MR_READ_FAILURE_CODES = setOf("UPSTREAM_UNAVAILABLE", "INVALID_RESPONSE", "TIMEOUT")
 
