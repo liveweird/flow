@@ -25,9 +25,10 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /**
  * The code layer's reads ([CodeActivityStore] delegates here): the data profile's aggregates - every figure is a database-side
- * `count`/`min`/`max`/`GROUP BY`, no row is loaded and no name, address or title is returned - and the row readers the tests use. "Live"
- * everywhere means `deleted_at IS NULL` (a tombstone is mirrored, never removed). The two statements that join `norm` tables are raw SQL
- * through `exec` (the `JiraRawProcessReads` precedent) with only the connection id (an unsigned integer) in the text.
+ * `count`/`min`/`max`/`GROUP BY`, no row is loaded and no name, address or title is returned - and the row readers (the tests', and the
+ * Identities page's identity rows and proposal matches). "Live" everywhere means `deleted_at IS NULL` (a tombstone is mirrored, never
+ * removed). The three statements that join `norm` tables are raw SQL through `exec` (the `JiraRawProcessReads` precedent) with only
+ * the connection id (an unsigned integer) in the text.
  */
 internal class CodeActivityReads(private val database: R2dbcDatabase) {
 
@@ -133,20 +134,57 @@ internal class CodeActivityReads(private val database: R2dbcDatabase) {
     }
 
     suspend fun identityRows(connectionId: UInt): List<NormCodeIdentity> = suspendTransaction(database) {
-        CodeIdentities.selectAll().where { CodeIdentities.connectionId eq connectionId }.orderBy(CodeIdentities.identityKey).toList().map {
-            NormCodeIdentity(
-                key = it[CodeIdentities.identityKey],
-                kind = IdentityKind.valueOf(it[CodeIdentities.kind]),
-                userId = it[CodeIdentities.userId],
-                username = it[CodeIdentities.username],
-                displayName = it[CodeIdentities.displayName],
-                state = it[CodeIdentities.state],
-                bot = it[CodeIdentities.bot],
-                emails = parseStringArray(it[CodeIdentities.emails]),
-                deletedAt = it[CodeIdentities.deletedAt],
+        CodeIdentities.selectAll().where { CodeIdentities.connectionId eq connectionId }.orderBy(CodeIdentities.identityKey).toList()
+            .map(::identityOf)
+    }
+
+    /** One identity by its primary key, or null. */
+    suspend fun identityRow(connectionId: UInt, key: String): NormCodeIdentity? = suspendTransaction(database) {
+        CodeIdentities.selectAll()
+            .where { (CodeIdentities.connectionId eq connectionId) and (CodeIdentities.identityKey eq key) }
+            .toList().singleOrNull()?.let(::identityOf)
+    }
+
+    /**
+     * The Jira people whose address is one of an identity's addresses (identity proposals): ONE statement with only the connection id in
+     * its text. `norm.people.email` is stored RAW (`jira/JiraReferenceRows.kt`), so it is folded here (`LOWER(BTRIM(...))`) against the
+     * identity's already canonical `emails`. People of ACTIVE connections only, the person's own `active` flag ignored (a departed
+     * person keeps their history: the `displayNames` rule); the same account id on two connections is one match, named by the
+     * alphabetically-first display name. Every identity is considered, ghosts and deleted users included.
+     */
+    suspend fun proposalMatches(connectionId: UInt): List<ProposalMatch> = suspendTransaction(database) {
+        val rows: Flow<ProposalMatch?>? = exec(
+            """
+            SELECT i.identity_key, p.account_id, min(p.display_name)
+            FROM norm.code_identities i
+            JOIN norm.people p ON p.email IS NOT NULL AND LOWER(BTRIM(p.email)) IN (SELECT jsonb_array_elements_text(i.emails))
+            JOIN public.source_connections c ON c.id = p.connection_id AND c.marked_as_deleted = false
+            WHERE i.connection_id = $connectionId
+            GROUP BY i.identity_key, p.account_id
+            ORDER BY 1, 2
+            """.trimIndent(),
+            explicitStatementType = StatementType.SELECT,
+        ) { row ->
+            ProposalMatch(
+                identityKey = row.get(0, String::class.java)!!,
+                accountId = row.get(1, String::class.java)!!,
+                displayName = row.get(2, String::class.java)!!,
             )
         }
+        rows?.toList()?.filterNotNull().orEmpty()
     }
+
+    private fun identityOf(row: ResultRow) = NormCodeIdentity(
+        key = row[CodeIdentities.identityKey],
+        kind = IdentityKind.valueOf(row[CodeIdentities.kind]),
+        userId = row[CodeIdentities.userId],
+        username = row[CodeIdentities.username],
+        displayName = row[CodeIdentities.displayName],
+        state = row[CodeIdentities.state],
+        bot = row[CodeIdentities.bot],
+        emails = parseStringArray(row[CodeIdentities.emails]),
+        deletedAt = row[CodeIdentities.deletedAt],
+    )
 
     suspend fun commitRows(connectionId: UInt, projectId: Long?): List<NormCodeCommit> = suspendTransaction(database) {
         CodeCommits.selectAll()
