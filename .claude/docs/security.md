@@ -487,7 +487,9 @@ it for that one connector. Nothing a user or an admin types can widen them: a da
   from the Jira ceiling. In-flight GitLab bodies need no term of their own: GitLab's `SourceHttp` draws on the SAME permit pool as Jira's
   (`fetch/OutboundPermits.kt`, published by `configureJira`), so the fit's `jira.maxConcurrentRequests x jira.maxResponseBytes` term already
   covers them (`gitlab-integration.md` "Outbound calls"). In k8s the egress NetworkPolicy still excludes the private ranges: a private GitLab needs its own
-  additional egress rule (the policy is the second layer; the guard is the first).
+  additional egress rule (the policy is the second layer; the guard is the first). The merge-request diff stats are the ONE `POST` a GitLab connection makes
+  (`<origin>/api/graphql`, a fixed read-only query whose only inputs are a project path and at most 50 iids, sent as variables): it goes through the same guard, permit and ceilings as
+  every GET, which is method-agnostic. What the merge-request streams keep is a whitelist - title, branch names, ids, times, action codes - never a description or a note body (`GitLabMrStoreTest`, `GitLabMrStreamsTest`).
 - Pinned by `SelfManagedHostsTest` (parsing, every boot refusal, the address matrix), `GitLabOutboundGuardTest` (rebinding, mixed answers,
   redirect, unlisted host audit, IP literal, port, proxy, Host header), `GitLabBaseUrlTest`, `GitLabCaBundleTest`, `GitLabBootTest` and the
   `PackageBoundaryTest` rules (`gitlab` never imports `jira`, `metrics` or `reports`; `infra/outbound` imports no feature).

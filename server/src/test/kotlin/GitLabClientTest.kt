@@ -39,7 +39,7 @@ private const val CLOCK_NOW = 1_800_000_000_000L
 
 /** `HttpGitLabClient` over the shared `SourceHttp` against a scripted `MockEngine` - no network, no WireMock. */
 class GitLabClientTest {
-    private val settings = GitLabSettings(SelfManagedHosts.NONE, null, null, 30, 8L * 1024 * 1024, 1, 180, 24, 5_000)
+    private val settings = GitLabSettings(SelfManagedHosts.NONE, null, null, 30, 8L * 1024 * 1024, 1, 180, 24, 5_000, 3_000)
 
     private class Wire(val sleeps: MutableList<Long> = mutableListOf())
 
@@ -49,7 +49,7 @@ class GitLabClientTest {
                 expectSuccess = false
                 followRedirects = false
             },
-            GitLabSettings(settings.hosts, null, null, 30, settings.maxResponseBytes, maxRetries, 180, 24, 5_000),
+            GitLabSettings(settings.hosts, null, null, 30, settings.maxResponseBytes, maxRetries, 180, 24, 5_000, 3_000),
             OutboundPermits(4),
             source = FetchSource("GitLab", "gitlab.maxResponseBytes", GitLabRateLimitSignal { CLOCK_NOW }, GITLAB_AUTH_HEADER),
             random = { 0.5 },
@@ -239,7 +239,7 @@ class GitLabClientTest {
         }
         val http = createGitLabHttp(
             HttpClient(engine) { expectSuccess = false },
-            GitLabSettings(settings.hosts, null, null, 30, settings.maxResponseBytes, 0, 180, 24, 5_000),
+            GitLabSettings(settings.hosts, null, null, 30, settings.maxResponseBytes, 0, 180, 24, 5_000, 3_000),
             OutboundPermits(4),
             random = { 0.5 },
             sleeper = { wire.sleeps += it },

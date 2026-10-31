@@ -165,6 +165,9 @@ class GitLabConnectorTest {
         assertNull(counters["usersEmailsSkipped"])
     }
 
+    private suspend fun mrChanges(connId: UInt) =
+        store.mergeRequestRows(connId).map { it[GitLabRawStore.MergeRequests.mrId] to it[GitLabRawStore.MergeRequests.changedAt] }
+
     @Test
     fun `a second SYNC changes no row - a scheduled one skips the fresh users, a requested one refetches them unchanged`() =
         runBlocking<Unit> {
@@ -176,13 +179,16 @@ class GitLabConnectorTest {
 
         val commitsBefore = store.commitRows(connId).map { it[GitLabRawStore.Commits.sha] to it[GitLabRawStore.Commits.lastSeenAt] }
         assertEquals(300, commitsBefore.size)
+        val mrsBefore = mrChanges(connId)
+        assertEquals(60, mrsBefore.size)
+        assertEquals(0L, store.countStaleMergeRequests(connId))
 
         val scheduled = mutableListOf<String>()
         GitLabFixtures.run(connector, connId, progress = scheduled)
         assertEquals(1L, lastProgress(scheduled)["usersSkipped"], "the users are younger than 24 h")
         assertNull(lastProgress(scheduled)["users"])
-        val walked = setOf("commits", "commitFiles", "commitsRelisted")
-        assertTrue(lastProgress(scheduled).keys.none { it in walked }, "unchanged heads: nothing walked")
+        val walked = setOf("commits", "commitFiles", "commitsRelisted", "mergeRequests", "mergeRequestsChanged", "mrDetails", "mrEvents")
+        assertTrue(lastProgress(scheduled).keys.none { it in walked }, "unchanged heads and merge requests: nothing walked or re-read")
 
         val requested = mutableListOf<String>()
         GitLabFixtures.run(connector, connId, onDemand = true, progress = requested)
@@ -195,6 +201,9 @@ class GitLabConnectorTest {
         assertNull(lastProgress(requested)["commits"])
         val commitsAfter = store.commitRows(connId).map { it[GitLabRawStore.Commits.sha] to it[GitLabRawStore.Commits.lastSeenAt] }
         assertEquals(commitsBefore, commitsAfter)
+        assertTrue(lastProgress(requested).keys.none { it in walked }, "the requested run found nothing to write either")
+        val mrsAfter = mrChanges(connId)
+        assertEquals(mrsBefore, mrsAfter, "no merge request changed")
     }
 
     @Test
@@ -213,6 +222,9 @@ class GitLabConnectorTest {
         val counts = store.counts(connId)
         assertEquals(4L, counts.projects)
         assertEquals(1L, counts.projectsMovedOut)
+        assertEquals(61, store.mergeRequestRows(connId).size,
+            "project 7's merge request joined; project 2's stay (never tombstoned by a listing)")
+        assertEquals(0L, store.countStaleMergeRequests(connId), "the day-2 SYNC re-read what changed")
     }
 
     @Test
@@ -317,13 +329,15 @@ class GitLabConnectorTest {
     // ------------------------------------------------------------------ the other job kinds
 
     @Test
-    fun `PURGE drains all four tables, and RECONCILE and REPROCESS are accepted no-ops until their streams exist`() = runBlocking<Unit> {
+    fun `PURGE drains all six tables, and RECONCILE and REPROCESS are accepted no-ops until their streams exist`() = runBlocking<Unit> {
         val connId = connection()
         val connector = GitLabFixtures.connector(dataSources)
         GitLabFixtures.run(connector, connId, onDemand = true)
         val stored = store.projectRows(connId).map { it[GitLabRawStore.Projects.projectId] to it[GitLabRawStore.Projects.changedAt] }
         val expectedSha = store.commitRows(connId, 1).first { it[GitLabRawStore.Commits.parentCount] <= 1 }[GitLabRawStore.Commits.sha]
         assertTrue(store.commitFileRows(connId, 1, expectedSha).isNotEmpty())
+        assertEquals(60, store.mergeRequestRows(connId).size)
+        assertTrue(store.mrEventRows(connId).isNotEmpty())
 
         GitLabFixtures.run(connector, connId, SyncJobKind.RECONCILE)
         GitLabFixtures.run(connector, connId, SyncJobKind.REPROCESS)
@@ -334,6 +348,8 @@ class GitLabConnectorTest {
         assertTrue(store.projectRows(connId).isEmpty() && store.userRows(connId).isEmpty())
         assertTrue(store.commitRows(connId).isEmpty(), "the commits are purged")
         assertTrue(store.commitFileRows(connId, 1, expectedSha).isEmpty(), "and their files with them")
+        assertTrue(store.mergeRequestRows(connId).isEmpty(), "the merge requests are purged")
+        assertTrue(store.mrEventRows(connId).isEmpty(), "and their events with them")
     }
 
     companion object {

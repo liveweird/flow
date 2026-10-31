@@ -95,6 +95,10 @@ export function buildWorld(params = DEFAULT_PARAMS) {
 
   const world = { params, users, humans, bot, groups: GROUPS, configuredGroupIds: CONFIGURED_GROUP_IDS, projects, repos, mrs, contributors, startMs, endMs, contractor: CONTRACTOR };
   applyDay2(rngFor("day2"), world);
+  // The day-2 project's merge request is born after the started world: its id continues the sequence (a listing item without an `id`
+  // is not a merge request GitLab ever answers - the connector refuses it).
+  let nextMrId = 41000 + mrs.length - mrs.filter((m) => m.day2Only).length;
+  for (const m of mrs) if (m.id === undefined) m.id = nextMrId++;
 
   // --- note ids: started notes first (by time), day2 notes after ----------------------------------------------------
   let nextId = 710_000;

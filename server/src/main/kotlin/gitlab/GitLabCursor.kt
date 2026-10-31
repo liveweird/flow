@@ -68,3 +68,25 @@ internal data class CommitsWalkCursor(
     /** The branch being walked: the part after `..` of a range (git refs cannot contain `..`). */
     val branch: String get() = refName.substringAfter("..")
 }
+
+/**
+ * The `merge_requests` stream's state. UNLIKE the other streams' cursors it PERSISTS after a pass: [watermarks] holds, per configured group
+ * path, GitLab's own newest `updated_at` that group's last COMPLETED pass saw (the next listing asks
+ * `updated_after = watermark - overlap`); [pass] is the pass in progress, null between passes.
+ */
+@Serializable
+internal data class MergeRequestsCursor(val watermarks: Map<String, Long> = emptyMap(), val pass: MergeRequestsPass? = null)
+
+/**
+ * One pass over the configured [groups] (a pass saved for another list is dropped): the group being listed ([groupIndex]), its next
+ * [page], the `updated_after` the pass started that group with (kept, so a resumed walk asks the same listing) and [seenMax], the newest
+ * `updated_at` the group's pages showed so far (it becomes the watermark when the group's last page commits).
+ */
+@Serializable
+internal data class MergeRequestsPass(
+    val groups: List<String>,
+    val groupIndex: Int = 0,
+    val page: Int = 1,
+    val updatedAfter: String,
+    val seenMax: Long? = null,
+)

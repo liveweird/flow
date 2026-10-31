@@ -8,9 +8,10 @@ import kotlin.test.assertEquals
 
 /**
  * A suite-wide, lazily-synced GitLab connection over the shared [GitLabStubServer] (`.claude/docs/testing.md` "Shared synced fixture",
- * the GitLab twin of [SyncedStubFixture]): ONE full GitLab SYNC of the stub per JVM fork - PROJECTS, USERS, COMMITS and COMMIT FILES -
- * and every READ-ONLY test of the commits streams reads THIS connection. A test that mutates state (a second SYNC, the day-2
- * scenario, a head or budget change, PURGE) creates its OWN connection with [GitLabFixtures.createConnection] and never touches this one.
+ * the GitLab twin of [SyncedStubFixture]): ONE full GitLab SYNC of the stub per JVM fork - PROJECTS, USERS, COMMITS, MERGE REQUESTS, COMMIT
+ * FILES and MR DETAILS - and every READ-ONLY test of the commit and merge-request streams reads THIS connection. A test that mutates state
+ * (a second SYNC, the day-2 scenario, a head or budget change, PURGE) creates its OWN connection with [GitLabFixtures.createConnection] and
+ * never touches this one.
  *
  * A class that reads it warms it in a `@BeforeClass` through [warmGitLabFixture] (`StubFixtureWarmupGuardTest` enforces it), so the
  * one-time Postgres + SYNC cost lands outside `testApplication`'s hard 60 s limit. It has its OWN warm-up call, not
@@ -19,6 +20,9 @@ import kotlin.test.assertEquals
 object SyncedGitLabFixture {
     /** `sample-data/gitlab/expected.json` `commits.inScopeTotals.total`: the tripwire figure. */
     private const val EXPECTED_COMMITS = 300L
+
+    /** `sample-data/gitlab/expected.json` `mergeRequests.total`: the second tripwire figure. */
+    private const val EXPECTED_MERGE_REQUESTS = 60L
 
     private val initLock = Mutex()
 
@@ -44,6 +48,9 @@ object SyncedGitLabFixture {
         val live = store.commitRows(connId).count { it[GitLabRawStore.Commits.deletedAt] == null }.toLong()
         assertEquals(EXPECTED_COMMITS, live, "the GitLab fixture's commit count changed: a test mutated it")
         assertEquals(0L, store.countPendingCommitFiles(connId), "the GitLab fixture has pending commit files: a test mutated it")
+        val mrs = store.mergeRequestRows(connId).count { it[GitLabRawStore.MergeRequests.deletedAt] == null }.toLong()
+        assertEquals(EXPECTED_MERGE_REQUESTS, mrs, "the GitLab fixture's merge-request count changed: a test mutated it")
+        assertEquals(0L, store.countStaleMergeRequests(connId), "the GitLab fixture has stale merge-request details: a test mutated it")
     }
 
     private suspend fun sync(): UInt {

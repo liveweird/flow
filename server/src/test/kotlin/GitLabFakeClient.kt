@@ -18,8 +18,8 @@ import ch.nokillswit.gitlab.GitLabUserPage
 val fakeSource = FetchSource("GitLab", "gitlab.maxResponseBytes")
 
 /**
- * A scripted [GitLabClient] for the commit streams: [listingOf], [mergeBaseOf] and [diffOf] answer (or throw) per call, and the calls are
- * recorded. The calls the streams under test never make are `TODO()`.
+ * A scripted [GitLabClient] for the commit and merge-request streams: [listingOf], [mergeBaseOf], [diffOf] and the merge-request lambdas
+ * answer (or throw) per call, and the calls are recorded. The calls the streams under test never make are `TODO()`.
  */
 class FakeClient : GitLabClient {
     var listingOf: (projectId: Long, ref: String, since: String?, page: Int) -> GitLabCommitPage =
@@ -68,13 +68,45 @@ class FakeClient : GitLabClient {
 
     override suspend fun userEmails(userId: Long): List<String> = TODO()
 
-    override suspend fun groupMergeRequests(groupId: Long, updatedAfter: String?, page: Int): GitLabMergeRequestPage = TODO()
+    /** The group MR listing / notes / approvals / reviewers / GraphQL answers; each throws "not scripted" until a test sets it. */
+    var groupMergeRequestsOf: (groupId: Long, updatedAfter: String?, page: Int) -> GitLabMergeRequestPage =
+        { _, _, _ -> error("no merge-request listing scripted") }
+    var notesOf: (projectId: Long, iid: Long, page: Int) -> GitLabNotePage = { _, _, _ -> error("no notes scripted") }
+    var approvalsOf: (projectId: Long, iid: Long) -> List<Long> = { _, _ -> error("no approvals scripted") }
+    var reviewersOf: (projectId: Long, iid: Long) -> List<GitLabReviewerSummary> = { _, _ -> error("no reviewers scripted") }
+    var diffStatsOf: (fullPath: String, iids: List<Long>) -> GitLabDiffStatsAnswer = { _, _ -> error("no diff stats scripted") }
 
-    override suspend fun mergeRequestNotes(projectId: Long, iid: Long, page: Int): GitLabNotePage = TODO()
+    /** Every merge-request listing call as (groupId, updatedAfter, page). */
+    val listedMrs = mutableListOf<Triple<Long, String?, Int>>()
 
-    override suspend fun mergeRequestApprovals(projectId: Long, iid: Long): List<Long> = TODO()
+    /** Every GraphQL call as (fullPath, iids). */
+    val graphqlCalls = mutableListOf<Pair<String, List<Long>>>()
 
-    override suspend fun mergeRequestReviewers(projectId: Long, iid: Long): List<GitLabReviewerSummary> = TODO()
+    /** Every notes, approvals and reviewers call (the REST calls of the MR details). */
+    var restCalls = 0
 
-    override suspend fun mergeRequestDiffStats(projectFullPath: String, iids: List<Long>): GitLabDiffStatsAnswer = TODO()
+    override suspend fun groupMergeRequests(groupId: Long, updatedAfter: String?, page: Int): GitLabMergeRequestPage {
+        listedMrs += Triple(groupId, updatedAfter, page)
+        return groupMergeRequestsOf(groupId, updatedAfter, page)
+    }
+
+    override suspend fun mergeRequestNotes(projectId: Long, iid: Long, page: Int): GitLabNotePage {
+        restCalls++
+        return notesOf(projectId, iid, page)
+    }
+
+    override suspend fun mergeRequestApprovals(projectId: Long, iid: Long): List<Long> {
+        restCalls++
+        return approvalsOf(projectId, iid)
+    }
+
+    override suspend fun mergeRequestReviewers(projectId: Long, iid: Long): List<GitLabReviewerSummary> {
+        restCalls++
+        return reviewersOf(projectId, iid)
+    }
+
+    override suspend fun mergeRequestDiffStats(projectFullPath: String, iids: List<Long>): GitLabDiffStatsAnswer {
+        graphqlCalls += projectFullPath to iids
+        return diffStatsOf(projectFullPath, iids)
+    }
 }

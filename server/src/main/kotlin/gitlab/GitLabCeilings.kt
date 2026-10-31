@@ -15,6 +15,8 @@ internal data class GitLabCeilings(
     val users: RunCeiling = RunCeiling(maxPages = 500, maxItems = 50_000),
     /** Per PROJECT per run: the commits one walk lists (100 per page); a first backfill of a huge repository drains over several runs. */
     val commits: RunCeiling = RunCeiling(maxPages = 500, maxItems = 50_000),
+    /** Per configured GROUP per run: the merge requests one listing walks (100 per page); the cursor resumes a longer first backfill. */
+    val mergeRequests: RunCeiling = RunCeiling(maxPages = 1_000, maxItems = 100_000),
 )
 
 /** The most confirmed secondary emails kept per user (`/users/:id/emails`, first page). */
@@ -37,3 +39,16 @@ internal const val MAX_SWEEP_CONFIRMATIONS = 100
 
 /** The pending-commit batch the COMMIT FILES stream claims from the backlog at a time. */
 internal const val COMMIT_FILES_BATCH = 50
+
+/** A merge request's notes are read at most this many deep (10 pages of 100); an 11th page makes the merge request `notes_capped`. */
+internal const val MAX_MR_NOTES = 1_000
+
+/** The pages of a merge request's notes that fit under [MAX_MR_NOTES]. */
+internal const val MR_NOTES_PAGES = MAX_MR_NOTES / GITLAB_PAGE_SIZE
+
+/**
+ * How far before a group's watermark (GitLab's own newest `updated_at` of the last completed pass) the next listing starts: `updated_after`
+ * is second-granular ISO text against an inclusive bound, and a merge request updated in the same second as the page that ended the pass
+ * must not slip between two passes.
+ */
+internal const val MR_LIST_OVERLAP_MILLIS = 15 * 60_000L

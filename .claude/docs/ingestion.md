@@ -569,12 +569,12 @@ progress-counter API described in "Progress counters" below) — PROCESS and PRO
 streams that never call the cursor read/write half of that contract (see "Sync cursors (V9)"
 above).
 
-**The GitLab connector's SYNC** (`gitlab/GitLabConnector.kt`; `gitlab-integration.md` "Streams") runs **PROJECTS → USERS → COMMITS → COMMIT FILES** inside the same
+**The GitLab connector's SYNC** (`gitlab/GitLabConnector.kt`; `gitlab-integration.md` "Streams") runs **PROJECTS → USERS → COMMITS → MERGE REQUESTS → COMMIT FILES → MR DETAILS** (the listings first, then the two budgeted backlogs, so a listing never waits behind a backlog that may spend its whole budget) inside the same
 `ConnectorRun.withTally` scaffolding as Jira (the `CallTally` around the streams, the carried counters of a retry, the typed ceiling trip,
 the hard stop; `ingest/ConnectorRun.kt`, which also holds `ceilingTripOf`). It first re-probes `/personal_access_tokens/self` and refuses
 a token with a scope outside the read-only allow-list (`JobRefusedException(TOKEN_SCOPE_TOO_BROAD)`) or an inactive one
 (`TOKEN_INACTIVE`) before anything is stored. RECONCILE and
-REPROCESS are accepted no-ops until PR 9/10, PURGE drains `raw.gitlab_*` (commits first; their files cascade).
+REPROCESS are accepted no-ops until PR 9/10, PURGE drains `raw.gitlab_*` (commits, then merge requests - their events cascade - then users and projects).
 
 **Cursor shapes.**
 
@@ -586,6 +586,11 @@ REPROCESS are accepted no-ops until PR 9/10, PURGE drains `raw.gitlab_*` (commit
   every listing page commits with it, a RELIST's last page sets `listingDone` (the sweep's `merge_base` calls run outside a transaction and resume from it), a
   walk for a branch other than the stored `default_branch` is dropped, cleared when the pass ends. **`commit_files`** has no cursor: the backlog (`raw.gitlab_commits`
   with `files_fetched_at` null, live, non-merge) is its state.
+- **`merge_requests`** (`MergeRequestsCursor`): `{watermarks: {groupPath: updatedAtMillis}, pass}` with `pass = {groups, groupIndex, page, updatedAfter, seenMax}` or null.
+  UNLIKE every other GitLab cursor it is NOT cleared at the end of a pass: the row carries the per-group watermarks (GitLab's own newest `updated_at` of the group's
+  last completed pass; the next listing asks `updated_after = watermark - 15 min`), `sync_cursors.watermark_at` = the smallest watermark and `last_completed_at` the end of the last
+  pass. Each page commits with it; a pass saved for another list of groups is dropped (the watermarks stay), the watermark of an unconfigured group is dropped.
+  **`mr_details`** has no cursor: the backlog (`raw.gitlab_merge_requests` with `details_synced_at` null or older than `changed_at`, live, of a live project) is its state.
 - **`reference`** (`jira/JiraReferenceStream.kt`'s `ReferenceCursor`): `passStartedAt` (fixed for
   the whole pass, preserved across a resume), `step` (a `JiraEntityKind` — doubles as
   `raw.jira_entities.kind`, in the FIXED order the enum declares: `FIELD`, `STATUS`,
@@ -1322,7 +1327,11 @@ call)/`usersSkipped` (the whole stream skipped: every live user was seen within 
 `commits` (COMMITS: commits inserted)/`commitsRelisted`/`commitsTombstoned`/`commitsSweepKept`/`commitsSweepUnconfirmed`/`commitsSweepDeferred` (a re-list and the confirmations of its
 sweep)/`commitsProjectsSkipped` (no default branch, or the branch or project is gone), `commitFiles`/`commitFileRows`/`commitFilesCapped`/`commitFilesOversized`/
 `commitFilesMissing` (COMMIT FILES: commits read, their file rows, the 1,000-file cap, the terminal errors) and `commitFilesPending` (the backlog left when the run stopped,
-non-zero only; `gitlab.commitFilesPerRun` is the call budget). `gitlab-integration.md` "Streams" has each.
+non-zero only; `gitlab.commitFilesPerRun` is the call budget),
+`mergeRequests` (MERGE REQUESTS: inserted)/`mergeRequestsChanged` (changed or resurrected)/`mrSkipped` (a merge request of a project that is not a stored row)/`mrGroupsSkipped` (a group with no
+live stored project, or answering `NOT_FOUND`), `mrDetails`/`mrEvents`/`mrNotesCapped`/`mrDetailsMissing`/`mrDetailsOversized`/`mrDiffStatsGaps`/`mrApprovalsUnavailable`/`mrReviewersUnavailable`
+(MR DETAILS: merge requests read, their event rows, the 1,000-note cap, the terminal errors, the GraphQL gaps, a missing `/approvals` or `/reviewers`) and `mrDetailsPending` (the backlog left when the run
+stopped, non-zero only; `gitlab.mrDetailsPerRun` is the call budget, REST and GraphQL). `gitlab-integration.md` "Streams" has each.
 
 **Counters the connector adds (not a stream's):** `StreamContext(extraProgress = …)` is a `() -> Map<String, Long>` merged into every heartbeat's progress JSON (and
 into `progressSnapshot()`). `JiraConnector` passes the job's `CallTally` (`jiraRateLimited`, `jiraBackoffMs`, `jiraTenantPausedMs`, `jiraNearLimitPauses`; definitions

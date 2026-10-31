@@ -382,6 +382,10 @@ gitlab:
   # in its progress and the next run continues, so a first backfill drains over several runs. At ~20 calls/s the default is a few
   # minutes, well inside ingest.maxJobMinutes.
   commitFilesPerRun: "$GITLAB_COMMIT_FILES_PER_RUN:5000"
+  # The REST and GraphQL CALLS (10..100000) one SYNC run spends on the MR DETAILS backlog (a merge request's notes, approvals, reviewers and
+  # diff stats, newest first; about 3 calls per merge request; `.claude/docs/gitlab-integration.md` "Streams"). A run that reaches it ends
+  # normally with `mrDetailsPending` in its progress and the next run continues. At ~20 calls/s the default is a few minutes.
+  mrDetailsPerRun: "$GITLAB_MR_DETAILS_PER_RUN:3000"
 
 ingest:
   # The sync-job queue and worker scheduler (v0.2.0 plan §5/§9, ingest/IngestWorker.kt,

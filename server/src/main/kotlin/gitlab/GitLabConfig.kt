@@ -49,6 +49,11 @@ class GitLabSettings(
      * minutes, well inside `ingest.maxJobMinutes`.
      */
     val commitFilesPerRun: Int,
+    /**
+     * The REST and GraphQL CALLS one SYNC run spends on the MR DETAILS backlog (`gitlab.mrDetailsPerRun`, 10..100,000; about three per
+     * merge request). A run that reaches it stops normally with `mrDetailsPending` and the next run continues.
+     */
+    val mrDetailsPerRun: Int,
 ) {
     val requestDeadlineMillis: Long get() = requestDeadlineSeconds * MILLIS_PER_SECOND
     val usersRefreshMillis: Long get() = usersRefreshHours * MILLIS_PER_HOUR
@@ -68,6 +73,7 @@ private fun ApplicationConfig.trimmed(key: String): String = propertyOrNull(key)
  *  - `stubBaseUrl`: development mode only, an origin with a host and nothing else;
  *  - `requestTimeoutSeconds`, `maxRetries`, `requestDeadlineSeconds`, `usersRefreshHours`: bounds-checked like their `jira.*` twins;
  *  - `commitFilesPerRun`: 10..100,000 diff calls per SYNC run;
+ *  - `mrDetailsPerRun`: 10..100,000 REST + GraphQL calls per SYNC run;
  *  - `maxResponseBytes`: blank = `min(8 MiB, jira.maxResponseBytes)`; an explicit value is bounds-checked and may not exceed
  *    `jira.maxResponseBytes` (refused even while GitLab is disabled). `jira/JiraHeapFit.kt` sizes the per-slot response tree from the
  *    Jira ceiling, so a GitLab ceiling at or below it keeps a GitLab response tree inside that figure. GitLab's calls draw on the
@@ -94,9 +100,10 @@ fun readGitLabSettings(config: ApplicationConfig, developmentMode: Boolean): Git
     val deadline = requireConfigLong(config, "gitlab.requestDeadlineSeconds", MIN_DEADLINE_SECONDS, MAX_DEADLINE_SECONDS)
     val usersRefreshHours = requireConfigInt(config, "gitlab.usersRefreshHours", MIN_USERS_REFRESH_HOURS, MAX_USERS_REFRESH_HOURS)
     val commitFilesPerRun = requireConfigInt(config, "gitlab.commitFilesPerRun", MIN_COMMIT_FILES_PER_RUN, MAX_COMMIT_FILES_PER_RUN)
+    val mrDetailsPerRun = requireConfigInt(config, "gitlab.mrDetailsPerRun", MIN_MR_DETAILS_PER_RUN, MAX_MR_DETAILS_PER_RUN)
     return GitLabSettings(
         hosts, stubRaw.takeIf { it.isNotEmpty() }?.let(::parseDevStub), tls, timeout, maxResponseBytes, maxRetries, deadline,
-            usersRefreshHours, commitFilesPerRun,
+            usersRefreshHours, commitFilesPerRun, mrDetailsPerRun,
     )
 }
 
@@ -138,6 +145,8 @@ private const val MIN_USERS_REFRESH_HOURS = 0
 private const val MAX_USERS_REFRESH_HOURS = 168
 private const val MIN_COMMIT_FILES_PER_RUN = 10
 private const val MAX_COMMIT_FILES_PER_RUN = 100_000
+private const val MIN_MR_DETAILS_PER_RUN = 10
+private const val MAX_MR_DETAILS_PER_RUN = 100_000
 private const val MILLIS_PER_SECOND = 1_000L
 private const val MIN_RESPONSE_BYTES = 1_024L
 private const val MAX_RESPONSE_BYTES = 128L * 1024 * 1024
