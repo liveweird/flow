@@ -597,10 +597,13 @@ the tiling invariants and stream mechanics — this section is the schema/persis
 **Planner statistics of `norm` (maintenance, build-times WHY 60).** `norm.*` is filled by PROCESS in many small committed page
 transactions, and nothing else maintains its statistics except autovacuum, which analyzes a table only after ~10 % of it changed and
 its naptime passed: a DERIVE that starts right behind a second connection's PROCESS plans that connection's rows from statistics that
-describe the first alone. So a PROCESS that wrote a material share of the tables DERIVE joins ends with a bounded `ANALYZE` in its own
-short transaction (`norm/NormAnalyze.kt` `analyzeIfMaterial`: at least 10 % of the tables' `pg_class.reltuples` sum, or any table
-with `reltuples < 0`; `SET LOCAL lock_timeout = 5000` plus a 30 s `queryTimeout`, never a `SET LOCAL statement_timeout`; a failure is
-one WARN and the job succeeds). Jira: `work_items`, `work_item_worklogs`, `work_item_field_intervals`; GitLab: `code_commits`,
+describe the first alone. So a PROCESS that wrote rows into the tables DERIVE joins ends with a bounded `ANALYZE` in its own
+short transaction when ANY of: a table was never analyzed (`reltuples < 0`); the tables' summed `pg_stat_user_tables.n_mod_since_analyze`
+is at least 10 % of their `pg_class.reltuples` sum (accumulating many small SYNCs and a failed attempt's committed rows); this connection
+is absent from `connection_id`'s `pg_stats.most_common_vals` on the first table (a tiny connection the sample misses pays about 0.35 s
+per SYNC, accepted) - `norm/NormAnalyze.kt` `analyzeIfMaterial`, which `check`s that no transaction is open so its `SET LOCAL` cannot
+leak into one; `SET LOCAL lock_timeout = 5000` plus a 30 s `queryTimeout`, never a `SET LOCAL statement_timeout`; a failure is
+one WARN with the SQLSTATE when there is one, and the job succeeds). Jira: `work_items`, `work_item_worklogs`, `work_item_field_intervals`; GitLab: `code_commits`,
 `code_merge_requests`, `code_mr_events`. The other `norm` tables are left to autovacuum (no statement DERIVE or the
 PROFILE runs over them plans badly on a stale estimate, or they are small and rebuilt wholesale). A new table that a DERIVE or PROFILE statement joins by `connection_id` goes into
 the matching list (`NORM_WORK_ITEM_ANALYZED_TABLES` / `NORM_CODE_ANALYZED_TABLES`); the `metrics` side is `MetricsAnalyzer`.

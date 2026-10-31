@@ -2,11 +2,13 @@ package ch.nokillswit.norm
 
 import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.ingest.StreamContext
+import io.r2dbc.spi.R2dbcException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
+import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.slf4j.LoggerFactory
 import kotlin.time.TimeSource
@@ -14,8 +16,9 @@ import kotlin.time.TimeSource
 // Planner statistics of the normalized tables a PROCESS has just filled (`.claude/docs/persistence.md` "Planner statistics of `norm`",
 // build-times WHY 60). Autovacuum analyzes a table only after ~10 % of it changed AND its naptime (a minute) passed, so a DERIVE
 // queued right behind a PROCESS plans against statistics that describe another connection's rows (or none): `connection_id = N`
-// estimated at 1 row, nested loops over the whole table, 41M buffer hits. The helper below closes that gap for the one case that
-// matters: a PROCESS that wrote a material share of the tables.
+// estimated at 1 row, nested loops over the whole table, 41M buffer hits. The helper below closes that gap per CONNECTION: a PROCESS
+// that wrote rows ANALYZEs when the tables were never analyzed, when the changes accumulated since the last ANALYZE are material, or
+// when the statistics do not know this connection at all.
 
 private val log = LoggerFactory.getLogger("ch.nokillswit.norm.NormAnalyze")
 
@@ -34,7 +37,7 @@ internal const val NORM_ANALYZE_LOCK_TIMEOUT_MS = 5_000L
  */
 internal const val NORM_ANALYZE_STATEMENT_TIMEOUT_MS = 30_000L
 
-/** A PROCESS is "material" for a table set when it wrote at least this share, in percent, of the tables' `pg_class.reltuples` sum. */
+/** The changes since the last ANALYZE make the statistics stale at this share, in percent, of the tables' `pg_class.reltuples` sum. */
 internal const val NORM_ANALYZE_MATERIAL_PERCENT = 10L
 
 private const val MILLIS_PER_SECOND = 1_000L
@@ -53,27 +56,37 @@ internal val NORM_CODE_ANALYZED_TABLES: List<String> =
     listOf("norm.code_commits", "norm.code_merge_requests", "norm.code_mr_events")
 
 /**
- * The bounds of one post-PROCESS `ANALYZE` in milliseconds ([lockMs], [statementMs]) and the share of the described rows that makes a
- * PROCESS material ([materialPercent]). Internal defaults, not operator knobs. A test overrides them: it shortens the waits to hit a
- * lock timeout, and lowers the share because the shared test database's statistics describe whatever other classes of the fork left
- * behind, so a full rewrite of one clone is a tenth of them only by luck of the class order.
+ * The bounds of one post-PROCESS `ANALYZE` in milliseconds ([lockMs], [statementMs]) and the share of the described rows that the
+ * changes since the last ANALYZE must reach to make the statistics stale ([materialPercent], 1..100). Internal defaults, not operator
+ * knobs. A test overrides them: it shortens the waits to hit a lock timeout or the statement budget.
  */
 data class NormAnalyzeSettings(
     val lockMs: Long = NORM_ANALYZE_LOCK_TIMEOUT_MS,
     val statementMs: Long = NORM_ANALYZE_STATEMENT_TIMEOUT_MS,
     val materialPercent: Long = NORM_ANALYZE_MATERIAL_PERCENT,
-)
+) {
+    init {
+        require(lockMs > 0 && statementMs > 0 && materialPercent in 1..PERCENT) {
+            "norm ANALYZE settings: lockMs and statementMs must be positive and materialPercent within 1..100"
+        }
+    }
+}
 
-/** What [analyzeIfMaterial] did: [ran] is true only when the `ANALYZE` completed; [millis] is the helper's whole wall time. */
-data class NormAnalyzeResult(val ran: Boolean, val millis: Long) {
+/**
+ * What [analyzeIfMaterial] did: [ran] is true only when the `ANALYZE` completed; [millis] is the helper's whole wall time; [reason] is
+ * why the rule called the statistics stale (a `NORM_ANALYZE_REASON_*` code; 0 when it did not, and also when the ANALYZE then failed).
+ */
+data class NormAnalyzeResult(val ran: Boolean, val millis: Long, val reason: Long = 0) {
     /**
-     * Records a run that happened in the job's progress (`normAnalyzed` = 1, `normAnalyzeMs`) and flushes it with one heartbeat (a
-     * RECONCILE ends with PROCESS, so no later stream would): nothing at all when it did not run, the "only non-zero keys" convention.
+     * Records a run that happened in the job's progress (`normAnalyzed` = 1, `normAnalyzeMs`, `normAnalyzeReason`) and flushes it with
+     * one heartbeat (a RECONCILE ends with PROCESS, so no later stream would): nothing at all when it did not run, the "only non-zero
+     * keys" convention.
      */
     suspend fun recordIn(context: StreamContext) {
         if (!ran) return
         context.incrementProgress("normAnalyzed")
         context.incrementProgress("normAnalyzeMs", millis)
+        context.incrementProgress("normAnalyzeReason", reason)
         context.heartbeat(changed = false)
     }
 }
@@ -84,79 +97,134 @@ data class NormAnalyzeResult(val ran: Boolean, val millis: Long) {
  */
 internal fun NormalizedIssue.analyzedRowCount(): Long = 1L + worklogs.size + fieldIntervals.size
 
+/** The `normAnalyzeReason` codes: a table of the set was never analyzed (`reltuples < 0`). */
+internal const val NORM_ANALYZE_REASON_NEVER_ANALYZED = 1L
+
+/** The changes accumulated since the tables' last ANALYZE reached [NORM_ANALYZE_MATERIAL_PERCENT] of the rows they describe. */
+internal const val NORM_ANALYZE_REASON_ACCUMULATED = 2L
+
+/** The connection is absent from the `most_common_vals` of `connection_id` on the first table: the planner estimates it at one row. */
+internal const val NORM_ANALYZE_REASON_CONNECTION_ABSENT = 3L
+
 /**
- * Whether a PROCESS that wrote [rowsWritten] rows into tables holding [reltuplesSum] (the sum of their `pg_class.reltuples`, a table
- * never vacuumed or analyzed counting 0) leaves their statistics stale: some table was never analyzed ([neverAnalyzed]: its
- * `reltuples` is -1, so the planner knows nothing), or the run wrote at least [materialPercent] percent of what the
- * statistics describe. A run that wrote nothing changes no statistics.
+ * Why a PROCESS that wrote [rowsWritten] rows (0 = nothing, so nothing to refresh) leaves the statistics of its tables stale, as a
+ * `NORM_ANALYZE_REASON_*` code, or 0 when it does not. In this precedence: (a) some table was never analyzed ([neverAnalyzed]: its
+ * `reltuples` is -1, the planner knows nothing); (b) the modifications since the last ANALYZE ([modSinceAnalyzeSum], the tables'
+ * `n_mod_since_analyze` summed: it accumulates many small runs and a failed attempt's committed rows, which a per-run count would not)
+ * are at least [materialPercent] percent of the [reltuplesSum] the statistics describe; (c) THIS connection is not among the
+ * `most_common_vals` of `connection_id` ([connectionInMcv]) - a new connection under a tenth of the tables, or the eleventh equal-size
+ * source. (c) costs an ANALYZE on every run that writes rows for a connection too small for the sample to catch (about 0.35 s per SYNC).
  */
-internal fun normStatisticsStale(
-    rowsWritten: Long,
-    reltuplesSum: Long,
+internal fun normAnalyzeReason(
     neverAnalyzed: Boolean,
+    modSinceAnalyzeSum: Long,
+    reltuplesSum: Long,
+    connectionInMcv: Boolean,
+    rowsWritten: Long,
     materialPercent: Long = NORM_ANALYZE_MATERIAL_PERCENT,
-): Boolean = neverAnalyzed || (rowsWritten > 0 && rowsWritten * PERCENT >= reltuplesSum * materialPercent)
+): Long = when {
+    rowsWritten <= 0 -> 0L
+    neverAnalyzed -> NORM_ANALYZE_REASON_NEVER_ANALYZED
+    modSinceAnalyzeSum > 0 && modSinceAnalyzeSum * PERCENT >= reltuplesSum * materialPercent -> NORM_ANALYZE_REASON_ACCUMULATED
+    !connectionInMcv -> NORM_ANALYZE_REASON_CONNECTION_ABSENT
+    else -> 0L
+}
 
 private val TABLE_NAME = Regex("[a-z_]+\\.[a-z_]+")
 
 /**
- * `ANALYZE [tables]` when the PROCESS that just ended wrote a material share of them ([normStatisticsStale]); the caller passes the
- * rows it wrote into [tables]. Runs in ITS OWN short transaction, so call it at the end of the stream, never inside a PROCESS page
- * transaction or DERIVE's. Why it is not DERIVE's job: DERIVE reads `norm.*` in the first statements of its rebuild, long before its
- * own `ANALYZE` of `metrics.*`, and a second connection derived right behind its PROCESS planned the worklog statement from statistics
- * of the first connection alone (35.8 s against 0.5-0.8 s).
+ * `ANALYZE [tables]` when the PROCESS of [connectionId] that just ended wrote rows into [tables] and the rule says their statistics are
+ * stale ([normAnalyzeReason]); the caller passes the rows it wrote ([rowsWritten], only the "> 0" guard). Runs in ITS OWN short
+ * transaction, so call it at the end of the stream, never inside a PROCESS page transaction or DERIVE's: it refuses (`check`) to run
+ * inside an enclosing one, which would carry its `SET LOCAL lock_timeout` and `queryTimeout` into that transaction. Why it is not
+ * DERIVE's job: DERIVE reads `norm.*` in the first statements of its rebuild, long before its own `ANALYZE` of `metrics.*`, and a
+ * second connection derived right behind its PROCESS planned the worklog statement from statistics of the first connection alone
+ * (35.8 s against 0.5-0.8 s).
  *
  * Bounded twice, like `metrics/`'s post-commit ANALYZE: `SET LOCAL lock_timeout` ([NormAnalyzeSettings.lockMs], per table lock) and the
  * transaction's `queryTimeout` ([NormAnalyzeSettings.statementMs], whole seconds rounded up, the read and the statement). A lock
- * timeout or any other failure logs ONE WARN (the constant table names and the exception's class, never its message) and returns
- * `ran = false`: the data is committed and the statistics fall back to autovacuum, so it never fails the job. Cancellation passes
- * through (not under `NonCancellable`: a shutdown must be able to interrupt it). [tables] are constants, never user input
- * (checked: `schema.table` of lowercase letters and underscores).
+ * timeout or any other failure logs ONE WARN (the constant table names, the exception's class and its SQLSTATE when it has one, never
+ * its message) and returns `ran = false`: the data is committed and the statistics fall back to autovacuum, so it never fails the job.
+ * Cancellation passes through (not under `NonCancellable`: a shutdown must be able to interrupt it). [tables] are constants, never
+ * user input (checked: `schema.table` of lowercase letters and underscores); the connection check reads the FIRST of them.
  */
 internal suspend fun analyzeIfMaterial(
     database: R2dbcDatabase,
     tables: List<String>,
+    connectionId: UInt,
     rowsWritten: Long,
     settings: NormAnalyzeSettings = NormAnalyzeSettings(),
 ): NormAnalyzeResult {
     require(tables.isNotEmpty() && tables.all { TABLE_NAME.matches(it) }) { "norm ANALYZE tables are fixed constants" }
+    check(TransactionManager.currentOrNull() == null) { "analyzeIfMaterial opens its own transaction: never call it inside one" }
     val started = TimeSource.Monotonic.markNow()
+    var reason = 0L
     val ran = catchingFailures(
         block = {
             suspendTransaction(database) {
                 queryTimeout = Math.ceilDiv(settings.statementMs, MILLIS_PER_SECOND).toInt()
                 exec("SET LOCAL lock_timeout = ${settings.lockMs}")
-                val statistics = reltuplesOf(tables)
-                if (normStatisticsStale(rowsWritten, statistics.reltuplesSum, statistics.neverAnalyzed, settings.materialPercent)) {
-                    exec("ANALYZE ${tables.joinToString(", ")}")
-                    true
-                } else {
-                    false
-                }
+                val statistics = statisticsOf(tables, connectionId)
+                reason = normAnalyzeReason(
+                    statistics.neverAnalyzed, statistics.modSinceAnalyzeSum, statistics.reltuplesSum, statistics.connectionInMcv,
+                    rowsWritten, settings.materialPercent,
+                )
+                if (reason != 0L) exec("ANALYZE ${tables.joinToString(", ")}")
+                reason != 0L
             }
         },
         onFailure = { failure ->
             log.warn(
                 "post-PROCESS ANALYZE of {} failed ({}); the statistics fall back to autovacuum",
-                tables.joinToString(", "), failure::class.java.simpleName,
+                tables.joinToString(", "), failure.safeLabel(),
             )
             false
         },
     )
-    return NormAnalyzeResult(ran, started.elapsedNow().inWholeMilliseconds)
+    return NormAnalyzeResult(ran, started.elapsedNow().inWholeMilliseconds, if (ran) reason else 0L)
 }
 
-private class TableStatistics(val reltuplesSum: Long, val neverAnalyzed: Boolean)
+/** The exception's class and the first SQLSTATE along its cause chain (55P03 lock timeout, 57014 statement timeout), never a message. */
+private fun Throwable.safeLabel(): String {
+    var current: Throwable? = this
+    while (current != null) {
+        (current as? R2dbcException)?.sqlState?.let { return "${this::class.java.simpleName}, SQLSTATE $it" }
+        current = current.cause
+    }
+    return this::class.java.simpleName
+}
 
-/** The planner's row estimate of [tables] together, from the catalog (`reltuples` is -1 until a table is first vacuumed or analyzed). */
-private suspend fun R2dbcTransaction.reltuplesOf(tables: List<String>): TableStatistics {
+private class TableStatistics(
+    val reltuplesSum: Long,
+    val neverAnalyzed: Boolean,
+    val modSinceAnalyzeSum: Long,
+    val connectionInMcv: Boolean,
+)
+
+/**
+ * What the planner and the statistics views know about [tables] together, from the catalog: the `reltuples` sum (-1 until a table is
+ * first vacuumed or analyzed), the modifications since the last ANALYZE, and whether [connectionId] is among the most common
+ * `connection_id` values of the FIRST table (`most_common_vals` is `anyarray`, read through `::text::bigint[]`; no `pg_stats` row, an
+ * unanalyzed or empty table, counts as absent).
+ */
+private suspend fun R2dbcTransaction.statisticsOf(tables: List<String>, connectionId: UInt): TableStatistics {
     val regclasses = tables.joinToString(", ") { "'$it'::regclass" }
+    val (schema, table) = tables.first().split('.')
     val rows: Flow<TableStatistics?>? = exec(
-        "SELECT COALESCE(sum(GREATEST(reltuples, 0)), 0)::bigint, COALESCE(bool_or(reltuples < 0), false) " +
-            "FROM pg_class WHERE oid IN ($regclasses)",
+        "SELECT COALESCE(sum(GREATEST(c.reltuples, 0)), 0)::bigint, COALESCE(bool_or(c.reltuples < 0), false), " +
+            "COALESCE(sum(s.n_mod_since_analyze), 0)::bigint, " +
+            "EXISTS (SELECT 1 FROM pg_stats p WHERE p.schemaname = '$schema' AND p.tablename = '$table' " +
+            "AND p.attname = 'connection_id' AND p.most_common_vals IS NOT NULL " +
+            "AND $connectionId = ANY (p.most_common_vals::text::bigint[])) " +
+            "FROM pg_class c LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid WHERE c.oid IN ($regclasses)",
         explicitStatementType = StatementType.SELECT,
     ) { row ->
-        TableStatistics(row.get(0, Long::class.javaObjectType)!!, row.get(1, Boolean::class.javaObjectType)!!)
+        TableStatistics(
+            row.get(0, Long::class.javaObjectType)!!,
+            row.get(1, Boolean::class.javaObjectType)!!,
+            row.get(2, Long::class.javaObjectType)!!,
+            row.get(3, Boolean::class.javaObjectType)!!,
+        )
     }
-    return rows?.toList()?.filterNotNull()?.single() ?: error("reltuplesOf: the catalog read returned no row")
+    return rows?.toList()?.filterNotNull()?.single() ?: error("statisticsOf: the catalog read returned no row")
 }

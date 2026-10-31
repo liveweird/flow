@@ -16,6 +16,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 private const val LOGGER = "ch.nokillswit.norm.NormAnalyze"
+private val progressKeys = listOf("normAnalyzed", "normAnalyzeMs", "normAnalyzeReason")
 private val CODE_TABLES = NORM_CODE_ANALYZED_TABLES + listOf("norm.code_projects", "norm.code_identities")
 
 /**
@@ -42,14 +43,14 @@ class NormAnalyzeGitLabTest {
         processStore.markAllNeedsProcessing(it, commitsOnly = false)
     }
 
-    /** Lowers the share (see [NormAnalyzeSettings]) where the ANALYZE must be attempted whatever the fork's other classes left. */
+    /** Shortens the waits (see [NormAnalyzeSettings]) where the test hits a lock timeout. */
     private fun storeWith(settings: NormAnalyzeSettings) = CodeActivityStore(sharedDatabaseForTests(), settings)
 
     private suspend fun process(connId: UInt, code: CodeActivityStore = GitLabFixtures.codeStore()): Map<String, Long> =
         GitLabFixtures.runStream(GitLabProcessStream(processStore, code, globs), connId)
 
     /** The brought-up-to-date statistics a quiet autovacuum would leave. */
-    private fun settleStatistics() = NormAnalyzeSupport.execute("ANALYZE ${CODE_TABLES.joinToString(", ")}")
+    private suspend fun settleStatistics(quiet: Boolean = false) = NormAnalyzeSupport.settle(CODE_TABLES, quiet)
 
     @Test
     fun `a GitLab PROCESS that writes the connection ANALYZEs the three code tables once and records it in the progress`() = runBlocking {
@@ -57,11 +58,12 @@ class NormAnalyzeGitLabTest {
         settleStatistics()
         val before = NormAnalyzeSupport.analyzeCounts(CODE_TABLES)
 
-        val progress = process(connId, storeWith(NormAnalyzeSettings(materialPercent = 1)))
+        val progress = process(connId)
 
         assertTrue(progress.getValue("commitsProcessed") > 100, "the clone's commits were processed: $progress")
         assertEquals(1L, progress["normAnalyzed"])
         assertTrue(progress.getValue("normAnalyzeMs") >= 0)
+        assertTrue(progress["normAnalyzeReason"] in setOf(2L, 3L), "settled, then the clone's rows arrived: $progress")
         val after = NormAnalyzeSupport.analyzeCounts(CODE_TABLES)
         NORM_CODE_ANALYZED_TABLES.forEach { table -> assertEquals(before.getValue(table) + 1, after[table], "$table analyzed once") }
         listOf("norm.code_projects", "norm.code_identities").forEach { table ->
@@ -73,7 +75,7 @@ class NormAnalyzeGitLabTest {
     fun `a GitLab PROCESS that writes a few rows or none does not ANALYZE`() = runBlocking {
         val connId = rawClone()
         process(connId)
-        settleStatistics()
+        settleStatistics(quiet = true)
         val before = NormAnalyzeSupport.analyzeCounts(CODE_TABLES)
 
         NormAnalyzeSupport.execute("UPDATE raw.gitlab_commits SET needs_processing = false WHERE connection_id = $connId")
@@ -87,8 +89,8 @@ class NormAnalyzeGitLabTest {
 
         assertEquals(3L, few["commitsProcessed"])
         assertNull(none["commitsProcessed"], "nothing was stale the second time")
-        listOf("normAnalyzed", "normAnalyzeMs").forEach { key ->
-            assertNull(few[key], "a few rows: no $key")
+        progressKeys.forEach { key ->
+            assertNull(few[key], "a few rows: no $key in $few")
             assertNull(none[key], "no rows: no $key")
         }
         assertEquals(before, NormAnalyzeSupport.analyzeCounts(CODE_TABLES))
@@ -99,17 +101,18 @@ class NormAnalyzeGitLabTest {
         val connId = rawClone()
         settleStatistics()
         val before = NormAnalyzeSupport.analyzeCounts(CODE_TABLES)
-        val shortWait = storeWith(NormAnalyzeSettings(lockMs = 300, statementMs = 10_000, materialPercent = 1))
+        val shortWait = storeWith(NormAnalyzeSettings(lockMs = 300, statementMs = 10_000))
         val logs = LogCapture(LOGGER)
         try {
             val progress = NormAnalyzeSupport.holdingAnalyzeLock("norm.code_mr_events") { process(connId, shortWait) }
 
             assertTrue(progress.getValue("commitsProcessed") > 100, "the PROCESS itself finished: $progress")
             assertNull(progress["commitPagesFailed"])
-            listOf("normAnalyzed", "normAnalyzeMs").forEach { assertNull(progress[it], "the ANALYZE did not run: no $it") }
+            progressKeys.forEach { assertNull(progress[it], "the ANALYZE did not run: no $it") }
             val warn = logs.events.single { it.level == Level.WARN }
             assertTrue(NORM_CODE_ANALYZED_TABLES.all { it in warn.formattedMessage }, "the table names: ${warn.formattedMessage}")
             assertNull(warn.throwableProxy, "the class name in the text, no stack and no driver message")
+            assertTrue("SQLSTATE 55P03" in warn.formattedMessage, "the lock timeout's SQLSTATE: ${warn.formattedMessage}")
             // The counter is not transactional: a table the statement reached before the blocked one counts, whatever the rollback did.
             assertEquals(
                 before["norm.code_mr_events"], NormAnalyzeSupport.analyzeCounts(CODE_TABLES)["norm.code_mr_events"],

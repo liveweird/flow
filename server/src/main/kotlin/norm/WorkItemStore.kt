@@ -347,9 +347,12 @@ class WorkItemStore(private val database: R2dbcDatabase, private val analyzeSett
 
     // --- Planner statistics (`NormAnalyze.kt`) ---
 
-    /** Jira PROCESS's closing step: `ANALYZE` the three tables DERIVE's worklog statement joins when [rowsWritten] of them is material. */
-    suspend fun analyzeAfterProcess(rowsWritten: Long): NormAnalyzeResult =
-        analyzeIfMaterial(database, NORM_WORK_ITEM_ANALYZED_TABLES, rowsWritten, analyzeSettings)
+    /**
+     * Jira PROCESS's closing step: `ANALYZE` the three tables DERIVE's worklog statement joins when the run for [connectionId] wrote
+     * rows ([rowsWritten] > 0) and their statistics are stale for it ([normAnalyzeReason]).
+     */
+    suspend fun analyzeAfterProcess(connectionId: UInt, rowsWritten: Long): NormAnalyzeResult =
+        analyzeIfMaterial(database, NORM_WORK_ITEM_ANALYZED_TABLES, connectionId, rowsWritten, analyzeSettings)
 
     // --- PURGE ([NormPurge]; the drain loop is the `purgeAll` extension in that file) ---
 

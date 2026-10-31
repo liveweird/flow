@@ -1,22 +1,57 @@
 package ch.nokillswit
 
 import ch.nokillswit.ingest.StreamContext
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /**
- * The run's progress without the closing ANALYZE's two keys (`normAnalyzed`, `normAnalyzeMs`): whether a PROCESS ends with one depends
- * on what the shared test database's statistics held when it started (never analyzed, or a tenth of the rows), so a test that pins a
- * PROCESS's whole counter map compares through this and leaves the ANALYZE to [NormAnalyzeTest] / [NormAnalyzeGitLabTest].
+ * The run's progress without the closing ANALYZE's three keys (`normAnalyzed`, `normAnalyzeMs`, `normAnalyzeReason`): whether a
+ * PROCESS ends with one depends on what the shared test database's statistics held when it started (never analyzed, a tenth of the
+ * rows modified, the connection unknown), so a test that pins a PROCESS's whole counter map compares through this and leaves the
+ * ANALYZE to [NormAnalyzeTest] / [NormAnalyzeGitLabTest].
  */
-internal fun StreamContext.progressWithoutNormAnalyze(): Map<String, Long> = progressSnapshot() - setOf("normAnalyzed", "normAnalyzeMs")
+internal fun StreamContext.progressWithoutNormAnalyze(): Map<String, Long> =
+    progressSnapshot() - setOf("normAnalyzed", "normAnalyzeMs", "normAnalyzeReason")
 
 /**
  * Raw-JDBC probes of the post-PROCESS `ANALYZE` (`norm/NormAnalyze.kt`) shared by [NormAnalyzeTest] and [NormAnalyzeGitLabTest]: the
  * manual-ANALYZE counter of a table set, a lock held from a second session. `pg_stat_user_tables.analyze_count` counts MANUAL analyzes
  * only (autovacuum has `autoanalyze_count`), so an autovacuum pass can never move what the tests compare.
  */
+private const val STATS_REPORT_INTERVAL_MS = 1_200L
+private const val TEST_POOL_SIZE = 10
+
 internal object NormAnalyzeSupport {
     fun execute(sql: String) {
         PostgresTestSupport.connect().use { conn -> conn.createStatement().use { it.execute(sql) } }
+    }
+
+    /**
+     * Brings the statistics of [tables] up to their true size, as a quiet autovacuum pass would. [quiet] first flushes the pooled
+     * connections' pending statistics ([flushPooledStatistics]): a PROCESS that just ended leaves unflushed counters in the connections
+     * it used, which would land after this ANALYZE reset `n_mod_since_analyze` and count as changes made later. Only a test that
+     * asserts NO ANALYZE needs it.
+     */
+    suspend fun settle(tables: List<String>, quiet: Boolean = false) {
+        if (quiet) flushPooledStatistics()
+        execute("ANALYZE ${tables.joinToString(", ")}")
+    }
+
+    /**
+     * PostgreSQL reports a session's table counters (`n_tup_*`, `n_mod_since_analyze`) at the end of a transaction only when a second has
+     * passed since its last report, else at the idle timeout, up to 10 s later. Waits out that second, then runs one transaction on every
+     * connection of the shared test pool at once (a held `pg_sleep` forces every one of its ten), so each reports what it holds.
+     */
+    private suspend fun flushPooledStatistics() {
+        delay(STATS_REPORT_INTERVAL_MS)
+        val database = sharedDatabaseForTests()
+        coroutineScope {
+            repeat(TEST_POOL_SIZE) {
+                launch { suspendTransaction(database) { exec("DO \$\$ BEGIN PERFORM pg_sleep(0.3); END \$\$") } }
+            }
+        }
     }
 
     /** `table (schema.name) -> analyze_count` for [tables]. */

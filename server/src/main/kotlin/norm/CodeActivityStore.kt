@@ -184,9 +184,12 @@ class CodeActivityStore(private val database: R2dbcDatabase, private val analyze
     suspend fun purgeCommitsBatch(connectionId: UInt, batchSize: Int = NORM_PURGE_BATCH_SIZE): Int =
         purge.purgeCommitsBatch(connectionId, batchSize)
 
-    /** GitLab PROCESS's closing step: `ANALYZE` the three `code_*` tables the PROFILE aggregates when [rowsWritten] of them is material. */
-    suspend fun analyzeAfterProcess(rowsWritten: Long): NormAnalyzeResult =
-        analyzeIfMaterial(database, NORM_CODE_ANALYZED_TABLES, rowsWritten, analyzeSettings)
+    /**
+     * GitLab PROCESS's closing step: `ANALYZE` the three `code_*` tables the PROFILE aggregates when the run for [connectionId] wrote
+     * rows ([rowsWritten] > 0) and their statistics are stale for it ([normAnalyzeReason]).
+     */
+    suspend fun analyzeAfterProcess(connectionId: UInt, rowsWritten: Long): NormAnalyzeResult =
+        analyzeIfMaterial(database, NORM_CODE_ANALYZED_TABLES, connectionId, rowsWritten, analyzeSettings)
 
     /** The two reference tables are rebuilt wholesale already: PURGE clears them outright. */
     suspend fun purgeReferenceRows(connectionId: UInt) = purge.purgeReferenceRows(connectionId)

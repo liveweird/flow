@@ -68,15 +68,16 @@ internal class ProcessNormalizers(
  * bound value.
  *
  * 5. **The closing `ANALYZE`** of `norm.code_commits`, `norm.code_merge_requests` and `norm.code_mr_events`
- *    ([CodeActivityStore.analyzeAfterProcess], its own short transaction) when the run wrote at least a tenth of what their statistics
- *    describe, or a table was never analyzed: the PROFILE's event count (and a second source's reads) would otherwise plan the new
- *    rows at one row (build-times WHY 60). A failure or a lock timeout is one WARN, never a failed run. `code_projects` and
+ *    ([CodeActivityStore.analyzeAfterProcess], its own short transaction) when the run wrote rows AND a table was never analyzed, the
+ *    changes since the last ANALYZE reach a tenth of what their statistics describe, or this connection is absent from the
+ *    `connection_id` most common values: the PROFILE's event count (and a second source's reads) would otherwise plan the new rows
+ *    at one row (build-times WHY 60). A failure or a lock timeout is one WARN, never a failed run. `code_projects` and
  *    `code_identities` are left out: hundreds of rows, rebuilt wholesale, read only by `connection_id`-filtered counts.
  *
  * Progress: `commitsProcessed`, `mergeRequestsProcessed`, `identities` (rows written), `exclusionsChanged` / `identityMapChanged` /
- * `usernameMapChanged` (1 when that fingerprint re-flagged), the failed-page counters, `normAnalyzed` / `normAnalyzeMs` (the closing
- * ANALYZE, present only when it ran). Never calls GitLab, so it is deadline-exempt ([GITLAB_LOCAL_STREAMS]): nothing that calls GitLab
- * may follow it.
+ * `usernameMapChanged` (1 when that fingerprint re-flagged), the failed-page counters, `normAnalyzed` / `normAnalyzeMs` /
+ * `normAnalyzeReason` (the closing ANALYZE, present only when it ran). Never calls GitLab, so it is deadline-exempt
+ * ([GITLAB_LOCAL_STREAMS]): nothing that calls GitLab may follow it.
  */
 internal class GitLabProcessStream(
     private val processStore: GitLabRawProcessStore,
@@ -98,7 +99,7 @@ internal class GitLabProcessStream(
         val tally = RunTally()
         processCommits(context, map, tally)
         processMergeRequests(context, map, tally)
-        codeStore.analyzeAfterProcess(tally.rowsWritten).recordIn(context)
+        codeStore.analyzeAfterProcess(context.connectionId, tally.rowsWritten).recordIn(context)
     }
 
     private suspend fun <T> staged(stage: String, block: suspend () -> T): T = catchingFailures(

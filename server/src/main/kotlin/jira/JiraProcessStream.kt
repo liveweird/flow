@@ -55,10 +55,10 @@ private val log = LoggerFactory.getLogger(JiraProcessStream::class.java)
  * (`issuesFailed`, retried by the next PROCESS pass).
  *
  * **The run ends with a conditional `ANALYZE`** of `norm.work_items`, `norm.work_item_worklogs` and `norm.work_item_field_intervals`
- * ([WorkItemStore.analyzeAfterProcess], its own short transaction): when the run wrote at least a tenth of what the tables' statistics
- * describe (or a table was never analyzed), DERIVE's worklog statement would otherwise plan a second connection's rows at one row
- * (build-times WHY 60). A failure or a lock timeout is one WARN, never a failed run; the progress keys are `normAnalyzed` and
- * `normAnalyzeMs`.
+ * ([WorkItemStore.analyzeAfterProcess], its own short transaction): when the run wrote rows AND a table was never analyzed, the changes
+ * since the last ANALYZE reach a tenth of what the statistics describe, or this connection is absent from the `connection_id` most
+ * common values - DERIVE's worklog statement would otherwise plan a second connection's rows at one row (build-times WHY 60). A failure
+ * or a lock timeout is one WARN, never a failed run; the progress keys are `normAnalyzed`, `normAnalyzeMs` and `normAnalyzeReason`.
  */
 class JiraProcessStream(
     private val rawStore: JiraRawStore,
@@ -90,7 +90,7 @@ class JiraProcessStream(
             if (claim.ids.isNotEmpty()) processBatch(context, connectionId, claim.ids, fieldIds, statusLookup, issueTypeHierarchy, written)
             context.heartbeat(changed = claim.ids.isNotEmpty())
         }
-        workItemStore.analyzeAfterProcess(written.count).recordIn(context)
+        workItemStore.analyzeAfterProcess(connectionId, written.count).recordIn(context)
     }
 
     /** The "skip, loudly" of an issue whose own stored text is over the page budget: the id and the sizes, never a payload. */
