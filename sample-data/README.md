@@ -373,8 +373,12 @@ node sample-data/gitlab/generate.mjs --out /tmp/a && node sample-data/gitlab/gen
 
 **Scale flags** build the performance world (never committed; `--out` is the way to keep it off the repo): `--users N` (GitLab humans, default 6, min 6),
 `--projects N` (in-scope projects, default 4, min 4; the archived, out-of-scope and day-2-only projects always stay), `--months N` (history, default 6,
-min 2). Commits grow with users x months (about 8 per person-month: 300 at the defaults), merge requests with users x months too (about 1.7). Explicit
-`--users 6 --projects 4 --months 6` equals no flags. `--users 70 --projects 30 --months 24` is ~23k mappings and ~290 MiB in about 4 s.
+min 2). Commits grow with users x months (about 8 per person-month: 300 at the defaults), merge requests with users x months too (about 1.7), whatever the
+project count: the density is fixed, so a bigger world is more people and months, never more items per person. Explicit
+`--users 6 --projects 4 --months 6` equals no flags. `--users 70 --projects 200 --months 24` is 45,668 mappings, 27,791 bodies and 395 MiB in about 5.6 s: 14.2k
+commits (~6.5 % merges), 2.8k merge requests, 23.3k notes and 72 users. WireMock serves it (startup ~50 s at `-Xmx1g`, ~10-20 ms for a matched request), but
+matching is linear in the mapping count and the per-commit diff mappings dominate, so a world several times larger needs the stub's diff mappings collapsed
+first. `docker-compose.perf.yaml` mounts such a world as the `flow-perf` stack's `gitlab-stub` (its header gives the command used for the performance runs).
 
 ## The default world (host `gitlab.flow-sample.example`, GitLab `19.3.1`)
 
