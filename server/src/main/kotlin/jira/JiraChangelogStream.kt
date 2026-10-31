@@ -1,5 +1,10 @@
 package ch.nokillswit.jira
 
+import ch.nokillswit.fetch.AnswerCeiling
+import ch.nokillswit.fetch.BoundedAnswer
+import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.fetch.halvedBatchSize
+import ch.nokillswit.fetch.isOversized
 import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
@@ -154,7 +159,7 @@ class JiraChangelogStream(
     private suspend fun tryBulk(context: StreamContext, batch: List<Long>): BulkOutcome {
         val histories = try {
             fetchBulk(batch)
-        } catch (cause: JiraFetchException) {
+        } catch (cause: FetchException) {
             return when {
                 cause.status in BULK_UNAVAILABLE_STATUSES -> BulkOutcome.UNAVAILABLE
                 cause.isOversized() -> BulkOutcome.TOO_LARGE.also { lastOversized = cause.message }
@@ -175,7 +180,7 @@ class JiraChangelogStream(
      * rows it will store (the whole answer goes to one [JiraRawStore.insertChangelogs], duplicates dropped), within [BoundedAnswer].
      */
     private suspend fun fetchBulk(issueIds: List<Long>): List<RawChangelogInput> {
-        val answer = BoundedAnswer<RawChangelogInput>(BULK_ENDPOINT, ceiling, "histories")
+        val answer = BoundedAnswer<RawChangelogInput>(JIRA_SOURCE, BULK_ENDPOINT, ceiling, "histories")
         var token: String? = null
         while (true) {
             answer.nextPage()
@@ -210,7 +215,7 @@ class JiraChangelogStream(
         for (issueId in issueIds) {
             val histories = try {
                 fetchIssueHistories(issueId)
-            } catch (cause: JiraFetchException) {
+            } catch (cause: FetchException) {
                 if (!cause.isOversized()) throw cause
                 log.warn(
                     "CHANGELOGS issue {} oversized, data source {}: skipped this run, its history stays unfetched ({})",
@@ -232,7 +237,7 @@ class JiraChangelogStream(
     }
 
     private suspend fun fetchIssueHistories(issueId: Long): List<RawChangelogInput> {
-        val answer = BoundedAnswer<RawChangelogInput>(PER_ISSUE_ENDPOINT, ceiling, "histories")
+        val answer = BoundedAnswer<RawChangelogInput>(JIRA_SOURCE, PER_ISSUE_ENDPOINT, ceiling, "histories")
         var startAt = 0
         while (true) {
             answer.nextPage()

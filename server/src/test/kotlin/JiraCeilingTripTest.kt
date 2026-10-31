@@ -1,5 +1,7 @@
 package ch.nokillswit
 
+import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.fetch.RunCeiling
 import ch.nokillswit.ingest.CeilingTripException
 import ch.nokillswit.ingest.DataSourceKind
 import ch.nokillswit.ingest.IngestConfig
@@ -15,13 +17,12 @@ import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.ingest.SyncJobStatus
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.ingest.TIME_EXCEEDED_TRIP
+import ch.nokillswit.jira.JIRA_SOURCE
 import ch.nokillswit.jira.JiraConnector
-import ch.nokillswit.jira.JiraFetchException
 import ch.nokillswit.jira.JiraIssuesStream
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraSearchPage
 import ch.nokillswit.jira.JiraSyncDependencies
-import ch.nokillswit.jira.RunCeiling
 import ch.nokillswit.jira.backfillFromEpochMillis
 import ch.nokillswit.jira.ceilingTripOf
 import kotlinx.coroutines.runBlocking
@@ -280,7 +281,7 @@ class JiraCeilingTripTest {
         val stream = { JiraIssuesStream(client, store, listOf("FLO"), backfillFromEpochMillis(BACKFILL), BACKFILL, 10, 100, ceiling) }
         val runOnce = suspend {
             val context = streamContext(connId, clock, maxRunMillis = null).also { it.currentStreamName = "issues" }
-            val failure = assertFailsWith<JiraFetchException> { stream().run(context) }
+            val failure = assertFailsWith<FetchException> { stream().run(context) }
             assertEquals(LIMIT_EXCEEDED_TRIP, failure.code)
             assertNotNull(failure.ceilingTripOf(context))
         }
@@ -300,7 +301,7 @@ class JiraCeilingTripTest {
             if (token == null) Result.success(JiraSearchPage(JsonArray(firstPage), "t1")) else Result.failure(limit())
         }
         val context = streamContext(connId, clock, maxRunMillis = null).also { it.currentStreamName = "issues" }
-        val failure = assertFailsWith<JiraFetchException> {
+        val failure = assertFailsWith<FetchException> {
             JiraIssuesStream(client, store, listOf("FLO"), backfillFromEpochMillis(BACKFILL), BACKFILL, 10, 100).run(context)
         }
         return assertNotNull(failure.ceilingTripOf(context))
@@ -374,7 +375,7 @@ class JiraCeilingTripTest {
         heartbeat = { _, _ -> true },
     )
 
-    private fun limit() = JiraFetchException("LIMIT_EXCEEDED", null, "/rest/api/3/search/jql", "answer ceiling: more than 3 pages")
+    private fun limit() = FetchException(JIRA_SOURCE, "LIMIT_EXCEEDED", null, "/rest/api/3/search/jql", "answer ceiling: more than 3 pages")
 
     @Test
     fun `a LIMIT_EXCEEDED before any page committed leaves the connector as a no-progress trip`() = runBlocking<Unit> {
@@ -383,7 +384,7 @@ class JiraCeilingTripTest {
         val trip = assertFailsWith<CeilingTripException> { connector(client, clock).run(runContext(connection(), clock)) }
         assertEquals(LIMIT_EXCEEDED_TRIP, trip.code)
         assertFalse(trip.madeProgress, "the very first page tripped: the next run would repeat it")
-        assertIs<JiraFetchException>(trip.underlying)
+        assertIs<FetchException>(trip.underlying)
         assertEquals(trip.underlying.message, trip.message, "the failure it reports is the fetch failure, unchanged")
     }
 
@@ -402,8 +403,8 @@ class JiraCeilingTripTest {
     @Test
     fun `any other fetch failure is not typed as a trip`() = runBlocking<Unit> {
         val clock = AtomicLong(1_900_000_000_000)
-        val client = Scripted(clock, 0) { Result.failure(JiraFetchException("RATE_LIMITED", 429, "/rest/api/3/search/jql")) }
-        val failure = assertFailsWith<JiraFetchException> { connector(client, clock).run(runContext(connection(), clock)) }
+        val client = Scripted(clock, 0) { Result.failure(FetchException(JIRA_SOURCE, "RATE_LIMITED", 429, "/rest/api/3/search/jql")) }
+        val failure = assertFailsWith<FetchException> { connector(client, clock).run(runContext(connection(), clock)) }
         assertEquals("RATE_LIMITED", failure.code)
     }
 
@@ -457,7 +458,7 @@ class JiraCeilingTripTest {
         val job = runReconcile(connId, connector(Scripted(clock, 0) { Result.failure(limit()) }, clock), clock, maxJobMinutes = 60)
         assertEquals(SyncJobStatus.FAILED, job.status)
         assertEquals(LIMIT_EXCEEDED_TRIP, job.errorCode)
-        assertTrue(job.errorDetail.orEmpty().startsWith("JiraFetchException: Jira fetch failed: LIMIT_EXCEEDED"), job.errorDetail)
+        assertTrue(job.errorDetail.orEmpty().startsWith("FetchException: Jira fetch failed: LIMIT_EXCEEDED"), job.errorDetail)
         assertTrue(job.errorDetail.orEmpty().length <= 1000)
     }
 }

@@ -1,10 +1,10 @@
-package ch.nokillswit.jira
+package ch.nokillswit.fetch
 
 import io.ktor.http.HttpMethod
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.serialization.json.JsonElement
 
-// The value types of one `JiraHttp` call (split out of `JiraHttp.kt` to keep it under the source-file size cap).
+// The value types of one `SourceHttp` call (split out of `SourceHttp.kt` to keep it under the source-file size cap).
 
 /** What one request needs on every attempt; [pauseKey] names the tenant whose shared pause it obeys (null = none). */
 internal class PendingCall(
@@ -15,11 +15,11 @@ internal class PendingCall(
     val authHeader: String?,
     val statusCodeOverrides: Map<Int, String>,
     val pauseKey: String?,
-    /** The sync job's [JiraCallTally] when the call runs inside one, else null. */
-    val tally: JiraCallTally?,
+    /** The sync job's [CallTally] when the call runs inside one, else null. */
+    val tally: CallTally?,
     /** Told the size of the response body on the wire, once it is read (the size a character-per-run ceiling charges). */
     val onWireBytes: ((Int) -> Unit)?,
-    /** Applied to the parsed tree while the big-parse lock is still held (`JiraHttp.requestAs`); identity for a plain request. */
+    /** Applied to the parsed tree while the big-parse lock is still held (`SourceHttp.requestAs`); identity for a plain request. */
     val transform: (JsonElement) -> Any?,
 )
 
@@ -32,7 +32,7 @@ internal class Retry(
     val retryAfterSeconds: Long?,
     /** True for a 429, or a 5xx carrying `Retry-After`: the TENANT is rate limiting, so its other calls pause too. */
     val pausesOthers: Boolean,
-    val terminal: () -> JiraFetchException,
+    val terminal: () -> FetchException,
 ) : Outcome
 
 /** One call's hold on a semaphore permit, so it can be handed back while the call only waits (backoff, a tenant pause). */

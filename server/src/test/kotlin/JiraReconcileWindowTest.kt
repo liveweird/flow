@@ -1,9 +1,10 @@
 package ch.nokillswit
 
+import ch.nokillswit.fetch.FetchException
 import ch.nokillswit.ingest.StreamContext
+import ch.nokillswit.jira.JIRA_SOURCE
 import ch.nokillswit.jira.JiraChangelogPage
 import ch.nokillswit.jira.JiraClient
-import ch.nokillswit.jira.JiraFetchException
 import ch.nokillswit.jira.JiraIssuesStream
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraReconcileStream
@@ -93,14 +94,14 @@ private class ScriptedJiraClient(
 
     override suspend fun searchJql(jql: String, fields: String?, nextPageToken: String?, maxResults: Int): JiraSearchPage {
         searches += jql to nextPageToken
-        if (expireAlways || nextPageToken in expiredTokens) throw JiraFetchException("CURSOR_EXPIRED", 400)
+        if (expireAlways || nextPageToken in expiredTokens) throw FetchException(JIRA_SOURCE, "CURSOR_EXPIRED", 400)
         return JiraSearchPage(JsonArray(sweepIds.map { id -> buildJsonObject { put("id", id.toString()) } }), null)
     }
 
     override suspend fun issue(idOrKey: String, fields: String?): JsonObject {
         val id = idOrKey.toLong()
         probes += id
-        if (id in deletedIds) throw JiraFetchException("NOT_FOUND", 404)
+        if (id in deletedIds) throw FetchException(JIRA_SOURCE, "NOT_FOUND", 404)
         val (projectId, projectKey) = probeProjects[id] ?: throw AssertionError("unexpected probe of issue $id")
         return buildJsonObject {
             put("id", idOrKey)
@@ -326,7 +327,7 @@ class JiraReconcileWindowTest {
 
         val stuckId = newConnection("jira-reconcile-expired-always")
         val stuck = ScriptedJiraClient(sweepIds = emptyList(), expireAlways = true)
-        val failure = assertFailsWith<JiraFetchException> { reconcile(stuck).run(context(stuckId)) }
+        val failure = assertFailsWith<FetchException> { reconcile(stuck).run(context(stuckId)) }
         assertEquals("CURSOR_EXPIRED", failure.code)
         assertEquals(MAX_CURSOR_RESTARTS + 1, stuck.searches.size, "the first request plus exactly MAX_CURSOR_RESTARTS restarts")
     }

@@ -1,5 +1,9 @@
 package ch.nokillswit.jira
 
+import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.fetch.PageTokenGuard
+import ch.nokillswit.fetch.RunBudget
+import ch.nokillswit.fetch.RunCeiling
 import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
 import ch.nokillswit.ingest.Stream
@@ -89,14 +93,14 @@ class JiraReconcileStream internal constructor(
     override suspend fun run(context: StreamContext) {
         var state = loadOrStart(context)
         var restarts = 0
-        val budget = RunBudget(SEARCH_JQL_ENDPOINT, runCeiling, "ids")
-        val tokens = PageTokenGuard(SEARCH_JQL_ENDPOINT, state.nextPageToken)
+        val budget = RunBudget(JIRA_SOURCE, SEARCH_JQL_ENDPOINT, runCeiling, "ids")
+        val tokens = PageTokenGuard(JIRA_SOURCE, SEARCH_JQL_ENDPOINT, state.nextPageToken)
         while (true) {
             budget.nextPage()
             val page = try {
                 val jql = checkNotNull(state.jql)
                 client.searchJql(jql, fields = "id", nextPageToken = state.nextPageToken, maxResults = RECONCILE_PAGE_SIZE)
-            } catch (expired: JiraFetchException) {
+            } catch (expired: FetchException) {
                 // Same bounded restart as the ISSUES stream: a token Jira no longer honours means a fresh pass.
                 if (expired.code != CURSOR_EXPIRED_CODE || restarts >= MAX_CURSOR_RESTARTS) throw expired
                 restarts++
@@ -178,7 +182,7 @@ class JiraReconcileStream internal constructor(
         val issueId = candidate.issueId
         val issue = try {
             client.issue(issueId.toString(), fields = RECONCILE_ISSUE_FIELDS)
-        } catch (notFound: JiraFetchException) {
+        } catch (notFound: FetchException) {
             if (notFound.code != NOT_FOUND_CODE) throw notFound
             context.transaction {
                 rawStore.markIssueDeleted(context.connectionId, issueId, context.clock())

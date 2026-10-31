@@ -19,6 +19,12 @@ import kotlin.test.assertTrue
  * stay open to `infra`. The composition root is the one documented exception ([infraCompositionRoot]): the DB/bootstrap
  * wiring MUST construct the feature services it publishes on `Application.attributes`, so exactly those two files may name
  * exactly those packages.
+ *
+ * `fetch/` is the hardened HTTP transport every connector shares (`SourceHttp`, the backoff, the call tally, the ceilings). It sits
+ * between `infra` and the connectors: it may use `infra` (the outbound guard's `BlockedHostException`, `sha256Hex`) and nothing above
+ * it, `ingest` included (a connector hands it everything it needs as plain parameters, and `ingest` already imports `jira`, so an
+ * `ingest` import would close a cycle). The two connectors, `jira` and the later `gitlab`, never reference each other: each reaches
+ * the shared machinery only through `fetch` and the registries of `ingest`.
  */
 class PackageBoundaryTest {
     private val mainSources: List<File> by lazy {
@@ -38,7 +44,9 @@ class PackageBoundaryTest {
         "Bootstrap.kt" to setOf("auth", "ingest", "flowusers"),
     )
 
-    private val featurePackages = listOf("ingest", "norm", "jira", "metrics", "reports", "teams", "flowusers", "auth", "authz", "telemetry")
+    private val featurePackages = listOf(
+        "ingest", "norm", "fetch", "jira", "gitlab", "metrics", "reports", "teams", "flowusers", "auth", "authz", "telemetry",
+    )
 
     private fun packageOf(text: String): String? =
         text.lineSequence().firstOrNull { it.startsWith("package ") }?.removePrefix("package ")?.trim()
@@ -61,11 +69,27 @@ class PackageBoundaryTest {
     }
 
     @Test
-    fun `ingest, norm and jira never reference metrics or reports`() {
-        val lower = setOf("ch.nokillswit.ingest", "ch.nokillswit.norm", "ch.nokillswit.jira")
+    fun `ingest, norm, fetch and jira never reference metrics or reports`() {
+        val lower = setOf("ch.nokillswit.ingest", "ch.nokillswit.norm", "ch.nokillswit.fetch", "ch.nokillswit.jira")
         // The scan must actually see those packages, or an empty result proves nothing (a moved directory, a renamed package).
         for (pkg in lower) assertTrue(mainSources.any { packageOf(it.readText()) == pkg }, "no source declares $pkg")
         assertEquals(emptyList(), violations(lower, listOf("metrics", "reports")))
+    }
+
+    @Test
+    fun `fetch references no connector and no feature package`() {
+        val lower = setOf("ch.nokillswit.fetch")
+        // The scan must actually see the package, or an empty result proves nothing (a moved directory, a renamed package).
+        assertTrue(mainSources.any { packageOf(it.readText()) in lower }, "no source declares ch.nokillswit.fetch")
+        assertEquals(emptyList(), violations(lower, featurePackages - "fetch"))
+    }
+
+    @Test
+    fun `jira and gitlab never reference each other`() {
+        // gitlab/ does not exist yet, so its half is vacuous until the connector lands; jira's half is real from today.
+        assertTrue(mainSources.any { packageOf(it.readText()) == "ch.nokillswit.jira" }, "no source declares ch.nokillswit.jira")
+        assertEquals(emptyList(), violations(setOf("ch.nokillswit.jira"), listOf("gitlab")))
+        assertEquals(emptyList(), violations(setOf("ch.nokillswit.gitlab"), listOf("jira")))
     }
 
     @Test

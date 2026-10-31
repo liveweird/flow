@@ -1,9 +1,10 @@
 package ch.nokillswit
 
+import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.fetch.SourceHttp
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.jira.HttpJiraClient
-import ch.nokillswit.jira.JiraFetchException
-import ch.nokillswit.jira.JiraHttp
+import ch.nokillswit.jira.createJiraHttp
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -40,7 +41,7 @@ private const val CLOUD_A = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
 private const val CLOUD_B = "1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e"
 
 /**
- * The shared rate-limit pause of `JiraHttp` (`jira-integration.md` "Rate limits and backoff"): one call's 429 (or a 5xx with
+ * The shared rate-limit pause of `SourceHttp` (`jira-integration.md` "Rate limits and backoff"): one call's 429 (or a 5xx with
  * `Retry-After`) makes every other call OF THE SAME TENANT wait before it starts a request, never another tenant's, and nobody waits
  * while holding a semaphore permit. A Ktor `MockEngine`, a virtual clock and a sleeper the test controls, so no test waits in real time.
  */
@@ -55,13 +56,13 @@ class JiraHttpSharedPauseTest {
         maxRetries: Int,
         deadlineMillis: Long = 180_000,
         sleeper: suspend (Long) -> Unit = { clock.addAndGet(it) },
-    ): JiraHttp = JiraHttp(
+    ): SourceHttp = createJiraHttp(
         HttpClient(engine) { expectSuccess = false; followRedirects = false },
         maxRetries = maxRetries, maxResponseBytes = 1_000_000, maxConcurrentRequests = limit, requestDeadlineMillis = deadlineMillis,
         random = { 0.5 }, sleeper = { sleeps += it; sleeper(it) }, clock = { clock.get() },
     )
 
-    private suspend fun JiraHttp.get(path: String, tenant: String? = TENANT_A) =
+    private suspend fun SourceHttp.get(path: String, tenant: String? = TENANT_A) =
         request(HttpMethod.Get, "https://tenant.test$path", pauseKey = tenant)
 
     private suspend fun waitUntil(condition: () -> Boolean) = withTimeout(TIMEOUT_MILLIS) { while (!condition()) delay(5) }
@@ -130,19 +131,19 @@ class JiraHttpSharedPauseTest {
         }
         val http = http(engine, limit = 3, maxRetries = 0)
 
-        assertFailsWith<JiraFetchException> { http.get("/plain5xx") }
+        assertFailsWith<FetchException> { http.get("/plain5xx") }
         http.get("/ok")
         assertEquals(emptyList(), sleeps.toList(), "a 5xx without Retry-After is that call's problem only")
 
-        assertFailsWith<JiraFetchException> { http.get("/503retryAfter") }
+        assertFailsWith<FetchException> { http.get("/503retryAfter") }
         http.get("/ok")
         assertEquals(listOf(7_000L), sleeps.toList(), "the next call waited out the Retry-After, though the first call was not retried")
 
-        assertFailsWith<JiraFetchException> { http.get("/429") }
+        assertFailsWith<FetchException> { http.get("/429") }
         http.get("/ok")
         assertEquals(listOf(7_000L, 2_000L), sleeps.toList(), "a 429 without Retry-After pauses for the computed backoff (2 s x 1.0)")
 
-        assertFailsWith<JiraFetchException> { http.get("/httpDate") }
+        assertFailsWith<FetchException> { http.get("/httpDate") }
         http.get("/ok")
         assertEquals(listOf(7_000L, 2_000L, 2_000L), sleeps.toList(), "an HTTP-date Retry-After is no header: the computed backoff")
 
@@ -171,7 +172,7 @@ class JiraHttpSharedPauseTest {
                 }
                 clock.addAndGet(millis)
             }
-            assertFailsWith<JiraFetchException> { http.get("/limited", TENANT_A) }
+            assertFailsWith<FetchException> { http.get("/limited", TENANT_A) }
 
             val parked = async(Dispatchers.Default) { http.get("/parked", TENANT_A) }
             withTimeout(TIMEOUT_MILLIS) { waiting.await() }
@@ -190,7 +191,7 @@ class JiraHttpSharedPauseTest {
         }
 
     @Test
-    fun `HttpJiraClient keys the pause by cloud id, so one tenant's 429 never stalls a client of another tenant on the same JiraHttp`() =
+    fun `HttpJiraClient keys the pause by cloud id, so one tenant's 429 never stalls a client of another tenant on the same SourceHttp`() =
         runBlocking<Unit> {
             val engine = MockEngine { request ->
                 val path = request.url.encodedPath
@@ -210,10 +211,10 @@ class JiraHttpSharedPauseTest {
             a.resolveCloudId()
             b.resolveCloudId()
 
-            assertEquals("RATE_LIMITED", assertFailsWith<JiraFetchException> { a.myself() }.code)
+            assertEquals("RATE_LIMITED", assertFailsWith<FetchException> { a.myself() }.code)
             b.myself()
             assertEquals(emptyList(), sleeps.toList(), "tenant B did not wait for tenant A's pause")
-            assertEquals("RATE_LIMITED", assertFailsWith<JiraFetchException> { a.myself() }.code)
+            assertEquals("RATE_LIMITED", assertFailsWith<FetchException> { a.myself() }.code)
             assertEquals(listOf(30_000L), sleeps.toList(), "tenant A's next call waited it out")
         }
 
@@ -304,10 +305,10 @@ class JiraHttpSharedPauseTest {
         }
 
         val yFailure = withTimeout(TIMEOUT_MILLIS) { y.await() }.exceptionOrNull()
-        assertIs<JiraFetchException>(yFailure)
+        assertIs<FetchException>(yFailure)
         assertEquals("RATE_LIMITED", yFailure.code, "/y refused a 100 s wait against its 10 s budget")
         val xFailure = withTimeout(TIMEOUT_MILLIS) { x.await() }.exceptionOrNull()
-        assertIs<JiraFetchException>(xFailure)
+        assertIs<FetchException>(xFailure)
         assertEquals("RATE_LIMITED", xFailure.code, "/x, after its backoff and the extended pause, was past its deadline")
         assertEquals(listOf("/x", "/y"), requests.sorted(), "/x's retry was never sent")
     }

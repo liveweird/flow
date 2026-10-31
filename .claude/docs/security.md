@@ -404,19 +404,19 @@ unconditionally, this only skips the address-SHAPE check for that one host. The 
 `OkHttpClient` (`guardedOkHttpClient`) sets `Proxy.NO_PROXY`, `followRedirects(false)` (both at the
 OkHttp engine level AND Ktor's own client-side `HttpRedirect` plugin — `HttpClient { followRedirects
 = false }` in `jira/Jira.kt` — checking-then-following would defeat the address check either way),
-`retryOnConnectionFailure(false)`, no cookies, no proxy authenticator. `jira/JiraHttp.kt` layers a
+`retryOnConnectionFailure(false)`, no cookies, no proxy authenticator. `fetch/SourceHttp.kt` layers a
 bounded response read (Covenant's `ToadieGraphqlClient` shape, capped at `jira.maxResponseBytes`, default 8 MiB: "Response size cap" - wire bytes, plus a structural node ceiling (1/8 token per byte) and a depth ceiling (512 levels) checked before the parse, "Node and depth ceiling": a dense document's tree is at most ~108 MiB per response (it was ~230-300 MiB) and a deep one is a typed refusal, not a `StackOverflowError`; big parses are serialised, but several hostile trees can still pressure a 512 MiB worker whose OOM exits the process - narrowed, not closed; that bounds one PAGE — a stream
 that holds several pages of one answer, or follows a host's paging, bounds the whole of it too: CHANGELOGS' and WORKLOGS' answer
 ceilings, `jira-integration.md` "Oversized changelog/worklog batch" and "Worklog answer ceilings"; the REFERENCE, PROJECT_FIELDS, ISSUES and
 RECONCILE loops carry page/row ceilings and a `nextPageToken` guard too, "Paging ceilings" - the shared `BoundedAnswer`/`PageCeiling`/`RunBudget`
-lever in `JiraOversized.kt`) and exponential backoff with jitter (`JiraBackoff`) on top. Every guard rejection is audited as
+lever in `fetch/Ceilings.kt`) and exponential backoff with jitter (`Backoff`) on top. Every guard rejection is audited as
 `outbound.blocked` (scheme + host ONLY — never the full URL, which may embed a token). **A DNS failure is NOT a guard
 rejection**: when the resolver throws `UnknownHostException` or answers with no address for an ALREADY allow-listed host,
 `GuardedDns` throws a plain `UnknownHostException(host)` (never a `BlockedHostException`), audits nothing and logs ONE WARN
 (host only, no stack trace). No security property is in play (the host passed the allow-list, no blocked address was seen), and
 a lost DNS answer is routine on a VPN/forwarding resolver — reporting it as a block made one transient lookup a fatal,
 unretried `BLOCKED_HOST` that failed a 17-minute SYNC and sent whoever read the audit stream chasing a block that never
-happened. It is an `IOException`, so `JiraHttp` retries it with the normal backoff, and every retry re-runs the allow-list
+happened. It is an `IOException`, so `SourceHttp` retries it with the normal backoff, and every retry re-runs the allow-list
 check and the resolve-check-connect sequence. The allow-list check still runs BEFORE any resolution, so a disallowed host is
 never resolved. Pinned by `OutboundGuardTest`.
 `jira.stubBaseUrl` is fail-closed: production startup refuses a non-blank value (`jira/Jira.kt`,
@@ -435,7 +435,7 @@ bloat), PROCESS claims pages by stored bytes (`jira.processPageBytes`), whole en
 raw-issue inspector answers 413 for an issue over it, embeds stored text unparsed and serves two issues at a time.
 
 What pins the transport (beyond the allow-list/address tests above): `OutboundTransportTest` runs against a LOCAL
-socket server only. The response/connection release in `jira/JiraHttp.kt` (`prepareRequest {}.execute {}`) is
+socket server only. The response/connection release in `fetch/SourceHttp.kt` (`prepareRequest {}.execute {}`) is
 pinned with the leak window forced open — the server sends headers plus a first chunk and HOLDS the rest of a
 10 MB body, so a 503 must surface as `UPSTREAM_UNAVAILABLE (503)` and an oversized body as `LIMIT_EXCEEDED`
 (the old `client.request()` buffers the whole body and ends in `TIMEOUT`), and the server must see the client

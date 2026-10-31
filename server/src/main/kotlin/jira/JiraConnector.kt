@@ -1,5 +1,8 @@
 package ch.nokillswit.jira
 
+import ch.nokillswit.fetch.CallTally
+import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.fetch.SourceHttp
 import ch.nokillswit.ingest.ConnectionTestResult
 import ch.nokillswit.ingest.ConnectionTestRow
 import ch.nokillswit.ingest.Connector
@@ -124,8 +127,8 @@ class JiraConnector(
     }
 
     /**
-     * Runs [block] with the job's [StreamContext] inside a fresh [JiraCallTally] (the job's Jira rate-limiting cost,
-     * `jira/JiraCallTally.kt`): every [JiraHttp] call under it - the streams' fetch-ahead children included - counts into it, and the
+     * Runs [block] with the job's [StreamContext] inside a fresh [CallTally] (the job's Jira rate-limiting cost,
+     * `fetch/CallTally.kt`): every [SourceHttp] call under it - the streams' fetch-ahead children included - counts into it, and the
      * context's heartbeats flush it onto `sync_jobs.progress`. REPROCESS never calls Jira, so it takes none.
      *
      * A RETRIED attempt (attempt > 1) starts from the sticky keys the previous attempt flushed ([STICKY_PROGRESS_KEYS]: the tally's
@@ -139,7 +142,7 @@ class JiraConnector(
      */
     private suspend fun withTally(deps: JiraSyncDependencies, context: SyncJobRunContext, block: suspend (StreamContext) -> Unit) {
         val carried = carriedProgress(context.claim)
-        val tally = JiraCallTally(carried)
+        val tally = CallTally(carried)
         val backfill = carried.filterKeys { it == BACKFILL_PROGRESS_KEY }
         val streamContext = StreamContext(
             context.claim.connectionId, context.claim.id, deps.database, deps.cursors, context.heartbeat, now,
@@ -256,7 +259,7 @@ class JiraConnector(
                 // from TimeoutCancellationException above, which IS this function's own bounded
                 // wait expiring and is deliberately reported as a TIMEOUT row.
                 throw cause
-            } catch (cause: JiraFetchException) {
+            } catch (cause: FetchException) {
                 rows += ConnectionTestRow(name, path, required, ok = false, status = cause.status, code = cause.code, scopeHint = scopeHint)
             } catch (_: IllegalStateException) {
                 // A prior REQUIRED probe (tenant_info) never resolved the gateway (e.g. it

@@ -2985,7 +2985,7 @@ export interface components {
             ok: boolean;
             /** @description The upstream HTTP status, when the probe ran. */
             status?: number | null;
-            /** @description A `JiraFetchException` code on failure (e.g. `AUTHENTICATION_FAILED`, `FORBIDDEN_SCOPE`). */
+            /** @description A `FetchException` code on failure (e.g. `AUTHENTICATION_FAILED`, `FORBIDDEN_SCOPE`). */
             code?: string | null;
             /** @description The Jira OAuth/API-token scope this endpoint likely needs, for a failed optional/required row. */
             scopeHint?: string | null;

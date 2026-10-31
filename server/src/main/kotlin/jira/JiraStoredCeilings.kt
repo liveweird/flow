@@ -21,7 +21,7 @@ internal const val DEFAULT_PROCESS_PAGE_BYTES = 8L * MIB
 internal const val MIN_PROCESS_PAGE_BYTES = 2L * MIB
 internal const val MAX_PROCESS_PAGE_BYTES = 64L * MIB
 
-/** The most one changelog history may store (a constant, like the answer ceilings of `JiraOversized.kt`; far above any real history). */
+/** The most one changelog history may store (a constant, like the answer ceilings of `fetch/Ceilings.kt`; far above any real history). */
 internal const val MAX_STORED_HISTORY_BYTES = 512L * KIB
 
 /** The most one worklog may store (a trimmed worklog is a few hundred bytes). */

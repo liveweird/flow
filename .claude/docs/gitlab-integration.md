@@ -55,9 +55,13 @@ V8 `kind` CHECK allowing only `JIRA_CLOUD`, and `jira/Jira.kt` *replacing* the c
 ## Shared fetch machinery (`fetch/`)
 
 The hardened Jira transport is lifted, not copied: `JiraHttp` → `SourceHttp`, the backoff, `JiraCallTally` → `CallTally`,
-the page-token guard and ceilings, the node ceiling, the oversized-response handling and the heap-fit maths. The rate-limit
-signal is a strategy: Jira reads `X-RateLimit-NearLimit`; GitLab reads `RateLimit-Remaining`/`RateLimit-ResetTime` and
-pauses near zero (clamped). `PackageBoundaryTest`: `jira` and `gitlab` never import each other; both may import `fetch`.
+the page-token guard and the answer/run ceilings, the node ceiling (as-built in PR 2: `jira-integration.md` "The shared
+transport"; the Jira-specific `SkipBudget` and the heap-fit/heap-share maths stay in `jira/` until a GitLab stream needs
+them). The rate-limit signal is a strategy (`RateLimitSignal`): Jira reads `X-RateLimit-NearLimit`; GitLab will read
+`RateLimit-Remaining`/`RateLimit-ResetTime` and pause near zero. `SourceHttp` sleeps the returned pause while HOLDING the
+permit and outside the request deadline, so the GitLab signal must clamp its pause itself (a few seconds at most), or one
+instance could hold permits the others need. GitLab's tally lands under the stored `jira*` progress keys (their strings are
+persisted; a rename needs a migration of `sync_jobs.progress`). `PackageBoundaryTest`: `jira` and `gitlab` never import each other; both may import `fetch`.
 
 ## Outbound calls to a self-managed host
 
