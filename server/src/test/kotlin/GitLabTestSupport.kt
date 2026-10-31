@@ -64,7 +64,7 @@ object GitLabFixtures {
     )
 
     fun settings(maxRetries: Int = 0): GitLabSettings =
-        GitLabSettings(SelfManagedHosts.NONE, null, null, 30, 8L * 1024 * 1024, maxRetries, 180, 24, 5_000)
+        GitLabSettings(SelfManagedHosts.NONE, null, null, 30, 8L * 1024 * 1024, maxRetries, 180, 24, 5_000, 3_000)
 
     /** A plain OkHttp-backed client to the stub; one per call, closed with the JVM. */
     fun stubClient(maxRetries: Int = 0): (String, String) -> HttpGitLabClient {
@@ -89,6 +89,7 @@ object GitLabFixtures {
         usersRefreshHours: Long = 24,
         now: () -> Long = System::currentTimeMillis,
         commitFilesPerRun: Int = 100_000,
+        mrDetailsPerRun: Int = 100_000,
     ) =
         GitLabConnector(
             newClient = stubClient(),
@@ -100,6 +101,7 @@ object GitLabFixtures {
                 database = sharedDatabaseForTests(),
                 usersRefreshMillis = usersRefreshHours * 3_600_000L,
                 commitFilesPerRun = commitFilesPerRun,
+                mrDetailsPerRun = mrDetailsPerRun,
             ),
         )
 

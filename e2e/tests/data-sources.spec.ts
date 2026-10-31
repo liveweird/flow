@@ -127,7 +127,7 @@ test("admin connects the Jira stub, syncs it, and inspects the result", async ({
   await expect(page.getByRole("link", { name: `Open ${name}` })).toHaveCount(0);
 });
 
-test("admin connects the GitLab stub, syncs it, and reads back its projects, users and commits", async ({ page }) => {
+test("admin connects the GitLab stub, syncs it, and reads back its projects, users, commits and merge requests", async ({ page }) => {
   test.setTimeout(300_000);
   await login(page);
   const name = uniqueText("e2e-gitlab");
@@ -190,7 +190,10 @@ test("admin connects the GitLab stub, syncs it, and reads back its projects, use
 
   // Sync now, then poll (reloading each attempt) until the SYNC job succeeded and the counts show the stub's in-scope world:
   // 4 projects (sample-data/gitlab/expected.json `projects.inScopeIds`), 8 users (`users.list`) and its commits: 300 live, 19 of them
-  // merges (`commits.inScopeTotals`), and none still awaiting file details (one SYNC drains the 281 diffs under the default budget). Scope the job row to the "Sync"
+  // merges (`commits.inScopeTotals`), and none still awaiting file details (one SYNC drains the 281 diffs under the default budget); then
+  // its merge requests: 60 (`mergeRequests.total`), 34 merged (`byState.merged`), 698 review events (`events.noteTotal` 582 +
+  // `approvalsEndpointTotal` 40 + `reviewersTotal` 76), none awaiting details (one SYNC drains ~190 calls under the default budget) and the one
+  // GraphQL gap without size statistics (`mergeRequests.nullDiffStatsGap`). Scope the job row to the "Sync"
   // kind so a co-occurring Reconcile row's own "Succeeded" is never what we matched.
   await page.getByRole("button", { name: "Sync now" }).click();
   const syncJobRow = page.getByRole("row").filter({ hasText: "Sync" }).filter({ hasText: "Succeeded" });
@@ -203,6 +206,11 @@ test("admin connects the GitLab stub, syncs it, and reads back its projects, use
     await expect(page.getByRole("row", { name: /^Commits \d+$/ })).toContainText("300");
     await expect(page.getByRole("row", { name: /^Merge commits \d+$/ })).toContainText("19");
     await expect(page.getByRole("row", { name: /^Commits awaiting file details \d+$/ })).toContainText("0");
+    await expect(page.getByRole("row", { name: /^Merge requests \d+$/ })).toContainText("60");
+    await expect(page.getByRole("row", { name: /^Merged merge requests \d+$/ })).toContainText("34");
+    await expect(page.getByRole("row", { name: /^MR events .* \d+$/ })).toContainText("698");
+    await expect(page.getByRole("row", { name: /^Merge requests awaiting details \d+$/ })).toContainText("0");
+    await expect(page.getByRole("row", { name: /^Merge requests without size statistics \d+$/ })).toContainText("1");
   }).toPass({ timeout: 280_000, intervals: [10_000] });
 
   // Delete from the list's row menu.

@@ -3,12 +3,18 @@ package ch.nokillswit
 import ch.nokillswit.fetch.FetchException
 import ch.nokillswit.fetch.FetchSource
 import ch.nokillswit.fetch.OutboundPermits
+import ch.nokillswit.gitlab.MR_DETAILS_BATCH
+import ch.nokillswit.gitlab.MR_DIFF_STATS_QUERY
+import ch.nokillswit.gitlab.MR_KEYS
 import ch.nokillswit.gitlab.GITLAB_AUTH_HEADER
 import ch.nokillswit.gitlab.GitLabRateLimitSignal
 import ch.nokillswit.gitlab.GitLabSettings
 import ch.nokillswit.gitlab.HttpGitLabClient
 import ch.nokillswit.gitlab.createGitLabHttp
+import ch.nokillswit.gitlab.summarizeMergeRequest
 import ch.nokillswit.gitlab.tooBroad
+import ch.nokillswit.infra.json.canonicalJson
+import ch.nokillswit.infra.json.sha256Hex
 import ch.nokillswit.infra.outbound.SelfManagedHosts
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -17,6 +23,10 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -29,7 +39,7 @@ private const val CLOCK_NOW = 1_800_000_000_000L
 
 /** `HttpGitLabClient` over the shared `SourceHttp` against a scripted `MockEngine` - no network, no WireMock. */
 class GitLabClientTest {
-    private val settings = GitLabSettings(SelfManagedHosts.NONE, null, null, 30, 8L * 1024 * 1024, 1, 180, 24, 5_000)
+    private val settings = GitLabSettings(SelfManagedHosts.NONE, null, null, 30, 8L * 1024 * 1024, 1, 180, 24, 5_000, 3_000)
 
     private class Wire(val sleeps: MutableList<Long> = mutableListOf())
 
@@ -39,7 +49,7 @@ class GitLabClientTest {
                 expectSuccess = false
                 followRedirects = false
             },
-            GitLabSettings(settings.hosts, null, null, 30, settings.maxResponseBytes, maxRetries, 180, 24, 5_000),
+            GitLabSettings(settings.hosts, null, null, 30, settings.maxResponseBytes, maxRetries, 180, 24, 5_000, 3_000),
             OutboundPermits(4),
             source = FetchSource("GitLab", "gitlab.maxResponseBytes", GitLabRateLimitSignal { CLOCK_NOW }, GITLAB_AUTH_HEADER),
             random = { 0.5 },
@@ -229,7 +239,7 @@ class GitLabClientTest {
         }
         val http = createGitLabHttp(
             HttpClient(engine) { expectSuccess = false },
-            GitLabSettings(settings.hosts, null, null, 30, settings.maxResponseBytes, 0, 180, 24, 5_000),
+            GitLabSettings(settings.hosts, null, null, 30, settings.maxResponseBytes, 0, 180, 24, 5_000, 3_000),
             OutboundPermits(4),
             random = { 0.5 },
             sleeper = { wire.sleeps += it },
@@ -427,5 +437,294 @@ class GitLabClientTest {
     fun `a diff entry without new_path is INVALID_RESPONSE`() = runBlocking {
         val engine = MockEngine { respond("""[{"diff":"@@ -1 +1 @@\n-a\n+b\n"}]""", HttpStatusCode.OK, json) }
         assertEquals("INVALID_RESPONSE", assertFailsWith<FetchException> { client(engine).commitDiff(7, sha1, 1) }.code)
+    }
+
+    // --- merge requests, their notes, approvals, reviewers and the GraphQL diff stats (V43, PR 8) -------------------------------
+
+    private val mrItem = """{"id":1041,"iid":4,"project_id":7,"title":"Add the thing","description":"SECRET DESCRIPTION","state":"merged",
+        "created_at":"2026-08-01T08:00:00.000Z","updated_at":"2026-08-02T09:30:00.000+02:00","merged_at":"2026-08-02T07:00:00.000Z",
+        "closed_at":null,"merged_by":{"id":5,"username":"m","name":"Mia","avatar_url":"https://x.test/a.png"},
+        "merge_user":{"id":5,"username":"m","name":"Mia"},"closed_by":null,"author":{"id":3,"username":"a","name":"Ada"},
+        "assignees":[{"id":9,"name":"Z"},{"id":3,"name":"Ada"}],"reviewers":[{"id":6,"name":"R"},{"id":5,"name":"Mia"},{"id":6,"name":"R"}],
+        "labels":["customer-x","urgent"],"draft":true,"work_in_progress":false,"source_branch":"feature/x","target_branch":"main",
+        "source_project_id":7,"target_project_id":7,"user_notes_count":3,"sha":"${"c".repeat(40)}","merge_commit_sha":"not-hex",
+        "squash_commit_sha":null,"web_url":"https://gitlab.example.test/p/-/merge_requests/4","merge_status":"can_be_merged",
+        "has_conflicts":false,"time_stats":{"time_estimate":0},"references":{"short":"!4"},"detailed_merge_status":"mergeable"}"""
+
+    private fun seenQuery(url: io.ktor.http.Url) = url.parameters.entries().associate { it.key to it.value.single() }
+
+    @Test
+    fun `groupMergeRequests sends the fixed parameters and updated_after only when given, and keeps the slim values`() = runBlocking {
+        val seen = mutableListOf<io.ktor.http.Url>()
+        val engine = MockEngine { request ->
+            seen += request.url
+            respond(
+                "[$mrItem]", HttpStatusCode.OK,
+                headersOf(HttpHeaders.ContentType to listOf("application/json"), "X-Next-Page" to listOf("3"), "X-Total" to listOf("250")),
+            )
+        }
+        val client = client(engine)
+        val page = client.groupMergeRequests(7, "2026-08-01T00:00:00Z", 2)
+        client.groupMergeRequests(7, null, 1)
+        assertEquals("/api/v4/groups/7/merge_requests", seen[0].encodedPath)
+        val fixed = mapOf(
+            "scope" to "all", "state" to "all", "include_subgroups" to "true", "order_by" to "updated_at", "sort" to "desc",
+            "per_page" to "100",
+        )
+        assertEquals(fixed + mapOf("page" to "2", "updated_after" to "2026-08-01T00:00:00Z"), seenQuery(seen[0]))
+        assertEquals(fixed + mapOf("page" to "1"), seenQuery(seen[1]))
+        assertEquals(3, page.nextPage)
+        assertEquals(250L, page.total)
+        val mr = page.mergeRequests.single()
+        assertEquals(listOf(1041L, 7L, 4L), listOf(mr.mrId, mr.projectId, mr.iid))
+        assertEquals("merged", mr.state)
+        assertEquals(true, mr.draft)
+        assertEquals(3L, mr.authorId)
+        assertEquals(5L, mr.mergeUserId)
+        assertEquals(1_785_655_800_000L, mr.updatedAt, "the offset is honoured")
+        assertEquals(1_785_654_000_000L, mr.mergedAt)
+        assertNull(mr.closedAt)
+        assertEquals("c".repeat(40), mr.headSha)
+        assertNull(mr.mergeCommitSha, "a non-hex id is dropped")
+        assertEquals(listOf(5L, 6L), mr.reviewerIds)
+        assertEquals(listOf(3L, 9L), mr.assigneeIds)
+        assertEquals(3, mr.userNotesCount)
+        val payload = mr.payload as kotlinx.serialization.json.JsonObject
+        assertTrue(payload.keys.all { it in MR_KEYS }, "only whitelisted keys: ${payload.keys}")
+        for (key in listOf("description", "labels", "web_url", "merge_status", "has_conflicts", "time_stats", "references")) {
+            assertFalse(key in payload, key)
+        }
+        assertEquals("""{"id":5}""", payload.getValue("merged_by").toString(), "a user reference is {id} only")
+        assertEquals("""[{"id":3},{"id":9}]""", payload.getValue("assignees").toString())
+        assertFalse("merge_commit_sha" in payload, "a non-hex id never enters the payload")
+        assertFalse("closed_by" in payload, "a null member is dropped")
+        assertFalse("Ada" in payload.toString() || "SECRET" in payload.toString() || "customer-x" in payload.toString())
+    }
+
+    @Test
+    fun `two documents differing only in the order of the reviewers and assignees hash to the same payload`() {
+        fun hash(item: String): String {
+            return sha256Hex(canonicalJson(summarizeMergeRequest(Json.parseToJsonElement(item)).payload))
+        }
+        val reordered = mrItem
+            .replace(
+                """[{"id":6,"name":"R"},{"id":5,"name":"Mia"},{"id":6,"name":"R"}]""",
+                """[{"id":5,"name":"Mia"},{"id":6,"name":"R"}]""",
+            )
+            .replace("""[{"id":9,"name":"Z"},{"id":3,"name":"Ada"}]""", """[{"id":3,"name":"Ada"},{"id":9,"name":"Z"}]""")
+        assertTrue(reordered != mrItem)
+        assertEquals(hash(mrItem), hash(reordered))
+        // A field outside the whitelist moves nothing either.
+        assertEquals(hash(mrItem), hash(mrItem.replace("\"has_conflicts\":false", "\"has_conflicts\":true")))
+        val otherAssignee = mrItem.replace("\"id\":9,", "\"id\":10,")
+        assertTrue(hash(mrItem) != hash(otherAssignee), "a real change of a reviewer or assignee does move it")
+    }
+
+    @Test
+    fun `a merge request without an id, an iid, a state or a readable time is INVALID_RESPONSE`() = runBlocking {
+        val broken = listOf(
+            mrItem.replace("\"iid\":4,", ""),
+            mrItem.replace("\"id\":1041,", ""),
+            mrItem.replace("\"project_id\":7,", ""),
+            mrItem.replace("\"iid\":4", "\"iid\":\"4\""),
+            mrItem.replace("\"state\":\"merged\"", "\"state\":null"),
+            mrItem.replace("\"updated_at\":\"2026-08-02T09:30:00.000+02:00\"", "\"updated_at\":\"soon\""),
+            mrItem.replace("\"merged_at\":\"2026-08-02T07:00:00.000Z\"", "\"merged_at\":\"soon\""),
+            mrItem.replace("{\"id\":6,\"name\":\"R\"}", "{\"name\":\"R\"}"),
+            "\"not an object\"",
+        )
+        for (item in broken) {
+            val engine = MockEngine { respond("[$item]", HttpStatusCode.OK, json) }
+            val failure = assertFailsWith<FetchException>(item.take(80)) { client(engine).groupMergeRequests(7, null, 1) }
+            assertEquals("INVALID_RESPONSE", failure.code)
+        }
+        val noNext = MockEngine { respond("[$mrItem]", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json")) }
+        assertEquals("INVALID_RESPONSE", assertFailsWith<FetchException> { client(noNext).groupMergeRequests(7, null, 1) }.code)
+    }
+
+    @Test
+    fun `mergeRequestNotes sends the sort parameters and returns action codes with no body anywhere`() = runBlocking {
+        val seen = mutableListOf<io.ktor.http.Url>()
+        val secret = "TOP-SECRET-NOTE-BODY"
+        val engine = MockEngine { request ->
+            seen += request.url
+            respond(
+                """[{"id":11,"body":"approved this merge request","system":true,"type":null,"created_at":"2026-08-31T11:27:54Z","author":{"id":3,"name":"Ada"}},
+                    {"id":12,"body":"$secret","system":false,"type":"DiffNote","created_at":"2026-08-31T11:28:54Z","author":{"id":4}},
+                    {"id":13,"body":"$secret approved this merge request","system":false,"type":null,"created_at":"2026-08-31T11:29:54Z"},
+                    {"id":14,"body":"requested review from @alice and @bob","system":true,"created_at":"2026-08-31T11:30:54Z"}]""",
+                HttpStatusCode.OK,
+                headersOf(HttpHeaders.ContentType to listOf("application/json"), "X-Next-Page" to listOf("2")),
+            )
+        }
+        val page = client(engine).mergeRequestNotes(7, 4, 1)
+        assertEquals("/api/v4/projects/7/merge_requests/4/notes", seen.single().encodedPath)
+        assertEquals(mapOf("sort" to "asc", "order_by" to "created_at", "per_page" to "100", "page" to "1"), seenQuery(seen.single()))
+        assertEquals(2, page.nextPage)
+        assertEquals(listOf("APPROVAL", "DIFF_COMMENT", "COMMENT", "REVIEW_REQUESTED"), page.notes.map { it.action })
+        assertEquals(listOf("alice", "bob"), page.notes.last().targets)
+        assertEquals(listOf(3L, 4L, null, null), page.notes.map { it.authorId })
+        val everything = page.notes.joinToString { n ->
+            listOf(n.id, n.authorId, n.createdAt, n.system, n.noteType, n.action, n.targets).joinToString("|")
+        }
+        assertFalse(secret in everything, "no note body survives the transform")
+    }
+
+    @Test
+    fun `approvals reduce to approver ids, reviewers to id, state and time, and a missing merge request is NOT_FOUND`() = runBlocking {
+        val seen = mutableListOf<String>()
+        val engine = MockEngine { request ->
+            seen += request.url.encodedPath
+            when {
+                request.url.encodedPath.endsWith("/approvals") -> respond(
+                    """{"id":1,"title":"SECRET TITLE","approvers":[],
+                        "approved_by":[{"user":{"id":3,"name":"Ada"}},{"user":{"id":3}},{"user":{"id":8}},{"x":1}]}""",
+                    HttpStatusCode.OK, json,
+                )
+                request.url.encodedPath.endsWith("/reviewers") -> respond(
+                    """[{"user":{"id":3,"name":"Ada"},"state":"approved","created_at":"2026-08-31T11:27:54Z"},
+                       {"user":{"id":4},"created_at":null},{"state":"reviewed"},{"user":{"id":5},"state":"unreviewed"}]""",
+                    HttpStatusCode.OK, json,
+                )
+                else -> respond("""{"message":"404 Not found"}""", HttpStatusCode.NotFound, json)
+            }
+        }
+        val client = client(engine)
+        assertEquals(listOf(3L, 8L), client.mergeRequestApprovals(7, 4))
+        val reviewers = client.mergeRequestReviewers(7, 4)
+        assertEquals(listOf(3L, 4L, 5L), reviewers.map { it.userId }, "an entry without a user id is skipped")
+        assertEquals(listOf("approved", "", "unreviewed"), reviewers.map { it.state })
+        assertEquals(listOf(1_788_175_674_000L, null, null), reviewers.map { it.createdAt })
+        assertEquals(listOf("/api/v4/projects/7/merge_requests/4/approvals", "/api/v4/projects/7/merge_requests/4/reviewers"), seen)
+        assertEquals("NOT_FOUND", assertFailsWith<FetchException> { client.mergeRequestNotes(7, 9, 1) }.code)
+        val noList = MockEngine { respond("""{"id":1}""", HttpStatusCode.OK, json) }
+        assertEquals("INVALID_RESPONSE", assertFailsWith<FetchException> { client(noList).mergeRequestApprovals(7, 4) }.code)
+        val badReviewers = MockEngine { respond("""{"id":1}""", HttpStatusCode.OK, json) }
+        assertEquals("INVALID_RESPONSE", assertFailsWith<FetchException> { client(badReviewers).mergeRequestReviewers(7, 4) }.code)
+    }
+
+    @Test
+    fun `mergeRequestDiffStats posts the fixed query with variables to the origin graphql endpoint`() = runBlocking {
+        var url: io.ktor.http.Url? = null
+        var method: io.ktor.http.HttpMethod? = null
+        var contentType: String? = null
+        var privateToken: String? = null
+        var body = ""
+        val engine = MockEngine { request ->
+            url = request.url
+            method = request.method
+            privateToken = request.headers["PRIVATE-TOKEN"]
+            contentType = request.body.contentType?.withoutParameters()?.toString()
+            body = (request.body as io.ktor.http.content.TextContent).text
+            respond(
+                """{"data":{"project":{"mergeRequests":{"nodes":[
+                    {"iid":"4","diffStatsSummary":{"additions":10,"deletions":2,"fileCount":3}},
+                    {"iid":"5","diffStatsSummary":null},
+                    {"iid":"6","diffStatsSummary":{"additions":1,"deletions":0,"fileCount":1}},
+                    {"iid":"99","diffStatsSummary":{"additions":1,"deletions":1,"fileCount":1}},
+                    {"iid":"x","diffStatsSummary":{"additions":1,"deletions":1,"fileCount":1}},
+                    {"iid":"7","diffStatsSummary":{"additions":-1,"deletions":1,"fileCount":1}}],
+                    "pageInfo":{"hasNextPage":false}}}},
+                    "errors":[{"message":"secret internal detail","extensions":{"code":"complexity"}},{"message":"again"}]}""",
+                HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val answer = client(engine).mergeRequestDiffStats("platform/p1", listOf(4, 5, 6, 7))
+        assertEquals("/api/graphql", url?.encodedPath)
+        assertEquals("gitlab.example.test", url?.host)
+        assertTrue(url?.parameters?.isEmpty() ?: false)
+        assertEquals(io.ktor.http.HttpMethod.Post, method)
+        assertEquals("application/json", contentType)
+        assertEquals("glpat-secret", privateToken)
+        assertFalse("glpat" in body, "the token is a header, never part of the body")
+        val sent = Json.parseToJsonElement(body).jsonObject
+        assertEquals(MR_DIFF_STATS_QUERY, sent.getValue("query").jsonPrimitive.content)
+        assertTrue("diffStatsSummary" in MR_DIFF_STATS_QUERY && "project(fullPath: \$fullPath)" in MR_DIFF_STATS_QUERY)
+        val variables = sent.getValue("variables").jsonObject
+        assertEquals("platform/p1", variables.getValue("fullPath").jsonPrimitive.content)
+        val iids = variables.getValue("iids").jsonArray.map { it.jsonPrimitive }
+        assertTrue(iids.all { it.isString }, "GraphQL iids travel as strings")
+        assertEquals(listOf("4", "5", "6", "7"), iids.map { it.content })
+        val found = answer.stats.mapValues { Triple(it.value.additions, it.value.deletions, it.value.fileCount) }
+        assertEquals(mapOf(4L to Triple(10, 2, 3), 6L to Triple(1, 0, 1)), found)
+        assertEquals(2, answer.errors)
+        assertEquals("complexity", answer.firstErrorCode)
+        assertFalse(answer.projectMissing)
+    }
+
+    @Test
+    fun `a project path or an iid can never change the query text`() = runBlocking {
+        var body = ""
+        val engine = MockEngine { request ->
+            body = (request.body as io.ktor.http.content.TextContent).text
+            respond("""{"data":{"project":null}}""", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val hostile = "a/b\"}) { evil } #\n\$"
+        val answer = client(engine).mergeRequestDiffStats(hostile, listOf(1))
+        val sent = Json.parseToJsonElement(body).jsonObject
+        assertEquals(MR_DIFF_STATS_QUERY, sent.getValue("query").jsonPrimitive.content)
+        assertEquals(hostile, sent.getValue("variables").jsonObject.getValue("fullPath").jsonPrimitive.content)
+        assertTrue(answer.projectMissing)
+        assertTrue(answer.stats.isEmpty())
+    }
+
+    @Test
+    fun `graphql errors, partial data, a next page and malformed bodies are gaps and never a failure`() = runBlocking {
+        val jsonType = headersOf(HttpHeaders.ContentType, "application/json")
+        suspend fun answer(reply: String) =
+            client(MockEngine { respond(reply, HttpStatusCode.OK, jsonType) }).mergeRequestDiffStats("platform/p1", listOf(4))
+        val stat = """{"iid":"4","diffStatsSummary":{"additions":1,"deletions":1,"fileCount":1}}"""
+        for (reply in listOf(
+            "[]", "\"x\"", "null", "{}", """{"data":5}""", """{"data":{}}""", """{"data":{"project":5}}""", """{"data":{"project":{}}}""",
+            """{"data":{"project":{"mergeRequests":{"nodes":"x"}}}}""",
+            """{"errors":[{"message":"boom"}]}""",
+            """{"data":{"project":{"mergeRequests":{"nodes":[$stat],"pageInfo":{"hasNextPage":true}}}}}""",
+        )) {
+            assertTrue(answer(reply).stats.isEmpty(), reply)
+        }
+        val errors = answer("""{"errors":[{"message":"boom","extensions":{"code":"bad code!"}}]}""")
+        assertEquals(1, errors.errors)
+        assertNull(errors.firstErrorCode, "a code that is not a short identifier is not kept")
+        assertTrue(answer("""{"data":{"project":null}}""").projectMissing)
+        assertEquals(setOf(4L), answer("""{"data":{"project":{"mergeRequests":{"nodes":[$stat,$stat]}}}}""").stats.keys)
+    }
+
+    @Test
+    fun `a graphql server failure is a FetchException and the arguments are checked before any request`() = runBlocking {
+        var requests = 0
+        val engine = MockEngine {
+            requests++
+            respond("{}", HttpStatusCode.InternalServerError, json)
+        }
+        val client = client(engine)
+        val failure = assertFailsWith<FetchException> { client.mergeRequestDiffStats("platform/p1", listOf(4)) }
+        assertEquals("UPSTREAM_UNAVAILABLE", failure.code)
+        val before = requests
+        assertFailsWith<IllegalArgumentException> { client.mergeRequestDiffStats("platform/p1", emptyList()) }
+        assertFailsWith<IllegalArgumentException> { client.mergeRequestDiffStats("platform/p1", (1L..51L).toList()) }
+        assertEquals("INVALID_RESPONSE", assertFailsWith<FetchException> { client.mergeRequestDiffStats("platform/p1", listOf(-4)) }.code)
+        assertEquals("INVALID_RESPONSE", assertFailsWith<FetchException> { client.mergeRequestDiffStats(" ", listOf(4)) }.code)
+        val longPath = "p".repeat(2_000)
+        assertEquals("INVALID_RESPONSE", assertFailsWith<FetchException> { client.mergeRequestDiffStats(longPath, listOf(4)) }.code)
+        assertEquals(before, requests)
+        assertEquals(50, MR_DETAILS_BATCH)
+    }
+
+    @Test
+    fun `a non-numeric or negative id is refused before any merge-request request`() = runBlocking {
+        var requests = 0
+        val engine = MockEngine {
+            requests++
+            respond("[]", HttpStatusCode.OK, json)
+        }
+        val client = client(engine)
+        for (call in listOf<suspend () -> Any>(
+            { client.groupMergeRequests(-7, null, 1) },
+            { client.mergeRequestNotes(-7, 4, 1) },
+            { client.mergeRequestNotes(7, -4, 1) },
+            { client.mergeRequestApprovals(7, -4) },
+            { client.mergeRequestReviewers(-7, 4) },
+        )) assertEquals("INVALID_RESPONSE", assertFailsWith<FetchException> { call() }.code)
+        assertEquals(0, requests)
     }
 }

@@ -62,6 +62,7 @@ class MigrationChecksumTest {
         "V40__source_connection_kind_gitlab.sql" to 58882136,
         "V41__gitlab_raw_store.sql" to 1702253531,
         "V42__gitlab_commits_raw_store.sql" to 565422636,
+        "V43__gitlab_merge_requests_raw_store.sql" to -1734985487,
     )
 
     @Test

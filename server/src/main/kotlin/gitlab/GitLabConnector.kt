@@ -20,8 +20,8 @@ private const val NOT_ADMIN = "NOT_ADMIN"
 private const val READ_API = "read_api"
 
 /**
- * The GitLab connector (`gitlab-integration.md`): Test connection, and the SYNC job's four streams, PROJECTS, USERS, COMMITS then
- * COMMIT FILES. The other job
+ * The GitLab connector (`gitlab-integration.md`): Test connection, and the SYNC job's six streams, in this order: PROJECTS, USERS,
+ * COMMITS, MERGE REQUESTS (the listings), then COMMIT FILES and MR DETAILS (the budgeted backlogs). The other job
  * kinds are accepted and do nothing yet - RECONCILE and REPROCESS arrive with the streams that need them (the plan's PRs 9 and 10), PURGE
  * drains the raw tables, and DERIVE never reaches a connector (`IngestWorker` chains it for kinds that derive metrics only).
  */
@@ -51,7 +51,7 @@ class GitLabConnector(
     /**
      * SYNC: refuse a token with a scope outside the read-only allow-list, or an inactive one (re-probed from
      * `/personal_access_tokens/self` on EVERY run, so a token widened or revoked after Test connection is caught before anything is
-     * stored: `TOKEN_SCOPE_TOO_BROAD` / `TOKEN_INACTIVE`), then PROJECTS, USERS, COMMITS and COMMIT FILES inside the shared call tally
+     * stored: `TOKEN_SCOPE_TOO_BROAD` / `TOKEN_INACTIVE`), then the six streams inside the shared call tally
      * (`ingest/ConnectorRun.kt`). "Sync now" refreshes the users whatever their age.
      */
     private suspend fun runSync(context: SyncJobRunContext) {
@@ -69,11 +69,16 @@ class GitLabConnector(
             }
             if (!token.active) throw JobRefusedException(TOKEN_INACTIVE, "the token is inactive (revoked or expired)")
             val isAdmin = client.currentUser().isAdmin
+            val backfill = backfillFromEpochMillis(stored.backfillFrom)
             val streams: List<Stream> = listOf(
                 GitLabProjectsStream(client, deps.rawStore, stored.groupPaths),
                 GitLabUsersStream(client, deps.rawStore, isAdmin, if (claim.requestedOnDemand) 0 else deps.usersRefreshMillis),
-                GitLabCommitsStream(client, deps.rawStore, backfillFromEpochMillis(stored.backfillFrom)),
+                GitLabCommitsStream(client, deps.rawStore, backfill),
+                // The listings come first and the backlogs after: a listing is a handful of calls a run and must not wait behind a
+                // backlog that may spend its whole budget (the two backlogs keep the order they were added in).
+                GitLabMergeRequestsStream(client, deps.rawStore, stored.groupPaths, backfill),
                 GitLabCommitFilesStream(client, deps.rawStore, deps.commitFilesPerRun),
+                GitLabMrDetailsStream(client, deps.rawStore, deps.mrDetailsPerRun),
             )
             streams.forEach { stream ->
                 streamContext.currentStreamName = stream.name

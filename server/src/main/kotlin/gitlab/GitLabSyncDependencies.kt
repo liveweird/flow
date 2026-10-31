@@ -17,4 +17,6 @@ class GitLabSyncDependencies(
     val usersRefreshMillis: Long,
     /** `gitlab.commitFilesPerRun`: the diff calls one SYNC run may spend on the COMMIT FILES backlog; the rest waits for the next run. */
     val commitFilesPerRun: Int,
+    /** `gitlab.mrDetailsPerRun`: the REST + GraphQL calls one SYNC run may spend on the MR DETAILS backlog; the rest waits. */
+    val mrDetailsPerRun: Int,
 )

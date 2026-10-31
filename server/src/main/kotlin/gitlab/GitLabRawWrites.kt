@@ -7,7 +7,6 @@ import ch.nokillswit.infra.json.canonicalJson
 import ch.nokillswit.infra.json.replaceNul
 import ch.nokillswit.infra.json.sha256Hex
 import ch.nokillswit.ingest.RawUpsertOutcome
-import ch.nokillswit.ingest.classifyUpsert
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
@@ -32,13 +31,11 @@ private const val MAX_STATE = 30
 /**
  * The raw upserts (V41) and the end-of-pass sweeps, the `JiraRawBatchWrites.upsertEntities` shape for a 100-row page: ONE
  * `SELECT ... IN (...) FOR UPDATE` loads the stored hashes and markers (keys sorted, so rows lock in key order), the shared pure rule
- * ([classifyUpsert]) decides each row, new rows go out as one multi-row `INSERT`, unchanged live rows get ONE `UPDATE ... SET
+ * ([diffPage]) decides each row, new rows go out as one multi-row `INSERT`, unchanged live rows get ONE `UPDATE ... SET
  * last_seen_at`, and a changed or tombstoned row is updated on its own (payload, hash, `changed_at`, markers cleared). Outcomes come
  * back in input order. A key repeated within one call is judged against the first occurrence's write (the second pass sees it stored).
  */
 internal class GitLabRawWrites(private val database: R2dbcDatabase) {
-
-    private class Prepared<I>(val input: I, val key: Long, val canonical: String, val hash: String)
 
     suspend fun upsertProjects(connectionId: UInt, projects: List<RawGitLabProject>, now: Long): List<RawUpsertOutcome> {
         if (projects.isEmpty()) return emptyList()
@@ -60,46 +57,6 @@ internal class GitLabRawWrites(private val database: R2dbcDatabase) {
             diff.outcomes
         }
     }
-
-    /** What [diffPage] decided: the outcomes in input order, the rows to insert and the keys of the unchanged live rows to touch. */
-    private class PageDiff<I>(val outcomes: List<RawUpsertOutcome>, val inserts: List<Prepared<I>>, val unchanged: List<Long>)
-
-    private fun touched(diff: PageDiff<*>): List<List<Long>> = diff.unchanged.sorted().chunked(KEY_CHUNK)
-
-    /**
-     * Classifies a page against the stored rows ([classifyUpsert]) and applies the per-row changes ([change]); inserts and the
-     * unchanged-touch are returned for the caller to batch. A key repeated in one page is judged by its first occurrence alone.
-     */
-    private suspend fun <I> diffPage(
-        rows: List<Prepared<I>>,
-        stored: Map<Long, StoredRow>,
-        drifted: (Prepared<I>, StoredRow) -> Boolean = { _, _ -> false },
-        change: suspend (Prepared<I>) -> Unit,
-    ): PageDiff<I> {
-        val inserts = mutableListOf<Prepared<I>>()
-        val unchanged = mutableListOf<Long>()
-        val seen = HashSet<Long>()
-        val outcomes = rows.map { row ->
-            if (!seen.add(row.key)) return@map RawUpsertOutcome.UNCHANGED
-            val current = stored[row.key]
-            val classified = classifyUpsert(current?.hash, row.hash, current?.tombstoned == true)
-            val outcome = if (classified == RawUpsertOutcome.UNCHANGED && current != null && drifted(row, current)) {
-                RawUpsertOutcome.CHANGED
-            } else {
-                classified
-            }
-            when (outcome) {
-                RawUpsertOutcome.INSERTED -> inserts += row
-                RawUpsertOutcome.UNCHANGED -> unchanged += row.key
-                RawUpsertOutcome.CHANGED, RawUpsertOutcome.RESURRECTED -> change(row)
-                RawUpsertOutcome.REFUSED -> error("classifyUpsert never refuses")
-            }
-            outcome
-        }
-        return PageDiff(outcomes, inserts, unchanged)
-    }
-
-    private class StoredRow(val hash: String, val tombstoned: Boolean, val groupPath: String? = null, val groupId: Long? = null)
 
     private suspend fun loadProjects(connectionId: UInt, keys: List<Long>): Map<Long, StoredRow> =
         keys.distinct().sorted().chunked(KEY_CHUNK).flatMap { chunk ->

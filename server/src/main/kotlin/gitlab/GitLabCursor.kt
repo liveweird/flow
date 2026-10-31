@@ -68,3 +68,36 @@ internal data class CommitsWalkCursor(
     /** The branch being walked: the part after `..` of a range (git refs cannot contain `..`). */
     val branch: String get() = refName.substringAfter("..")
 }
+
+/**
+ * The `merge_requests` stream's state. UNLIKE the other streams' cursors it PERSISTS after a pass: [watermarks] holds, per configured group
+ * path, GitLab's own newest `updated_at` that group's last COMPLETED pass saw (the next listing asks
+ * `updated_after = watermark - overlap`); [pass] is the pass in progress, null between passes. [projectSets] holds, per group path, the
+ * live stored project ids the group had when its last COMPLETED pass began: a project that is NOT in it has newly entered the group
+ * (a rename or a move into the configured groups), and its older merge requests lie below the watermark, so the group's next pass lists
+ * from the backfill floor. A group absent from the map (a cursor written before this field existed, or a group never completed) is
+ * "unknown" and forces nothing; the set is recorded when its pass completes.
+ */
+@Serializable
+internal data class MergeRequestsCursor(
+    val watermarks: Map<String, Long> = emptyMap(),
+    val pass: MergeRequestsPass? = null,
+    val projectSets: Map<String, List<Long>> = emptyMap(),
+)
+
+/**
+ * One pass over the configured [groups] (a pass saved for another list is dropped): the group being listed ([groupIndex]), its next
+ * [page], the `updated_after` the pass started that group with (kept, so a resumed walk asks the same listing) and [seenMax], the newest
+ * `updated_at` the group's pages showed so far (it becomes the watermark when the group's last page commits). [projectIds] is the group's
+ * live stored project set at the pass's start (empty = unknown, a pass written before the field existed); it is recorded in
+ * [MergeRequestsCursor.projectSets] when the group completes.
+ */
+@Serializable
+internal data class MergeRequestsPass(
+    val groups: List<String>,
+    val groupIndex: Int = 0,
+    val page: Int = 1,
+    val updatedAfter: String,
+    val seenMax: Long? = null,
+    val projectIds: List<Long> = emptyList(),
+)

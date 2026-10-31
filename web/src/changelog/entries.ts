@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.36.0",
+    date: "2026-10-31",
+    en: `**GitLab: merge requests and review activity are read.**
+
+- A sync now reads the merge requests of the configured groups (state, times, branches, title, head, merge and squash commits, reviewers and assignees) and, for each one, its notes and system events as action codes (approved, changes requested, review requested, merged, …), its approvals and reviewer states, and its size (lines added and deleted, files changed) from one batched GraphQL query. Note bodies and descriptions are never stored.
+- Later syncs read only the merge requests updated since the last run; a merge request's details are refreshed when it changes, newest first, under a per-run budget.
+- The data source details show the merge-request counts: total, merged, review events, those still awaiting details and those without size statistics.`,
+    pl: `**GitLab: odczyt merge requestów i aktywności review.**
+
+- Synchronizacja odczytuje teraz merge requesty skonfigurowanych grup (stan, czasy, gałęzie, tytuł, commity head, merge i squash, recenzentów i przypisanych), a dla każdego z nich notatki i zdarzenia systemowe jako kody akcji (zatwierdzono, poproszono o zmiany, poproszono o review, scalono, …), zatwierdzenia i stany recenzentów oraz rozmiar (dodane i usunięte linie, zmienione pliki) z jednego zbiorczego zapytania GraphQL. Treści notatek i opisy nigdy nie są zapisywane.
+- Kolejne synchronizacje odczytują tylko merge requesty zmienione od ostatniego przebiegu; szczegóły merge requesta są odświeżane, gdy się zmieni, od najnowszych, w ramach budżetu na przebieg.
+- Szczegóły źródła danych pokazują liczby merge requestów: łącznie, scalone, zdarzenia review, czekające jeszcze na szczegóły i bez statystyk rozmiaru.`,
+  },
+  {
     version: "1.35.0",
     date: "2026-10-31",
     en: `**GitLab: commits are read, with per-file line counts.**

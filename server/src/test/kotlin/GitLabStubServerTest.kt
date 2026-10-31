@@ -83,7 +83,7 @@ class GitLabStubServerTest {
         "/api/v4/projects/$id/repository/commits?ref_name=${enc(ref)}&since=2026-01-01T00:00:00Z&with_stats=true&per_page=100"
 
     private fun groupMergeRequests(groupId: Int, extra: String = "") =
-        "/api/v4/groups/$groupId/merge_requests?scope=all&state=all&include_subgroups=true&order_by=updated_at&sort=asc&per_page=100$extra"
+        "/api/v4/groups/$groupId/merge_requests?scope=all&state=all&include_subgroups=true&order_by=updated_at&sort=desc&per_page=100$extra"
 
     private fun groupProjects(groupId: Int) = "/api/v4/groups/$groupId/projects?include_subgroups=true&archived=false&per_page=100"
 

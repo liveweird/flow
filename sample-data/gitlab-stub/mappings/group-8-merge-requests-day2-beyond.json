@@ -17,7 +17,7 @@
         "equalTo": "updated_at"
       },
       "sort": {
-        "equalTo": "asc"
+        "equalTo": "desc"
       },
       "per_page": {
         "equalTo": "100"
@@ -42,7 +42,7 @@
       "X-Prev-Page": "",
       "X-Total": "1",
       "X-Total-Pages": "1",
-      "Link": "<{{request.baseUrl}}/api/v4/groups/8/merge_requests?id=8&include_subgroups=true&order_by=updated_at&page=1&per_page=100&scope=all&sort=asc&state=all>; rel=\"first\", <{{request.baseUrl}}/api/v4/groups/8/merge_requests?id=8&include_subgroups=true&order_by=updated_at&page=1&per_page=100&scope=all&sort=asc&state=all>; rel=\"last\""
+      "Link": "<{{request.baseUrl}}/api/v4/groups/8/merge_requests?id=8&include_subgroups=true&order_by=updated_at&page=1&per_page=100&scope=all&sort=desc&state=all>; rel=\"first\", <{{request.baseUrl}}/api/v4/groups/8/merge_requests?id=8&include_subgroups=true&order_by=updated_at&page=1&per_page=100&scope=all&sort=desc&state=all>; rel=\"last\""
     },
     "bodyFileName": "empty-page.json",
     "transformers": [

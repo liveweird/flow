@@ -70,6 +70,36 @@ interface GitLabClient {
      * commit id ([SHA_PATTERN]) or the call is refused before any request.
      */
     suspend fun commitDiff(projectId: Long, sha: String, page: Int): GitLabDiffPage
+
+    /**
+     * `GET /groups/:id/merge_requests`, page [page] (1-based): every merge request of the group's projects (subgroups included),
+     * newest `updated_at` first (`sort=desc`: an item updated mid-pass moves to the FRONT, so a page shift never hides one), limited to
+     * those updated at or after [updatedAfter] (an ISO instant, [isoInstant]) when given. Each item is reduced INSIDE the transform
+     * ([summarizeMergeRequest]) to the typed fields and the slim payload ([MR_KEYS]): no description, label, URL or name is kept.
+     */
+    suspend fun groupMergeRequests(groupId: Long, updatedAfter: String?, page: Int): GitLabMergeRequestPage
+
+    /**
+     * `GET /projects/:id/merge_requests/:iid/notes`, page [page] (1-based), oldest first: each note becomes a [GitLabNoteSummary]
+     * inside the transform - an action code, never a body.
+     */
+    suspend fun mergeRequestNotes(projectId: Long, iid: Long, page: Int): GitLabNotePage
+
+    /**
+     * `GET /projects/:id/merge_requests/:iid/approvals` (the legacy object): the distinct `approved_by[].user.id` values. A missing merge
+     * request is `NOT_FOUND`; the caller decides what that means.
+     */
+    suspend fun mergeRequestApprovals(projectId: Long, iid: Long): List<Long>
+
+    /** `GET /projects/:id/merge_requests/:iid/reviewers`: each reviewer's user id, review state and the time they were added. */
+    suspend fun mergeRequestReviewers(projectId: Long, iid: Long): List<GitLabReviewerSummary>
+
+    /**
+     * `POST <origin>/api/graphql` (NOT under `/api/v4`): the `diffStatsSummary` of up to [MR_DETAILS_BATCH] merge requests ([iids]) of the
+     * project at [projectFullPath], through the same guarded transport. GraphQL errors, partial data and a null project are an answer with
+     * gaps ([GitLabDiffStatsAnswer]), never a failure; a transport failure is a `FetchException` the caller turns into gaps.
+     */
+    suspend fun mergeRequestDiffStats(projectFullPath: String, iids: List<Long>): GitLabDiffStatsAnswer
 }
 
 /** One user of `/users` reduced to small values: the identity columns, the user's own emails and the slim payload (no `emails` yet). */
@@ -98,6 +128,9 @@ private val NUMERIC_ID = Regex("^[0-9]{1,18}$")
 /** The shape of a full group path: segments of letters, digits, `_`, `.` and `-` joined by `/`. */
 private val GROUP_PATH = Regex("^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)*$")
 
+/** The longest project full path sent to GraphQL (the column holding it is 1,024 characters). */
+private const val MAX_PROJECT_PATH_CHARS = 1024
+
 private const val HTTP_BAD_REQUEST = 400
 private const val HTTP_NOT_FOUND = 404
 
@@ -110,6 +143,9 @@ class HttpGitLabClient(
 ) : GitLabClient {
     private val base = "${baseUrl.trimEnd('/')}/api/v4"
     private val auth = gitLabAuthHeader(token)
+
+    /** GraphQL lives beside `/api/v4`, on the same configured origin. */
+    private val graphqlUrl = "${baseUrl.trimEnd('/')}/api/graphql"
 
     /** Rate limits are per instance (per token owner, in practice): the canonical base URL is the tenant key. */
     private val pauseKey = baseUrl
@@ -177,6 +213,55 @@ class HttpGitLabClient(
         val endpoint = "/projects/${requireNumericId(projectId, template)}/repository/commits/$sha/diff"
         val paged = getPaged(endpoint, page, emptyMap()) { items -> items.map(::summarizeDiffFile) }
         return GitLabDiffPage(paged.value, paged.nextPage)
+    }
+
+    override suspend fun groupMergeRequests(groupId: Long, updatedAfter: String?, page: Int): GitLabMergeRequestPage {
+        val endpoint = "/groups/${requireNumericId(groupId, "/groups/{id}/merge_requests")}/merge_requests"
+        val extra = buildMap {
+            put("scope", "all")
+            put("state", "all")
+            put("include_subgroups", "true")
+            put("order_by", "updated_at")
+            put("sort", "desc")
+            updatedAfter?.let { put("updated_after", it) }
+        }
+        val paged = getPaged(endpoint, page, extra) { items -> items.map(::summarizeMergeRequest) }
+        return GitLabMergeRequestPage(paged.value, paged.nextPage, paged.total)
+    }
+
+    override suspend fun mergeRequestNotes(projectId: Long, iid: Long, page: Int): GitLabNotePage {
+        val endpoint = mrPath(projectId, iid, "notes")
+        val paged = getPaged(endpoint, page, mapOf("sort" to "asc", "order_by" to "created_at")) { items -> items.map(::summarizeNote) }
+        return GitLabNotePage(paged.value, paged.nextPage)
+    }
+
+    override suspend fun mergeRequestApprovals(projectId: Long, iid: Long): List<Long> =
+        getTree(mrPath(projectId, iid, "approvals")) { tree ->
+            val approvedBy = (tree as? JsonObject)?.get("approved_by") as? JsonArray
+                ?: throw FetchException(GITLAB_SOURCE, "INVALID_RESPONSE", null, "/projects/{id}/merge_requests/{iid}/approvals")
+            approvedBy.mapNotNull { ((it as? JsonObject)?.get("user") as? JsonObject)?.number("id") }.distinct()
+        }
+
+    override suspend fun mergeRequestReviewers(projectId: Long, iid: Long): List<GitLabReviewerSummary> =
+        getTree(mrPath(projectId, iid, "reviewers")) {
+            summarizeReviewers(decode<JsonArray>(it, "/projects/{id}/merge_requests/{iid}/reviewers"))
+        }
+
+    override suspend fun mergeRequestDiffStats(projectFullPath: String, iids: List<Long>): GitLabDiffStatsAnswer {
+        require(iids.size in 1..MR_DETAILS_BATCH) { "a diff-stats call asks for 1..$MR_DETAILS_BATCH merge requests" }
+        if (projectFullPath.isBlank() || projectFullPath.length > MAX_PROJECT_PATH_CHARS) {
+            throw FetchException(GITLAB_SOURCE, "INVALID_RESPONSE", null, "/api/graphql")
+        }
+        iids.forEach { requireNumericId(it, "/api/graphql") }
+        return http.requestAs(HttpMethod.Post, graphqlUrl, emptyMap(), diffStatsRequest(projectFullPath, iids), auth, pauseKey = pauseKey) {
+            parseDiffStatsAnswer(it, iids)
+        }
+    }
+
+    /** `/projects/:id/merge_requests/:iid/<leaf>` with both numbers checked ([requireNumericId]). */
+    private fun mrPath(projectId: Long, iid: Long, leaf: String): String {
+        val template = "/projects/{id}/merge_requests/{iid}/$leaf"
+        return "/projects/${requireNumericId(projectId, template)}/merge_requests/${requireNumericId(iid, template)}/$leaf"
     }
 
     private fun summarizeUser(item: JsonElement): GitLabUserSummary {

@@ -2139,6 +2139,13 @@ the time. `local-times.mjs slow-tests` reproduces this table for any run.
    - **Why it stays small.** The fixture warms through its own `warmGitLabFixture()` (not `warmStubFixtures()`), so only the classes that read it trigger the SYNC and a Jira-only fork never pays; the walk logic (re-list, sweep, caps, resumes) is tested against a fake client instead of a stub SYNC per case.
    - **Verdict.** No action; no budget changed. `server/test-weights.tsv` refreshed from this run so the two-fork balance sees the new classes.
 
+55. **The GitLab merge-request streams cost the server suite ~7.4 s of class time and ~8 s of span at two forks - MEASURED 2026-10-31 (`feat/gitlab-merge-requests`, PR 8).**
+   Question: PR 8 adds two streams to every GitLab SYNC (MERGE REQUESTS, then MR DETAILS: ~60 stub merge requests, their notes, approvals and reviewers over REST and their size statistics over one batched GraphQL call) and four test classes. Does the shared GitLab fixture get slower, and does the suite stay inside its alarm?
+   - **World.** `scripts/gates.sh all` on the final branch head (two forks, the local machine, other agents' builds running), then `node scripts/timings/local-times.mjs slow-tests --forks 2` and `test-weights` from the same run.
+   - **Result.** The GitLab classes weigh 21.3 s of class time against 13.9 s at WHY 54 (+7.4 s). The largest are `GitLabConnectorTest` 7.6 s (4.4 s before: its four whole-stub SYNC cases now walk the MR streams too, ~0.8-1.0 s each), `GitLabCommitsStreamTest` 3.9 s, `GitLabBootTest` 3.1 s, the new `GitLabMrStreamsTest` 2.7-3.2 s. The new `GitLabMrDetailsTest` (0.9 s) and `GitLabMrWalkTest` (0.2 s) run on scripted fake clients. `SyncedGitLabFixture`'s one-time SYNC: 0.78-0.84 s in the gate runs (~2.2 s against ~1.6 s at a cold first run while the streams were written). The suite: 2,688 tests, 9m11s of class time, a 4m42s span (ideal 4m36s, +2.5 %). The gate: 4m49s-4m58s over three runs; the median of the last five moved 4m44s -> 4m49s.
+   - **Why it stays small.** The walk and details logic (watermarks, re-lists, the GraphQL breaker, the skip budget, deferred stamps) is tested against fake clients, not a stub SYNC per case; only the stub cases pay the real streams.
+   - **Verdict.** No action; no budget changed (the 3-min target was missed before this PR; the alarm is 6 min). `server/test-weights.tsv` refreshed from this run. If the GitLab classes keep growing with PRs 9-11, the next lever is `GitLabConnectorTest`'s whole-stub SYNC cases, which could read `SyncedGitLabFixture` or a clone instead of syncing again.
+
 ## Review cadence
 
 - Run `node scripts/timings/ci-times.mjs --branch master` at every milestone / PR, and in every
