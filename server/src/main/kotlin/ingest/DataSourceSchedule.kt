@@ -23,7 +23,8 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
  * only connections of a kind that derives metrics (`DataSourceKind.derivesMetrics`, `.claude/docs/ingestion.md` "Connector kinds").
  */
 
-private fun ResultRow.toDueConnection() = DataSourceService.DueConnection(this[Connections.id].value, this[Connections.configRevision])
+private fun ResultRow.toDueConnection() =
+    DataSourceService.DueConnection(this[Connections.id].value, this[Connections.configRevision], dataSourceKind())
 
 internal suspend fun enabledActiveConnectionRows(database: R2dbcDatabase): List<DataSourceService.DueConnection> =
     suspendTransaction(database) {

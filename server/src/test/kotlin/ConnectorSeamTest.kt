@@ -199,7 +199,9 @@ class ConnectorSeamTest {
         val gitlabId = GitLabRowFixture.insert("seam-off", enabled = true).also { insertedGitLabRows += it }
         val jiraId = SyncedStubFixture.createConnection(namePrefix = "seam-jira", enabled = true).also { createdJiraRows += it }
 
-        // One tick enqueues a due SYNC for BOTH connections, claims both and runs both; the GitLab one fails, the Jira one runs.
+        // A manual "Sync now" for the GitLab row (the scheduler skips a kind with no connector); the tick enqueues the Jira one's due SYNC,
+        // claims both and runs both: the GitLab one fails, the Jira one runs.
+        jobs.requestJob(gitlabId, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L)
         withOnlyConnections(setOf(gitlabId, jiraId), TICK_CLOCK_MILLIS) {
             coroutineScope { worker.tick(this) }
         }
@@ -248,6 +250,33 @@ class ConnectorSeamTest {
         }[DataSourceService.Connections.purgedAt]
         assertNull(purgedAt)
     }
+
+    @Test
+    fun `the scheduler enqueues nothing for a kind with no connector, and a manual job still fails cleanly`() =
+        runBlocking<Unit> {
+            val dataSources = SyncedStubFixture.dataSources()
+            // A tick far enough ahead that the purge grace has elapsed for a connection soft-deleted just now.
+            val tickAt = System.currentTimeMillis() + 30L * 24 * 60 * 60 * 1000
+            val jobs = SyncJobsService(sharedDatabaseForTests(), 3, { tickAt })
+            val handlers = JobHandlerRegistry().apply { register(SyncJobKind.DERIVE) { null } }
+            val config = IngestConfig(
+                schedulerTickSeconds = 15, workerSlots = 4, leaseSeconds = 300, jobRetentionDays = 90, purgeGraceDays = 7,
+                workerId = workerId,
+            )
+            val worker = IngestWorker(jobs, dataSources, handlers, emptyMap(), config) { tickAt }
+            val active = GitLabRowFixture.insert("seam-sched-active", enabled = true).also { insertedGitLabRows += it }
+            val orphan = GitLabRowFixture.insert("seam-sched-orphan", enabled = true).also { insertedGitLabRows += it }
+            dataSources.delete(orphan) // soft-deleted: its PURGE is due, but no connector could run it
+            val manual = jobs.requestJob(active, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L).jobId
+
+            repeat(2) { withOnlyConnections(setOf(active, orphan), tickAt) { coroutineScope { worker.tick(this) } } }
+
+            val activeJobs = jobs.list(active, SyncJobListFilter(), pagingAll()).items
+            assertEquals(listOf(manual), activeJobs.map { it.id }, "only the manual SYNC exists: no scheduled SYNC/RECONCILE row")
+            assertEquals(SyncJobStatus.FAILED, activeJobs.single().status)
+            assertEquals("CONNECTOR_UNAVAILABLE", activeJobs.single().errorCode)
+            assertEquals(emptyList(), jobs.list(orphan, SyncJobListFilter(), pagingAll()).items, "no PURGE row, on either tick")
+        }
 
     private fun pagingAll() = PageRequest(page = 1, pageSize = 100, sort = emptyList())
 }

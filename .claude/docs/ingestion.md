@@ -117,8 +117,8 @@ connector registry, through the `JobHandler` that `metrics/MetricsJobHandlers.kt
 succeeding silently;
 `.claude/docs/metrics.md` "The DERIVE run algorithm" has the write-side detail)
 is connector-agnostic: it reads `norm.*` plus the connection's effective metrics configuration and
-writes `metrics.*`, never touching Jira, so it runs the same way whichever connector kind the
-connection is. **Chaining** (`IngestWorker.onSucceeded`, `.claude/docs/domain-model.md`'s plan §2
+writes `metrics.*`, never touching Jira, so it runs the same way whichever connector kind (of a kind that derives metrics,
+`DataSourceKind.derivesMetrics`) the connection is; `runJob` fails a DERIVE for any other kind (the backstop, "Connector kinds"). **Chaining** (`IngestWorker.onSucceeded`, `.claude/docs/domain-model.md`'s plan §2
 decision 1): every successful `SYNC`/`RECONCILE`/`REPROCESS` of a kind that derives metrics enqueues a scheduled-priority `DERIVE`
 for its OWN connection (`SyncJobsService.enqueueScheduled`, coalesced by `uq_sync_jobs_open_per_kind`
 if one is already open); a `DERIVE` run itself enqueues nothing UNLESS the shared
@@ -1359,7 +1359,10 @@ out of every Jira-only path (V40 + `ingest/`, pinned by `ConnectorSeamTest` and 
   `ApplicationStarted` (the `IngestConnectorOverrideKey` test seam wins). **A kind with no registered connector** (GitLab switched off, not
   built here) fails its job with `ConnectorUnavailableException` -> job error code `CONNECTOR_UNAVAILABLE`, one of the closed
   `last_sync_error_code` vocabulary; the worker loop carries on, and a PURGE of such a connection fails too instead of stamping it purged
-  with its raw rows in place.
+  with its raw rows in place. **The scheduler (`IngestWorker.enqueueDue`: scheduled SYNC, RECONCILE and PURGE) skips connections whose
+  kind has no registered connector** (`DueConnection.kind`), because a failed job is terminal and would otherwise be re-enqueued every
+  tick; only a MANUAL job (Sync now) is still queued, and fails with `CONNECTOR_UNAVAILABLE`. Such a connection's PURGE waits until its
+  connector is registered again.
 - **`Connector.testConnection(target: ConnectionTarget)`**: `ConnectionTarget` is a sealed type (`Connector.kt`), `Jira(siteUrl, email,
   apiToken, projectKeys, authScheme)` and `GitLab(baseUrl, token, groupPaths)`; both mask the secret in `toString`. A connector answers
   its own case only (`JiraConnector` `check`s: an internal error, never reachable from a route).
@@ -1380,6 +1383,11 @@ out of every Jira-only path (V40 + `ingest/`, pinned by `ConnectorSeamTest` and 
   that cannot carry it. `delete`, the scheduler scans (`dueForSync`/`dueForReconcile`/`dueForPurge`) and `connectionHealth` are
   kind-agnostic on purpose: every kind syncs, reconciles and purges through its own connector. The backfill floor (history horizon) is
   applied at write time by `DataSourceService`; whether GitLab sources take it is decided with its data-source release.
+- **Interim inconsistency until PR 6** (a GITLAB row can only exist by direct insert today): the row is `404` on read, PUT, status,
+  sync-jobs and the stored Test connection, but `204` on DELETE (kind-agnostic soft delete), `200` on the profile route (it decodes
+  nothing) and `409 data-source-kind-unsupported` on metrics-config and the raw-issue inspector. `uq_source_connections_name_active`
+  spans kinds, so a Jira POST reusing a hidden GITLAB row's name is a `409` for a row the admin cannot see. PR 6's `gitlab` wire block
+  removes all of this.
 
 ## Data sources
 

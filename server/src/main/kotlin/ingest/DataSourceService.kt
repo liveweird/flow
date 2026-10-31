@@ -94,7 +94,7 @@ class DataSourceService(
         val reconcilePauseReason = varchar("reconcile_pause_reason", 100).nullable()
     }
 
-    override val encryptedRowLabel = "Jira API token"
+    override val encryptedRowLabel = "data source token"
 
     override suspend fun encryptLegacyRows(reencryptAll: Boolean): Int = suspendTransaction(database) {
         cipher.reencryptRows(Connections, listOf(Connections.secret), reencryptAll)
@@ -265,7 +265,7 @@ class DataSourceService(
     }
 
     /** A due connection's id and its CURRENT `config_revision` (stamped onto the enqueued job). */
-    data class DueConnection(val id: UInt, val configRevision: Long)
+    data class DueConnection(val id: UInt, val configRevision: Long, val kind: DataSourceKind)
 
     /**
      * Every enabled, active connection's id and CURRENT `config_revision` of a kind that derives metrics

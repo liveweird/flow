@@ -186,10 +186,12 @@ class IngestWorker internal constructor(
 
     private suspend fun enqueueDue() {
         val now = clock()
-        dataSources.dueForSync(now).forEach { syncJobs.enqueueScheduled(it.id, SyncJobKind.SYNC, it.configRevision, now) }
-        dataSources.dueForReconcile(now).forEach { syncJobs.enqueueScheduled(it.id, SyncJobKind.RECONCILE, it.configRevision, now) }
-        dataSources.dueForPurge(now, config.purgeGraceDays * MILLIS_PER_DAY)
-            .forEach { syncJobs.enqueueScheduled(it.id, SyncJobKind.PURGE, it.configRevision, now) }
+        // Scheduled jobs only for kinds with a registered connector: others would fail at once and be re-enqueued every tick.
+        suspend fun enqueue(due: List<DataSourceService.DueConnection>, kind: SyncJobKind) =
+            due.filter { it.kind in connectors }.forEach { syncJobs.enqueueScheduled(it.id, kind, it.configRevision, now) }
+        enqueue(dataSources.dueForSync(now), SyncJobKind.SYNC)
+        enqueue(dataSources.dueForReconcile(now), SyncJobKind.RECONCILE)
+        enqueue(dataSources.dueForPurge(now, config.purgeGraceDays * MILLIS_PER_DAY), SyncJobKind.PURGE)
     }
 
     private suspend fun claimAvailable(scope: CoroutineScope) {
@@ -338,7 +340,7 @@ class IngestWorker internal constructor(
         // plan §2 decision 1) — coalesced by `uq_sync_jobs_open_per_kind`, so an already-pending
         // DERIVE for this connection is a no-op here, except that a DEBOUNCED one (V27 `not_before`, a
         // configuration change's) is pulled forward to run now: a chained DERIVE is never delayed.
-        // Only a kind that derives metrics (`DataSourceKind.derivesMetrics`) chains: a GitLab SYNC enqueues no DERIVE.
+        // Only `derivesMetrics` kinds chain (a GitLab SYNC enqueues none); `read` is Jira-only, so a future non-Jira one needs a new read.
         if (claim.connectorKind.derivesMetrics && claim.kind in CHAINING_KINDS) {
             dataSources.read(claim.connectionId)?.let { connection ->
                 syncJobs.enqueueScheduled(claim.connectionId, SyncJobKind.DERIVE, connection.configRevision, clock())
