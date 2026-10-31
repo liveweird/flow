@@ -94,6 +94,39 @@ class GitLabClientTest {
     }
 
     @Test
+    fun `an absent X-Next-Page header is INVALID_RESPONSE, never the last page`() = runBlocking {
+        val engine = MockEngine { respond("[]", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json")) }
+        assertEquals("INVALID_RESPONSE", assertFailsWith<FetchException> { client(engine).users(1) }.code)
+        assertEquals("INVALID_RESPONSE", assertFailsWith<FetchException> { client(engine).groupProjects(7, 1) }.code)
+    }
+
+    @Test
+    fun `a token-info answer missing scopes or active is INVALID_RESPONSE`() = runBlocking {
+        for (body in listOf("{}", """{"scopes":["read_api"]}""", """{"active":true}""")) {
+            val engine = MockEngine { respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json")) }
+            assertEquals("INVALID_RESPONSE", assertFailsWith<FetchException> { client(engine).tokenSelf() }.code, body)
+        }
+    }
+
+    @Test
+    fun `users come back slimmed to small values and the emails answer is reduced to its address strings`() = runBlocking {
+        val engine = MockEngine { request ->
+            val body = if (request.url.encodedPath.endsWith("/emails")) {
+                """[{"id":1,"email":"S@x.test","confirmed_at":"2026-01-01"},{"id":2,"email":"t@x.test"}]"""
+            } else {
+                """[{"id":4,"username":"u4","name":"U Four","state":"active","bot":false,"email":"P@x.test","bio":"private text"}]"""
+            }
+            respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType to listOf("application/json"), "X-Next-Page" to listOf("")))
+        }
+        val client = client(engine)
+        val user = client.users(1).users.single()
+        assertEquals(4L, user.id)
+        assertEquals(listOf("P@x.test"), user.ownEmails)
+        assertNull(user.slim["bio"], "the slim value carries no unlisted member")
+        assertEquals(listOf("S@x.test", "t@x.test"), client.userEmails(4))
+    }
+
+    @Test
     fun `a page that does not advance, or is not a number, is INVALID_RESPONSE`() = runBlocking {
         for (next in listOf("1", "0", "abc")) {
             val engine = MockEngine {
@@ -113,7 +146,7 @@ class GitLabClientTest {
             respond(
                 if (request.url.encodedPath.endsWith("/projects")) "[]" else """{"id":8,"full_path":"platform/tooling"}""",
                 HttpStatusCode.OK,
-                headersOf(HttpHeaders.ContentType, "application/json"),
+                headersOf(HttpHeaders.ContentType to listOf("application/json"), "X-Next-Page" to listOf("")),
             )
         }
         val client = client(engine)
@@ -217,6 +250,9 @@ class GitLabClientTest {
         assertTrue(listOf("read_api", "api").tooBroad())
         assertTrue(listOf("sudo").tooBroad())
         assertTrue(listOf("read_api", "write_repository").tooBroad())
+        for (scope in listOf("create_runner", "manage_runner", "k8s_proxy", "self_rotate", "ai_features", "unknown_future_scope")) {
+            assertTrue(listOf("read_api", scope).tooBroad(), "$scope is outside the read_ allow-list")
+        }
         assertFalse(listOf("read_api").tooBroad())
         assertFalse(listOf("read_api", "read_user", "read_repository").tooBroad())
         assertFalse(emptyList<String>().tooBroad())

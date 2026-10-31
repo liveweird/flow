@@ -831,8 +831,8 @@ export interface paths {
          *     (at most 10s each, 30s total) and NEVER answers `502` — every probe outcome is a row in
          *     the response, `ok: false` included. The block's token (`jira.apiToken`, `gitlab.token`) is required here (an
          *     ad-hoc test before the connection is saved). GitLab's rows, in order: `version`, `user`, `user_admin` (optional;
-         *     `code` `NOT_ADMIN` when the token's owner is no admin, so user emails will be hidden), `token_scopes` (a token carrying
-         *     `api`, `sudo` or a `write_*` scope fails it with `TOKEN_SCOPE_TOO_BROAD`, an inactive one with `TOKEN_INACTIVE`),
+         *     `code` `NOT_ADMIN` when the token's owner is no admin, so user emails will be hidden), `token_scopes` (a token with any scope that does not start
+         *     with `read_` fails it with `TOKEN_SCOPE_TOO_BROAD`, an inactive one with `TOKEN_INACTIVE`; an answer missing `scopes` or `active` is `INVALID_RESPONSE`),
          *     then `group:<path>` and `group_projects:<path>` per configured path, `users` and `user_emails` (optional). A GitLab
          *     result carries no `cloudId`.
          */
@@ -2935,9 +2935,9 @@ export interface components {
         GitLabConnectionRequest: {
             /** @description The GitLab instance origin, `https://host[:port]` (no path, query, fragment or credentials; a trailing `/` is dropped). It must be on the operator's `GITLAB_ALLOWED_HOSTS`, or the development stub's origin. Stored canonical; fixed at create (a PUT naming another origin is `409`). */
             baseUrl: string;
-            /** @description Write-only personal access token, sent as `PRIVATE-TOKEN`; Flow needs `read_api` only and refuses a token with `api`, `sudo` or a `write_*` scope. Required (non-blank) on create. On update, omitted OR blank keeps the current token; any other value rotates it. Never echoed back in any response. */
+            /** @description Write-only personal access token, sent as `PRIVATE-TOKEN`; Flow needs `read_api` only and refuses a token with any scope that does not start with `read_` (`api`, `sudo`, `write_*`, `create_runner`, ...). Required (non-blank) on create. On update, omitted OR blank keeps the current token; any other value rotates it. Never echoed back in any response. */
             token?: string | null;
-            /** @description Full group paths whose projects (subgroups included, archived and shared ones not) are read. Trimmed, stripped of leading/trailing `/`, lowercased and de-duplicated before validation; none may equal or nest in another. */
+            /** @description Full group paths whose projects (subgroups included, archived and shared ones not) are read. Trimmed, stripped of leading/trailing `/`, lowercased and de-duplicated before validation (so the request accepts any case); each normalised path must then be `/`-separated segments of `[a-z0-9_][a-z0-9_.-]*` (else `400`), and none may equal or nest in another. */
             groupPaths: string[];
         };
         GitLabConnectionResponse: {

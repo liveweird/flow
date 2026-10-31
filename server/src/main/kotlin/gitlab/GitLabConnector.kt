@@ -12,9 +12,9 @@ import ch.nokillswit.ingest.PurgeStep
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobRunContext
+import ch.nokillswit.ingest.TOKEN_INACTIVE
 import ch.nokillswit.ingest.TOKEN_SCOPE_TOO_BROAD
 
-private const val TOKEN_INACTIVE = "TOKEN_INACTIVE"
 private const val NOT_ADMIN = "NOT_ADMIN"
 private const val READ_API = "read_api"
 
@@ -61,10 +61,10 @@ class GitLabConnector(
             if (token.scopes.tooBroad()) {
                 throw JobRefusedException(
                     TOKEN_SCOPE_TOO_BROAD,
-                    "the token carries a write-capable scope (${token.scopes.joinToString(", ")}); Flow needs $READ_API only",
+                    "the token carries a scope beyond reading (${token.scopes.joinToString(", ")}); Flow needs $READ_API only",
                 )
             }
-            if (!token.active) throw JobRefusedException(TOKEN_SCOPE_TOO_BROAD, "the token is inactive")
+            if (!token.active) throw JobRefusedException(TOKEN_INACTIVE, "the token is inactive (revoked or expired)")
             val isAdmin = client.currentUser().isAdmin
             val streams: List<Stream> = listOf(
                 GitLabProjectsStream(client, deps.rawStore, stored.groupPaths),
@@ -79,7 +79,8 @@ class GitLabConnector(
 
     /**
      * Probes in SEQUENCE, at most 10 s each and 30 s total, never throwing (`ingest/ConnectionProbes.kt`): `version`, `user`,
-     * `user_admin` (optional: an admin token sees user emails), `token_scopes` (a token that could write, or is inactive, fails it),
+     * `user_admin` (optional: an admin token sees user emails), `token_scopes` (a token with a scope beyond `read_*`
+     * (`TOKEN_SCOPE_TOO_BROAD`), or an inactive one (`TOKEN_INACTIVE`), fails it),
      * a `group:` and a `group_projects:` row per configured path, `users`, and `user_emails` (optional: can the token read the
      * emails it was given an admin for). The token is never echoed.
      */

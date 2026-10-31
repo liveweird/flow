@@ -18,7 +18,13 @@ internal inline fun <reified T> decodeCursor(text: String): T = CURSOR_JSON.deco
  * group being read and the next page of it. Cleared when the pass ends.
  */
 @Serializable
-internal data class ProjectsCursor(val passStartedAt: Long, val groupIndex: Int = 0, val page: Int = 1)
+internal data class ProjectsCursor(
+    val passStartedAt: Long,
+    val groupIndex: Int = 0,
+    val page: Int = 1,
+    /** The configured group paths the pass started with: a cursor is only resumed against the SAME list, in the same order. */
+    val groups: List<String> = emptyList(),
+)
 
 /** The `users` stream's position inside one pass: [passStartedAt] and the next page of `/users`. Cleared when the pass ends. */
 @Serializable

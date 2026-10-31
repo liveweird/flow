@@ -37,9 +37,11 @@ internal class GitLabProjectsStream(
     override val name: String = "projects"
 
     override suspend fun run(context: StreamContext) {
-        // groupIndex == size: every group was read, only the sweep is left.
+        // groupIndex == size: every group was read, only the sweep is left. A cursor written for another list of groups (an edit while a
+        // pass was interrupted) is dropped and the pass restarts: its index would name another group, and the sweep would then mark
+        // the projects of the groups it never read as moved out.
         val resumed = context.cursor(name)?.cursor?.let { decodeCursor<ProjectsCursor>(it) }
-            ?.takeIf { it.groupIndex in 0..groupPaths.size }
+            ?.takeIf { it.groups == groupPaths && it.groupIndex in 0..groupPaths.size }
         val passStartedAt = resumed?.passStartedAt ?: context.clock()
         val skippedIds = mutableListOf<Long>()
         for (index in (resumed?.groupIndex ?: 0) until groupPaths.size) {
@@ -79,8 +81,11 @@ internal class GitLabProjectsStream(
                 context.incrementProgress("pages")
                 context.incrementProgress("projects", kept.size.toLong())
                 if (answer.items.size > kept.size) context.incrementProgress("projectsSkipped", (answer.items.size - kept.size).toLong())
-                val next = if (nextPage == null) ProjectsCursor(passStartedAt, index + 1) else ProjectsCursor(passStartedAt, index,
-                    nextPage)
+                val next = if (nextPage == null) {
+                    ProjectsCursor(passStartedAt, index + 1, groups = groupPaths)
+                } else {
+                    ProjectsCursor(passStartedAt, index, nextPage, groupPaths)
+                }
                 context.putCursor(name, encodeCursor(next))
                 outcomes.any { it.isChange }
             }
@@ -97,8 +102,11 @@ internal class GitLabProjectsStream(
         val archived = (project["archived"] as? JsonPrimitive)?.booleanOrNull ?: false
         val namespacePath = ((project["namespace"] as? JsonObject)?.text("full_path") ?: pathWithNamespace).lowercase()
         val inGroup = namespacePath == groupPath || namespacePath.startsWith("$groupPath/")
-        if (archived || !inGroup) return null
-        return RawGitLabProject(id, pathWithNamespace, groupPath, groupId, project.text("default_branch"), archived, project)
+        // A branch name or path wider than its column is not stored truncated (PR 7 puts the branch in a URL path): the project is skipped.
+        val defaultBranch = project.text("default_branch")
+        if (archived || !inGroup || (defaultBranch?.length ?: 0) > MAX_BRANCH_LENGTH ||
+            pathWithNamespace.length > MAX_PATH_LENGTH) return null
+        return RawGitLabProject(id, pathWithNamespace, groupPath, groupId, defaultBranch, archived, project)
     }
 
     private fun JsonObject.id(): Long =
@@ -106,5 +114,7 @@ internal class GitLabProjectsStream(
 
     private companion object {
         const val MAX_LOGGED_IDS = 20
+        const val MAX_BRANCH_LENGTH = 255
+        const val MAX_PATH_LENGTH = 1024
     }
 }

@@ -114,6 +114,22 @@ class GitLabRawStoreTest {
     }
 
     @Test
+    fun `a project relisted under another configured group is a change`() = runBlocking<Unit> {
+        val connId = connection()
+        val original = project(1)
+        store.upsertProjects(connId, listOf(original), now = 1_000)
+        val relisted = RawGitLabProject(1, original.pathWithNamespace, "other", 9, original.defaultBranch, false, original.payload)
+
+        assertEquals(listOf(RawUpsertOutcome.CHANGED), store.upsertProjects(connId, listOf(relisted), now = 2_000))
+        val row = store.projectRows(connId).single()
+        assertEquals("other", row[GitLabRawStore.Projects.groupPath])
+        assertEquals(9L, row[GitLabRawStore.Projects.groupId])
+        assertEquals(2_000L, row[GitLabRawStore.Projects.changedAt])
+        assertEquals(listOf(RawUpsertOutcome.UNCHANGED), store.upsertProjects(connId, listOf(relisted), now = 3_000),
+            "and then it is stable")
+    }
+
+    @Test
     fun `a page repeating a key is judged by its first occurrence`() = runBlocking<Unit> {
         val connId = connection()
         val outcomes = store.upsertProjects(connId, listOf(project(1), project(1), project(2)), now = 1_000)

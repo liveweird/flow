@@ -175,7 +175,7 @@ guessing an id.
 
 `POST /api/v1/data-sources/test` and `.../{id}/test` are ADMIN-only (guard before body decode),
 rate-limited at 10/min per IP (`RateLimits.DATA_SOURCE_TEST`), and audited as `data_source.tested`
-(siteHost, ok, failedEndpoints — never a token). Never `502`: a probe failure is a row, not a
+(kind, host, ok, failedEndpoints — never a token; `host` was `siteHost` before 1.34.0). Never `502`: a probe failure is a row, not a
 failing HTTP status.
 
 ### Scopes per endpoint

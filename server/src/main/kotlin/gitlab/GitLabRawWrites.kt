@@ -47,7 +47,12 @@ internal class GitLabRawWrites(private val database: R2dbcDatabase) {
                 val canonical = canonicalJson(slimProject(it.payload))
                 Prepared(it, it.projectId, canonical, sha256Hex(canonical))
             }
-            val diff = diffPage(prepared, loadProjects(connectionId, prepared.map { it.key })) { changeProject(connectionId, it, now) }
+            // group_path/group_id sit outside the hashed payload: a project listed under another configured group is a change all the same.
+            val moved = { row: Prepared<RawGitLabProject>, stored: StoredRow ->
+                stored.groupPath != row.input.groupPath || stored.groupId != row.input.groupId
+            }
+            val diff = diffPage(prepared, loadProjects(connectionId, prepared.map { it.key }), moved) { changeProject(connectionId, it,
+                now) }
             insertProjects(connectionId, diff.inserts, now)
             touched(diff).forEach { chunk ->
                 Projects.update({ (Projects.connectionId eq connectionId) and (Projects.projectId inList chunk) }) { it[lastSeenAt] = now }
@@ -65,15 +70,24 @@ internal class GitLabRawWrites(private val database: R2dbcDatabase) {
      * Classifies a page against the stored rows ([classifyUpsert]) and applies the per-row changes ([change]); inserts and the
      * unchanged-touch are returned for the caller to batch. A key repeated in one page is judged by its first occurrence alone.
      */
-    private suspend fun <I> diffPage(rows: List<Prepared<I>>, stored: Map<Long, StoredRow>,
-        change: suspend (Prepared<I>) -> Unit): PageDiff<I> {
+    private suspend fun <I> diffPage(
+        rows: List<Prepared<I>>,
+        stored: Map<Long, StoredRow>,
+        drifted: (Prepared<I>, StoredRow) -> Boolean = { _, _ -> false },
+        change: suspend (Prepared<I>) -> Unit,
+    ): PageDiff<I> {
         val inserts = mutableListOf<Prepared<I>>()
         val unchanged = mutableListOf<Long>()
         val seen = HashSet<Long>()
         val outcomes = rows.map { row ->
             if (!seen.add(row.key)) return@map RawUpsertOutcome.UNCHANGED
             val current = stored[row.key]
-            val outcome = classifyUpsert(current?.hash, row.hash, current?.tombstoned == true)
+            val classified = classifyUpsert(current?.hash, row.hash, current?.tombstoned == true)
+            val outcome = if (classified == RawUpsertOutcome.UNCHANGED && current != null && drifted(row, current)) {
+                RawUpsertOutcome.CHANGED
+            } else {
+                classified
+            }
             when (outcome) {
                 RawUpsertOutcome.INSERTED -> inserts += row
                 RawUpsertOutcome.UNCHANGED -> unchanged += row.key
@@ -85,15 +99,20 @@ internal class GitLabRawWrites(private val database: R2dbcDatabase) {
         return PageDiff(outcomes, inserts, unchanged)
     }
 
-    private class StoredRow(val hash: String, val tombstoned: Boolean)
+    private class StoredRow(val hash: String, val tombstoned: Boolean, val groupPath: String? = null, val groupId: Long? = null)
 
     private suspend fun loadProjects(connectionId: UInt, keys: List<Long>): Map<Long, StoredRow> =
         keys.distinct().sorted().chunked(KEY_CHUNK).flatMap { chunk ->
-            Projects.select(Projects.projectId, Projects.sha256, Projects.deletedAt, Projects.movedOutAt)
+            Projects.select(Projects.projectId, Projects.sha256, Projects.deletedAt, Projects.movedOutAt, Projects.groupPath,
+                Projects.groupId)
                 .where { (Projects.connectionId eq connectionId) and (Projects.projectId inList chunk) }
                 .orderBy(Projects.projectId).forUpdate().toList()
-        }.associate { it[Projects.projectId] to StoredRow(it[Projects.sha256], it[Projects.deletedAt] != null ||
-            it[Projects.movedOutAt] != null) }
+        }.associate {
+            it[Projects.projectId] to StoredRow(
+                it[Projects.sha256], it[Projects.deletedAt] != null || it[Projects.movedOutAt] != null, it[Projects.groupPath],
+                    it[Projects.groupId],
+            )
+        }
 
     private suspend fun insertProjects(connectionId: UInt, rows: List<Prepared<RawGitLabProject>>, now: Long) {
         Projects.insertRows(rows) {
@@ -102,7 +121,7 @@ internal class GitLabRawWrites(private val database: R2dbcDatabase) {
             this[Projects.pathWithNamespace] = it.input.pathWithNamespace.replaceNul().take(MAX_PROJECT_PATH)
             this[Projects.groupPath] = it.input.groupPath.take(MAX_NAME)
             this[Projects.groupId] = it.input.groupId
-            this[Projects.defaultBranch] = it.input.defaultBranch?.replaceNul()?.take(MAX_NAME)
+            this[Projects.defaultBranch] = it.input.defaultBranch?.replaceNul()
             this[Projects.archived] = it.input.archived
             this[Projects.payload] = it.canonical
             this[Projects.sha256] = it.hash
@@ -118,7 +137,7 @@ internal class GitLabRawWrites(private val database: R2dbcDatabase) {
             it[pathWithNamespace] = row.input.pathWithNamespace.replaceNul().take(MAX_PROJECT_PATH)
             it[groupPath] = row.input.groupPath.take(MAX_NAME)
             it[groupId] = row.input.groupId
-            it[defaultBranch] = row.input.defaultBranch?.replaceNul()?.take(MAX_NAME)
+            it[defaultBranch] = row.input.defaultBranch?.replaceNul()
             it[archived] = row.input.archived
             it[payload] = row.canonical
             it[sha256] = row.hash

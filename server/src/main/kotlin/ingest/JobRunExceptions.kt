@@ -12,6 +12,9 @@ class JobCancelRequestedException(jobId: UInt) : Exception("Cancel requested for
  */
 const val TOKEN_SCOPE_TOO_BROAD = "TOKEN_SCOPE_TOO_BROAD"
 
+/** Likewise for a GitLab token that is no longer active (revoked or expired): the job is refused, the token must be replaced. */
+const val TOKEN_INACTIVE = "TOKEN_INACTIVE"
+
 /**
  * A connector refused to run the job for a reason it can name with a closed code ([errorCode], a member of [SYNC_ERROR_CODES]);
  * [IngestWorker] closes the job with that code instead of the generic `RUN_FAILED`. [message] is operator text and carries no secret.

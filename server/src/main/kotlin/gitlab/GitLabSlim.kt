@@ -42,8 +42,14 @@ internal fun JsonObject.text(key: String): String? = (get(key) as? JsonPrimitive
  * The sorted, distinct, lowercased union of the user's own `email`/`commit_email`/`public_email` and the [secondary] emails
  * (`/users/:id/emails`): the identity proposals' input (PR 11). Blank entries are dropped; an email is never logged.
  */
-internal fun gitLabUserEmails(user: JsonObject, secondary: List<String>): List<String> =
-    (EMAIL_FIELDS.mapNotNull { user.text(it) } + secondary).map { it.trim().lowercase() }.filter { it.isNotEmpty() }.distinct().sorted()
+internal fun gitLabUserEmails(user: JsonObject, secondary: List<String>): List<String> = mergeEmails(ownEmailsOf(user), secondary)
+
+/** The user's own `email`/`commit_email`/`public_email` values, as sent (the list shows them to an admin token only). */
+internal fun ownEmailsOf(user: JsonObject): List<String> = EMAIL_FIELDS.mapNotNull { user.text(it) }
+
+/** The sorted, distinct, lowercased union of [own] and [secondary] emails, blanks dropped. */
+internal fun mergeEmails(own: List<String>, secondary: List<String>): List<String> =
+    (own + secondary).map { it.trim().lowercase() }.filter { it.isNotEmpty() }.distinct().sorted()
 
 /** The `email` members of a `/users/:id/emails` answer (`[{id, email, confirmed_at}]`); anything else is skipped. */
 internal fun secondaryEmails(answer: JsonArray): List<String> =

@@ -2,17 +2,20 @@ package ch.nokillswit
 
 import ch.nokillswit.gitlab.GitLabRawStore
 import ch.nokillswit.gitlab.purgeAll
+import ch.nokillswit.fetch.FetchException
 import ch.nokillswit.ingest.ConnectionTarget
 import ch.nokillswit.ingest.ConnectionTestResult
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JobRefusedException
 import ch.nokillswit.ingest.SyncJobKind
+import ch.nokillswit.ingest.TOKEN_INACTIVE
 import ch.nokillswit.ingest.TOKEN_SCOPE_TOO_BROAD
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.get
 import com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo
 import com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching
 import com.github.tomakehurst.wiremock.stubbing.StubMapping
+import ch.nokillswit.ingest.SyncCursorsService
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -215,11 +218,59 @@ class GitLabConnectorTest {
     }
 
     @Test
-    fun `an inactive token fails the SYNC the same way`() = runBlocking<Unit> {
+    fun `a scope outside the read_ allow-list fails the SYNC with TOKEN_SCOPE_TOO_BROAD`() = runBlocking<Unit> {
+        for (scope in listOf("create_runner", "manage_runner", "k8s_proxy", "self_rotate", "ai_features")) {
+            val connId = connection()
+            override("/personal_access_tokens/self", body = """{"scopes":["read_api","$scope"],"active":true}""")
+            val failure = assertFailsWith<JobRefusedException> { GitLabFixtures.run(GitLabFixtures.connector(dataSources), connId) }
+            assertEquals(TOKEN_SCOPE_TOO_BROAD, failure.errorCode, scope)
+            assertTrue(store.projectRows(connId).isEmpty())
+            overrides.forEach(GitLabStubServer::removeOverride)
+            overrides.clear()
+        }
+    }
+
+    @Test
+    fun `a token-info answer missing scopes or active fails closed, in Test connection and in the SYNC`() = runBlocking<Unit> {
+        for (body in listOf("{}", """{"scopes":["read_api"]}""", """{"active":true}""")) {
+            override("/personal_access_tokens/self", body = body)
+            assertEquals("INVALID_RESPONSE", testConnection().rows.single { it.name == "token_scopes" }.code, body)
+            val connId = connection()
+            val failure = assertFailsWith<FetchException> { GitLabFixtures.run(GitLabFixtures.connector(dataSources), connId) }
+            assertEquals("INVALID_RESPONSE", failure.code, body)
+            assertTrue(store.projectRows(connId).isEmpty() && store.userRows(connId).isEmpty(), "nothing was stored")
+            overrides.forEach(GitLabStubServer::removeOverride)
+            overrides.clear()
+        }
+    }
+
+    @Test
+    fun `a projects cursor written for another list of groups is dropped and the pass restarts`() = runBlocking<Unit> {
+        val connId = connection()
+        // The cursor says "every group of a two-group list was read, only the sweep is left"; the configured list is another one.
+        SyncCursorsService(sharedDatabaseForTests()).put(
+            connId, "projects", """{"passStartedAt":1,"groupIndex":2,"page":1,"groups":["old-a","old-b"]}""",
+        )
+        GitLabFixtures.run(GitLabFixtures.connector(dataSources), connId)
+        assertEquals(4L, store.counts(connId).projects, "the stale cursor did not skip the groups")
+        assertEquals(0L, store.counts(connId).projectsMovedOut)
+        val future = System.currentTimeMillis() + 1_000_000
+        // A cursor for the SAME list still resumes at its position (the sweep alone here: nothing is read).
+        SyncCursorsService(sharedDatabaseForTests()).put(
+            connId, "projects", """{"passStartedAt":$future,"groupIndex":2,"page":1,"groups":["platform","apps"]}""",
+        )
+        GitLabFixtures.run(GitLabFixtures.connector(dataSources), connId)
+        assertEquals(4L, store.counts(connId).projectsMovedOut, "resumed at the sweep with a pass start in the future: all four unseen")
+    }
+
+    @Test
+    fun `an inactive token fails the SYNC with TOKEN_INACTIVE, not as too broad`() = runBlocking<Unit> {
         val connId = connection()
         override("/personal_access_tokens/self", body = """{"scopes":["read_api"],"active":false}""")
-        assertEquals(TOKEN_SCOPE_TOO_BROAD,
-            assertFailsWith<JobRefusedException> { GitLabFixtures.run(GitLabFixtures.connector(dataSources), connId) }.errorCode)
+        assertEquals(
+            TOKEN_INACTIVE,
+            assertFailsWith<JobRefusedException> { GitLabFixtures.run(GitLabFixtures.connector(dataSources), connId) }.errorCode,
+        )
     }
 
     @Test

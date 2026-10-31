@@ -23,8 +23,10 @@ lands, the section is rewritten as the as-built reference (file names, tests). T
 - **Scope = whole groups, subgroups included.** Archived projects are excluded. A project moved out of the configured groups
   is marked out of scope; its rows stay.
 - **Token = an admin-issued, read-only personal access token** (a bot user with `read_api`). Admin, so that user emails are
-  visible to the identity proposals. The token is refused if it carries `api`, any `write_*` or `sudo` scope, at Test
-  connection and again at every SYNC (`TOKEN_SCOPE_TOO_BROAD`, the job fails closed).
+  visible to the identity proposals. The token is refused unless EVERY scope starts with `read_` (an allow-list: `api`, `sudo`, `write_*`,
+  `create_runner`, `manage_runner`, `k8s_proxy`, `self_rotate`, `ai_features` and any scope GitLab adds later are all `TOKEN_SCOPE_TOO_BROAD`), at Test
+  connection and again at every SYNC (the job fails closed); an answer missing `scopes` or `active` is `INVALID_RESPONSE`, never a pass, and an
+  inactive token is `TOKEN_INACTIVE`.
 - **No git mirror and no repository content.** Flow never clones and stores no code, diffs, commit bodies, MR descriptions
   or note bodies. Kept: the commit's first line and the MR title (≤255 chars, for the later Jira-key linking), branch names,
   file paths and per-file line counts. System notes become action codes; their bodies are dropped.
@@ -121,7 +123,9 @@ guard gains an operator-only allowance. `configureGitLab` builds the client the 
   `OutboundPermits(jira.maxConcurrentRequests)` (`fetch/OutboundPermits.kt`, `OutboundPermitsKey`) and GitLab's `SourceHttp` draws on that pool,
   so the fit's `jira.maxConcurrentRequests x jira.maxResponseBytes` in-flight term already covers GitLab and no GitLab term is added. Why not a
   term of its own: at the defaults the fit sits at 439.3 of 448 MiB, so ANY added in-flight term (even one 8 MiB body) would refuse the default
-  `-Xmx512m` worker. The cost is that a slow GitLab host can hold permits Jira needs; it is bounded by the per-attempt timeout
+  `-Xmx512m` worker. The cost is that a slow GitLab host can hold permits Jira needs, and the starvation is bounded: a GitLab job holds at most ONE permit at a time
+  (its calls are sequential), so Jira is starved only if `ingest.workerSlots` >= `jira.maxConcurrentRequests` and every slot runs a GitLab job. The hold
+  is bounded by the per-attempt timeout
   (`gitlab.requestTimeoutSeconds`, 1..120, default 30) and by the rate-limit pause's 5 s clamp, and backoff and tenant pauses already hand
   the permit back. Also `gitlab.maxRetries` (`GITLAB_MAX_RETRIES`, 0..10, default 4), `gitlab.requestDeadlineSeconds`
   (`GITLAB_REQUEST_DEADLINE_SECONDS`, 1..1800, default 180) and `gitlab.usersRefreshHours` (`GITLAB_USERS_REFRESH_HOURS`, 0..168, default 24).
@@ -149,7 +153,7 @@ Example (neutral): `GITLAB_ALLOWED_HOSTS=gitlab.example.com`, `GITLAB_ALLOWED_CI
 `GitLabConnector.testConnection(ConnectionTarget.GitLab)` runs the shared probe harness (`ingest/ConnectionProbes.kt` `ProbeRun`: at most 10 s
 per probe and 30 s in all, every outcome a `ConnectionTestRow`, never a thrown failure). Rows, in order: `version` (`/version`); `user`
 (`/user`); `user_admin` (OPTIONAL; `NOT_ADMIN` when `is_admin` is false: user emails will be hidden, so identity proposals degrade);
-`token_scopes` (`/personal_access_tokens/self`, REQUIRED; `TOKEN_SCOPE_TOO_BROAD` when the scopes include `api`, `sudo` or any `write_*`,
+`token_scopes` (`/personal_access_tokens/self`, REQUIRED; `TOKEN_SCOPE_TOO_BROAD` when any scope does not start with `read_`,
 `TOKEN_INACTIVE` when the token is not active; scope hint `read_api`); per configured path `group:<path>` and `group_projects:<path>`
 (REQUIRED; the group body's `full_path` must equal the configured path case-insensitively, else `INVALID_RESPONSE`; a group row that failed
 leaves its projects row `NOT_FOUND`); `users` (REQUIRED); `user_emails` (OPTIONAL: the token owner's `/users/:id/emails`, which tells whether
@@ -167,14 +171,22 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
   archived=false&with_shared=false&per_page=100` into `raw.gitlab_projects`, keyed by project id and stamped with the CONFIGURED group it was
   listed under. Defensive filters for an older server: an archived project, or one whose namespace is not the group or under it, is skipped
   (`projectsSkipped`, one WARN with ids per run). Cursor `{passStartedAt, groupIndex, page}`; the pass ends by marking the live projects not seen
-  during it `moved_out_at` (rows stay; seen again, resurrected). Budget: `RunCeiling(100 pages, 10,000 projects)` per group.
+  during it `moved_out_at` (rows stay; seen again, resurrected). Budget: `RunCeiling(100 pages, 10,000 projects)` per group. The cursor also carries the configured
+  group list; a cursor written for another list (an edit mid-pass) is dropped and the pass restarts, because its index would name another
+  group. A project listed under another configured group than the stored one, or whose `default_branch` is wider than 255 characters (skipped,
+  counted in `projectsSkipped`, never truncated: PR 7 puts the branch in a URL path), is handled explicitly: the first is a CHANGE although
+  `group_path`/`group_id` are outside the hash. **Offset paging can miss an item deleted mid-pass** (every later item shifts one place), so
+  that item is marked moved out/deleted until the next pass sees it again (rows stay, and the next pass resurrects them). An ABSENT
+  `X-Next-Page` header is `INVALID_RESPONSE` (GitLab sends it, empty, on the last page): a proxy stripping it must not end a pass after page 1.
 - **USERS** (as built; `GitLabUsersStream.kt`) - `/users?per_page=100` into `raw.gitlab_users`; with an ADMIN token each user's confirmed
   secondary emails from `/users/:id/emails` (first 100; a 403 turns the rest of the run to "no emails", a 404 skips that user), merged with the
   list's own `email`/`commit_email`/`public_email` into the sorted, lowercased `emails` that is part of the hashed payload. Not an admin: only the
   list's own fields, `usersEmailsSkipped`, one WARN. Skipped whole (`usersSkipped`) while every live user was seen within `gitlab.usersRefreshHours`
-  ("Sync now" never skips). The pass ends by marking the users not seen deleted. Budget: `RunCeiling(500 pages, 50,000 users)`.
-- **SYNC order and guards** - the job first re-probes `/personal_access_tokens/self` and `/user`: a token that could write, or is inactive, fails
-  the job `TOKEN_SCOPE_TOO_BROAD` (`JobRefusedException`) before anything is stored. RECONCILE and REPROCESS are accepted no-ops until PR 9/10;
+  ("Sync now" never skips). The pass ends by marking the users not seen deleted. Budget: `RunCeiling(500 pages, 50,000 users)`. **One response tree at a time** (the heap fit's one-tree-per-slot): each `/users` page is slimmed to small values
+  (`GitLabUserSummary`) INSIDE the response transform, and each `/users/:id/emails` answer is reduced to its address strings inside its own, so the
+  page's tree is garbage before the first emails call is parsed.
+- **SYNC order and guards** - the job first re-probes `/personal_access_tokens/self` and `/user`: a token with a scope beyond `read_*` fails
+  the job `TOKEN_SCOPE_TOO_BROAD`, an inactive one `TOKEN_INACTIVE` (`JobRefusedException`), before anything is stored. RECONCILE and REPROCESS are accepted no-ops until PR 9/10;
   PURGE drains both raw tables. The job runs under the shared `CallTally` (GitLab's throttling lands under the stored `jira*` progress keys).
 - **COMMITS** — first sync: `ref_name=<default>&since=<backfillFrom>&with_stats=true`. Then a range walk
   `<storedHead>..<default>` per project (a `since` cursor would miss merged commits with older dates). When the head moves,

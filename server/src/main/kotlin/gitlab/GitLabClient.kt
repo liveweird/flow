@@ -6,6 +6,10 @@ import io.ktor.http.HttpMethod
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
 import java.net.URLEncoder
 
@@ -34,12 +38,32 @@ interface GitLabClient {
     /** `GET /groups/:id/projects` (subgroups included, archived and shared excluded), page [page] (1-based). */
     suspend fun groupProjects(groupId: Long, page: Int): GitLabPage
 
-    /** `GET /users`, page [page] (1-based). */
-    suspend fun users(page: Int): GitLabPage
+    /**
+     * `GET /users`, page [page] (1-based). Each user is slimmed to small values INSIDE the response transform ([GitLabUserSummary]),
+     * so the page's parsed tree is garbage before the caller makes its next call (one tree per slot, `JiraHeapFit`).
+     */
+    suspend fun users(page: Int): GitLabUserPage
 
-    /** `GET /users/:id/emails`: the user's confirmed secondary emails (admin tokens only; a 403 is `FORBIDDEN_SCOPE`). */
-    suspend fun userEmails(userId: Long): JsonArray
+    /**
+     * `GET /users/:id/emails`: the user's confirmed secondary email addresses, at most [MAX_EMAILS_PER_USER] (admin tokens only; a 403
+     * is `FORBIDDEN_SCOPE`). The strings are extracted inside the transform, so no tree outlives the call.
+     */
+    suspend fun userEmails(userId: Long): List<String>
 }
+
+/** One user of `/users` reduced to small values: the identity columns, the user's own emails and the slim payload (no `emails` yet). */
+class GitLabUserSummary(
+    val id: Long,
+    val username: String,
+    val name: String,
+    val state: String,
+    val bot: Boolean,
+    val ownEmails: List<String>,
+    val slim: JsonObject,
+)
+
+/** One page of `/users` as [GitLabUserSummary] values, with the same paging fields as [GitLabPage]. */
+class GitLabUserPage(val users: List<GitLabUserSummary>, val nextPage: Int?, val total: Long?)
 
 /** Builds a client for one connection's base URL and token (the `JiraClientFactory` shape). */
 typealias GitLabClientFactory = (baseUrl: String, token: String) -> GitLabClient
@@ -84,31 +108,57 @@ class HttpGitLabClient(
 
     override suspend fun groupProjects(groupId: Long, page: Int): GitLabPage {
         val endpoint = "/groups/${requireNumericId(groupId, "/groups/{id}/projects")}/projects"
-        return getPage(
-            endpoint, page,
-            mapOf("include_subgroups" to "true", "archived" to "false", "with_shared" to "false"),
-        )
+        val paged = getPaged(endpoint, page, mapOf("include_subgroups" to "true", "archived" to "false", "with_shared" to "false")) { it }
+        return GitLabPage(paged.value, paged.nextPage, paged.total)
     }
 
-    override suspend fun users(page: Int): GitLabPage = getPage("/users", page, emptyMap())
+    override suspend fun users(page: Int): GitLabUserPage {
+        val paged = getPaged("/users", page, emptyMap()) { items -> items.map { summarizeUser(it) } }
+        return GitLabUserPage(paged.value, paged.nextPage, paged.total)
+    }
 
-    override suspend fun userEmails(userId: Long): JsonArray {
+    override suspend fun userEmails(userId: Long): List<String> {
         val endpoint = "/users/${requireNumericId(userId, "/users/{id}/emails")}/emails"
-        return getTree(endpoint, mapOf("per_page" to GITLAB_PAGE_SIZE.toString())) { decode<JsonArray>(it, "/users/{id}/emails") }
+        return getTree(endpoint, mapOf("per_page" to GITLAB_PAGE_SIZE.toString())) {
+            secondaryEmails(decode<JsonArray>(it, "/users/{id}/emails")).take(MAX_EMAILS_PER_USER)
+        }
+    }
+
+    private fun summarizeUser(item: JsonElement): GitLabUserSummary {
+        val user = item as? JsonObject ?: throw FetchException(GITLAB_SOURCE, "INVALID_RESPONSE", null, "/users")
+        val id = (user["id"] as? JsonPrimitive)?.longOrNull ?: throw FetchException(GITLAB_SOURCE, "INVALID_RESPONSE", null, "/users")
+        return GitLabUserSummary(
+            id = id,
+            username = user.text("username").orEmpty(),
+            name = user.text("name").orEmpty(),
+            state = user.text("state").orEmpty(),
+            bot = (user["bot"] as? JsonPrimitive)?.booleanOrNull ?: false,
+            ownEmails = ownEmailsOf(user),
+            slim = slimUser(user, emptyList()),
+        )
     }
 
     private suspend fun <T> getTree(path: String, query: Map<String, String> = emptyMap(), transform: (JsonElement) -> T): T =
         http.requestAs(HttpMethod.Get, "$base$path", query, null, auth, pauseKey = pauseKey, transform = transform)
 
-    /** One list page: the items plus `X-Next-Page` / `X-Total`, copied inside the transform (the `Headers` object must not escape). */
-    private suspend fun getPage(path: String, page: Int, extra: Map<String, String>): GitLabPage {
+    private class Paged<T>(val value: T, val nextPage: Int?, val total: Long?)
+
+    /**
+     * One list page: [convert] runs on the parsed array INSIDE the response transform (so a caller can keep small values only),
+     * and `X-Next-Page` / `X-Total` are copied there too (the `Headers` object must not escape). GitLab ALWAYS sends `X-Next-Page`, empty
+     * on the last page: an ABSENT header is `INVALID_RESPONSE`, never "last page" (a proxy stripping it must not end a pass after one page
+     * and have the sweep mark every unseen row moved out or deleted).
+     */
+    private suspend fun <T> getPaged(path: String, page: Int, extra: Map<String, String>, convert: (JsonArray) -> T): Paged<T> {
         val query = extra + mapOf("per_page" to GITLAB_PAGE_SIZE.toString(), "page" to page.toString())
         return http.requestAsWithHeaders(HttpMethod.Get, "$base$path", query, null, auth, pauseKey = pauseKey) { json, headers ->
-            val next = headers["X-Next-Page"]?.trim()?.takeIf { it.isNotEmpty() }?.let { raw ->
+            val rawNext = headers["X-Next-Page"]?.trim() ?: throw FetchException(GITLAB_SOURCE, "INVALID_RESPONSE", null, path,
+                "no X-Next-Page header")
+            val next = rawNext.takeIf { it.isNotEmpty() }?.let { raw ->
                 raw.toIntOrNull()?.takeIf { it > page }
                     ?: throw FetchException(GITLAB_SOURCE, "INVALID_RESPONSE", null, path, "a page that does not advance")
             }
-            GitLabPage(decode<JsonArray>(json, path), next, headers["X-Total"]?.trim()?.toLongOrNull())
+            Paged(convert(decode<JsonArray>(json, path)), next, headers["X-Total"]?.trim()?.toLongOrNull())
         }
     }
 

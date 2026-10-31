@@ -671,8 +671,9 @@ API token is the first consumer, landed**: `source_connections.secret` (V8,
 every response instead carries `jira.hasApiToken`. **The GitLab personal access token is the second consumer** (PR 6, the same
 `secret` column and the same service, no new registration): `gitlab.token` is write-only the same way (`gitlab.hasToken` in responses, never in
 an audit line, masked in `GitLabConnectionRequest`/`StoredGitLabConnection`/`ConnectionTarget.GitLab` `toString`, pinned by
-`SecretToStringTest`), decrypted only for the connector and sent as the `PRIVATE-TOKEN` header; a token that could write (`api`, `sudo`,
-`write_*`) is refused at Test connection and at every SYNC (`TOKEN_SCOPE_TOO_BROAD`). Tests: `FieldCipherTest` (roundtrip, fresh
+`SecretToStringTest`), decrypted only for the connector and sent as the `PRIVATE-TOKEN` header; a token is refused unless every scope starts with `read_` (an allow-list: `api`, `sudo`, `write_*`, `create_runner`, `k8s_proxy`, ... are all
+too broad) at Test connection and at every SYNC (`TOKEN_SCOPE_TOO_BROAD`; an inactive one is `TOKEN_INACTIVE`; a token-info answer missing a field is
+`INVALID_RESPONSE`, never a pass). Tests: `FieldCipherTest` (roundtrip, fresh
 nonces, legacy passthrough, tamper, wrong key, rotation, malformed keys), `CryptoBootTest`,
 `EncryptedAtRestBootTest` (seeds a connection, boots again with a rotated key, the token still
 decrypts under the new key alone).
@@ -696,7 +697,7 @@ uniform `403`; the worker role serves no API at all):
 - **Data-source names and health:** every not-yet-purged connection's id, name (including soft-deleted ones awaiting their PURGE), enabled flag,
   size estimate, issue count, last-sync freshness and error code, queue depth, Jira 429 / back-off figures and DERIVE timings - read through
   `DataSourceService.connectionHealth()`, which selects those columns ONLY (never the site URL, email, project keys, token or profile).
-  `last_sync_error_code` is a closed vocabulary (`RUN_FAILED`, `RETRIES_EXHAUSTED`, `CONNECTOR_UNAVAILABLE`, `TOKEN_SCOPE_TOO_BROAD`, and the ceiling-trip codes `LIMIT_EXCEEDED`, `TIME_EXCEEDED`; anything else is stored as `RUN_FAILED`), never free text; so is `pause_reason` (the two trip codes, a CHECK), which the panel shows with `pausedAt`.
+  `last_sync_error_code` is a closed vocabulary (`RUN_FAILED`, `RETRIES_EXHAUSTED`, `CONNECTOR_UNAVAILABLE`, `TOKEN_SCOPE_TOO_BROAD`, `TOKEN_INACTIVE`, and the ceiling-trip codes `LIMIT_EXCEEDED`, `TIME_EXCEEDED`; anything else is stored as `RUN_FAILED`), never free text; so is `pause_reason` (the two trip codes, a CHECK), which the panel shows with `pausedAt`.
 - **Route usage:** the normalised report routes (`/api/v1/reports/...`, path parameters as written, never an identifier) with their request counts,
   latencies and 5xx / 429 counts. The telemetry routes themselves and the probes are excluded.
 

@@ -5,11 +5,6 @@ import ch.nokillswit.fetch.RunBudget
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.ingest.isChange
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.longOrNull
 import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger(GitLabUsersStream::class.java)
@@ -55,8 +50,8 @@ internal class GitLabUsersStream(
         while (true) {
             budget.nextPage()
             val answer = client.users(page)
-            budget.add(answer.items.size)
-            val users = answer.items.map { toUser(context, it) }
+            budget.add(answer.users.size)
+            val users = answer.users.map { toUser(context, it) }
             val nextPage = answer.nextPage
             val changed = context.transaction {
                 val outcomes = rawStore.upsertUsers(context.connectionId, users, context.clock())
@@ -81,20 +76,16 @@ internal class GitLabUsersStream(
         return context.clock() - oldest < usersRefreshMillis
     }
 
-    private suspend fun toUser(context: StreamContext, item: JsonElement): RawGitLabUser {
-        val user = item as? JsonObject ?: throw FetchException(GITLAB_SOURCE, "INVALID_RESPONSE", null, USERS_ENDPOINT)
-        val id = (user["id"] as? JsonPrimitive)?.longOrNull ?: throw FetchException(GITLAB_SOURCE, "INVALID_RESPONSE", null, USERS_ENDPOINT)
-        val secondary = secondaryEmailsOf(context, id)
-        return RawGitLabUser(
-            userId = id,
-            username = user.text("username") ?: "",
-            name = user.text("name") ?: "",
-            state = user.text("state") ?: "",
-            bot = (user["bot"] as? JsonPrimitive)?.booleanOrNull ?: false,
-            emails = gitLabUserEmails(user, secondary),
-            payload = user,
-        )
-    }
+    /** The raw row of [summary] (already slim) with its merged emails; fetching the secondary ones parses only a small answer. */
+    private suspend fun toUser(context: StreamContext, summary: GitLabUserSummary): RawGitLabUser = RawGitLabUser(
+        userId = summary.id,
+        username = summary.username,
+        name = summary.name,
+        state = summary.state,
+        bot = summary.bot,
+        emails = mergeEmails(summary.ownEmails, secondaryEmailsOf(context, summary.id)),
+        payload = summary.slim,
+    )
 
     /** The user's confirmed secondary emails, or none when the token may not read them (counted in `usersEmailsSkipped`). */
     private suspend fun secondaryEmailsOf(context: StreamContext, userId: Long): List<String> {
@@ -103,7 +94,7 @@ internal class GitLabUsersStream(
             return emptyList()
         }
         return try {
-            secondaryEmails(client.userEmails(userId)).take(MAX_EMAILS_PER_USER)
+            client.userEmails(userId)
         } catch (failure: FetchException) {
             when {
                 failure.status == FORBIDDEN -> canReadEmails = false

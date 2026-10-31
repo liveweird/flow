@@ -21,6 +21,8 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import java.util.UUID
+import kotlinx.coroutines.runBlocking
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -99,10 +101,17 @@ class GitLabScopeTest {
         name, true, 60, "2025-01-01", 3, gitlab = GitLabConnectionRequest(baseUrl, "glpat-${UUID.randomUUID()}", paths.toList()),
     )
 
+    private val createdIds = mutableListOf<UInt>()
+
+    @AfterTest
+    fun cleanUp() = runBlocking<Unit> {
+        createdIds.forEach { GitLabFixtures.dataSources().delete(it) }
+    }
+
     private suspend fun HttpClient.createSource(vararg paths: String, name: String = unique("glscope")): DataSourceResponse {
         val response = postJson("/api/v1/data-sources", request(name, *paths))
         assertEquals(HttpStatusCode.Created, response.status, response.bodyAsText())
-        return response.body()
+        return response.body<DataSourceResponse>().also { createdIds += it.id }
     }
 
     private suspend fun HttpResponse.assertScopeConflict(type: String): ProblemDetail {

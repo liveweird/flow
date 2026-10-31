@@ -99,4 +99,14 @@ class GitLabBaseUrlTest {
             GitLabBaseUrlProblem.entries.map { it.code }.toSet(),
         )
     }
+
+    @Test
+    fun `the development stub's canonical origin drops the scheme's default port, like https does`() {
+        val http80 = GitLabDevStub("http", "gitlab-stub", 80)
+        assertEquals("http://gitlab-stub", validateGitLabBaseUrl("http://gitlab-stub:80", hosts, http80).toString())
+        assertEquals("http://gitlab-stub", validateGitLabBaseUrl("http://gitlab-stub", hosts, http80).toString())
+        assertEquals("http://gitlab-stub:8095", validateGitLabBaseUrl("http://gitlab-stub:8095", hosts, stub).toString())
+        val https443 = GitLabDevStub("https", "gitlab-stub", 443)
+        assertEquals("https://gitlab-stub", validateGitLabBaseUrl("https://gitlab-stub:443", hosts, https443).toString())
+    }
 }

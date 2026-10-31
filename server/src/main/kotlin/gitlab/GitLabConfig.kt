@@ -19,10 +19,7 @@ import java.net.URISyntaxException
 class GitLabDevStub(val scheme: String, val host: String, val port: Int) {
     fun matchesHost(candidate: String): Boolean = candidate.equals(host, ignoreCase = true)
 
-    /**
-     * The stub's origin as the base-URL validator canonicalises it (`scheme://host`, the port only when it is not the scheme's
-     * default).
-     */
+    /** The stub's origin as the base-URL validator canonicalises it: `scheme://host`, the port only when it is not the scheme's default. */
     fun origin(): String {
         val defaultPort = if (scheme == "https") DEFAULT_HTTPS_PORT else DEFAULT_HTTP_PORT
         return if (port == defaultPort) "$scheme://$host" else "$scheme://$host:$port"

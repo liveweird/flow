@@ -32,6 +32,7 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.junit.BeforeClass
 import java.util.UUID
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -68,10 +69,18 @@ class GitLabDataSourceRoutesTest {
         connections.selectAll().where { connections.id eq id }.toList().single()[connections.secret]
     }
 
+    /** Every source a test creates, soft-deleted after it (pass or fail): an active GitLab row left behind would 409 every later test. */
+    private val createdIds = mutableListOf<UInt>()
+
+    @AfterTest
+    fun cleanUp() = runBlocking<Unit> {
+        createdIds.forEach { GitLabFixtures.dataSources().delete(it) }
+    }
+
     private suspend fun HttpClient.create(name: String = unique("gl"), gitlab: GitLabConnectionRequest = gitlab()): DataSourceResponse {
         val response = postJson("/api/v1/data-sources", request(name, gitlab))
         assertEquals(HttpStatusCode.Created, response.status, response.bodyAsText())
-        return response.body()
+        return response.body<DataSourceResponse>().also { createdIds += it.id }
     }
 
     private suspend fun HttpClient.problem(response: io.ktor.client.statement.HttpResponse, status: HttpStatusCode): ProblemDetail {
@@ -161,7 +170,6 @@ class GitLabDataSourceRoutesTest {
         )
         val kindChange = admin.putJson("/api/v1/data-sources/${created.id}", request(created.name, gitlab = null, jira = jiraBlock))
         assertTrue(admin.problem(kindChange, HttpStatusCode.Conflict).detail!!.contains("kind is fixed"))
-        admin.delete("/api/v1/data-sources/${created.id}")
     }
 
     @Test
@@ -177,7 +185,6 @@ class GitLabDataSourceRoutesTest {
             HttpStatusCode.Conflict,
         )
         assertTrue(problem.detail!!.contains("baseUrl is the data source identity"), problem.detail)
-        admin.delete("/api/v1/data-sources/${created.id}")
     }
 
     @Test
@@ -207,7 +214,7 @@ class GitLabDataSourceRoutesTest {
 
         val created = admin.create(gitlab = gitlab(groups = listOf("/${base.uppercase()}/", base, "$base-other")))
         assertEquals(listOf(base, "$base-other"), created.gitlab!!.groupPaths, "trimmed, lowercased and the duplicate folded")
-        admin.delete("/api/v1/data-sources/${created.id}")
+        assertEquals(HttpStatusCode.NoContent, admin.delete("/api/v1/data-sources/${created.id}").status) // frees the paths for the rest
 
         suspend fun detail(groups: List<String>): String =
             admin.problem(admin.postJson("/api/v1/data-sources", request(unique("bad"), gitlab(groups = groups))),
@@ -223,7 +230,6 @@ class GitLabDataSourceRoutesTest {
         // A nested path is only a problem inside one request: a sibling that merely shares a prefix is fine.
         val sibling = admin.create(gitlab = gitlab(groups = listOf(base, "${base}x")))
         assertEquals(2, sibling.gitlab!!.groupPaths.size)
-        admin.delete("/api/v1/data-sources/${sibling.id}")
     }
 
     @Test
@@ -260,7 +266,6 @@ class GitLabDataSourceRoutesTest {
 
         val accepted = admin.create(gitlab = gitlab("https://GitLab.Example.com/"))
         assertEquals("https://gitlab.example.com", accepted.gitlab!!.baseUrl, "stored canonical")
-        admin.delete("/api/v1/data-sources/${accepted.id}")
 
         val kinds = admin.get("/api/v1/data-sources/kinds").body<DataSourceKindsResponse>()
         assertEquals(listOf("https://gitlab.example.com"), kinds.items.single { it.kind == DataSourceKind.GITLAB }.allowedOrigins)
@@ -339,14 +344,10 @@ class GitLabDataSourceRoutesTest {
         }
 
         val created = admin.create(gitlab = gitlab(groups = listOf("platform", "apps")))
-        try {
-            val stored = admin.post("/api/v1/data-sources/${created.id}/test")
-            assertEquals(HttpStatusCode.OK, stored.status)
-            assertTrue(stored.body<ConnectionTestResult>().rows.all { it.ok })
-            assertEquals(HttpStatusCode.NotFound, admin.post("/api/v1/data-sources/987654321/test").status)
-        } finally {
-            admin.delete("/api/v1/data-sources/${created.id}")
-        }
+        val stored = admin.post("/api/v1/data-sources/${created.id}/test")
+        assertEquals(HttpStatusCode.OK, stored.status)
+        assertTrue(stored.body<ConnectionTestResult>().rows.all { it.ok })
+        assertEquals(HttpStatusCode.NotFound, admin.post("/api/v1/data-sources/987654321/test").status)
     }
 
     @Test
@@ -380,8 +381,7 @@ class GitLabDataSourceRoutesTest {
                 JsonPrimitive("SYNC")) })
             assertEquals(HttpStatusCode.Accepted, queued.status, "the job API is kind-agnostic")
         } finally {
-            admin.delete("/api/v1/data-sources/${created.id}")
-            runBlocking { GitLabFixtures.rawStore().let { with(it) { purgeProjectsBatch(created.id); purgeUsersBatch(created.id) } } }
+                runBlocking { GitLabFixtures.rawStore().let { with(it) { purgeProjectsBatch(created.id); purgeUsersBatch(created.id) } } }
         }
     }
 
@@ -394,24 +394,20 @@ class GitLabDataSourceRoutesTest {
         val shared = group()
         withAuditCapture { capture ->
             val created = admin.create(gitlab = gitlab(token = token, groups = listOf(shared)))
-            try {
-                val createdEvent = assertNotNull(capture.awaitEvent { it.message == "data_source.created" &&
-                    it.hasKeyValue("dataSourceId", created.id.toLong()) })
-                assertTrue(createdEvent.hasKeyValue("kind", "GITLAB"))
-                assertTrue(createdEvent.hasKeyValue("host", "localhost"))
-                assertTrue(createdEvent.keyValuePairs.none { token in it.value?.toString().orEmpty() } &&
-                    token !in createdEvent.formattedMessage)
+            val createdEvent = assertNotNull(capture.awaitEvent { it.message == "data_source.created" &&
+                it.hasKeyValue("dataSourceId", created.id.toLong()) })
+            assertTrue(createdEvent.hasKeyValue("kind", "GITLAB"))
+            assertTrue(createdEvent.hasKeyValue("host", "localhost"))
+            assertTrue(createdEvent.keyValuePairs.none { token in it.value?.toString().orEmpty() } &&
+                token !in createdEvent.formattedMessage)
 
-                val clash = admin.postJson("/api/v1/data-sources", request(unique("clash"), gitlab(token = token, groups = listOf(shared))))
-                assertEquals(HttpStatusCode.Conflict, clash.status)
-                val rejected = assertNotNull(capture.awaitEvent { it.message == "data_source.scope_rejected" &&
-                    it.hasKeyValue("dataSourceId", null) })
-                assertTrue(rejected.hasKeyValue("kind", "GITLAB") && rejected.hasKeyValue("reason", "GROUP_OVERLAP"))
-                assertTrue(rejected.hasKeyValue("groupPaths", listOf(shared)) && rejected.hasKeyValue("projectKeys", emptyList<String>()))
-                assertTrue(rejected.keyValuePairs.none { token in it.value?.toString().orEmpty() })
-            } finally {
-                admin.delete("/api/v1/data-sources/${created.id}")
-            }
+            val clash = admin.postJson("/api/v1/data-sources", request(unique("clash"), gitlab(token = token, groups = listOf(shared))))
+            assertEquals(HttpStatusCode.Conflict, clash.status)
+            val rejected = assertNotNull(capture.awaitEvent { it.message == "data_source.scope_rejected" &&
+                it.hasKeyValue("dataSourceId", null) })
+            assertTrue(rejected.hasKeyValue("kind", "GITLAB") && rejected.hasKeyValue("reason", "GROUP_OVERLAP"))
+            assertTrue(rejected.hasKeyValue("groupPaths", listOf(shared)) && rejected.hasKeyValue("projectKeys", emptyList<String>()))
+            assertTrue(rejected.keyValuePairs.none { token in it.value?.toString().orEmpty() })
         }
     }
 

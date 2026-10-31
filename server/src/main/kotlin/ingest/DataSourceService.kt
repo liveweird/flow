@@ -141,8 +141,8 @@ class DataSourceService(
     suspend fun create(request: DataSourceRequest, policy: BackfillPolicy? = null): UInt {
         val floorPolicy = policy ?: backfillPolicy()
         return suspendTransaction(database) {
-            validateDataSource(request, apiTokenRequired = true,
-                gitLabBaseUrlPolicy) // re-checked service-side so direct callers stay guarded
+            // Re-checked service-side so direct callers stay guarded.
+            validateDataSource(request, apiTokenRequired = true, gitLabBaseUrlPolicy)
             requireBackfillNotBefore(request, floorPolicy)
             takeDataSourceScopeLock(scopeRules)
             enforceDataSourceScope(scopeRules, request, excludeId = null, gitLabBaseUrlPolicy)

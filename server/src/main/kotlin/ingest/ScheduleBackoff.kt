@@ -23,14 +23,13 @@ import org.jetbrains.exposed.v1.r2dbc.update
 /**
  * The error codes `source_connections.last_sync_error_code` may hold: `RUN_FAILED` (the worker's failure path), `RETRIES_EXHAUSTED`
  * (a claim closing a job past `max_attempts`), `CONNECTOR_UNAVAILABLE` (a job whose kind has no registered connector,
- * `ConnectorRegistry.kt`), the two ceiling-trip codes `LIMIT_EXCEEDED`/`TIME_EXCEEDED` (`SyncPause.kt`) and `TOKEN_SCOPE_TOO_BROAD` (a
- * GitLab
- * token that could write, `JobRunExceptions.kt`).
- * The column is shown to ADMINs on the data-source status and the telemetry panel, so it
- * is a closed vocabulary, never free text: [closedErrorCode] maps anything else to [GENERIC_SYNC_ERROR_CODE].
+ * `ConnectorRegistry.kt`), the two ceiling-trip codes `LIMIT_EXCEEDED`/`TIME_EXCEEDED` (`SyncPause.kt`) and the two GitLab token refusals
+ * `TOKEN_SCOPE_TOO_BROAD` / `TOKEN_INACTIVE` (`JobRunExceptions.kt`). The column is shown to ADMINs on the data-source status and the
+ * telemetry panel, so it is a closed vocabulary, never free text: [closedErrorCode] maps anything else to [GENERIC_SYNC_ERROR_CODE].
  */
 internal val SYNC_ERROR_CODES = setOf(
     "RUN_FAILED", "RETRIES_EXHAUSTED", CONNECTOR_UNAVAILABLE, LIMIT_EXCEEDED_TRIP, TIME_EXCEEDED_TRIP, TOKEN_SCOPE_TOO_BROAD,
+        TOKEN_INACTIVE,
 )
 internal const val GENERIC_SYNC_ERROR_CODE = "RUN_FAILED"
 
