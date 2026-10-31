@@ -39,6 +39,18 @@ fun List<String>.tooBroad(): Boolean = any { !it.startsWith("read_") && it != AD
 
 private const val ADMIN_MODE_SCOPE = "admin_mode"
 
+/**
+ * `GET /projects/:id` reduced to what RECONCILE's project probe decides on. It is never stored: the body of an archived or moved
+ * project differs from its listing, so feeding it to the raw store would resurrect the row (`changeProject` clears both markers).
+ */
+class GitLabProjectDetail(
+    val id: Long,
+    val pathWithNamespace: String,
+    val namespaceFullPath: String?,
+    val archived: Boolean,
+    val defaultBranch: String?,
+)
+
 /** One project as the PROJECTS stream hands it over: the group it was LISTED under and GitLab's document (slimmed on write). */
 class RawGitLabProject(
     val projectId: Long,

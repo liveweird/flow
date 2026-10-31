@@ -72,6 +72,18 @@ interface GitLabClient {
     suspend fun commitDiff(projectId: Long, sha: String, page: Int): GitLabDiffPage
 
     /**
+     * `GET /projects/:id`, reduced inside the transform to a [GitLabProjectDetail]: RECONCILE's project probe. A 404 propagates as
+     * `NOT_FOUND` - the caller decides what it means (a moved-out project that answers 404 is deleted or invisible to the token).
+     */
+    suspend fun project(projectId: Long): GitLabProjectDetail
+
+    /**
+     * `GET /projects/:id/merge_requests/:iid`: one merge request in the group listing's shape ([summarizeMergeRequest] runs inside the
+     * transform, so the description never outlives the call): RECONCILE's confirmation probe. A 404 propagates as `NOT_FOUND`.
+     */
+    suspend fun mergeRequest(projectId: Long, iid: Long): RawGitLabMergeRequest
+
+    /**
      * `GET /groups/:id/merge_requests`, page [page] (1-based): every merge request of the group's projects (subgroups included),
      * newest `updated_at` first (`sort=desc`: an item updated mid-pass moves to the FRONT, so a page shift never hides one), limited to
      * those updated at or after [updatedAfter] (an ISO instant, [isoInstant]) when given. Each item is reduced INSIDE the transform
@@ -215,6 +227,24 @@ class HttpGitLabClient(
         return GitLabDiffPage(paged.value, paged.nextPage)
     }
 
+    override suspend fun project(projectId: Long): GitLabProjectDetail {
+        val template = "/projects/{id}"
+        return getTree("/projects/${requireNumericId(projectId, template)}") { tree ->
+            val project = tree as? JsonObject ?: throw FetchException(GITLAB_SOURCE, "INVALID_RESPONSE", null, template)
+            GitLabProjectDetail(
+                id = project.number("id") ?: throw FetchException(GITLAB_SOURCE, "INVALID_RESPONSE", null, template),
+                pathWithNamespace = project.text("path_with_namespace")
+                    ?: throw FetchException(GITLAB_SOURCE, "INVALID_RESPONSE", null, template),
+                namespaceFullPath = (project["namespace"] as? JsonObject)?.text("full_path"),
+                archived = (project["archived"] as? JsonPrimitive)?.booleanOrNull ?: false,
+                defaultBranch = project.text("default_branch"),
+            )
+        }
+    }
+
+    override suspend fun mergeRequest(projectId: Long, iid: Long): RawGitLabMergeRequest =
+        getTree(mrPath(projectId, iid, leaf = null), transform = ::summarizeMergeRequest)
+
     override suspend fun groupMergeRequests(groupId: Long, updatedAfter: String?, page: Int): GitLabMergeRequestPage {
         val endpoint = "/groups/${requireNumericId(groupId, "/groups/{id}/merge_requests")}/merge_requests"
         val extra = buildMap {
@@ -258,10 +288,11 @@ class HttpGitLabClient(
         }
     }
 
-    /** `/projects/:id/merge_requests/:iid/<leaf>` with both numbers checked ([requireNumericId]). */
-    private fun mrPath(projectId: Long, iid: Long, leaf: String): String {
-        val template = "/projects/{id}/merge_requests/{iid}/$leaf"
-        return "/projects/${requireNumericId(projectId, template)}/merge_requests/${requireNumericId(iid, template)}/$leaf"
+    /** `/projects/:id/merge_requests/:iid[/<leaf>]` (no leaf = the merge request itself) with both numbers checked ([requireNumericId]). */
+    private fun mrPath(projectId: Long, iid: Long, leaf: String?): String {
+        val suffix = leaf?.let { "/$it" }.orEmpty()
+        val template = "/projects/{id}/merge_requests/{iid}$suffix"
+        return "/projects/${requireNumericId(projectId, template)}/merge_requests/${requireNumericId(iid, template)}$suffix"
     }
 
     private fun summarizeUser(item: JsonElement): GitLabUserSummary {
