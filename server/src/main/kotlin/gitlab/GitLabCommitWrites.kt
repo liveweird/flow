@@ -8,10 +8,8 @@ import ch.nokillswit.ingest.RawUpsertOutcome
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
-import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
-import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
@@ -101,20 +99,28 @@ internal class GitLabCommitWrites(private val database: R2dbcDatabase) {
         }
     }
 
-    /** Tombstones the live commits of the project at or after [sinceCommittedAt] that the pass starting at [passStartedAt] did not see. */
-    suspend fun tombstoneCommitsNotSeenSince(
-        connectionId: UInt,
-        projectId: Long,
-        sinceCommittedAt: Long,
-        passStartedAt: Long,
-        now: Long,
-    ): Int = suspendTransaction(database) {
-        Commits.update({
-            key(connectionId, projectId) and Commits.deletedAt.isNull() and (Commits.committedAt greaterEq sinceCommittedAt) and
-                (Commits.lastSeenAt less passStartedAt)
-        }) {
-            it[deletedAt] = now
-            it[needsProcessing] = true
+    /** Marks the live [shas] of the project seen now (`last_seen_at`): a re-list sweep found them still on the branch. */
+    suspend fun touchCommits(connectionId: UInt, projectId: Long, shas: List<String>, now: Long) {
+        if (shas.isEmpty()) return
+        suspendTransaction(database) {
+            shas.sorted().chunked(KEY_CHUNK).forEach { chunk ->
+                Commits.update({ key(connectionId, projectId) and Commits.deletedAt.isNull() and (Commits.sha inList chunk) }) {
+                    it[lastSeenAt] = now
+                }
+            }
+        }
+    }
+
+    /** Tombstones the live [shas] of the project (`deleted_at`, `needs_processing` set again); returns how many were live. */
+    suspend fun tombstoneCommits(connectionId: UInt, projectId: Long, shas: List<String>, now: Long): Int {
+        if (shas.isEmpty()) return 0
+        return suspendTransaction(database) {
+            shas.sorted().chunked(KEY_CHUNK).sumOf { chunk ->
+                Commits.update({ key(connectionId, projectId) and Commits.deletedAt.isNull() and (Commits.sha inList chunk) }) {
+                    it[deletedAt] = now
+                    it[needsProcessing] = true
+                }
+            }
         }
     }
 }

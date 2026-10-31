@@ -9,7 +9,9 @@ import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.lessEq
 import org.jetbrains.exposed.v1.core.min
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
@@ -47,6 +49,24 @@ internal class GitLabCommitReads(private val database: R2dbcDatabase) {
     private fun pending(connectionId: UInt): Op<Boolean> =
         (Commits.connectionId eq connectionId) and Commits.filesFetchedAt.isNull() and
             (Commits.parentCount lessEq MAX_NON_MERGE_PARENTS) and Commits.deletedAt.isNull()
+
+    suspend fun staleCommitShas(
+        connectionId: UInt,
+        projectId: Long,
+        sinceCommittedAt: Long,
+        passStartedAt: Long,
+        limit: Int,
+    ): List<String> = suspendTransaction(database) {
+        Commits.select(Commits.sha)
+            .where {
+                (Commits.connectionId eq connectionId) and (Commits.projectId eq projectId) and Commits.deletedAt.isNull() and
+                    (Commits.committedAt greaterEq sinceCommittedAt) and (Commits.lastSeenAt less passStartedAt)
+            }
+            .orderBy(Commits.committedAt to SortOrder.DESC, Commits.sha to SortOrder.ASC)
+            .limit(limit)
+            .toList()
+            .map { it[Commits.sha] }
+    }
 
     suspend fun pendingCommitFiles(connectionId: UInt, limit: Int): List<PendingCommit> = suspendTransaction(database) {
         Commits.select(Commits.projectId, Commits.sha).where { pending(connectionId) }

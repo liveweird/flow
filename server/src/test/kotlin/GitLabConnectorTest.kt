@@ -174,10 +174,15 @@ class GitLabConnectorTest {
         val before = store.projectRows(connId).map { it[GitLabRawStore.Projects.projectId] to it[GitLabRawStore.Projects.changedAt] } +
             store.userRows(connId).map { it[GitLabRawStore.Users.userId] to it[GitLabRawStore.Users.changedAt] }
 
+        val commitsBefore = store.commitRows(connId).map { it[GitLabRawStore.Commits.sha] to it[GitLabRawStore.Commits.lastSeenAt] }
+        assertEquals(300, commitsBefore.size)
+
         val scheduled = mutableListOf<String>()
         GitLabFixtures.run(connector, connId, progress = scheduled)
         assertEquals(1L, lastProgress(scheduled)["usersSkipped"], "the users are younger than 24 h")
         assertNull(lastProgress(scheduled)["users"])
+        val walked = setOf("commits", "commitFiles", "commitsRelisted")
+        assertTrue(lastProgress(scheduled).keys.none { it in walked }, "unchanged heads: nothing walked")
 
         val requested = mutableListOf<String>()
         GitLabFixtures.run(connector, connId, onDemand = true, progress = requested)
@@ -187,6 +192,9 @@ class GitLabConnectorTest {
             store.userRows(connId).map { it[GitLabRawStore.Users.userId] to it[GitLabRawStore.Users.changedAt] }
         assertEquals(before, after, "no stored change: changed_at is stable")
         assertEquals(8L, store.counts(connId).users)
+        assertNull(lastProgress(requested)["commits"])
+        val commitsAfter = store.commitRows(connId).map { it[GitLabRawStore.Commits.sha] to it[GitLabRawStore.Commits.lastSeenAt] }
+        assertEquals(commitsBefore, commitsAfter)
     }
 
     @Test
@@ -309,11 +317,13 @@ class GitLabConnectorTest {
     // ------------------------------------------------------------------ the other job kinds
 
     @Test
-    fun `PURGE drains both tables, and RECONCILE and REPROCESS are accepted no-ops until their streams exist`() = runBlocking<Unit> {
+    fun `PURGE drains all four tables, and RECONCILE and REPROCESS are accepted no-ops until their streams exist`() = runBlocking<Unit> {
         val connId = connection()
         val connector = GitLabFixtures.connector(dataSources)
         GitLabFixtures.run(connector, connId, onDemand = true)
         val stored = store.projectRows(connId).map { it[GitLabRawStore.Projects.projectId] to it[GitLabRawStore.Projects.changedAt] }
+        val expectedSha = store.commitRows(connId, 1).first { it[GitLabRawStore.Commits.parentCount] <= 1 }[GitLabRawStore.Commits.sha]
+        assertTrue(store.commitFileRows(connId, 1, expectedSha).isNotEmpty())
 
         GitLabFixtures.run(connector, connId, SyncJobKind.RECONCILE)
         GitLabFixtures.run(connector, connId, SyncJobKind.REPROCESS)
@@ -322,6 +332,8 @@ class GitLabConnectorTest {
 
         GitLabFixtures.run(connector, connId, SyncJobKind.PURGE)
         assertTrue(store.projectRows(connId).isEmpty() && store.userRows(connId).isEmpty())
+        assertTrue(store.commitRows(connId).isEmpty(), "the commits are purged")
+        assertTrue(store.commitFileRows(connId, 1, expectedSha).isEmpty(), "and their files with them")
     }
 
     companion object {

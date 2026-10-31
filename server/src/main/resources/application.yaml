@@ -377,6 +377,11 @@ gitlab:
   # How old (hours, 0..168) a data source's GitLab users may get before a SYNC fetches them again (`/users`, plus one `/users/:id/emails`
   # call per user for an admin token). "Sync now" always refreshes. 0 = every SYNC.
   usersRefreshHours: "$GITLAB_USERS_REFRESH_HOURS:24"
+  # The diff CALLS (pages, 10..100000) one SYNC run spends on the COMMIT FILES backlog (the per-file line counts of the default-branch
+  # commits, newest first; `.claude/docs/gitlab-integration.md` "Streams"). A run that reaches it ends normally with `commitFilesPending`
+  # in its progress and the next run continues, so a first backfill drains over several runs. At ~20 calls/s the default is a few
+  # minutes, well inside ingest.maxJobMinutes.
+  commitFilesPerRun: "$GITLAB_COMMIT_FILES_PER_RUN:5000"
 
 ingest:
   # The sync-job queue and worker scheduler (v0.2.0 plan §5/§9, ingest/IngestWorker.kt,

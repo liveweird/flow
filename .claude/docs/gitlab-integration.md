@@ -130,6 +130,9 @@ guard gains an operator-only allowance. `configureGitLab` builds the client the 
   (`gitlab.requestTimeoutSeconds`, 1..120, default 30) and by the rate-limit pause's 5 s clamp, and backoff and tenant pauses already hand
   the permit back. Also `gitlab.maxRetries` (`GITLAB_MAX_RETRIES`, 0..10, default 4), `gitlab.requestDeadlineSeconds`
   (`GITLAB_REQUEST_DEADLINE_SECONDS`, 1..1800, default 180) and `gitlab.usersRefreshHours` (`GITLAB_USERS_REFRESH_HOURS`, 0..168, default 24).
+  `gitlab.commitFilesPerRun` (`GITLAB_COMMIT_FILES_PER_RUN`, 10..100000, default 5000) is the diff CALLS (pages) one SYNC run spends on the COMMIT FILES backlog
+  (a run at ~20 calls/s lasts a few minutes, well inside `ingest.maxJobMinutes`); reaching it ends the run normally with `commitFilesPending` and the next
+  run continues. A GitLab job holds ONE permit at a time, so the backlog is sequential (a fetch-ahead is a PR 12 question).
 - **The client** (`gitlab/GitLabHttp.kt`, `GitLabClient.kt`, `GitLabModels.kt`): `GITLAB_SOURCE = FetchSource("GitLab", "gitlab.maxResponseBytes",
   GitLabRateLimitSignal(), authHeaderName = "PRIVATE-TOKEN")`; `createGitLabHttp` builds the `SourceHttp` over the shared permits. The token is the
   raw `PRIVATE-TOKEN` value, never `Authorization`. `GitLabRateLimitSignal`: `RateLimit-Remaining` at 5 or less pauses until `RateLimit-Reset`
@@ -188,16 +191,48 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
   page's tree is garbage before the first emails call is parsed.
 - **SYNC order and guards** - the job first re-probes `/personal_access_tokens/self` and `/user`: a token with a scope beyond `read_*` fails
   the job `TOKEN_SCOPE_TOO_BROAD`, an inactive one `TOKEN_INACTIVE` (`JobRefusedException`), before anything is stored. RECONCILE and REPROCESS are accepted no-ops until PR 9/10;
-  PURGE drains both raw tables. The job runs under the shared `CallTally` (GitLab's throttling lands under the stored `jira*` progress keys).
-- **COMMITS** — first sync: `ref_name=<default>&since=<backfillFrom>&with_stats=true`. Then a range walk
-  `<storedHead>..<default>` per project (a `since` cursor would miss merged commits with older dates). When the head moves,
-  `merge_base` detects a force-push, which re-lists the window and tombstones commits that are gone. A renamed default branch
-  is handled the same way, because the stored head is a SHA.
-- **COMMIT FILES** — `/commits/:sha/diff`, one call per commit, newest first under a per-run budget. While streaming, the
-  transform counts each file's `+`/`-` lines (lines after the first `@@`, not the `+++`/`---` headers, not
-  `\ No newline at end of file`) and drops the text. Kept: `path` (≤1,024 chars), additions, deletions, new/deleted/renamed
-  flags, `old_path`. A `too_large` or `collapsed` file keeps its path with null lines. Capped at 1,000 files per commit
-  (`files_capped`).
+  PURGE drains all four raw tables. The streams run PROJECTS -> USERS -> COMMITS -> COMMIT FILES. The job runs under the shared `CallTally` (GitLab's throttling lands under the stored `jira*` progress keys).
+- **COMMITS** (as built, PR 7; `GitLabCommitsStream.kt`, cursor `{passStartedAt, lastCompletedProjectId, walk}`) - per live project in id order
+  (`moved_out_at`/`deleted_at` null), the commits of the DEFAULT branch into `raw.gitlab_commits` (no hash, a commit is immutable by SHA; the stored
+  whitelist is `title`, author name/email, authored/committed time, parent count and `stats`: never the body, the committer or a diff). What a
+  project needs is decided once per run, with no write: no stored head -> **FULL** (`ref_name=<branch>&since=<backfillFrom>&with_stats=true`);
+  `relist_requested` -> **RELIST**; else **CHECK**: page 1 of the branch, whose first commit is the tip - equal to the stored head: done, one call;
+  else `merge_base(head, branch)`: the head itself means the history only grew -> **RANGE** (`ref_name=<head>..<branch>`, which also catches commits
+  merged in with old dates that a `since` cursor would miss); another commit, or `REF_NOT_FOUND`, is a force-push -> `relist_requested` is set and
+  the project is RELISTED. A RANGE listing that answers `NOT_FOUND` (the head vanished) turns into a RELIST in the same run. A renamed default
+  branch needs no case: the head is a SHA. A project without a default branch, or whose branch or project answers `NOT_FOUND` on the CHECK, is
+  skipped (`commitsProjectsSkipped`, one WARN naming ids); PROJECTS will rename it or RECONCILE (PR 9) delete it. Every listing page commits its
+  rows and the cursor in one transaction; the head moves (and the request clears) with the LAST page of a FULL/RANGE walk and with the sweep of a
+  RELIST, never before the commits are stored. A saved walk for another branch than the stored `default_branch` is dropped. Budget:
+  `RunCeiling(500 pages, 50,000 commits)` per project per run (a trip is `LIMIT_EXCEEDED` before the page's transaction).
+  **RELIST and the `since` caveat (L3).** A RELIST lists the branch from `since` = the oldest LIVE stored commit's date (not the backfill floor,
+  which moves forward daily and would sweep the commits between the old and the new floor). GitLab's `since` is git's `--since`: it does NOT
+  filter, it STOPS walking once everything queued is older than the date, and the parents of an older-dated commit are then never listed. With
+  clock skew (the stub has 15 commits committed before their parent) a listing can miss commits that are still on the branch, so "not listed" is
+  only a CANDIDATE. At the end of the listing (outside any transaction) every candidate - live, `committed_at >= since`, not seen by the pass,
+  at most `MAX_SWEEP_CONFIRMATIONS` = 100 per project per run - is confirmed with `merge_base(candidate, branch)`: the commit itself means it is
+  still an ancestor (kept, `last_seen_at` touched, `commitsSweepKept`); another commit, or `REF_NOT_FOUND`, means it left the branch (tombstoned,
+  `needs_processing` set - a rewritten-away commit usually still exists as an unreachable object, so its merge base is the fork point); any other
+  failure keeps it (`commitsSweepUnconfirmed`). Over the cap, or with an unconfirmed candidate, the verdicts reached are applied, the head is
+  recorded and `relist_requested` STAYS set: the next run re-lists and finishes the rest (every confirmed candidate has left the set by then, so
+  repeated runs converge; `commitsSweepDeferred`). The same early stop can leave a gap in a FULL listing from the backfill floor; RECONCILE (PR 9)
+  is the catch-up. Progress: `pages`, `commits` (inserted), `commitsRelisted`, `commitsTombstoned`, `commitsSweepKept`,
+  `commitsSweepUnconfirmed`, `commitsSweepDeferred`, `commitsProjectsSkipped`.
+- **COMMIT FILES** (as built, PR 7; `GitLabCommitFilesStream.kt`, cursor-less: the backlog IS its state) - the live NON-MERGE commits (`parent_count <= 1`;
+  a merge's diff is against its first parent, a double count) whose diff was never read, newest first, one `/commits/:sha/diff?per_page=100` chain at a
+  time (sequential: a GitLab job holds one permit), at most `gitlab.commitFilesPerRun` diff CALLS per run. The client transform counts each
+  file's `+`/`-` lines (after the first `@@`; `---`/`+++` inside a hunk are content; not `\ No newline at end of file`) and drops the text, so the
+  tree is garbage before the next call; a file with no `diff` string, or `too_large`/`collapsed`, keeps its path with NULL lines (unknown beats an
+  undercount). Kept per file: `path` (`new_path`, <=1,024), `old_path` (renames only), additions, deletions, new/deleted/renamed flags and GitLab's
+  `generated_file`; a path GitLab lists twice (delete + add at one path) is ONE row, lines summed. At most 1,000 files (10 pages; an 11th page
+  makes the commit `files_capped`). A commit is written with its stamp when complete - in batches of 25 commits or 5,000 rows, at the end of each
+  claimed batch of 50, and on a failure - so a run cut anywhere stores every complete commit and never half of one. Terminal outcomes are stamped so
+  the backlog drains: a diff page over `gitlab.maxResponseBytes` or the node ceiling is `files_error = LIMIT_EXCEEDED` (`commitFilesOversized`), a
+  commit GitLab no longer has `NOT_FOUND` (`commitFilesMissing`); both leave `files_changed` null. More than `max(10, 10 %)` oversized commits in
+  one run fail the run `LIMIT_EXCEEDED` (the shared `SkipBudget`: the cap is mis-set, not isolated outliers) and NONE of that run's oversized
+  commits is stamped, so a mis-set cap does not strand the commits it met first. Reaching the call budget is normal (checks run between commits, so one
+  commit may overshoot by up to nine calls). Progress: `commitFiles`, `commitFileRows`, `commitFilesCapped`, `commitFilesOversized`,
+  `commitFilesMissing`, `commitFilesPending`.
 - **MERGE REQUESTS** — group-level `/groups/:id/merge_requests?updated_after&include_subgroups`, cursor in `sync_cursors`.
 - **MR DETAILS** — notes, approvals, reviewers (REST) and the GraphQL diff stats, under budgets.
 - **RECONCILE** — a SHA re-list per project tombstones vanished commits; a 404 marks a project deleted; a moved project is
@@ -248,7 +283,7 @@ permission list.
 ## Stub (as built, PR 5)
 
 `sample-data/gitlab/generate.mjs` (zero dependencies, seeded, byte-identical; `--users/--projects/--months/--out`) writes
-`sample-data/gitlab-stub/{mappings,__files}` (1,196 mappings, ~11 MiB) and `sample-data/gitlab/expected.json`. It is served by the
+`sample-data/gitlab-stub/{mappings,__files}` (1,207 mappings, ~11 MiB) and `sample-data/gitlab/expected.json`. It is served by the
 compose `gitlab-stub` (WireMock, `127.0.0.1:8095`, read-only mount; `GITLAB_STUB_BASE_URL` points the app at it) and the in-JVM
 `GitLabStubServer` (`server/src/test/kotlin/`, `JiraStubServer`'s twin); `GitLabStubServerTest` pins the contract over plain HTTP and
 `node --test sample-data/gitlab/generate.test.mjs` (in `scripts/gates.sh e2e` and the CI `e2e-static` job) guards the generator.
@@ -277,9 +312,13 @@ so a lock file changed beside the too-large file is not credited to it. The stub
 `fallbackSubtractingCountedOthersSuperseded` the earlier "minus the other files' *counted* lines" figure, which over-attributes the
 excluded files' lines and is kept only for comparison.
 
-PR 6's `GitLabConnectorTest` runs its own ~20-call SYNC against the in-JVM stub (`GitLabFixtures`, `GitLabTestSupport.kt`: a disabled connection per test,
-`stubClient()`, `run(...)`); `SyncedGitLabFixture` (one SYNC per fork, warmed in `@BeforeClass` like the Jira fixtures) lands with the COMMITS PR (7), when
-a sync is worth sharing. The stub's `RateLimit-*` headers are static (`Remaining: 1990`), so no test run pauses.
+PR 6's `GitLabConnectorTest` runs its own SYNC against the in-JVM stub (`GitLabFixtures`, `GitLabTestSupport.kt`: a disabled connection per test,
+`stubClient()`, `run(...)`, `freshContext(...)`/`runStream(...)`). **`SyncedGitLabFixture` (PR 7)** is the one full SYNC per fork (PROJECTS, USERS, COMMITS, COMMIT FILES;
+~1.6 s warm after Postgres, printed as `fixture-cost gitlab-sync`) that `GitLabCommitsStreamTest` reads: a class warms it in a `@BeforeClass` through its own
+`warmGitLabFixture()` (`StubFixtureWarmupGuardTest` enforces the pair, so the Jira-fixture classes do not pay for it), its tripwire is 300 live commits and no pending
+files, and it is soft-deleted after the SYNC so that its connection does not hold the ONE-instance scope rule against `GitLabScopeTest`'s other-instance creates. A test
+that mutates (a second SYNC, the day-2 scenario, a head or budget change) makes its own connection. The sweep's `merge_base(<commit>, <branch>)` answers for the
+force-pushed project's old commits and its divergence commit are in the stub too (`p1-merge-base-candidate-*`). The stub's `RateLimit-*` headers are static (`Remaining: 1990`), so no test run pauses.
 
 ## PR sequence
 
@@ -303,6 +342,7 @@ a sync is worth sharing. The stub's `RateLimit-*` headers are static (`Remaining
 - **First backfill:** ~110k calls (commit files + MR details), spread over several runs by the budgets — about 45 min at
   ~40 req/s, longer with instance rate limits on.
 - **Commit ↔ MR linking:** only merge and squash SHAs are stored for now.
-- **First-sync ordering:** `since` with out-of-order dates may stop early; RECONCILE's full re-list catches up.
-- **Real-instance confirmation** (the user's smoke run, PR 12): `a..b` ranges, `diffStatsSummary`, commit `/diff` paging,
+- **First-sync ordering:** `since` with out-of-order dates may stop early (see COMMITS, "RELIST and the `since` caveat"); RECONCILE's full re-list catches up.
+- **Real-instance confirmation** (the user's smoke run, PR 12): `a..b` ranges, `diffStatsSummary`, commit `/diff` paging, that `since` early-stops
+  the commit list (and does not filter) on the real instance, that `merge_base(<unreachable commit>, <branch>)` answers the fork point rather than an error,
   `RateLimit-*` headers and visible emails on that version. Only figures are shared back, never names or hosts.

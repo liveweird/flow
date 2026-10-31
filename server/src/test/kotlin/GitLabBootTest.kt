@@ -194,7 +194,7 @@ class GitLabBootTest {
     }
 
     @Test
-    fun `the retry, deadline and users-refresh keys have defaults and are bounds-checked`() {
+    fun `the retry, deadline, users-refresh and commit-files keys have defaults and are bounds-checked`() {
         testApplication {
             configureApp()
             startApplication()
@@ -203,11 +203,16 @@ class GitLabBootTest {
             assertEquals(180L, settings.requestDeadlineSeconds)
             assertEquals(24, settings.usersRefreshHours)
             assertEquals(24L * 3_600_000L, settings.usersRefreshMillis)
+            assertEquals(5_000, settings.commitFilesPerRun)
         }
         testApplication {
-            configureApp("gitlab.maxRetries" to "0", "gitlab.requestDeadlineSeconds" to "1", "gitlab.usersRefreshHours" to "0")
+            configureApp(
+                "gitlab.maxRetries" to "0", "gitlab.requestDeadlineSeconds" to "1", "gitlab.usersRefreshHours" to "0",
+                "gitlab.commitFilesPerRun" to "10",
+            )
             startApplication()
             val settings = application.attributes[GitLabSettingsKey]
+            assertEquals(10, settings.commitFilesPerRun)
             assertEquals(0, settings.maxRetries)
             assertEquals(1_000L, settings.requestDeadlineMillis)
             assertEquals(0L, settings.usersRefreshMillis, "0 = every SYNC")
@@ -215,6 +220,7 @@ class GitLabBootTest {
         for ((key, bad) in listOf(
             "gitlab.maxRetries" to "11", "gitlab.maxRetries" to "-1", "gitlab.requestDeadlineSeconds" to "0",
             "gitlab.requestDeadlineSeconds" to "1801", "gitlab.usersRefreshHours" to "169", "gitlab.usersRefreshHours" to "x",
+            "gitlab.commitFilesPerRun" to "9", "gitlab.commitFilesPerRun" to "100001", "gitlab.commitFilesPerRun" to "x",
         )) {
             assertDevelopmentRefuses(key, key to bad)
         }

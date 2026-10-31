@@ -51,6 +51,10 @@ class GitLabCommitStoreTest {
         RawGitLabCommitFile(path, oldPath, additions, deletions, newFile = false, deletedFile = false, renamedFile = oldPath != null,
             generatedFile = generated)
 
+    /** The unconditional sweep (no confirmation): the stale candidates, all tombstoned; the stream confirms each against GitLab first. */
+    private suspend fun sweep(connId: UInt, projectId: Long, sinceCommittedAt: Long, passStartedAt: Long, now: Long): Int =
+        store.tombstoneCommits(connId, projectId, store.staleCommitShas(connId, projectId, sinceCommittedAt, passStartedAt, 1_000), now)
+
     private fun project(id: Long) = RawGitLabProject(
         id, "platform/p$id", "platform", 7, "main", false,
         Json.parseToJsonElement("""{"id":$id,"path":"p$id","path_with_namespace":"platform/p$id","name":"p$id"}"""),
@@ -82,13 +86,13 @@ class GitLabCommitStoreTest {
         store.upsertCommits(connId, 1, three, now = 10_000)
         // The pass starting at 20_000 sees commit 3 only; commit 1 is older than the window start and stays live.
         store.upsertCommits(connId, 1, listOf(commit(3, committedAt = 6_000)), now = 20_000)
-        assertEquals(1, store.tombstoneCommitsNotSeenSince(connId, 1, sinceCommittedAt = 5_000, passStartedAt = 20_000, now = 21_000))
+        assertEquals(1, sweep(connId, 1, sinceCommittedAt = 5_000, passStartedAt = 20_000, now = 21_000))
         val rows = store.commitRows(connId, 1).associateBy { it[GitLabRawStore.Commits.sha] }
         assertNull(rows.getValue(sha(1))[GitLabRawStore.Commits.deletedAt], "older than since: not touched")
         assertEquals(21_000L, rows.getValue(sha(2))[GitLabRawStore.Commits.deletedAt])
         assertNull(rows.getValue(sha(3))[GitLabRawStore.Commits.deletedAt], "seen in the pass")
-        assertEquals(0, store.tombstoneCommitsNotSeenSince(connId, 1, 5_000, 20_000, 22_000), "a tombstone is not set twice")
-        assertEquals(0, store.tombstoneCommitsNotSeenSince(connId, 2, 0, 20_000, 22_000), "another project is untouched")
+        assertEquals(0, sweep(connId, 1, 5_000, 20_000, 22_000), "a tombstone is not set twice")
+        assertEquals(0, sweep(connId, 2, 0, 20_000, 22_000), "another project is untouched")
 
         // PROCESS (PR 10) has handled the tombstone; seeing the commit again resurrects it and flags it again.
         markProcessed(connId)
@@ -99,6 +103,24 @@ class GitLabCommitStoreTest {
         assertEquals(30_000L, back[GitLabRawStore.Commits.lastSeenAt])
         assertTrue(back[GitLabRawStore.Commits.needsProcessing])
     }
+
+    @Test
+    fun `the stale candidates are the live unseen commits since the window, newest first and limited, and a touch removes them`() =
+        runBlocking<Unit> {
+            val connId = connection()
+            store.upsertCommits(connId, 1, (1..5).map { commit(it, committedAt = it * 1_000L) }, now = 10_000)
+            store.upsertCommits(connId, 1, listOf(commit(5, committedAt = 5_000)), now = 20_000)
+            val stale = store.staleCommitShas(connId, 1, 2_000, 20_000, 10)
+            assertEquals(listOf(sha(4), sha(3), sha(2)), stale, "since is inclusive, newest first")
+            assertEquals(listOf(sha(4), sha(3)), store.staleCommitShas(connId, 1, 2_000, 20_000, 2))
+            assertTrue(store.staleCommitShas(connId, 2, 0, 20_000, 10).isEmpty(), "another project")
+            store.touchCommits(connId, 1, listOf(sha(4)), now = 21_000)
+            assertEquals(listOf(sha(3), sha(2)), store.staleCommitShas(connId, 1, 2_000, 20_000, 10))
+            assertEquals(1, store.tombstoneCommits(connId, 1, listOf(sha(3), sha(3)), now = 22_000), "a tombstone is set once")
+            assertEquals(0, store.tombstoneCommits(connId, 1, listOf(sha(3)), now = 23_000))
+            assertEquals(emptyList(), store.staleCommitShas(connId, 1, 4_000, 20_000, 10).filter { it == sha(3) })
+            store.touchCommits(connId, 1, emptyList(), now = 24_000)
+        }
 
     private suspend fun markProcessed(connId: UInt) {
         suspendTransaction(sharedDatabaseForTests()) {
@@ -166,7 +188,7 @@ class GitLabCommitStoreTest {
         store.upsertCommits(connId, 2, listOf(commit(3, committedAt = 500)), now = 10_000)
         assertEquals(1_000L, store.oldestLiveCommittedAt(connId, 1))
         store.upsertCommits(connId, 1, listOf(commit(2, committedAt = 5_000)), now = 20_000)
-        store.tombstoneCommitsNotSeenSince(connId, 1, sinceCommittedAt = 0, passStartedAt = 20_000, now = 21_000)
+        sweep(connId, 1, sinceCommittedAt = 0, passStartedAt = 20_000, now = 21_000)
         assertEquals(5_000L, store.oldestLiveCommittedAt(connId, 1))
     }
 
@@ -239,7 +261,7 @@ class GitLabCommitStoreTest {
             commit(1, committedAt = 1_000), commit(2, committedAt = 9_000), commit(4, committedAt = 7_000), commit(6, committedAt = 7_000),
         )
         store.upsertCommits(connId, 1, seen, now = 20_000)
-        store.tombstoneCommitsNotSeenSince(connId, 1, sinceCommittedAt = 2_000, passStartedAt = 20_000, now = 21_000)
+        sweep(connId, 1, sinceCommittedAt = 2_000, passStartedAt = 20_000, now = 21_000)
         store.flushCommitFiles(connId, listOf(CommitFilesOutcome(1, sha(1), CommitFilesResult(emptyList(), false), null)), now = 22_000)
 
         val pending = store.pendingCommitFiles(connId, limit = 10)

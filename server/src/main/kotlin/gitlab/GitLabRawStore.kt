@@ -208,18 +208,27 @@ class GitLabRawStore(database: R2dbcDatabase) {
 
     suspend fun requestRelist(connectionId: UInt, projectId: Long) = commitWrites.requestRelist(connectionId, projectId)
 
+    /** Marks the live [shas] seen now: the re-list sweep confirmed they are still on the branch. */
+    suspend fun touchCommits(connectionId: UInt, projectId: Long, shas: List<String>, now: Long) =
+        commitWrites.touchCommits(connectionId, projectId, shas, now)
+
+    /** Tombstones the live [shas] (the re-list sweep confirmed they left the branch); returns how many. */
+    suspend fun tombstoneCommits(connectionId: UInt, projectId: Long, shas: List<String>, now: Long): Int =
+        commitWrites.tombstoneCommits(connectionId, projectId, shas, now)
+
     /**
-     * The end of a re-list: tombstones the project's live commits committed at or after [sinceCommittedAt] that the pass starting at
-     * [passStartedAt] did not see; returns how many.
+     * The re-list sweep's candidates: up to [limit] live SHAs of the project committed at or after [sinceCommittedAt] that the pass
+     * starting at [passStartedAt] did not list. "Not listed" is only a candidate - GitLab's `since` can stop a listing early on a
+     * commit with a skewed date - so the caller confirms each against the branch before tombstoning it.
      */
-    suspend fun tombstoneCommitsNotSeenSince(
+    suspend fun staleCommitShas(
         connectionId: UInt,
         projectId: Long,
         sinceCommittedAt: Long,
         passStartedAt: Long,
-        now: Long,
-    ): Int =
-        commitWrites.tombstoneCommitsNotSeenSince(connectionId, projectId, sinceCommittedAt, passStartedAt, now)
+        limit: Int,
+    ): List<String> =
+        commitReads.staleCommitShas(connectionId, projectId, sinceCommittedAt, passStartedAt, limit)
 
     /** Lands finished diffs in ONE transaction: the file rows, then each commit's stamp (`files_fetched_at`, `files_changed`, ...). */
     suspend fun flushCommitFiles(connectionId: UInt, outcomes: List<CommitFilesOutcome>, now: Long) =

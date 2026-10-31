@@ -15,6 +15,8 @@ import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.GitLabConnectionRequest
 import ch.nokillswit.ingest.JobHandlerRegistry
 import ch.nokillswit.ingest.ScopeRules
+import ch.nokillswit.ingest.Stream
+import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.ingest.SyncCursorsService
 import ch.nokillswit.ingest.SyncJobClaim
 import ch.nokillswit.ingest.SyncJobKind
@@ -62,7 +64,7 @@ object GitLabFixtures {
     )
 
     fun settings(maxRetries: Int = 0): GitLabSettings =
-        GitLabSettings(SelfManagedHosts.NONE, null, null, 30, 8L * 1024 * 1024, maxRetries, 180, 24)
+        GitLabSettings(SelfManagedHosts.NONE, null, null, 30, 8L * 1024 * 1024, maxRetries, 180, 24, 5_000)
 
     /** A plain OkHttp-backed client to the stub; one per call, closed with the JVM. */
     fun stubClient(maxRetries: Int = 0): (String, String) -> HttpGitLabClient {
@@ -82,8 +84,12 @@ object GitLabFixtures {
         return { baseUrl, token -> HttpGitLabClient(http, baseUrl, token) }
     }
 
-    fun connector(dataSources: DataSourceService = dataSources(), usersRefreshHours: Long = 24,
-        now: () -> Long = System::currentTimeMillis) =
+    fun connector(
+        dataSources: DataSourceService = dataSources(),
+        usersRefreshHours: Long = 24,
+        now: () -> Long = System::currentTimeMillis,
+        commitFilesPerRun: Int = 100_000,
+    ) =
         GitLabConnector(
             newClient = stubClient(),
             now = now,
@@ -93,8 +99,22 @@ object GitLabFixtures {
                 cursors = SyncCursorsService(sharedDatabaseForTests()),
                 database = sharedDatabaseForTests(),
                 usersRefreshMillis = usersRefreshHours * 3_600_000L,
+                commitFilesPerRun = commitFilesPerRun,
             ),
         )
+
+    /** A fresh [StreamContext] for driving one stream directly against [connId] (no lease loss: the `SyncedStubFixture` shape). */
+    fun freshContext(connId: UInt, jobId: UInt = 1u): StreamContext =
+        StreamContext(
+            connId, jobId, sharedDatabaseForTests(), SyncCursorsService(sharedDatabaseForTests()), jobHeartbeat = { _, _ -> true },
+        )
+
+    /** Runs [stream] once through a fresh context and returns its progress counters. */
+    suspend fun runStream(stream: Stream, connId: UInt, context: StreamContext = freshContext(connId)): Map<String, Long> {
+        context.currentStreamName = stream.name
+        stream.run(context)
+        return context.progressSnapshot()
+    }
 
     fun claimFor(connId: UInt, kind: SyncJobKind = SyncJobKind.SYNC, onDemand: Boolean = false) = SyncJobClaim(
         id = 1u,

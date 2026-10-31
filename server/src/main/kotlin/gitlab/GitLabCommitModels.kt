@@ -78,15 +78,17 @@ internal fun summarizeCommit(item: JsonElement): GitLabCommitSummary {
 
 /**
  * One `/diff` entry reduced to [RawGitLabCommitFile]: `new_path` is the key, `old_path` is kept for a rename only, and the lines are
- * [countHunkLines] of the `diff` text - or null for a file GitLab sent `too_large` or `collapsed` (it sends no hunks for those). The
- * text is read once here and not kept.
+ * [countHunkLines] of the `diff` text - or null for a file GitLab sent `too_large` or `collapsed` (it sends no hunks for those) or
+ * without a `diff` string. The text is read once here and not kept.
  */
 internal fun summarizeDiffFile(item: JsonElement): RawGitLabCommitFile {
     val file = item as? JsonObject ?: throw invalid(DIFF_ENDPOINT)
     val path = file.text("new_path") ?: throw invalid(DIFF_ENDPOINT, "a file without new_path")
     val renamed = file.flag("renamed_file")
-    val uncounted = file.flag("too_large") || file.flag("collapsed")
-    val lines = if (uncounted) null else countHunkLines(file.text("diff").orEmpty())
+    // No hunks to count (too_large / collapsed) or no `diff` string at all: the lines are UNKNOWN (null), never 0 - an undercount is
+    // worse than a gap. An empty string is a real empty diff (a pure rename, a mode change): 0/0.
+    val text = file.text("diff")
+    val lines = if (file.flag("too_large") || file.flag("collapsed") || text == null) null else countHunkLines(text)
     return RawGitLabCommitFile(
         path = path,
         oldPath = if (renamed) file.text("old_path") else null,
@@ -98,3 +100,29 @@ internal fun summarizeDiffFile(item: JsonElement): RawGitLabCommitFile {
         generatedFile = file.flag("generated_file"),
     )
 }
+
+/**
+ * One row per path: GitLab can list a path twice in one commit (a file deleted and added again at the same path, e.g. a type change),
+ * and the store keys a file by `(commit, path)`. The entries are merged, in first-seen order: lines are SUMMED (unknown when either is),
+ * `new_file` / `deleted_file` hold only when EVERY entry says so (delete + add is a modified file), `renamed` / `generated` when any does.
+ */
+internal fun List<RawGitLabCommitFile>.mergedByPath(): List<RawGitLabCommitFile> {
+    val byPath = LinkedHashMap<String, RawGitLabCommitFile>()
+    for (file in this) {
+        byPath[file.path] = byPath[file.path]?.let { first ->
+            RawGitLabCommitFile(
+                path = file.path,
+                oldPath = first.oldPath ?: file.oldPath,
+                additions = sumOrNull(first.additions, file.additions),
+                deletions = sumOrNull(first.deletions, file.deletions),
+                newFile = first.newFile && file.newFile,
+                deletedFile = first.deletedFile && file.deletedFile,
+                renamedFile = first.renamedFile || file.renamedFile,
+                generatedFile = first.generatedFile || file.generatedFile,
+            )
+        } ?: file
+    }
+    return byPath.values.toList()
+}
+
+private fun sumOrNull(a: Int?, b: Int?): Int? = if (a == null || b == null) null else a + b

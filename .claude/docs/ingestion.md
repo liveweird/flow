@@ -569,12 +569,12 @@ progress-counter API described in "Progress counters" below) — PROCESS and PRO
 streams that never call the cursor read/write half of that contract (see "Sync cursors (V9)"
 above).
 
-**The GitLab connector's SYNC** (`gitlab/GitLabConnector.kt`; `gitlab-integration.md` "Streams") runs **PROJECTS → USERS** inside the same
+**The GitLab connector's SYNC** (`gitlab/GitLabConnector.kt`; `gitlab-integration.md` "Streams") runs **PROJECTS → USERS → COMMITS → COMMIT FILES** inside the same
 `ConnectorRun.withTally` scaffolding as Jira (the `CallTally` around the streams, the carried counters of a retry, the typed ceiling trip,
 the hard stop; `ingest/ConnectorRun.kt`, which also holds `ceilingTripOf`). It first re-probes `/personal_access_tokens/self` and refuses
 a token with a scope outside the read-only allow-list (`JobRefusedException(TOKEN_SCOPE_TOO_BROAD)`) or an inactive one
 (`TOKEN_INACTIVE`) before anything is stored. RECONCILE and
-REPROCESS are accepted no-ops until PR 9/10, PURGE drains `raw.gitlab_*`.
+REPROCESS are accepted no-ops until PR 9/10, PURGE drains `raw.gitlab_*` (commits first; their files cascade).
 
 **Cursor shapes.**
 
@@ -582,6 +582,10 @@ REPROCESS are accepted no-ops until PR 9/10, PURGE drains `raw.gitlab_*`.
   page's rows in one transaction and cleared at the end of a completed pass (the sweep's reference instant survives a resume); a cursor with
   `groupIndex == groups` means only the sweep is left. A `projects` cursor resumes only when its `groups` equal the configured group paths;
   otherwise (an edited list, or a cursor written before the field existed) it is dropped and the pass restarts.
+- **`commits`** (`CommitsCursor`): `{passStartedAt, lastCompletedProjectId, walk}` with `walk = {projectId, mode FULL|RANGE|RELIST, refName, since, page, tipSha, sinceMillis, listingDone}`;
+  every listing page commits with it, a RELIST's last page sets `listingDone` (the sweep's `merge_base` calls run outside a transaction and resume from it), a
+  walk for a branch other than the stored `default_branch` is dropped, cleared when the pass ends. **`commit_files`** has no cursor: the backlog (`raw.gitlab_commits`
+  with `files_fetched_at` null, live, non-merge) is its state.
 - **`reference`** (`jira/JiraReferenceStream.kt`'s `ReferenceCursor`): `passStartedAt` (fixed for
   the whole pass, preserved across a resume), `step` (a `JiraEntityKind` — doubles as
   `raw.jira_entities.kind`, in the FIXED order the enum declares: `FIELD`, `STATUS`,
@@ -1314,7 +1318,11 @@ GitLab's (`gitlab/`): `pages` and `projects`/`projectsSkipped` (PROJECTS: archiv
 `default_branch` or path is longer than its column; a skipped project that was stored before is not seen, so the end-of-pass sweep
 counts it as moved out),
 `pages`/`users`/`usersEmailsSkipped` (USERS: users whose secondary emails were not fetched - not an admin token, or a 403/404 on the emails
-call)/`usersSkipped` (the whole stream skipped: every live user was seen within `gitlab.usersRefreshHours`; "Sync now" never skips).
+call)/`usersSkipped` (the whole stream skipped: every live user was seen within `gitlab.usersRefreshHours`; "Sync now" never skips),
+`commits` (COMMITS: commits inserted)/`commitsRelisted`/`commitsTombstoned`/`commitsSweepKept`/`commitsSweepUnconfirmed`/`commitsSweepDeferred` (a re-list and the confirmations of its
+sweep)/`commitsProjectsSkipped` (no default branch, or the branch or project is gone), `commitFiles`/`commitFileRows`/`commitFilesCapped`/`commitFilesOversized`/
+`commitFilesMissing` (COMMIT FILES: commits read, their file rows, the 1,000-file cap, the terminal errors) and `commitFilesPending` (the backlog left when the run stopped,
+non-zero only; `gitlab.commitFilesPerRun` is the call budget). `gitlab-integration.md` "Streams" has each.
 
 **Counters the connector adds (not a stream's):** `StreamContext(extraProgress = …)` is a `() -> Map<String, Long>` merged into every heartbeat's progress JSON (and
 into `progressSnapshot()`). `JiraConnector` passes the job's `CallTally` (`jiraRateLimited`, `jiraBackoffMs`, `jiraTenantPausedMs`, `jiraNearLimitPauses`; definitions
@@ -1758,5 +1766,5 @@ The same mappings are served by the compose `gitlab-stub` (`127.0.0.1:8095`) and
 `master` to `main`, a deleted merge request, a project moved out of the configured groups, a new project, and new commits. The
 Jira stub's people are the identity anchors: most GitLab users' emails equal the stub's `user<n>@flow-sample.example`
 (`expected.json` `users.jiraAlignment`). Endpoint contract, scale flags and the day-2 deltas: `sample-data/README.md` "GitLab stub".
-No sync fixture reads it yet (`SyncedGitLabFixture` lands with the COMMITS PR); `GitLabStubServerTest` pins the contract over
-plain HTTP.
+`SyncedGitLabFixture` (PR 7: one SYNC of it per fork, warmed through `warmGitLabFixture()`; `test-fixtures.md`) is read by `GitLabCommitsStreamTest`;
+`GitLabStubServerTest` pins the contract over plain HTTP.

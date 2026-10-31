@@ -78,6 +78,18 @@ class GitLabDiffCounterTest {
         assertTrue(declared.none { it.contains("diff", ignoreCase = true) }, "no field can hold the diff text: $declared")
     }
 
+    @Test
+    fun `a diff entry without a diff string has unknown lines, an empty string is a real 0 and 0`() {
+        val missing = summarizeDiffFile(Json.parseToJsonElement("""{"new_path":"p"}"""))
+        assertNull(missing.additions)
+        assertNull(missing.deletions)
+        val nonString = summarizeDiffFile(Json.parseToJsonElement("""{"new_path":"p","diff":null}"""))
+        assertNull(nonString.additions)
+        val empty = summarizeDiffFile(Json.parseToJsonElement("""{"new_path":"p","diff":"","renamed_file":true,"old_path":"q"}"""))
+        assertEquals(0, empty.additions)
+        assertEquals(0, empty.deletions)
+    }
+
     // --- the stub's real bodies against the generator's ground truth ----------------------------------------------------------
 
     private fun repoFile(relative: String) = listOf(File(relative), File("../$relative")).firstOrNull { it.exists() }
