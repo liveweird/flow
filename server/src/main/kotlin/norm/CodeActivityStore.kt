@@ -149,7 +149,20 @@ class CodeActivityStore(database: R2dbcDatabase) {
 
     internal suspend fun projectRows(connectionId: UInt): List<NormCodeProject> = reads.projectRows(connectionId)
 
-    internal suspend fun identityRows(connectionId: UInt): List<NormCodeIdentity> = reads.identityRows(connectionId)
+    /** Every identity of the connection in key order (the Identities page's row set). */
+    suspend fun identityRows(connectionId: UInt): List<NormCodeIdentity> = reads.identityRows(connectionId)
+
+    /** The distinct identity keys of [connectionIds] together (empty input = no statement): which keys another source still has. */
+    suspend fun identityKeysOf(connectionIds: Collection<UInt>): Set<String> = reads.identityKeysOf(connectionIds)
+
+    /** One identity by key (a primary-key read), or null. */
+    suspend fun identityRow(connectionId: UInt, key: String): NormCodeIdentity? = reads.identityRow(connectionId, key)
+
+    /**
+     * The identity-to-Jira-person address matches of the connection, for proposals: ACTIVE connections' people, the person's `active`
+     * flag ignored, `norm.people.email` folded in SQL because it is stored raw. Ordered by identity key, then account id.
+     */
+    suspend fun proposalMatches(connectionId: UInt): List<ProposalMatch> = reads.proposalMatches(connectionId)
 
     internal suspend fun commitRows(connectionId: UInt, projectId: Long? = null): List<NormCodeCommit> =
         reads.commitRows(connectionId, projectId)
@@ -209,6 +222,9 @@ data class NormCodeIdentity(
     val emails: List<String>,
     val deletedAt: Long?,
 )
+
+/** One address match between an identity ([identityKey]) and a Jira person; see [CodeActivityStore.proposalMatches]. */
+data class ProposalMatch(val identityKey: String, val accountId: String, val displayName: String)
 
 /**
  * One `norm.code_commits` row. The `*Counted` figures follow the path exclusions; null = UNKNOWN (files pending or unavailable, or a

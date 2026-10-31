@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: flow-api
-  version: 1.37.0
+  version: 1.38.0
   description: |
     JWT-authenticated REST API for Flow — a developer-intelligence tool that reads Jira Cloud, stores the raw data
     incrementally and derives flow metrics (cycle and lead time, throughput, WIP, flow efficiency, work-item age),
@@ -1614,6 +1614,131 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/{id}/code-identities:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [data-sources]
+      operationId: listCodeIdentities
+      summary: List a GitLab data source's identities with their mapping status
+      description: |
+        ADMIN only (guard first: a non-admin gets `403` whatever the id). The GitLab identities of this data source (the `norm`
+        code layer's users and commit-only author addresses) beside the ADMIN decisions stored for its instance and the proposals
+        computed at read time, `.claude/docs/gitlab-integration.md` "Identity". **The page carries the GitLab addresses**
+        (`emails`), to ADMIN only, so an admin can judge a match. A `status` is never stored: `LINKED` (decided and linked),
+        `IGNORED_OR_BOT` (decided ignored or bot), `PROPOSED` (no decision, but an address matches exactly one Jira person, or the
+        identity is a bot) and `UNMAPPED` (neither). A decision whose identity no active GitLab data source on the instance still has
+        (`seen: false`) is listed on its decided status, with no name, username or address; a key only another source of the instance has is not
+        listed here. Sortable fields are `displayName` (the default), `username` and `id`, where `id`
+        is the identity key; an absent name or username sorts last. `q` is a case- and accent-insensitive substring over the
+        display name, username and addresses (at most 100 characters, else `400`; an unseen decision never matches). Filtered, sorted and paged in memory over one
+        connection's identities (`list-endpoints.md`). A data source that is not a GitLab connection is `409` with `type`
+        `urn:flow:problem:data-source-kind-unsupported`.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+        - name: status
+          in: query
+          required: false
+          schema: { $ref: '#/components/schemas/CodeIdentityStatus' }
+        - $ref: '#/components/parameters/Q'
+      responses:
+        '200':
+          description: One page of identities
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CodeIdentityPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/{id}/code-identities/{identityKey}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - name: identityKey
+        in: path
+        required: true
+        description: "`u<GitLab user id>` or `e<32 hex digits>` (a commit author address that matches no user)."
+        schema: { type: string, maxLength: 40, pattern: '^(u[0-9]{1,19}|e[0-9a-f]{32})$' }
+    put:
+      tags: [data-sources]
+      operationId: decideCodeIdentity
+      summary: Decide what a GitLab identity is
+      description: |
+        ADMIN only, guard before everything else. Stores the decision for this identity on the data source's INSTANCE (the host),
+        so it survives a re-created data source and a purge. Order of checks: `403`, `404` data source, `409` not a GitLab source,
+        `400` malformed key or body, `404` the identity (none in this data source's code layer and no decision stored for the key
+        either; an unseen identity with a decision may be changed), `400` unknown Jira account (`jiraAccountId` must be a person of
+        an active Jira data source; a re-PUT of the account already stored is accepted). `LINKED` requires `jiraAccountId`;
+        `IGNORED` and `BOT` forbid it. Answers the row as the list would now show it. An identical re-PUT is a `200` that writes
+        and audits nothing; a change is audited `code_identity.decided`. A change that loses a race with a concurrent delete is `409`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CodeIdentityDecisionRequest'
+      responses:
+        '200':
+          description: The identity as the list shows it now
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CodeIdentityResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      tags: [data-sources]
+      operationId: removeCodeIdentityDecision
+      summary: Remove the decision about a GitLab identity
+      description: |
+        ADMIN only, guard first. Removes the stored decision for the key on the data source's instance (the identity becomes
+        `PROPOSED` or `UNMAPPED` again), whether or not the identity is still in this data source's code layer. Audited
+        `code_identity.decision_removed`. `404` when no decision is stored for the key.
+      responses:
+        '204':
+          description: Removed
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/{id}/code-identities/confirm-proposals:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    post:
+      tags: [data-sources]
+      operationId: confirmCodeIdentityProposals
+      summary: Confirm every current proposal of a GitLab data source
+      description: |
+        ADMIN only, guard first, no request body. Stores a `LINKED` decision for every identity whose address matches exactly one
+        Jira person and a `BOT` decision for every bot, that has no stored decision yet. A decision stored meanwhile wins. The
+        counts are of the decisions actually written, each audited as one `code_identity.decided` (`via` `CONFIRM_PROPOSALS`); a
+        second call writes nothing, answers zeros and audits nothing.
+      responses:
+        '200':
+          description: How many decisions were written
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CodeIdentityConfirmResult'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/data-sources/{id}/metrics-config:
     parameters:
@@ -5426,6 +5551,93 @@ components:
           nullable: true
           description: Present for a GITLAB data source once its PROFILE ran; null for a Jira source and before the first PROFILE.
 
+    CodeIdentityDecision:
+      type: string
+      enum: [LINKED, IGNORED, BOT]
+      description: "`LINKED` names a Jira person (`jiraAccountId` set); `IGNORED` and `BOT` name nobody."
+    CodeIdentityStatus:
+      type: string
+      enum: [PROPOSED, UNMAPPED, LINKED, IGNORED_OR_BOT]
+      description: Read-time, never stored - see `listCodeIdentities`.
+    CodeIdentityProposal:
+      type: object
+      required: [decision]
+      description: What confirming would store. `decision` is `LINKED` or `BOT`; `jiraAccountId` is null for a bot.
+      properties:
+        decision: { $ref: '#/components/schemas/CodeIdentityDecision' }
+        jiraAccountId: { type: string, nullable: true }
+        jiraDisplayName: { type: string, nullable: true }
+    CodeIdentityDecisionView:
+      type: object
+      required: [decision, decidedByUserId, decidedAt]
+      description: A stored decision. `jiraDisplayName` is null for `IGNORED`/`BOT` and for a person no active Jira data source lists any more.
+      properties:
+        decision: { $ref: '#/components/schemas/CodeIdentityDecision' }
+        jiraAccountId: { type: string, nullable: true }
+        jiraDisplayName: { type: string, nullable: true }
+        decidedByUserId: { type: integer, format: int64, minimum: 0, description: "The deciding Flow user's id (an id only)." }
+        decidedAt: { type: string, format: date-time }
+    CodeIdentityResponse:
+      type: object
+      required: [identityKey, kind, bot, deleted, emails, status, seen]
+      properties:
+        identityKey: { type: string, maxLength: 40 }
+        kind: { type: string, enum: [USER, EMAIL] }
+        userId: { type: integer, format: int64, nullable: true, description: "The GitLab user id (null for an `EMAIL` identity)." }
+        username: { type: string, nullable: true, description: "Null for a ghost (a user id the facts name that the users listing never returned)." }
+        displayName: { type: string, nullable: true }
+        state: { type: string, nullable: true, description: "The GitLab account state, as listed." }
+        bot: { type: boolean }
+        deleted: { type: boolean }
+        emails:
+          type: array
+          items: { type: string }
+          description: "The identity's canonical addresses (lower-case). ADMIN only."
+        status: { $ref: '#/components/schemas/CodeIdentityStatus' }
+        seen:
+          type: boolean
+          description: >-
+            False for an orphaned decision: one stored for this instance whose key has no identity row in any active GitLab data source of
+            the instance (carries no name, username or address, `userId` null).
+        proposal:
+          allOf: [{ $ref: '#/components/schemas/CodeIdentityProposal' }]
+          nullable: true
+          description: Computed at read time; present on decided rows too, while one would still be made. Null for an orphan.
+        decision:
+          allOf: [{ $ref: '#/components/schemas/CodeIdentityDecisionView' }]
+          nullable: true
+          description: The stored ADMIN decision; null when none.
+    CodeIdentityDecisionRequest:
+      type: object
+      required: [decision]
+      properties:
+        decision: { $ref: '#/components/schemas/CodeIdentityDecision' }
+        jiraAccountId:
+          type: string
+          maxLength: 100
+          nullable: true
+          description: Required (1-100 characters, no control characters) for `LINKED`, forbidden for `IGNORED` and `BOT`.
+    CodeIdentityConfirmResult:
+      type: object
+      required: [linked, bots]
+      properties:
+        linked: { type: integer, minimum: 0, description: "`LINKED` decisions written." }
+        bots: { type: integer, minimum: 0, description: "`BOT` decisions written." }
+    CodeIdentityPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CodeIdentityResponse'
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Row count after filters, before pagination.
     MetricsStatusStage:
       type: object
       required: [statusId, stage]

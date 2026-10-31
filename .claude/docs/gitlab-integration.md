@@ -398,15 +398,52 @@ the stored files (U2). MR line counts (GraphQL totals) are not exclusion-aware.
   same address, then the lowest id), else the noreply pattern (`<id>-<username>@users.noreply.<host>`, the id is in the local part), else the `e` key. A
   review-request note's `@username` resolves the same way (live first). PROCESS fingerprints both maps (and the exclusion list) in its cursor row and
   re-flags what depends on them when one changes.
-- **Links** in `public.code_identity_links (source_host, identity_key)`: `decision` LINKED / IGNORED / BOT,
-  `jira_account_id` non-null exactly when LINKED, decided-by/at. Undated (team attribution stays dated through
-  `metrics.team_membership`) and keyed by host, so they survive a re-created data source.
-- **Proposals** are computed at read time: canonical email equal to `norm.people.email` (the `flowusers` canonical form);
-  GitLab `bot: true` users are proposed as BOT. Only admin decisions are stored.
-- **Routes** (ADMIN only): `GET /api/v1/data-sources/{id}/code-identities?status=&q=` (paged, `list-endpoints.md`),
-  `PUT …/{identityKey}` `{decision, jiraAccountId?}`, `DELETE …/{identityKey}`, `POST …/confirm-proposals`. Audits
-  `code_identity.*`, no emails.
-- **`identities/IdentityResolver`** maps `(host, key)` to a Jira `account_id`: the one entry point for the later reports.
+- **Links** (V45, `public.code_identity_links`; `persistence.md` "Code identity links (V45)", `identities/CodeIdentityLinkStore.kt`): primary key
+  `(source_host, identity_key)`; `decision` LINKED / IGNORED / BOT; `jira_account_id` non-null exactly when LINKED (SQL CHECKs also pin the key and the host
+  shapes, so a malformed row is impossible whatever writes it); `decided_by_user_id` (an id only: `identities/` never imports `flowusers/`) and `decided_at`.
+  Undated (team attribution stays dated through `metrics.team_membership`), HARD-deleted (the deletable action is "this decision was wrong"; the audit trail
+  carries the removal). **Host-keyed, no connection column:** `source_host` is `sourceHostOf(canonical base URL)` - the lowercase authority, plus `:port`
+  when the URL names one (`gitlab.example.com`; `127.0.0.1:<port>` for the in-JVM stub, `gitlab-stub:8080` in compose) - read per request from the path's
+  data source, never from a body. So a decision survives a PROCESS rebuild, a PURGE, a data-source delete and a re-created source; no PURGE step is registered
+  (`JobHandlerRegistry` untouched). A decision whose identity no ACTIVE data source on the host still has is an **orphan**: it stays listed (`seen: false`) on
+  the decided tabs of the host's sources and is removable there; an orphan is per INSTANCE, so a key another active source on the host still has belongs to
+  that source's page (`CodeActivityStore.identityKeysOf`) and is not listed on this one.
+- **Proposals** are computed at read time and never stored (`CodeActivityStore.proposalMatches` + the pure `proposalFor`). One statement with only the
+  connection id in its text matches an identity's canonical `emails` against `norm.people.email`, which is stored RAW and so folded in SQL
+  (`LOWER(BTRIM(...))`); the people are those of ACTIVE connections, the person's own `active` flag ignored (a departed person keeps their history), and the
+  same account id on two connections is one match. The rule: a `bot: true` USER is proposed as BOT (the flag wins over any address); otherwise exactly ONE
+  distinct matched account is proposed as LINKED to it; several accounts (a mailbox two Jira accounts share: ambiguous, never "the first") or none is no
+  proposal. Ghosts and deleted users follow the same rule. Only admin decisions are stored, and only a confirmed LINKED decision attributes anything.
+- **Status** is a read-time join, never a column: a stored LINKED decision is `LINKED`; a stored IGNORED or BOT one is `IGNORED_OR_BOT`; no decision and a
+  proposal is `PROPOSED`; anything else is `UNMAPPED`. A stored decision beats any proposal (the row keeps its `proposal` for the page to show).
+- **Routes** (`identities/CodeIdentityRoutes.kt`, ADMIN only: `requireAdmin` is the first statement of every handler, so a non-admin gets one uniform `403`;
+  then `404` data source, `409` not a GitLab source, `400` key / query / body, `404` identity or decision, `400` unknown Jira account; `authorization.md`):
+  - `GET /api/v1/data-sources/{id}/code-identities?status=&q=&page=&pageSize=&sort=` - the connection's identities, filtered, sorted (`displayName` by default,
+    `username`, `id` = the identity key; absent names last) and paged **in memory** behind the standard parser and envelope (`list-endpoints.md`: `status` is a
+    join of three stores over one bounded set). `q` (at most 100 characters) is case- and accent-insensitive over the name, username and every address,
+    never the key and never an orphan. **Full GitLab addresses are returned (`emails`), to ADMIN only** (a masked address cannot be judged); the server
+    never places a stored address in a URL, a log line or an audit field.
+  - `PUT …/{identityKey}` `{decision, jiraAccountId?}` - LINKED needs an account, IGNORED / BOT forbid one (`400`). The identity must exist in THIS connection
+    (`404`), unless a decision is already stored for the key (an orphan may be changed). A LINKED account must be a person of an active connection (`400`
+    "Unknown Jira account id"), unless the stored link already names it (a re-PUT is accepted after the person left Jira). One transaction: read the row
+    `FOR UPDATE`, else `insertIfAbsent`, and on a lost race read the winner under lock and `update`. An identical re-PUT is a `200` that writes and audits
+    nothing; the answer is the row as the list would now show it.
+  - `DELETE …/{identityKey}` - `204`; `404` when no decision is stored (the row the audit names comes from `DELETE … RETURNING`).
+  - `POST …/confirm-proposals` (no body) - writes a LINKED link per email proposal and a BOT link per bot proposal for identities with NO stored decision,
+    `insertIgnoringConflicts` in `identityRows` key order (concurrent confirms cannot deadlock); `200 {linked, bots}` counts only the rows ACTUALLY written (a
+    decision stored meanwhile wins and is not counted), and a second call writes nothing.
+- **Audit** (`observability.md`): `code_identity.decided` (`via` `PUT` or `CONFIRM_PROPOSALS`, ONE event per link written; a change names `decisionFrom` /
+  `jiraAccountIdFrom`, the values actually overwritten) and `code_identity.decision_removed`. Ids, keys, the host and decisions only - never an address, a
+  display name or a username.
+- **`identities/IdentityResolver`** (`IdentityResolverKey`, published in EVERY role): `accountsByKey(host, keys)` and `keysByAccount(host, accountIds)`, one
+  `IN` statement each, **LINKED decisions only** - IGNORED, BOT and unconfirmed proposals attribute nothing. It answers Jira account ids, not teams: the team
+  at an instant is the one rule in `metrics/` (`teamAt`), which `identities/` must not import (`identities` imports `infra`, `norm`, `ingest`, `authz`,
+  `audit`, `plugins`; no connector or `norm` package references it: `PackageBoundaryTest`). It is the one entry point for the later reports.
+- **Tests:** `CodeIdentityProposalsTest` (the pure kernel: proposal, status, search, sort, page), `CodeIdentityProposalMatchesTest` (the SQL matches),
+  `CodeIdentityLinkStoreTest` (the store's outcomes and the CHECKs), `CodeIdentityServiceTest` (direct rows: idempotence, the unknown-account exemption, the
+  bulk counts, orphans, and the two insert races pinned with a raw transaction that holds a decision INSERT uncommitted), `IdentityResolverTest`, and
+  `CodeIdentityRoutesTest` (the 403-first matrix, 404 / 409 on all four operations, the alignment oracle against `expected.json`: nine identities = 7 proposed
+  (6 linked proposals and the bot) + 2 unmapped, the PUT / DELETE / confirm semantics and audits, per-instance orphans, a re-created source, the worker role).
 
 ## Schema (V40–V45)
 
@@ -421,7 +458,7 @@ the stored files (U2). MR line counts (GraphQL totals) are not exclusion-aware.
 - **V43** — `raw.gitlab_merge_requests` (details watermark, tombstone `deleted_at` set by RECONCILE only), `raw.gitlab_mr_events` (NOTE / APPROVAL / REVIEWER).
 - **V44** (landed, PR 10; `persistence.md` "The normalized code layer (V44)") — `norm.code_projects`, `code_identities`, `code_commits`, `code_merge_requests`, `code_mr_events` (COMMENT /
   DIFF_COMMENT / APPROVAL / REVIEW_REQUESTED / REVIEWED / CHANGES_REQUESTED); `CodeActivityStore` is the facade, FK-free between norm tables, `_counted` null = unknown.
-- **V45** — `public.code_identity_links`.
+- **V45** (landed, PR 11; `persistence.md` "Code identity links (V45)") — `public.code_identity_links`: the admin decisions, keyed `(source_host, identity_key)`, no connection column, hard-deleted.
 
 Each lands with its `MigrationChecksumTest` pin and its `persistence.md` section; new cross-feature reads go on that doc's
 permission list.
@@ -487,7 +524,7 @@ force-pushed project's old commits and its divergence commit are in the stub too
 | 8 | merge requests + details (V43) | 1.36.0 | Opus (migration) |
 | 9 | RECONCILE (landed) | 1.36.1 | Opus |
 | 10 | `norm.code_*` + PURGE + profile (V44) (landed) | 1.37.0 | Opus (migration) |
-| 11 | identity mapping (V45, `identities/`) | 1.38.0 | Opus + authorization |
+| 11 | identity mapping (V45, `identities/`) (landed) | 1.38.0 | Opus + authorization |
 | 12 | scaled-world performance run (`build-times.md` WHY) + real-instance smoke checklist | — | — |
 
 ## Risks and open points
@@ -506,6 +543,16 @@ force-pushed project's old commits and its divergence commit are in the stub too
   key without an identity row. A user added to GitLab re-flags every merge request (the username map is fingerprinted) and any address change every commit:
   one first-run-sized local pass, deadline-exempt. Ghost USER rows (an id with no users row, e.g. deleted before the first sync) are counted separately
   (`identities.ghosts`).
+- **Identity links outlive their identity and their account (V45):** a decision whose identity no active data source on the host still has stays listed
+  (as not seen) on the decided tabs of those sources and is removable there (an orphan is per INSTANCE: a key another active source on the host still has
+  belongs to that source's page, not this one; `CodeIdentityService.list` reads the other sources' keys with `CodeActivityStore.identityKeysOf`); with no
+  active source on the host it waits, inert, until one is created. A LINKED account that vanishes
+  from Jira keeps its link, which still resolves; the list shows it with no display name, and a re-PUT of the same account is accepted.
+- **Identity proposals, open points (PR 11):** a mailbox shared by two Jira accounts gets NO proposal (ambiguity is never resolved by "the first"), so that
+  identity stays Unmapped until an admin links it by hand. The `e<hash>` key in a URL or an audit field is an unsalted sha256 prefix of an address: not an
+  address, but confirmable by guessing one. `decided_by_user_id` names an id only (no name lookup). The list pages in memory, bounded by one connection's
+  identities (the USERS stream's ceiling): a very large instance would make it slow, not wrong. On a real instance an admin token that cannot see user
+  emails leaves every human Unmapped (the PR 12 smoke list).
 - **First-sync ordering:** `since` with out-of-order dates may stop early (see COMMITS, "RELIST and the `since` caveat"); RECONCILE's `since`-less re-list catches up (the 14-day stop is a residual, below).
 - **RECONCILE smoke list** (PR 12): `GET /projects/:id` answers 404 for a project the token cannot see (a deletion mark is then wrong-but-recoverable: PROJECTS resurrects it); the
   per-merge-request 404 of a project whose merge-request feature is off while the project answers 200 (those ARE tombstoned); `updated_after` at the floor (inclusive or exclusive);

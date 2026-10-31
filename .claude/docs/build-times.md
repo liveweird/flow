@@ -2177,6 +2177,21 @@ the time. `local-times.mjs slow-tests` reproduces this table for any run.
    - **Why the first two runs looked like a regression.** Classes PR 10 does not touch (`MetricsDerivationTest` 42 -> 67 s, `ReportDrillSprintScopeTest` 23 -> 45 s) slowed by the same factor as the GitLab ones: the machine was shared with a large unrelated build. Join the untouched classes against the weights before reading a gate time; a factor well above 1.1 on them is load, not code.
    - **Verdict.** No budget changed (the alarm is 6 min; the quiet gate is 5m10s). `server/test-weights.tsv` refreshed from the quiet run. The lever, if the GitLab classes keep growing in PR 11: `GitLabConnectorTest`'s whole-stub SYNC cases and `GitLabCommitsStreamTest` pay a full PROCESS + PROFILE per SYNC; the cases whose subject is the fetch could read a `SyncedGitLabFixture` clone, or run with a connector built without the local streams.
 
+58. **The identity mapping (V45, `identities/`) adds ~2.3 s of class time and nothing to the fixtures; a 5m44s first gate was a shared machine, the quiet one is 5m13s - MEASURED 2026-10-31 (`feat/gitlab-identities`, PR 11).**
+   Question: PR 11 adds six test classes (54 tests) over a new link store, a service, the resolver and four routes, one of them reading both shared fixtures. Does the suite stay inside its alarm, and what did it cost?
+   - **World.** `scripts/gates.sh server` twice on the branch head (two forks, the local machine); after the first, `node scripts/timings/local-times.mjs test-weights` and `slow-tests --forks 2 --top-classes 20`, then the second run with the refreshed weights and the same two commands; the untouched classes joined per class against master's `server/test-weights.tsv`; `uptime` and `ps` before each run.
+   - **Result.**
+
+     | run | load average (1/5/15 min) at the start | classes PR 11 does not touch, vs their weights | sum of class times | span | excess over sum/2 | `server-build` |
+     |---|---|---|---|---|---|---|
+     | PR 10, quiet run (WHY 57) | - | x1.07 | 9m45s | 4m55s | 2.3 s (0.8 %) | 5m10s |
+     | PR 11, run 1 (master's weights) | 4.9 / 7.9 / 7.5 (an unrelated node process at 100-220 % CPU) | 548 s vs 516 s (x1.06) | 10m25s | 5m19s | 5.9 s (1.9 %) | 5m44s |
+     | PR 11, run 2 (run 1's weights) | 5.1 / 8.2 / 8.1 (the tail of run 1; nothing else running) | 503 s vs 516 s (x0.98) | 9m35s | 4m55s | 7.6 s (2.6 %) | **5m13s** |
+
+     The new classes on the quiet run: `CodeIdentityRoutesTest` 1.77 s (13 tests; both shared fixtures warmed in its `@BeforeClass`, one clone onto its own connection), `CodeIdentityServiceTest` 0.34 s (9, the two pinned insert races included), `CodeIdentityLinkStoreTest` 0.12 s, `CodeIdentityProposalMatchesTest` 0.07 s, `IdentityResolverTest` 0.04 s and `CodeIdentityProposalsTest` (pure) ~0: **2.3 s together**, against the 3-4 s the plan allowed. Nothing new is synced, so the fixture-cost markers did not move (`SyncedGitLabFixture`'s SYNC 1.3 s, the stub SYNC 6.4 s, the stub DERIVE 2.8 s, Postgres 4.9 s per fork); the pre-existing GitLab and code classes weigh 34.5 s against 37.8 s (noise, not a saving).
+   - **Why run 1 looked slow.** It ran beside an unrelated node process, and the 309 classes PR 11 does not touch sat at x1.06 of their weights (`MetricsDerivationTest` 48.2 s against 43.6 s, the sum 50 s above run 2's); the same classes sit at x0.98 on run 2. Same method as WHY 57: join the untouched classes against the weights before reading a gate time. The span's 5-8 s excess over sum/2 in both runs is the six missing or stale weight rows plus the run-to-run spread of two classes (`ReportHistoryHorizonTest`, `SprintCalendarRoutesTest`), not the new code.
+   - **Verdict.** No action; no budget changed (the alarm is 6 min; the quiet gate is 5m13s, +3 s over PR 10's quiet run). `server/test-weights.tsv` refreshed from the quiet run 2, so the two-fork balance sees the six new classes. The GitLab lever named in WHY 57 (`GitLabConnectorTest`'s whole-stub SYNC cases) is still open and still unneeded.
+
 ## Review cadence
 
 - Run `node scripts/timings/ci-times.mjs --branch master` at every milestone / PR, and in every

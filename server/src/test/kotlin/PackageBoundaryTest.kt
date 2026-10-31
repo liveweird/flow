@@ -47,6 +47,7 @@ class PackageBoundaryTest {
 
     private val featurePackages = listOf(
         "ingest", "norm", "fetch", "jira", "gitlab", "metrics", "reports", "teams", "flowusers", "auth", "authz", "telemetry",
+        "identities",
     )
 
     private fun packageOf(text: String): String? =
@@ -104,6 +105,27 @@ class PackageBoundaryTest {
         val lower = setOf("ch.nokillswit.norm")
         assertTrue(mainSources.any { packageOf(it.readText()) in lower }, "no source declares ch.nokillswit.norm")
         assertEquals(emptyList(), violations(lower, listOf("jira", "gitlab")))
+    }
+
+    @Test
+    fun `identities references no feature package but norm, ingest and authz`() {
+        // An ALLOWLIST: the identity mapping sits above the connectors and `norm/` and BELOW `metrics/`/`reports/` (which will read the
+        // resolver). Of the feature packages it may use `norm/` (the code layer), `ingest/` (the data-source reads) and `authz/` (guards,
+        // typed exceptions); a new feature package is forbidden to it until listed here. `infra`, `audit` and `plugins` are not feature
+        // packages. The scan must see the package.
+        val lower = setOf("ch.nokillswit.identities")
+        assertTrue(mainSources.any { packageOf(it.readText()) in lower }, "no source declares ch.nokillswit.identities")
+        val allowed = setOf("identities", "norm", "ingest", "authz")
+        assertEquals(emptyList(), violations(lower, featurePackages - allowed))
+    }
+
+    @Test
+    fun `no connector or norm package references identities`() {
+        val lower = setOf(
+            "ch.nokillswit.ingest", "ch.nokillswit.norm", "ch.nokillswit.fetch", "ch.nokillswit.jira", "ch.nokillswit.gitlab",
+        )
+        for (pkg in lower) assertTrue(mainSources.any { packageOf(it.readText()) == pkg }, "no source declares $pkg")
+        assertEquals(emptyList(), violations(lower, listOf("identities")))
     }
 
     @Test

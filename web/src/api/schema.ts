@@ -1081,6 +1081,100 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/data-sources/{id}/code-identities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a GitLab data source's identities with their mapping status
+         * @description ADMIN only (guard first: a non-admin gets `403` whatever the id). The GitLab identities of this data source (the `norm`
+         *     code layer's users and commit-only author addresses) beside the ADMIN decisions stored for its instance and the proposals
+         *     computed at read time, `.claude/docs/gitlab-integration.md` "Identity". **The page carries the GitLab addresses**
+         *     (`emails`), to ADMIN only, so an admin can judge a match. A `status` is never stored: `LINKED` (decided and linked),
+         *     `IGNORED_OR_BOT` (decided ignored or bot), `PROPOSED` (no decision, but an address matches exactly one Jira person, or the
+         *     identity is a bot) and `UNMAPPED` (neither). A decision whose identity no active GitLab data source on the instance still has
+         *     (`seen: false`) is listed on its decided status, with no name, username or address; a key only another source of the instance has is not
+         *     listed here. Sortable fields are `displayName` (the default), `username` and `id`, where `id`
+         *     is the identity key; an absent name or username sorts last. `q` is a case- and accent-insensitive substring over the
+         *     display name, username and addresses (at most 100 characters, else `400`; an unseen decision never matches). Filtered, sorted and paged in memory over one
+         *     connection's identities (`list-endpoints.md`). A data source that is not a GitLab connection is `409` with `type`
+         *     `urn:flow:problem:data-source-kind-unsupported`.
+         */
+        get: operations["listCodeIdentities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources/{id}/code-identities/{identityKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description `u<GitLab user id>` or `e<32 hex digits>` (a commit author address that matches no user). */
+                identityKey: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Decide what a GitLab identity is
+         * @description ADMIN only, guard before everything else. Stores the decision for this identity on the data source's INSTANCE (the host),
+         *     so it survives a re-created data source and a purge. Order of checks: `403`, `404` data source, `409` not a GitLab source,
+         *     `400` malformed key or body, `404` the identity (none in this data source's code layer and no decision stored for the key
+         *     either; an unseen identity with a decision may be changed), `400` unknown Jira account (`jiraAccountId` must be a person of
+         *     an active Jira data source; a re-PUT of the account already stored is accepted). `LINKED` requires `jiraAccountId`;
+         *     `IGNORED` and `BOT` forbid it. Answers the row as the list would now show it. An identical re-PUT is a `200` that writes
+         *     and audits nothing; a change is audited `code_identity.decided`. A change that loses a race with a concurrent delete is `409`.
+         */
+        put: operations["decideCodeIdentity"];
+        post?: never;
+        /**
+         * Remove the decision about a GitLab identity
+         * @description ADMIN only, guard first. Removes the stored decision for the key on the data source's instance (the identity becomes
+         *     `PROPOSED` or `UNMAPPED` again), whether or not the identity is still in this data source's code layer. Audited
+         *     `code_identity.decision_removed`. `404` when no decision is stored for the key.
+         */
+        delete: operations["removeCodeIdentityDecision"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources/{id}/code-identities/confirm-proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm every current proposal of a GitLab data source
+         * @description ADMIN only, guard first, no request body. Stores a `LINKED` decision for every identity whose address matches exactly one
+         *     Jira person and a `BOT` decision for every bot, that has no stored decision yet. A decision stored meanwhile wins. The
+         *     counts are of the decisions actually written, each audited as one `code_identity.decided` (`via` `CONFIRM_PROPOSALS`); a
+         *     second call writes nothing, answers zeros and audits nothing.
+         */
+        post: operations["confirmCodeIdentityProposals"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/data-sources/{id}/metrics-config": {
         parameters: {
             query?: never;
@@ -3684,6 +3778,82 @@ export interface components {
             schemeTaskFieldIds?: string[] | null;
             /** @description Present for a GITLAB data source once its PROFILE ran; null for a Jira source and before the first PROFILE. */
             gitlab?: components["schemas"]["GitLabDataProfile"] | null;
+        };
+        /**
+         * @description `LINKED` names a Jira person (`jiraAccountId` set); `IGNORED` and `BOT` name nobody.
+         * @enum {string}
+         */
+        CodeIdentityDecision: "LINKED" | "IGNORED" | "BOT";
+        /**
+         * @description Read-time, never stored - see `listCodeIdentities`.
+         * @enum {string}
+         */
+        CodeIdentityStatus: "PROPOSED" | "UNMAPPED" | "LINKED" | "IGNORED_OR_BOT";
+        /** @description What confirming would store. `decision` is `LINKED` or `BOT`; `jiraAccountId` is null for a bot. */
+        CodeIdentityProposal: {
+            decision: components["schemas"]["CodeIdentityDecision"];
+            jiraAccountId?: string | null;
+            jiraDisplayName?: string | null;
+        };
+        /** @description A stored decision. `jiraDisplayName` is null for `IGNORED`/`BOT` and for a person no active Jira data source lists any more. */
+        CodeIdentityDecisionView: {
+            decision: components["schemas"]["CodeIdentityDecision"];
+            jiraAccountId?: string | null;
+            jiraDisplayName?: string | null;
+            /**
+             * Format: int64
+             * @description The deciding Flow user's id (an id only).
+             */
+            decidedByUserId: number;
+            /** Format: date-time */
+            decidedAt: string;
+        };
+        CodeIdentityResponse: {
+            identityKey: string;
+            /** @enum {string} */
+            kind: "USER" | "EMAIL";
+            /**
+             * Format: int64
+             * @description The GitLab user id (null for an `EMAIL` identity).
+             */
+            userId?: number | null;
+            /** @description Null for a ghost (a user id the facts name that the users listing never returned). */
+            username?: string | null;
+            displayName?: string | null;
+            /** @description The GitLab account state, as listed. */
+            state?: string | null;
+            bot: boolean;
+            deleted: boolean;
+            /** @description The identity's canonical addresses (lower-case). ADMIN only. */
+            emails: string[];
+            status: components["schemas"]["CodeIdentityStatus"];
+            /** @description False for an orphaned decision: one stored for this instance whose key has no identity row in any active GitLab data source of the instance (carries no name, username or address, `userId` null). */
+            seen: boolean;
+            /** @description Computed at read time; present on decided rows too, while one would still be made. Null for an orphan. */
+            proposal?: components["schemas"]["CodeIdentityProposal"] | null;
+            /** @description The stored ADMIN decision; null when none. */
+            decision?: components["schemas"]["CodeIdentityDecisionView"] | null;
+        };
+        CodeIdentityDecisionRequest: {
+            decision: components["schemas"]["CodeIdentityDecision"];
+            /** @description Required (1-100 characters, no control characters) for `LINKED`, forbidden for `IGNORED` and `BOT`. */
+            jiraAccountId?: string | null;
+        };
+        CodeIdentityConfirmResult: {
+            /** @description `LINKED` decisions written. */
+            linked: number;
+            /** @description `BOT` decisions written. */
+            bots: number;
+        };
+        CodeIdentityPage: {
+            items: components["schemas"]["CodeIdentityResponse"][];
+            page: number;
+            pageSize: number;
+            /**
+             * Format: int64
+             * @description Row count after filters, before pagination.
+             */
+            total: number;
         };
         MetricsStatusStage: {
             statusId: string;
@@ -8907,6 +9077,141 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listCodeIdentities: {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+                status?: components["schemas"]["CodeIdentityStatus"];
+                /** @description Free-text substring filter (case- and accent-insensitive) — API-LIST-005. */
+                q?: components["parameters"]["Q"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of identities */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodeIdentityPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    decideCodeIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description `u<GitLab user id>` or `e<32 hex digits>` (a commit author address that matches no user). */
+                identityKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CodeIdentityDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description The identity as the list shows it now */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodeIdentityResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    removeCodeIdentityDecision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description `u<GitLab user id>` or `e<32 hex digits>` (a commit author address that matches no user). */
+                identityKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    confirmCodeIdentityProposals: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description How many decisions were written */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodeIdentityConfirmResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             500: components["responses"]["InternalServerError"];
         };
     };

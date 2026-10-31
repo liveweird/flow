@@ -122,8 +122,22 @@ endpoint (`requireAdmin` server-side).
   anomaly badges (orange, the fixed `TilingAnomaly` vocabulary). A `400`/`404`/`413` renders INLINE under
   the form, never replacing the page, so the admin can simply try another key (`413`, `dataSources.inspect.tooLarge`: the issue's stored
   text is over `jira.processPageBytes`, the server answers before reading it; `saveErrorMessage`'s `tooLarge` key).
+- **Code identities (`pages/DataSourceIdentities.tsx`, 1.38.0; `gitlab-integration.md` "Identity").** `/data-sources/:id/identities` (`dataSourceIdentitiesPath`, under
+  `RequireAdmin`; the Identities button on the details page is offered for a `GITLAB` source only - a Jira source answers `409`, shown as the not-found
+  state, as a `404` is). The four tabs (Proposed / Unmapped / Linked / Ignored & bots) ARE the `status` search param (a deep link; an unknown value falls back
+  to Proposed), the search box is the `q` search param beside it (NOT remembered in localStorage, so a link carries it, a tab change keeps it and another source never inherits it; debounced 300 ms, cut to the server's 100 characters; an empty result while searching reads "No identities match the search."), sort/paging through `usePagedSort` (a page past the end after the last row of the last page was decided steps back to the last page, never an empty state over existing rows). The table prints the
+  FULL addresses (ADMIN only, U1): identity (name, username, "Commit e-mail only" for an e-mail identity, "GitLab user #id" for a ghost), addresses, state badges
+  (GitLab's non-active state in words - `identityStateLabel`'s known values, any other shown raw -, deleted, bot), the Jira person (a stored decision, with what would be proposed now beside it when that differs; else the proposal with
+  its "Proposed by e-mail" hint), and the decision date (`formatDateTime`, UTC). An orphaned decision (`seen: false`: no active data source on this GitLab instance still has the identity;
+  one only another source of the host has is not listed) carries
+  the orange "Not seen" badge with the visible dimmed hint "No data source on this GitLab instance still has this identity." (text, not a tooltip: keyboard users reach it), shows its key instead of a name and offers Remove only. Row actions (`RowActionsMenu`): Confirm proposal (the
+  proposal sent through the ordinary PUT), Link to a Jira person... (`components/CodeIdentityLinkModal.tsx`: its own `Select` over `listJiraUsers({ scope: "SITE" })`
+  as `JiraMemberModal` does, the current link preselected), Mark as bot, Ignore, Remove decision (`useDeleteConfirm`). "Confirm all proposals (N)" (Proposed
+  tab; N = the tab's total) sits behind a `ConfirmActionModal`, POSTs `confirm-proposals` and toasts `{linked, bots}` as written; it is disabled while a
+  search is active (the server confirms every proposal of the source, never a filtered slice). Failures render inline (`FormErrorAlert`), successes toast; a new action or a tab change resets both mutations first, so only the failure of the action that ran last shows, and a `404` from Confirm all reads "The data source no longer exists.". The link modal's preselected person is labelled by `jiraPersonLabel`, the same "Name (accountId)" spelling as the loaded options (a different one reads as a new search term and loops).
+  `api/codeIdentities.ts`, `components/CodeIdentityRow.tsx`, `utils/codeIdentityLabels.ts`, the `codeIdentities` i18n area.
 - **`utils/dataSourceLinks.ts`** is the ONE place the route family is spelled out
-  (`dataSourcesPath`, `dataSourcePath`, `dataSourceProfilePath`, `dataSourceInspectPath`) — never
+  (`dataSourcesPath`, `dataSourcePath`, `dataSourceProfilePath`, `dataSourceIdentitiesPath`, `dataSourceInspectPath`) — never
   hand-assemble these URLs. `utils/dataSourceState.ts` holds the state→colour map and
   `formatEpochMillis` (the deterministic `YYYY-MM-DD HH:mm` rendering, "Never" for null).
 - `pages/Home.tsx`'s admin empty state links to `/data-sources` and `/metrics-settings` (plain `Anchor`s

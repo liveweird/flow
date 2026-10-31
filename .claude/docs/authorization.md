@@ -244,6 +244,16 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     SYNC/REPROCESS. `computedAt` is `null` before the connection's first PROCESS pass rather than a
     `404`. No mutation, so no audit event of its own — see `.claude/docs/ingestion.md` "Data profile".
     Tests: `DataProfileTest`.
+  - `GET /api/v1/data-sources/{id}/code-identities`, `PUT`/`DELETE …/code-identities/{identityKey}` and `POST …/code-identities/confirm-proposals`
+    (`identities/CodeIdentityRoutes.kt`, V45) → **ADMIN only, the whole surface.** `requireAdmin` is the FIRST statement of every handler,
+    before the data-source lookup, the key, the query and the body, so a non-admin gets ONE uniform `403` for a missing id, a Jira id, a
+    malformed key and a malformed body alike. Then the order is `404` data source (missing or soft-deleted) → `409`
+    `data-source-kind-unsupported` (not a GitLab source: the mirror of the metrics-config `409` for GitLab, from the one `read`) → `400` (key
+    pattern, query, body) → `404` (the identity: none in this connection's code layer and no decision stored for the key; or, on `DELETE`, no
+    decision) → `400` unknown Jira account (the client-supplied-FK idiom of the team memberships; skipped when the stored decision already names
+    that account). The host a decision is stored under comes from the path's data source, never from the body. **The list carries the GitLab
+    addresses** (`emails`), to ADMIN only (every `/api/` answer is `no-store`; the server never places a stored address in a URL, a log line or an audit field; `q` is search text an admin typed, which may contain one, as flow-users' `q` already may). Audits:
+    `code_identity.decided`, `code_identity.decision_removed` (`observability.md`). Tests: `CodeIdentityRoutesTest`.
   - `GET /api/v1/telemetry/current` and `GET /api/v1/telemetry/history?group=&range=` (`telemetry/TelemetryRoutes.kt`) → **ADMIN only, read-only**
     (operational data: process sizes, container limits, connection names and their sync health). `requireAdmin(call.caller())` is the first
     statement, before the query is read, so a non-admin gets the uniform `403` for a bad or missing `group`/`range` too (`403` outranks `400`);

@@ -38,6 +38,7 @@ const FeatureFlags = lazy(() => import("./pages/FeatureFlags"));
 const DataSources = lazy(() => import("./pages/DataSources"));
 const DataSourceDetails = lazy(() => import("./pages/DataSourceDetails"));
 const DataSourceProfile = lazy(() => import("./pages/DataSourceProfile"));
+const DataSourceIdentities = lazy(() => import("./pages/DataSourceIdentities"));
 const RawIssueInspector = lazy(() => import("./pages/RawIssueInspector"));
 const DataSourceMetricsConfig = lazy(() => import("./pages/DataSourceMetricsConfig"));
 const MetricsSettings = lazy(() => import("./pages/MetricsSettings"));
@@ -308,6 +309,7 @@ export default function App() {
               <Route path="data-sources" element={<DataSources />} />
               <Route path="data-sources/:id" element={<DataSourceDetails />} />
               <Route path="data-sources/:id/profile" element={<DataSourceProfile />} />
+              <Route path="data-sources/:id/identities" element={<DataSourceIdentities />} />
               <Route path="data-sources/:id/inspect" element={<RawIssueInspector />} />
               <Route path="data-sources/:id/metrics-config" element={<DataSourceMetricsConfig />} />
               <Route path="metrics-settings" element={<MetricsSettings />} />

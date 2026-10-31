@@ -50,4 +50,4 @@ the full fetch and assignment run in the JVM regardless, and the bound is a hard
 
 **Sub-collections and facets:** a record's own unbounded sub-collection is paged like any other list; the plain `{items}`
 wrapper is reserved for genuinely bounded, admin-curated sets. Facet counts (`GET .../facets`) are not implemented — port Covenant's
-pattern with the first filterable list that needs them.
+pattern with the first filterable list that needs them. `GET …/data-sources/{id}/code-identities` pages IN MEMORY behind the same parser, envelope and `$ref`s: `status` is a read-time join over ONE connection's identities (`gitlab-integration.md` "Identity").
