@@ -29,8 +29,9 @@ internal const val COMMIT_FILES_FLUSH_ROWS = 5_000
 
 /**
  * The most re-list sweep candidates one project confirms per run (one `merge_base` call each, `gitlab-integration.md` "Streams"). More
- * than this and the rest waits for the next run: the project keeps its re-list request, and every confirmed candidate has left the
- * candidate set by then (touched or tombstoned), so repeated runs converge.
+ * than this and the rest waits for the next run: the project keeps its re-list request AND its epoch (`relist_started_at`). A candidate
+ * is "not seen since the epoch", and every candidate a run handles - kept or unconfirmed (touched, so seen) or tombstoned - leaves that
+ * set for good, so each further run sees strictly fewer candidates and repeated runs converge.
  */
 internal const val MAX_SWEEP_CONFIRMATIONS = 100
 

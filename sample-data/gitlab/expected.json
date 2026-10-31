@@ -5,7 +5,7 @@
     "day2Time": "2026-09-02T00:00:00.000Z",
     "host": "gitlab.flow-sample.example",
     "params": {"users":6,"projects":4,"months":6},
-    "mappingCount": 1207,
+    "mappingCount": 1221,
     "gitlabVersion": "19.3.1",
     "commitWindow": {"from":"2026-03-05T00:00:00.000Z","to":"2026-08-31T23:00:00.000Z"}
   },

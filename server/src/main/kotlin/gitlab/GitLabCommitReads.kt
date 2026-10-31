@@ -11,6 +11,7 @@ import org.jetbrains.exposed.v1.core.ShortColumnType
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.exists
 import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.less
@@ -27,6 +28,19 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
  * a `?` there cannot prove the predicate implies the index's, so it would never use the index.
  */
 internal val NON_MERGE_PARENTS: Op<Boolean> = Commits.parentCount lessEq LiteralOp(ShortColumnType(), 1.toShort())
+
+/**
+ * The COMMIT FILES backlog (the V42 partial index plus the project): diff unread, not a merge, not tombstoned, and of a LIVE project
+ * (`moved_out_at`/`deleted_at` null) - a moved-out or deleted project's commits cost no diff call and are not counted as pending
+ * (`commitFilesPending`). The project is an `EXISTS` on its primary key, so the commits predicate stays the index's.
+ */
+internal val FILES_BACKLOG: Op<Boolean> = Commits.filesFetchedAt.isNull() and NON_MERGE_PARENTS and Commits.deletedAt.isNull() and
+    exists(
+        Projects.selectAll().where {
+            (Projects.connectionId eq Commits.connectionId) and (Projects.projectId eq Commits.projectId) and
+                Projects.movedOutAt.isNull() and Projects.deletedAt.isNull()
+        },
+    )
 
 /** The commit-stream reads (V42): the projects to walk, the re-list window, the files backlog and the rows tests inspect. */
 internal class GitLabCommitReads(private val database: R2dbcDatabase) {
@@ -51,22 +65,19 @@ internal class GitLabCommitReads(private val database: R2dbcDatabase) {
             .toList().singleOrNull()?.get(oldest)
     }
 
-    /** The files-backlog predicate (the V42 partial index): diff unread, not a merge, not tombstoned. */
-    private fun pending(connectionId: UInt): Op<Boolean> =
-        (Commits.connectionId eq connectionId) and Commits.filesFetchedAt.isNull() and
-            NON_MERGE_PARENTS and Commits.deletedAt.isNull()
+    private fun pending(connectionId: UInt): Op<Boolean> = (Commits.connectionId eq connectionId) and FILES_BACKLOG
 
     suspend fun staleCommitShas(
         connectionId: UInt,
         projectId: Long,
         sinceCommittedAt: Long,
-        passStartedAt: Long,
+        relistStartedAt: Long,
         limit: Int,
     ): List<String> = suspendTransaction(database) {
         Commits.select(Commits.sha)
             .where {
                 (Commits.connectionId eq connectionId) and (Commits.projectId eq projectId) and Commits.deletedAt.isNull() and
-                    (Commits.committedAt greaterEq sinceCommittedAt) and (Commits.lastSeenAt less passStartedAt)
+                    (Commits.committedAt greaterEq sinceCommittedAt) and (Commits.lastSeenAt less relistStartedAt)
             }
             .orderBy(Commits.committedAt to SortOrder.DESC, Commits.sha to SortOrder.ASC)
             .limit(limit)

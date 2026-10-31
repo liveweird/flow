@@ -119,6 +119,7 @@ class GitLabRawStore(database: R2dbcDatabase) {
         val deletedAt = long("deleted_at").nullable()
         val commitsHeadSha = varchar("commits_head_sha", MAX_SHA).nullable()
         val relistRequested = bool("relist_requested").default(false)
+        val relistStartedAt = long("relist_started_at").nullable()
         override val primaryKey = PrimaryKey(connectionId, projectId)
     }
 
@@ -214,7 +215,18 @@ class GitLabRawStore(database: R2dbcDatabase) {
     suspend fun recordCommitsHead(connectionId: UInt, projectId: Long, headSha: String, relistRequested: Boolean = false) =
         commitWrites.recordCommitsHead(connectionId, projectId, headSha, relistRequested)
 
-    suspend fun requestRelist(connectionId: UInt, projectId: Long) = commitWrites.requestRelist(connectionId, projectId)
+    /**
+     * Begins (or continues) the project's re-list: sets `relist_requested` and the re-list epoch (`relist_started_at`, kept if already set)
+     * and returns the epoch. The sweep's candidates are the live commits not seen since it.
+     */
+    suspend fun beginRelist(connectionId: UInt, projectId: Long, now: Long): Long = commitWrites.beginRelist(connectionId, projectId, now)
+
+    /**
+     * Ends a re-list's sweep: records [headSha] when there is one (an empty listing keeps the stored head), writes `relist_requested =
+     * [moreToDo]` and clears the epoch once it is false.
+     */
+    suspend fun finishRelist(connectionId: UInt, projectId: Long, headSha: String?, moreToDo: Boolean) =
+        commitWrites.finishRelist(connectionId, projectId, headSha, moreToDo)
 
     /** Marks the live [shas] seen now: the re-list sweep confirmed they are still on the branch. */
     suspend fun touchCommits(connectionId: UInt, projectId: Long, shas: List<String>, now: Long) =
@@ -225,18 +237,19 @@ class GitLabRawStore(database: R2dbcDatabase) {
         commitWrites.tombstoneCommits(connectionId, projectId, shas, now)
 
     /**
-     * The re-list sweep's candidates: up to [limit] live SHAs of the project committed at or after [sinceCommittedAt] that the pass
-     * starting at [passStartedAt] did not list. "Not listed" is only a candidate - GitLab's `since` can stop a listing early on a
-     * commit with a skewed date - so the caller confirms each against the branch before tombstoning it.
+     * The re-list sweep's candidates: up to [limit] live SHAs of the project committed at or after [sinceCommittedAt] that nothing has
+     * seen since the re-list epoch [relistStartedAt] (the walk's pages and the sweep's touches both count as seeing). "Not listed" is only
+     * a candidate - GitLab's `since` can stop a listing early on a commit with a skewed date - so the caller confirms each against the
+     * branch before tombstoning it.
      */
     suspend fun staleCommitShas(
         connectionId: UInt,
         projectId: Long,
         sinceCommittedAt: Long,
-        passStartedAt: Long,
+        relistStartedAt: Long,
         limit: Int,
     ): List<String> =
-        commitReads.staleCommitShas(connectionId, projectId, sinceCommittedAt, passStartedAt, limit)
+        commitReads.staleCommitShas(connectionId, projectId, sinceCommittedAt, relistStartedAt, limit)
 
     /** Lands finished diffs in ONE transaction: the file rows, then each commit's stamp (`files_fetched_at`, `files_changed`, ...). */
     suspend fun flushCommitFiles(connectionId: UInt, outcomes: List<CommitFilesOutcome>, now: Long) =

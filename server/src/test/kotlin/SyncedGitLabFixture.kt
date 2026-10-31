@@ -59,7 +59,10 @@ object SyncedGitLabFixture {
         // Soft-deleted once synced: every ACTIVE GitLab source must read ONE instance (`ingest/GitLabScope.kt`), so a permanent source
         // on the stub would turn every other-instance create in `GitLabScopeTest` into a 409 for the rest of the fork. The raw rows stay
         // (nothing purges them in a test run) and every reader goes through the raw store by connection id, not the data source row.
-        GitLabFixtures.dataSources().delete(connId)
+        val dataSources = GitLabFixtures.dataSources()
+        dataSources.delete(connId)
+        // Stamped purged so the scheduler's purge scan (`dueForPurge`) never selects it (a PURGE would drain the readers' rows).
+        dataSources.recordPurgeSucceeded(connId)
         return connId
     }
 }

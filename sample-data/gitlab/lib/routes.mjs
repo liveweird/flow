@@ -128,22 +128,25 @@ export function defineRoutes(w, world) {
         });
       }
     }
-    // Re-list sweep confirmations (PR 7): `merge_base(<stored commit>, <branch>)` for the force-pushed project's old commits and its divergence
-    // commit. A commit the listing no longer shows is only a CANDIDATE (GitLab's `since` can stop a listing early on a commit with a skewed date), so the
-    // connector asks whether it is still an ancestor of the branch: its own merge base means yes (every old commit at day zero, the divergence commit
-    // always); any other commit means it left the branch (the old commits after the force-push: they still exist as unreachable commits, their merge base
-    // is the fork point).
+    // Re-list sweep confirmations (PR 7): the connector asks `merge_base(<stored commit>, <the listing's tip>)` for each commit the re-list listing did not show
+    // (by tip, so the answer is about the snapshot it listed), after one probe `merge_base(<tip>, <branch>)` that the tip is still an ancestor of the branch.
+    // A commit the listing no longer shows is only a CANDIDATE (GitLab's `since` can stop a listing early on a commit with a skewed date): its own merge base
+    // means it is still on the branch (every old commit at day zero, the divergence commit always); any other commit means it left the branch (the old commits
+    // after the force-push: they still exist as unreachable commits, their merge base is the fork point). Also mapped by branch name, as a human would ask.
     if (repo.day2Info?.forcePush) {
+      const emitMergeBase = (name, sha, refOf) => w.emit(name, (state) => {
+        const view = repo.views[stateKey(state)];
+        if (!view) return null;
+        return {
+          type: "single", urlPath: `${API}/projects/${p.id}/repository/merge_base`,
+          query: { "refs[]": { includes: [{ equalTo: sha(view) }, { equalTo: refOf(view) }] } }, body: commitJson(mergeBase(repo.commits, sha(view), view.tip), p),
+        };
+      });
       for (const sha of [...repo.day2Info.removedShas, repo.day2Info.divergenceSha]) {
-        w.emit(`p${p.id}-merge-base-candidate-${sha.slice(0, 12)}`, (state) => {
-          const view = repo.views[stateKey(state)];
-          if (!view) return null;
-          return {
-            type: "single", urlPath: `${API}/projects/${p.id}/repository/merge_base`,
-            query: { "refs[]": { includes: [{ equalTo: sha }, { equalTo: view.branch }] } }, body: commitJson(mergeBase(repo.commits, sha, view.tip), p),
-          };
-        });
+        emitMergeBase(`p${p.id}-merge-base-candidate-${sha.slice(0, 12)}`, () => sha, (view) => view.branch);
+        emitMergeBase(`p${p.id}-merge-base-candidate-${sha.slice(0, 12)}-by-tip`, () => sha, (view) => view.tip);
       }
+      emitMergeBase(`p${p.id}-merge-base-tip-probe`, (view) => view.tip, (view) => view.branch);
     }
     // Commit diffs: gated to day2 only for commits that did not exist in the Started history.
     const startedSet = repo.views.started ? ancestors(repo.commits, repo.views.started.tip) : new Set();

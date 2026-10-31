@@ -59,3 +59,8 @@ CREATE TABLE raw.gitlab_commit_files (
 
 -- The stored head was CHAR(40) in V41; a SHA-256 repository (GitLab, opt-in) has 64-hex ids. Small table, immediate rewrite.
 ALTER TABLE raw.gitlab_projects ALTER COLUMN commits_head_sha TYPE VARCHAR(64);
+
+-- The re-list epoch (epoch millis): set when a RELIST begins (relist_requested turns true) and kept until the flag clears. The sweep's candidates are
+-- the live commits NOT seen since it, so a candidate the sweep keeps (touched, last_seen_at >= the epoch) never qualifies again within the same re-list
+-- and repeated runs converge; a per-run pass start would re-qualify them every run.
+ALTER TABLE raw.gitlab_projects ADD COLUMN relist_started_at BIGINT;

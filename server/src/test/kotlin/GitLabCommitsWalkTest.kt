@@ -36,7 +36,7 @@ import kotlin.test.assertTrue
 
 private const val PROJECT = 1L
 private const val BRANCH = "main"
-private const val BACKFILL = 1_000L
+private const val BACKFILL = 1L
 
 /**
  * The COMMITS and COMMIT FILES streams against a scripted [FakeClient] (no HTTP): the walk modes and their decisions, the resumable
@@ -72,10 +72,12 @@ class GitLabCommitsWalkTest {
         return connId
     }
 
-    private fun stream(client: FakeClient) = GitLabCommitsStream(client, store, BACKFILL)
-
-    private suspend fun run(client: FakeClient, connId: UInt, context: StreamContext = GitLabFixtures.freshContext(connId)) =
-        GitLabFixtures.runStream(stream(client), connId, context)
+    private suspend fun run(
+        client: FakeClient,
+        connId: UInt,
+        context: StreamContext = GitLabFixtures.freshContext(connId),
+        floor: Long = BACKFILL,
+    ) = GitLabFixtures.runStream(GitLabCommitsStream(client, store, floor), connId, context)
 
     private suspend fun project(connId: UInt) = store.liveProjectsForCommits(connId).single()
 
@@ -231,9 +233,11 @@ class GitLabCommitsWalkTest {
         base: (String) -> String,
         client: FakeClient = FakeClient(),
     ): Pair<FakeClient, Map<String, Long>> {
+        val tip = sha(listed.last)
         client.listingOf = { _, _, _, _ -> commitPage(listed.reversed()) }
-        client.mergeBaseOf = { _, candidate, _ -> base(candidate) }
-        store.requestRelist(connId, PROJECT)
+        // The probe asks whether the listing's tip is still on the branch; the candidates are asked against that tip.
+        client.mergeBaseOf = { _, a, _ -> if (a == tip) a else base(a) }
+        store.beginRelist(connId, PROJECT, now = 200) // the stored commits (last seen at 100) were not seen since the epoch
         return client to run(client, connId)
     }
 
@@ -261,10 +265,11 @@ class GitLabCommitsWalkTest {
             assertNotNull(rows.getValue(sha(8))[GitLabRawStore.Commits.deletedAt], "unknown to GitLab")
             assertNull(rows.getValue(sha(4))[GitLabRawStore.Commits.deletedAt], "an unconfirmed commit is never tombstoned")
             assertTrue(rows.getValue(sha(5))[GitLabRawStore.Commits.lastSeenAt] > 100, "a kept commit is touched")
+            assertTrue(rows.getValue(sha(4))[GitLabRawStore.Commits.lastSeenAt] > 100, "so is an unconfirmed one")
             assertEquals(2L, progress["commitsTombstoned"])
             assertEquals(2L, progress["commitsSweepKept"])
             assertEquals(1L, progress["commitsSweepUnconfirmed"])
-            assertTrue(project(connId).relistRequested, "an unconfirmed candidate leaves the request set for the next run")
+            assertFalse(project(connId).relistRequested, "a persistently failing candidate does not pin the project in RELIST")
             assertEquals(sha(9), project(connId).headSha)
         }
 
@@ -276,18 +281,125 @@ class GitLabCommitsWalkTest {
         store.recordCommitsHead(connId, PROJECT, sha(total))
         val client = FakeClient()
         val (_, first) = relist(connId, (total + 1)..(total + 1), base = { sha(0) }, client = client)
-        assertEquals(MAX_SWEEP_CONFIRMATIONS, client.mergeBaseCalls, "one call per confirmed candidate, no more than the cap")
+        assertEquals(MAX_SWEEP_CONFIRMATIONS + 1, client.mergeBaseCalls, "the tip probe, then one call per candidate up to the cap")
         assertEquals(MAX_SWEEP_CONFIRMATIONS.toLong(), first["commitsTombstoned"])
         assertEquals(1L, first["commitsSweepDeferred"])
         assertTrue(project(connId).relistRequested)
 
         client.mergeBaseCalls = 0
         val second = run(client, connId)
-        assertEquals(1, client.mergeBaseCalls)
+        assertEquals(2, client.mergeBaseCalls, "the probe and the one candidate left")
         assertEquals(1L, second["commitsTombstoned"])
         assertFalse(project(connId).relistRequested, "everything confirmed: the request is cleared")
         val live = store.commitRows(connId, PROJECT).filter { it[GitLabRawStore.Commits.deletedAt] == null }
         assertEquals(listOf(sha(total + 1)), live.map { it[GitLabRawStore.Commits.sha] }, "only the listed commit is left")
+    }
+
+    @Test
+    fun `candidates are confirmed against the listing's tip, after one probe that the tip is still on the branch`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertCommits(connId, PROJECT, (4..5).map { raw(it) }, now = 100)
+        store.recordCommitsHead(connId, PROJECT, sha(5))
+        val (client, _) = relist(connId, 9..9, base = { it })
+        assertEquals(listOf(sha(9) to BRANCH), client.mergeBases.take(1), "the probe: the tip against the branch")
+        val against = client.mergeBases.drop(1).map { it.second }
+        assertEquals(listOf(sha(9), sha(9)), against, "each candidate against the tip, not the moving branch")
+    }
+
+    @Test
+    fun `a branch renamed or a project deleted between the listing and the sweep tombstones nothing`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertCommits(connId, PROJECT, (4..6).map { raw(it) }, now = 100)
+        store.recordCommitsHead(connId, PROJECT, sha(6))
+        val client = FakeClient().apply {
+            listingOf = { _, _, _, _ -> commitPage(9 downTo 9) }
+            mergeBaseOf = { _, _, _ -> throw fetchFailure(REF_NOT_FOUND) } // even the tip no longer resolves
+        }
+        store.beginRelist(connId, PROJECT, now = 200)
+        val progress = run(client, connId)
+        assertEquals(1, client.mergeBaseCalls, "the probe failed: no candidate is asked")
+        assertNull(progress["commitsTombstoned"])
+        assertEquals(3L, progress["commitsSweepUnconfirmed"])
+        assertTrue(store.commitRows(connId, PROJECT).none { it[GitLabRawStore.Commits.deletedAt] != null })
+    }
+
+    @Test
+    fun `kept candidates leave the set for good - the next run asks nothing`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertCommits(connId, PROJECT, (4..6).map { raw(it) }, now = 100)
+        store.recordCommitsHead(connId, PROJECT, sha(6))
+        val (client, first) = relist(connId, 9..9, base = { it })
+        assertEquals(3L, first["commitsSweepKept"])
+        assertFalse(project(connId).relistRequested)
+        client.mergeBaseCalls = 0
+        client.listingOf = { _, _, _, _ -> commitPage(9 downTo 9) }
+        val second = run(client, connId)
+        assertEquals(0, client.mergeBaseCalls, "tip == head: a CHECK, nothing to confirm")
+        assertNull(second["commitsRelisted"])
+    }
+
+    @Test
+    fun `a hidden window larger than the cap converges over runs without a tombstone`() = runBlocking<Unit> {
+        val connId = connection()
+        val hidden = MAX_SWEEP_CONFIRMATIONS + 50
+        store.upsertCommits(connId, PROJECT, (1..hidden).map { raw(it) }, now = 100)
+        store.recordCommitsHead(connId, PROJECT, sha(hidden))
+        val (client, first) = relist(connId, (hidden + 1)..(hidden + 1), base = { it })
+        assertEquals(MAX_SWEEP_CONFIRMATIONS.toLong(), first["commitsSweepKept"])
+        assertTrue(project(connId).relistRequested, "more candidates than the cap: the re-list goes on")
+
+        client.mergeBaseCalls = 0
+        val second = run(client, connId)
+        assertEquals(50L, second["commitsSweepKept"])
+        assertEquals(51, client.mergeBaseCalls, "the probe and only the 50 not yet touched: kept candidates did not come back")
+        assertFalse(project(connId).relistRequested)
+        assertTrue(store.commitRows(connId, PROJECT).none { it[GitLabRawStore.Commits.deletedAt] != null })
+    }
+
+    @Test
+    fun `a re-list listing nothing keeps the stored head and clears the request`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertCommits(connId, PROJECT, listOf(raw(4)), now = 100)
+        store.recordCommitsHead(connId, PROJECT, sha(4))
+        val client = FakeClient().apply {
+            listingOf = { _, _, _, _ -> commitPage(IntRange.EMPTY) }
+            mergeBaseOf = { _, _, _ -> throw fetchFailure("INVALID_RESPONSE") }
+        }
+        store.beginRelist(connId, PROJECT, now = 200)
+        run(client, connId)
+        assertEquals(sha(4), project(connId).headSha, "an empty listing is no head")
+        assertFalse(project(connId).relistRequested)
+        assertNull(store.projectRows(connId).single()[GitLabRawStore.Projects.relistStartedAt])
+    }
+
+    @Test
+    fun `a NOT_FOUND on a FULL or RELIST listing skips the project and leaves its request as it was`() = runBlocking<Unit> {
+        val full = connection()
+        val fullProgress = run(FakeClient().apply { listingOf = { _, _, _, _ -> throw fetchFailure("NOT_FOUND") } }, full)
+        assertEquals(1L, fullProgress["commitsProjectsSkipped"])
+        assertNull(project(full).headSha)
+        assertTrue(store.commitRows(full).isEmpty())
+
+        val relisting = connection()
+        store.upsertCommits(relisting, PROJECT, listOf(raw(4)), now = 100)
+        store.recordCommitsHead(relisting, PROJECT, sha(4))
+        store.beginRelist(relisting, PROJECT, now = 200)
+        val progress = run(FakeClient().apply { listingOf = { _, _, _, _ -> throw fetchFailure("NOT_FOUND") } }, relisting)
+        assertEquals(1L, progress["commitsProjectsSkipped"])
+        assertTrue(project(relisting).relistRequested, "the request survives: the next run tries again")
+        assertEquals(sha(4), project(relisting).headSha)
+        assertNull(progress["commitsRelisted"])
+    }
+
+    @Test
+    fun `a re-list never starts before the backfill floor`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertCommits(connId, PROJECT, listOf(raw(4, committedAt = 5)), now = 100)
+        store.recordCommitsHead(connId, PROJECT, sha(4))
+        store.beginRelist(connId, PROJECT, now = 200)
+        val client = FakeClient().apply { listingOf = { _, _, _, _ -> commitPage(4 downTo 4) } }
+        run(client, connId, floor = 7_000)
+        assertEquals(isoInstant(7_000), client.listed.single().second, "an ancient commit does not widen the window past the floor")
     }
 
     // --- COMMIT FILES --------------------------------------------------------------------------------------------------------
@@ -349,6 +461,17 @@ class GitLabCommitsWalkTest {
         assertFalse(merged[GitLabRawStore.CommitFiles.deletedFile])
         assertNull(rows.getValue("b.go")[GitLabRawStore.CommitFiles.additions])
         assertEquals(2, store.commitRows(connId).single()[GitLabRawStore.Commits.filesChanged], "files_changed counts paths")
+    }
+
+    @Test
+    fun `a moved-out project's pending commits cost no diff call and are not counted`() = runBlocking<Unit> {
+        val connId = pendingProject(3)
+        store.markProjectsMovedOutNotSeenSince(connId, passStartedAt = 10_000, now = 11_000)
+        val client = FakeClient().apply { diffOf = { _, _, _ -> GitLabDiffPage(files(1), null) } }
+        val progress = runFiles(client, connId)
+        assertEquals(0, client.diffCalls)
+        assertNull(progress["commitFilesPending"])
+        assertEquals(0L, store.countPendingCommitFiles(connId))
     }
 
     @Test

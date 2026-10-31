@@ -62,6 +62,8 @@ internal data class CommitsWalkCursor(
     val sinceMillis: Long? = null,
     /** A RELIST whose listing is complete and whose sweep (the confirmations) is still to do. */
     val listingDone: Boolean = false,
+    /** A RELIST's epoch (`raw.gitlab_projects.relist_started_at`): the sweep's candidates are the live commits nothing has seen since. */
+    val epochMillis: Long? = null,
 ) {
     /** The branch being walked: the part after `..` of a range (git refs cannot contain `..`). */
     val branch: String get() = refName.substringAfter("..")

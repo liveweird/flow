@@ -27,6 +27,9 @@ class FakeClient : GitLabClient {
     val listed = mutableListOf<Triple<String, String?, Int>>()
     val listCalls: Int get() = listed.size
     var mergeBaseCalls = 0
+
+    /** Every merge_base call as (refA, refB). */
+    val mergeBases = mutableListOf<Pair<String, String>>()
     var diffCalls = 0
 
     override val maxConcurrentRequests: Int = 1
@@ -38,6 +41,7 @@ class FakeClient : GitLabClient {
 
     override suspend fun mergeBase(projectId: Long, refA: String, refB: String): String {
         mergeBaseCalls++
+        mergeBases += refA to refB
         return mergeBaseOf(projectId, refA, refB)
     }
 

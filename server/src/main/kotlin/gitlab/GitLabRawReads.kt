@@ -35,7 +35,7 @@ internal class GitLabRawReads(private val database: R2dbcDatabase) {
             commits = commits(Commits.deletedAt.isNull()),
             commitsMerge = commits(Commits.deletedAt.isNull() and (Commits.parentCount greater 1.toShort())),
             commitsDeleted = commits(Commits.deletedAt.isNotNull()),
-            commitFilesPending = commits(Commits.filesFetchedAt.isNull() and NON_MERGE_PARENTS and Commits.deletedAt.isNull()),
+            commitFilesPending = commits(FILES_BACKLOG),
         )
     }
 

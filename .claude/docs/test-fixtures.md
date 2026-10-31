@@ -57,7 +57,7 @@ ground truth `expected.json`), `GitLabDataSourceRoutesTest` (the wire, `/kinds`,
 `assertUnchanged()`, a tripwire of 300 live commits and no pending files re-checked on every call, and a `fixture-cost\tgitlab-sync\t<ms>` marker
 (~1.6 s after Postgres, `build-times.md` WHY 54). It has its OWN warm-up, `warmGitLabFixture()` (`TestEnvironment.kt`), not `warmStubFixtures()`: a class that reads it declares
 `companion object { @JvmStatic @BeforeClass fun warmFixtures() = warmGitLabFixture() }` and `StubFixtureWarmupGuardTest` checks every fixture a class triggers against ITS warm-up
-call (a list of trigger/warm pairs). After the SYNC the fixture's data source is SOFT-DELETED: every active GitLab source must read one instance, so a permanent
+call (a list of trigger/warm pairs). After the SYNC the fixture's data source is SOFT-DELETED and stamped purged (`recordPurgeSucceeded`, so the scheduler's `dueForPurge` never selects it): every active GitLab source must read one instance, so a permanent
 source on the stub would 409 every other-instance create of `GitLabScopeTest` in the same fork; the raw rows stay and readers use the raw store by connection id.
 A test that mutates (a second SYNC, `day2`, a head or budget change) creates its own connection with `GitLabFixtures.createConnection`. The classes: `GitLabCommitsStreamTest`
 (the fixture read-only against `expected.json`, then own-connection RANGE, day-2 force-push and rename, the call budget and the terminal outcomes), `GitLabCommitsWalkTest` (a scripted

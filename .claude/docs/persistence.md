@@ -1335,6 +1335,10 @@ canonicalised later), `authored_at`/`committed_at`, `parent_count`, `additions`/
   (`oldestLiveCommittedAt`, the sweep).
 - **`raw.gitlab_projects.commits_head_sha`** is widened from `CHAR(40)` (V41, never written before this migration) to `VARCHAR(64)`: a SHA-256
   repository would otherwise truncate the head silently. `recordCommitsHead` writes the head and the `relist_requested` flag in one `UPDATE`.
+- **`raw.gitlab_projects.relist_started_at`** (BIGINT, added by V42 as well, the table's epoch-millis convention) is the **re-list epoch**: `beginRelist` sets it when a
+  RELIST begins (kept if already set, so a re-list that spans runs has ONE epoch) and `finishRelist` / `recordCommitsHead(..., relistRequested = false)` clear it. The sweep's
+  candidates are the live commits not seen since it (`last_seen_at < relist_started_at`), so a candidate the sweep keeps (touched) never re-qualifies within the same re-list.
+  The files backlog (`FILES_BACKLOG`) also requires an `EXISTS` live project on `raw.gitlab_projects`' primary key (`moved_out_at`/`deleted_at` null).
 - **PURGE**: `GitLabRawPurge.purgeCommitsBatch` deletes batches of 25 COMMITS per connection (`GITLAB_PURGE_COMMITS_BATCH_SIZE`; a delete per project, so a
   SHA shared by two projects - a fork - stays exact) and the files go through the cascade. The batch counts commits, not rows, and each commit cascades up
   to 1,000 file rows (the files cap), so 25 bounds one statement to 25,000 cascaded rows where the 500 of the other tables would be up to 500,000; `GitLabRawStore.purgeAll` drains commits, then users, then projects. The telemetry size

@@ -1,0 +1,33 @@
+{
+  "priority": 6,
+  "request": {
+    "method": "GET",
+    "urlPath": "/api/v4/projects/1/repository/merge_base",
+    "queryParameters": {
+      "refs[]": {
+        "includes": [
+          {
+            "equalTo": "954c312b0de72b90bf9aa9224d397f4ab617e240"
+          },
+          {
+            "equalTo": "3ca4d1791746a0b6c722b7bf94edc2263bba7bf3"
+          }
+        ]
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json",
+      "RateLimit-Limit": "2000",
+      "RateLimit-Observed": "10",
+      "RateLimit-Remaining": "1990",
+      "RateLimit-Reset": "1788220860",
+      "RateLimit-ResetTime": "Tue, 01 Sep 2026 00:01:00 GMT"
+    },
+    "bodyFileName": "p1-merge-base-candidate-954c312b0de7-by-tip-day2.json"
+  },
+  "scenarioName": "gitlab-day2",
+  "requiredScenarioState": "day2"
+}

@@ -90,20 +90,34 @@ internal class GitLabCommitWrites(private val database: R2dbcDatabase) {
         }
     }
 
-    /** One `UPDATE` of the project row: the walked head, and the re-list request set or cleared. */
+    private fun project(connectionId: UInt, projectId: Long) = (Projects.connectionId eq connectionId) and (Projects.projectId eq projectId)
+
+    /** One `UPDATE` of the project row: the walked head, and the re-list request set or cleared (clearing it drops the re-list epoch). */
     suspend fun recordCommitsHead(connectionId: UInt, projectId: Long, headSha: String, relistRequested: Boolean) {
         suspendTransaction(database) {
-            Projects.update({ (Projects.connectionId eq connectionId) and (Projects.projectId eq projectId) }) {
+            Projects.update({ project(connectionId, projectId) }) {
                 it[commitsHeadSha] = headSha
                 it[Projects.relistRequested] = relistRequested
+                if (!relistRequested) it[relistStartedAt] = null
             }
         }
     }
 
-    suspend fun requestRelist(connectionId: UInt, projectId: Long) {
+    /** Sets `relist_requested` and the epoch (kept if already set, so a re-list that spans runs has ONE epoch); returns the epoch. */
+    suspend fun beginRelist(connectionId: UInt, projectId: Long, now: Long): Long = suspendTransaction(database) {
+        Projects.update({ project(connectionId, projectId) and Projects.relistStartedAt.isNull() }) { it[relistStartedAt] = now }
+        Projects.update({ project(connectionId, projectId) }) { it[relistRequested] = true }
+        val row = Projects.select(Projects.relistStartedAt).where { project(connectionId, projectId) }.toList().single()
+        row[Projects.relistStartedAt] ?: now
+    }
+
+    /** The end of a sweep: the head when there is one, the request as [moreToDo], and the epoch cleared once nothing is left to do. */
+    suspend fun finishRelist(connectionId: UInt, projectId: Long, headSha: String?, moreToDo: Boolean) {
         suspendTransaction(database) {
-            Projects.update({ (Projects.connectionId eq connectionId) and (Projects.projectId eq projectId) }) {
-                it[relistRequested] = true
+            Projects.update({ project(connectionId, projectId) }) {
+                if (headSha != null) it[commitsHeadSha] = headSha
+                it[relistRequested] = moreToDo
+                if (!moreToDo) it[relistStartedAt] = null
             }
         }
     }

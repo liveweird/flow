@@ -61,7 +61,7 @@ class MigrationChecksumTest {
         "V39__history_horizon_months.sql" to -441676957,
         "V40__source_connection_kind_gitlab.sql" to 58882136,
         "V41__gitlab_raw_store.sql" to 1702253531,
-        "V42__gitlab_commits_raw_store.sql" to 1080390170,
+        "V42__gitlab_commits_raw_store.sql" to 565422636,
     )
 
     @Test

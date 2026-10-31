@@ -582,7 +582,7 @@ REPROCESS are accepted no-ops until PR 9/10, PURGE drains `raw.gitlab_*` (commit
   page's rows in one transaction and cleared at the end of a completed pass (the sweep's reference instant survives a resume); a cursor with
   `groupIndex == groups` means only the sweep is left. A `projects` cursor resumes only when its `groups` equal the configured group paths;
   otherwise (an edited list, or a cursor written before the field existed) it is dropped and the pass restarts.
-- **`commits`** (`CommitsCursor`): `{passStartedAt, lastCompletedProjectId, walk}` with `walk = {projectId, mode FULL|RANGE|RELIST, refName, since, page, tipSha, sinceMillis, listingDone}`;
+- **`commits`** (`CommitsCursor`): `{passStartedAt, lastCompletedProjectId, walk}` with `walk = {projectId, mode FULL|RANGE|RELIST, refName, since, page, tipSha, sinceMillis, listingDone, epochMillis}`;
   every listing page commits with it, a RELIST's last page sets `listingDone` (the sweep's `merge_base` calls run outside a transaction and resume from it), a
   walk for a branch other than the stored `default_branch` is dropped, cleared when the pass ends. **`commit_files`** has no cursor: the backlog (`raw.gitlab_commits`
   with `files_fetched_at` null, live, non-merge) is its state.

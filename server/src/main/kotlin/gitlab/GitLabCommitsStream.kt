@@ -26,12 +26,13 @@ private const val MAX_LOGGED_IDS = 20
  *    force-push: the request is recorded (`relist_requested`) and the project is **RELISTED**.
  * A renamed default branch needs no special case: the head is a SHA.
  *
- * A RELIST lists the branch from `since` = the oldest live stored commit's date (not the backfill floor, which moves forward daily and
- * would sweep the commits between the old and the new floor); its sweep ([sweep]) tombstones the commits that left the branch, each
- * CONFIRMED against it first. Every listing page commits its rows and the cursor together; the head moves (and a re-list request is
- * cleared) with the last page of a FULL or RANGE walk and with the sweep of a RELIST, so a run cut anywhere resumes where it stopped
- * and never records a head over commits it has not stored. A project without a default branch, or whose branch or
- * project answers `NOT_FOUND`, is skipped (counted, one WARN naming ids); PROJECTS will rename it or RECONCILE (PR 9) delete it.
+ * A RELIST lists the branch from `since` = the oldest live stored commit's date, never before the backfill floor (not the floor alone: it
+ * moves forward daily and would sweep the commits between the old and the new one); its sweep ([sweep]) tombstones the commits that
+ * left the branch, each CONFIRMED against it first. Every listing page commits its rows and the cursor together; the head moves (and
+ * a re-list request is cleared) with the last page of a FULL or RANGE walk and with the sweep of a RELIST, so a run cut anywhere
+ * resumes where it stopped and never records a head over commits it has not stored. A project without a default branch, or whose
+ * branch or project answers `NOT_FOUND` (on a CHECK or mid-listing), is skipped (counted, one WARN naming ids, any re-list request left
+ * as it was); PROJECTS will rename it or RECONCILE (PR 9) delete it.
  *
  * Progress: `pages` (listing pages), `commits` (inserted), `commitsTombstoned`, `commitsRelisted`, `commitsSweepKept`,
  * `commitsSweepUnconfirmed`, `commitsSweepDeferred` (candidates beyond the per-run cap), `commitsProjectsSkipped`.
@@ -70,7 +71,10 @@ internal class GitLabCommitsStream(
                     skippedIds += project.projectId
                     context.incrementProgress("commitsProjectsSkipped")
                 }
-                is Decision.Walk -> walk(context, pass, decision.cursor)
+                is Decision.Walk -> if (!walk(context, pass, decision.cursor)) {
+                    skippedIds += project.projectId
+                    context.incrementProgress("commitsProjectsSkipped")
+                }
             }
             context.heartbeat(changed = false) // a project that wrote nothing still checks the lease and the clock
         }
@@ -88,7 +92,7 @@ internal class GitLabCommitsStream(
         val branch = project.defaultBranch ?: return Decision.Skip
         val id = project.projectId
         val head = project.headSha ?: return Decision.Walk(fullWalk(id, branch))
-        if (project.relistRequested) return Decision.Walk(relistWalk(context.connectionId, id, branch))
+        if (project.relistRequested) return Decision.Walk(relistWalk(context, id, branch))
         return check(context, id, branch, head)
     }
 
@@ -107,34 +111,44 @@ internal class GitLabCommitsStream(
             if (unknown.code == REF_NOT_FOUND) null else throw unknown
         }
         if (base == head) return Decision.Walk(CommitsWalkCursor(id, WalkMode.RANGE, "$head..$branch"))
-        context.transaction { rawStore.requestRelist(context.connectionId, id) }
-        return Decision.Walk(relistWalk(context.connectionId, id, branch))
+        return Decision.Walk(relistWalk(context, id, branch))
     }
 
     private fun fullWalk(projectId: Long, branch: String) =
         CommitsWalkCursor(projectId, WalkMode.FULL, branch, since = isoInstant(backfillFromMillis), sinceMillis = backfillFromMillis)
 
-    private suspend fun relistWalk(connectionId: UInt, projectId: Long, branch: String): CommitsWalkCursor {
-        val sinceMillis = rawStore.oldestLiveCommittedAt(connectionId, projectId) ?: backfillFromMillis
-        return CommitsWalkCursor(projectId, WalkMode.RELIST, branch, since = isoInstant(sinceMillis), sinceMillis = sinceMillis)
+    /**
+     * Begins (or continues) the project's re-list: the request and the epoch are recorded first, so a run cut anywhere finds both. The
+     * listing starts at the oldest live stored commit, but never before the backfill floor (an ancient commit merged in through a RANGE
+     * must not make a re-list list the whole repository).
+     */
+    private suspend fun relistWalk(context: StreamContext, projectId: Long, branch: String): CommitsWalkCursor {
+        val epoch = context.transaction { rawStore.beginRelist(context.connectionId, projectId, context.clock()) }
+        val oldest = rawStore.oldestLiveCommittedAt(context.connectionId, projectId) ?: backfillFromMillis
+        val sinceMillis = maxOf(oldest, backfillFromMillis)
+        return CommitsWalkCursor(
+            projectId, WalkMode.RELIST, branch, since = isoInstant(sinceMillis), sinceMillis = sinceMillis, epochMillis = epoch,
+        )
     }
 
     /**
      * Walks one project: the listing, page by page, then (a RELIST only) the sweep. A saved walk whose listing is done goes straight to
-     * the sweep.
+     * the sweep. False when the branch or project answered `NOT_FOUND` mid-listing (a FULL or RELIST): the project is skipped like a
+     * CHECK that finds it gone, with whatever re-list request it had left as it was.
      */
-    private suspend fun walk(context: StreamContext, pass: Pass, start: CommitsWalkCursor) {
-        val listed = if (start.listingDone) start else list(context, pass, start)
+    private suspend fun walk(context: StreamContext, pass: Pass, start: CommitsWalkCursor): Boolean {
+        val listed = (if (start.listingDone) start else list(context, pass, start)) ?: return false
         if (listed.mode == WalkMode.RELIST) sweep(context, pass, listed)
         pass.lastCompleted = listed.projectId
+        return true
     }
 
     /**
      * Commits each listing page with the cursor. The last page of a FULL or RANGE walk also moves the head and moves the cursor past
      * the project; a RELIST's last page only marks the listing done (the sweep needs calls, which never run inside a transaction).
-     * Returns the cursor as it ended (a RANGE that turned into a RELIST returns the RELIST's).
+     * Returns the cursor as it ended (a RANGE that turned into a RELIST returns the RELIST's), or null for a skipped project.
      */
-    private suspend fun list(context: StreamContext, pass: Pass, start: CommitsWalkCursor): CommitsWalkCursor {
+    private suspend fun list(context: StreamContext, pass: Pass, start: CommitsWalkCursor): CommitsWalkCursor? {
         var cursor = start
         val budget = RunBudget(GITLAB_SOURCE, COMMITS_ENDPOINT, ceilings.commits, "commits")
         while (true) {
@@ -142,10 +156,11 @@ internal class GitLabCommitsStream(
             val answer = try {
                 client.commits(cursor.projectId, cursor.refName, cursor.since, cursor.page)
             } catch (gone: FetchException) {
-                // The stored head is unknown to GitLab: the history was rewritten under it. Re-list this project in the same run.
-                if (gone.code != NOT_FOUND || cursor.mode != WalkMode.RANGE) throw gone
-                context.transaction { rawStore.requestRelist(context.connectionId, cursor.projectId) }
-                cursor = relistWalk(context.connectionId, cursor.projectId, cursor.branch)
+                if (gone.code != NOT_FOUND) throw gone
+                // A RANGE's stored head is unknown to GitLab: the history was rewritten under it. Re-list this project in the same run.
+                // Any other listing finding its branch or project gone is a project to skip, as a CHECK does.
+                if (cursor.mode != WalkMode.RANGE) return null
+                cursor = relistWalk(context, cursor.projectId, cursor.branch)
                 continue
             }
             budget.add(answer.commits.size)
@@ -179,48 +194,69 @@ internal class GitLabCommitsStream(
     /**
      * The end of a RELIST. GitLab's `since` is git's `--since`, which does not filter: it STOPS walking once everything queued is older
      * than the date, and the parents of an older-dated commit are then not listed at all. A commit with a skewed date (committed
-     * before its parent) can therefore be missing from the listing while still on the branch, so "not listed" is only a CANDIDATE:
-     * the project's live commits at or after `since` that this pass did not see are each confirmed with `merge_base(commit, branch)`.
-     * The commit itself means it is still an ancestor of the tip (kept, `last_seen_at` touched); another commit, or `REF_NOT_FOUND`,
-     * means it left the branch (tombstoned - a rewritten-away commit usually still exists in the repository, so its merge base is
-     * the fork point); any other failure keeps it, counts it and leaves the re-list request set. At most
-     * [MAX_SWEEP_CONFIRMATIONS] are confirmed per run; if more candidates remain the request stays set and the next run goes on. The
-     * calls run outside a transaction; the verdicts, the new head and the cursor land in one.
+     * before its parent) can therefore be missing from the listing while still on the branch, so "not listed" is only a CANDIDATE: the
+     * project's live commits at or after `since` that nothing has seen since the re-list EPOCH (`relist_started_at`, set when the
+     * re-list began and kept until it ends, so a candidate kept in one run never re-qualifies in the next).
+     *
+     * Each candidate is confirmed against the LISTING'S SNAPSHOT, `merge_base(commit, tip)` (the branch only when the listing was empty):
+     * the commit itself means it is still an ancestor (kept); another commit, or `REF_NOT_FOUND`, means it left the branch
+     * (tombstoned - a rewritten-away commit usually still exists in the repository, so its merge base is the fork point). A
+     * `REF_NOT_FOUND` is only believed if the tip is still on the branch (`merge_base(tip, branch)`, one probe): a branch renamed, a
+     * project deleted or a force-push between the listing and the sweep must not tombstone anything. Any other failure, or a failed
+     * probe, makes a candidate UNCONFIRMED: kept and counted like a confirmed one, because keeping a gone commit live is the safe error
+     * (RECONCILE, PR 9, re-checks) and a persistently failing candidate must not pin the project in RELIST. Kept and unconfirmed
+     * candidates are touched, which takes them out of the candidate set.
+     *
+     * At most [MAX_SWEEP_CONFIRMATIONS] are confirmed per run; only when more candidates remain does the request (and the epoch) stay
+     * set for the next run. The calls run outside a transaction; the verdicts, the head (kept when the listing was empty) and the cursor
+     * land in one.
      */
     private suspend fun sweep(context: StreamContext, pass: Pass, cursor: CommitsWalkCursor) {
         val since = checkNotNull(cursor.sinceMillis) { "a RELIST walk always carries its since" }
-        val candidates =
-            rawStore.staleCommitShas(context.connectionId, cursor.projectId, since, pass.startedAt, MAX_SWEEP_CONFIRMATIONS + 1)
+        val epoch = checkNotNull(cursor.epochMillis) { "a RELIST walk always carries its epoch" }
+        val candidates = rawStore.staleCommitShas(context.connectionId, cursor.projectId, since, epoch, MAX_SWEEP_CONFIRMATIONS + 1)
+        val batch = candidates.take(MAX_SWEEP_CONFIRMATIONS)
+        val tipResolves = batch.isEmpty() || cursor.tipSha == null || tipResolves(cursor.projectId, cursor.tipSha, cursor.branch)
         val kept = mutableListOf<String>()
         val gone = mutableListOf<String>()
-        var unconfirmed = 0
-        for (sha in candidates.take(MAX_SWEEP_CONFIRMATIONS)) {
-            when (verdict(cursor, sha)) {
+        val unconfirmed = mutableListOf<String>()
+        for (sha in batch) {
+            when (if (tipResolves) verdict(cursor, sha) else Verdict.UNCONFIRMED) {
                 Verdict.ON_BRANCH -> kept += sha
                 Verdict.OFF_BRANCH -> gone += sha
-                Verdict.UNCONFIRMED -> unconfirmed++
+                Verdict.UNCONFIRMED -> unconfirmed += sha
             }
             context.heartbeat(changed = false)
         }
-        val moreToDo = candidates.size > MAX_SWEEP_CONFIRMATIONS || unconfirmed > 0
+        val moreToDo = candidates.size > MAX_SWEEP_CONFIRMATIONS
         val tombstoned = context.transaction {
             val now = context.clock()
-            rawStore.touchCommits(context.connectionId, cursor.projectId, kept, now)
+            rawStore.touchCommits(context.connectionId, cursor.projectId, kept + unconfirmed, now)
             val count = rawStore.tombstoneCommits(context.connectionId, cursor.projectId, gone, now)
-            if (cursor.tipSha != null) rawStore.recordCommitsHead(context.connectionId, cursor.projectId, cursor.tipSha, moreToDo)
+            rawStore.finishRelist(context.connectionId, cursor.projectId, cursor.tipSha, moreToDo)
             context.incrementProgress("commitsRelisted")
             if (count > 0) context.incrementProgress("commitsTombstoned", count.toLong())
             if (kept.isNotEmpty()) context.incrementProgress("commitsSweepKept", kept.size.toLong())
-            if (unconfirmed > 0) context.incrementProgress("commitsSweepUnconfirmed", unconfirmed.toLong())
-            if (candidates.size > MAX_SWEEP_CONFIRMATIONS) context.incrementProgress("commitsSweepDeferred")
+            if (unconfirmed.isNotEmpty()) context.incrementProgress("commitsSweepUnconfirmed", unconfirmed.size.toLong())
+            if (moreToDo) context.incrementProgress("commitsSweepDeferred")
             context.putCursor(name, encodeCursor(CommitsCursor(pass.startedAt, cursor.projectId, null)))
             count
         }
         context.heartbeat(changed = tombstoned > 0 || kept.isNotEmpty())
     }
 
+    /**
+     * Whether the listing's tip is still an ancestor of the branch (so the project and the branch still exist and nothing was force-pushed
+     * since): one probe, `merge_base(tip, branch)`, before a `REF_NOT_FOUND` or a different merge base is believed.
+     */
+    private suspend fun tipResolves(projectId: Long, tip: String, branch: String): Boolean = try {
+        client.mergeBase(projectId, tip, branch) == tip
+    } catch (_: FetchException) {
+        false
+    }
+
     private suspend fun verdict(cursor: CommitsWalkCursor, sha: String): Verdict = try {
-        if (client.mergeBase(cursor.projectId, sha, cursor.branch) == sha) Verdict.ON_BRANCH else Verdict.OFF_BRANCH
+        if (client.mergeBase(cursor.projectId, sha, cursor.tipSha ?: cursor.branch) == sha) Verdict.ON_BRANCH else Verdict.OFF_BRANCH
     } catch (failure: FetchException) {
         if (failure.code == REF_NOT_FOUND) Verdict.OFF_BRANCH else Verdict.UNCONFIRMED
     }

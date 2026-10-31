@@ -132,6 +132,55 @@ class GitLabCommitStoreTest {
             store.touchCommits(connId, 1, emptyList(), now = 24_000)
         }
 
+    @Test
+    fun `a re-list keeps ONE epoch until it finishes, and finishing writes the request and keeps the head`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertProjects(connId, listOf(project(1)), now = 1_000)
+        store.recordCommitsHead(connId, 1, sha(7))
+        assertEquals(5_000L, store.beginRelist(connId, 1, now = 5_000))
+        assertEquals(5_000L, store.beginRelist(connId, 1, now = 9_000), "a second begin continues the same re-list")
+        assertEquals(5_000L, relistEpoch(connId))
+
+        store.finishRelist(connId, 1, headSha = null, moreToDo = true)
+        assertTrue(store.liveProjectsForCommits(connId).single().relistRequested)
+        assertEquals(5_000L, relistEpoch(connId), "work is left: the epoch stays")
+
+        store.finishRelist(connId, 1, headSha = null, moreToDo = false)
+        val done = store.liveProjectsForCommits(connId).single()
+        assertFalse(done.relistRequested)
+        assertEquals(sha(7), done.headSha, "an empty listing keeps the stored head")
+        assertNull(relistEpoch(connId), "nothing left: the epoch is dropped")
+
+        assertEquals(12_000L, store.beginRelist(connId, 1, now = 12_000), "the next re-list gets a new epoch")
+        store.finishRelist(connId, 1, headSha = sha(8), moreToDo = false)
+        assertEquals(sha(8), store.liveProjectsForCommits(connId).single().headSha)
+        store.beginRelist(connId, 1, now = 13_000)
+        store.recordCommitsHead(connId, 1, sha(9))
+        assertNull(relistEpoch(connId), "a plain head record clears the request and the epoch")
+    }
+
+    private suspend fun relistEpoch(connId: UInt): Long? =
+        store.projectRows(connId).single()[GitLabRawStore.Projects.relistStartedAt]
+
+    @Test
+    fun `the files backlog and its count only take the commits of live projects`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertProjects(connId, listOf(project(1), project(2)), now = 1_000)
+        store.upsertCommits(connId, 1, listOf(commit(1)), now = 1_000)
+        store.upsertCommits(connId, 2, listOf(commit(2)), now = 1_000)
+        assertEquals(2L, store.countPendingCommitFiles(connId))
+        assertEquals(2L, store.counts(connId).commitFilesPending)
+
+        store.upsertProjects(connId, listOf(project(1)), now = 5_000)
+        store.markProjectsMovedOutNotSeenSince(connId, passStartedAt = 5_000, now = 6_000)
+        assertEquals(listOf(1L), store.pendingCommitFiles(connId, 10).map { it.projectId })
+        assertEquals(1L, store.countPendingCommitFiles(connId))
+        assertEquals(1L, store.counts(connId).commitFilesPending, "the status count follows the same rule")
+
+        store.upsertProjects(connId, listOf(project(1), project(2)), now = 7_000)
+        assertEquals(2L, store.countPendingCommitFiles(connId), "a project seen again is live again")
+    }
+
     private suspend fun markProcessed(connId: UInt) {
         suspendTransaction(sharedDatabaseForTests()) {
             GitLabRawStore.Commits.update({ GitLabRawStore.Commits.connectionId eq connId }) { it[needsProcessing] = false }
@@ -164,7 +213,7 @@ class GitLabCommitStoreTest {
         store.upsertProjects(connId, listOf(project(1)), now = 1_000)
         assertNull(store.liveProjectsForCommits(connId).single().headSha)
 
-        store.requestRelist(connId, 1)
+        store.beginRelist(connId, 1, now = 1_000)
         assertTrue(store.liveProjectsForCommits(connId).single().relistRequested)
 
         val sha256 = "ab".repeat(32)
@@ -259,6 +308,7 @@ class GitLabCommitStoreTest {
     @Test
     fun `the backlog is newest first and excludes merges, tombstones and stamped commits`() = runBlocking<Unit> {
         val connId = connection()
+        store.upsertProjects(connId, listOf(project(1), project(2)), now = 1)
         store.upsertCommits(
             connId, 1,
             listOf(commit(1, committedAt = 1_000), commit(2, committedAt = 9_000), commit(3, committedAt = 5_000, parents = 2),
@@ -323,6 +373,7 @@ class GitLabCommitStoreTest {
     @Test
     fun `a resurrected commit keeps its files and stamp, NOT_FOUND is reset and LIMIT_EXCEEDED stays`() = runBlocking<Unit> {
         val connId = connection()
+        store.upsertProjects(connId, listOf(project(1), project(2)), now = 1)
         store.upsertCommits(connId, 1, (1..3).map { commit(it, committedAt = it * 1_000L) }, now = 1_000)
         store.flushCommitFiles(
             connId,

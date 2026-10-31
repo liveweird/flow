@@ -200,26 +200,35 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
   else `merge_base(head, branch)`: the head itself means the history only grew -> **RANGE** (`ref_name=<head>..<branch>`, which also catches commits
   merged in with old dates that a `since` cursor would miss); another commit, or `REF_NOT_FOUND`, is a force-push -> `relist_requested` is set and
   the project is RELISTED. A RANGE listing that answers `NOT_FOUND` (the head vanished) turns into a RELIST in the same run. A renamed default
-  branch needs no case: the head is a SHA. A project without a default branch, or whose branch or project answers `NOT_FOUND` on the CHECK, is
-  skipped (`commitsProjectsSkipped`, one WARN naming ids); PROJECTS will rename it or RECONCILE (PR 9) delete it. Every listing page commits its
-  rows and the cursor in one transaction; the head moves (and the request clears) with the LAST page of a FULL/RANGE walk and with the sweep of a
-  RELIST, never before the commits are stored. A saved walk for another branch than the stored `default_branch` is dropped. Budget:
-  `RunCeiling(500 pages, 50,000 commits)` per project per run (a trip is `LIMIT_EXCEEDED` before the page's transaction).
-  **RELIST and the `since` caveat (L3).** A RELIST lists the branch from `since` = the oldest LIVE stored commit's date (not the backfill floor,
-  which moves forward daily and would sweep the commits between the old and the new floor). GitLab's `since` is git's `--since`: it does NOT
-  filter, it STOPS walking once everything queued is older than the date, and the parents of an older-dated commit are then never listed. With
-  clock skew (the stub has 15 commits committed before their parent) a listing can miss commits that are still on the branch, so "not listed" is
-  only a CANDIDATE. At the end of the listing (outside any transaction) every candidate - live, `committed_at >= since`, not seen by the pass,
-  at most `MAX_SWEEP_CONFIRMATIONS` = 100 per project per run - is confirmed with `merge_base(candidate, branch)`: the commit itself means it is
-  still an ancestor (kept, `last_seen_at` touched, `commitsSweepKept`); another commit, or `REF_NOT_FOUND`, means it left the branch (tombstoned,
-  `needs_processing` set - a rewritten-away commit usually still exists as an unreachable object, so its merge base is the fork point); any other
-  failure keeps it (`commitsSweepUnconfirmed`). Over the cap, or with an unconfirmed candidate, the verdicts reached are applied, the head is
-  recorded and `relist_requested` STAYS set: the next run re-lists and finishes the rest (every confirmed candidate has left the set by then, so
-  repeated runs converge; `commitsSweepDeferred`). The same early stop can leave a gap in a FULL listing from the backfill floor; RECONCILE (PR 9)
-  is the catch-up. Progress: `pages`, `commits` (inserted), `commitsRelisted`, `commitsTombstoned`, `commitsSweepKept`,
+  branch needs no case: the head is a SHA. A project without a default branch, or whose branch or project answers `NOT_FOUND` (on the CHECK, or on the listing of a FULL or RELIST;
+  only a RANGE turns a `NOT_FOUND` into a RELIST), is skipped (`commitsProjectsSkipped`, one WARN naming ids, any re-list request left as it was);
+  PROJECTS will rename it or RECONCILE (PR 9) delete it. Every listing page commits its rows and the cursor in one transaction; the head moves (and
+  the request clears) with the LAST page of a FULL/RANGE walk and with the sweep of a RELIST, never before the commits are stored. A saved walk for
+  another branch than the stored `default_branch` is dropped. Budget: `RunCeiling(500 pages, 50,000 commits)` per project per run (a trip is
+  `LIMIT_EXCEEDED` before the page's transaction).
+  **RELIST and the `since` caveat (L3).** A RELIST lists the branch from `since` = the oldest LIVE stored commit's date, never before the backfill
+  floor (the floor alone moves forward daily and would sweep the commits between the old and the new floor; an ancient commit merged in through a
+  RANGE must not widen the window past it). GitLab's `since` is git's `--since`: it does NOT filter, it STOPS walking once everything queued is older
+  than the date, and the parents of an older-dated commit are then never listed. With clock skew (the stub has 15 commits committed before their
+  parent) a listing can miss commits that are still on the branch, so "not listed" is only a CANDIDATE.
+  *The epoch.* When a RELIST begins (`relist_requested` turns true) `raw.gitlab_projects.relist_started_at` is set, and kept until the flag clears.
+  The candidates are the project's live commits with `committed_at >= since` that nothing has seen since the epoch (`last_seen_at < relist_started_at`):
+  the listing's pages and the sweep's touches both count as seeing. A per-run pass start would re-qualify every kept candidate in every run; the epoch
+  makes each handled candidate (kept, unconfirmed or tombstoned) leave the set for good, so repeated runs converge.
+  *The confirmation* (after the listing, outside any transaction; at most `MAX_SWEEP_CONFIRMATIONS` = 100 per project per run): each candidate is
+  asked against the LISTING'S SNAPSHOT, `merge_base(candidate, tip)` (the branch only for an empty listing): the commit itself means it is still an
+  ancestor (kept, `commitsSweepKept`); another commit, or `REF_NOT_FOUND`, means it left the branch (tombstoned, `needs_processing` set - a rewritten-away
+  commit usually still exists as an unreachable object, so its merge base is the fork point). A `REF_NOT_FOUND` is believed only after ONE probe
+  `merge_base(tip, branch) == tip`: a branch renamed, a project deleted or a second force-push between the listing and the sweep makes the probe fail and
+  every candidate UNCONFIRMED. Unconfirmed (any other failure, or a failed probe) means KEPT and TOUCHED and counted (`commitsSweepUnconfirmed`):
+  keeping a gone commit live is the safe error (RECONCILE re-checks), and a persistently failing candidate must not pin the project in RELIST. Only when
+  MORE candidates remain than the cap does `relist_requested` (and the epoch) stay set for the next run (`commitsSweepDeferred`); otherwise the request
+  and the epoch clear, and an empty listing keeps the stored head. The same early stop can leave a gap in a FULL listing from the backfill floor;
+  RECONCILE (PR 9) is the catch-up. Progress: `pages`, `commits` (inserted), `commitsRelisted`, `commitsTombstoned`, `commitsSweepKept`,
   `commitsSweepUnconfirmed`, `commitsSweepDeferred`, `commitsProjectsSkipped`.
 - **COMMIT FILES** (as built, PR 7; `GitLabCommitFilesStream.kt`, cursor-less: the backlog IS its state) - the live NON-MERGE commits (`parent_count <= 1`;
-  a merge's diff is against its first parent, a double count) whose diff was never read, newest first, one `/commits/:sha/diff?per_page=100` chain at a
+  a merge's diff is against its first parent, a double count) of LIVE projects (not moved out or deleted: a moved-out project's commits cost no diff call and
+  are not counted in `commitFilesPending`, in this stream or the status view) whose diff was never read, newest first, one `/commits/:sha/diff?per_page=100` chain at a
   time (sequential: a GitLab job holds one permit), at most `gitlab.commitFilesPerRun` diff CALLS per run. The client transform counts each
   file's `+`/`-` lines (after the first `@@`; `---`/`+++` inside a hunk are content; not `\ No newline at end of file`) and drops the text, so the
   tree is garbage before the next call; a file with no `diff` string, or `too_large`/`collapsed`, keeps its path with NULL lines (unknown beats an
@@ -229,7 +238,8 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
   claimed batch of 50, and on a failure - so a run cut anywhere stores every complete commit and never half of one. Terminal outcomes are stamped so
   the backlog drains: a diff page over `gitlab.maxResponseBytes` or the node ceiling is `files_error = LIMIT_EXCEEDED` (`commitFilesOversized`), a
   commit GitLab no longer has `NOT_FOUND` (`commitFilesMissing`); both leave `files_changed` null. More than `max(10, 10 %)` oversized commits in
-  one run fail the run `LIMIT_EXCEEDED` (the shared `SkipBudget`: the cap is mis-set, not isolated outliers) and NONE of that run's oversized
+  one run fail the run `LIMIT_EXCEEDED` (the shared `SkipBudget`: the cap is mis-set, not isolated outliers; the same 11 oversized commits at the top of the newest-first backlog trip it on
+  EVERY run until `gitlab.maxResponseBytes` is raised, which is the point: nothing is stamped until the cap is fixed) and NONE of that run's oversized
   commits is stamped, so a mis-set cap does not strand the commits it met first. Reaching the call budget is normal (checks run between commits, so one
   commit may overshoot by up to nine calls). Progress: `commitFiles`, `commitFileRows`, `commitFilesCapped`, `commitFilesOversized`,
   `commitFilesMissing`, `commitFilesPending`.
@@ -294,7 +304,7 @@ permission list.
 ## Stub (as built, PR 5)
 
 `sample-data/gitlab/generate.mjs` (zero dependencies, seeded, byte-identical; `--users/--projects/--months/--out`) writes
-`sample-data/gitlab-stub/{mappings,__files}` (1,207 mappings, ~11 MiB) and `sample-data/gitlab/expected.json`. It is served by the
+`sample-data/gitlab-stub/{mappings,__files}` (1,221 mappings, ~11 MiB) and `sample-data/gitlab/expected.json`. It is served by the
 compose `gitlab-stub` (WireMock, `127.0.0.1:8095`, read-only mount; `GITLAB_STUB_BASE_URL` points the app at it) and the in-JVM
 `GitLabStubServer` (`server/src/test/kotlin/`, `JiraStubServer`'s twin); `GitLabStubServerTest` pins the contract over plain HTTP and
 `node --test sample-data/gitlab/generate.test.mjs` (in `scripts/gates.sh e2e` and the CI `e2e-static` job) guards the generator.
@@ -355,5 +365,5 @@ force-pushed project's old commits and its divergence commit are in the stub too
 - **Commit ↔ MR linking:** only merge and squash SHAs are stored for now.
 - **First-sync ordering:** `since` with out-of-order dates may stop early (see COMMITS, "RELIST and the `since` caveat"); RECONCILE's full re-list catches up.
 - **Real-instance confirmation** (the user's smoke run, PR 12): `a..b` ranges, `diffStatsSummary`, commit `/diff` paging, that `since` early-stops
-  the commit list (and does not filter) on the real instance, that `merge_base(<unreachable commit>, <branch>)` answers the fork point rather than an error,
+  the commit list (and does not filter) on the real instance, that the commits listing sends `X-Next-Page`, that `merge_base(<unreachable commit>, <branch>)` answers the fork point rather than an error,
   `RateLimit-*` headers and visible emails on that version. Only figures are shared back, never names or hosts.
