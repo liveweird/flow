@@ -47,7 +47,12 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   (a fetch size < ~250 rows) costs a round trip per statement and is not taken.
 - [todo] **CI duration: check the trend at every milestone.** Run `node scripts/timings/ci-times.mjs --branch master`.
   A trend jump gets an investigation, never a raised budget.
-  - Last checked 2026-10-30 (1.31.0): `server` median-5 16m22s (prev-5 12m53s, so a TREND +27 % flag; 30 master runs 10-28..10-30; min 9m18s,
+  - Last checked 2026-10-31 (1.38.0, the GitLab plan's end): `server` median-5 18m15s (prev-5 16m35s; 30 master runs 10-29..10-31; min
+    10m29s, max 19m10s), `web` 4m00s (TREND +38 % flag: the runner draw, 149-285 s run to run, the last two 169-181 s), `images` 4m10s — no
+    new jump: the fast mode is unchanged (658-715 s against 629-773 s) and the slow mode moved from 981-1084 s to 1095-1150 s as the suite
+    grew from ~2,280 to 2,831 tests over the GitLab PRs (each measured locally in WHY 55-58); `server`, `web`, `images` and `e2e-static` over
+    their alarms; nightly `e2e` median-5 12m56s.
+    2026-10-30 (1.31.0): `server` median-5 16m22s (prev-5 12m53s, so a TREND +27 % flag; 30 master runs 10-28..10-30; min 9m18s,
     max 18m04s), `web` 3m42s, `images` 3m03s — no new jump: the median equals the 1.28.0 check and the last 14 runs are the same two modes
     (fast 629-773 s, slow 981-1084 s; the slow mode was 982-988 s on 10-29), so the flag is the window moving across the draw; `server` and `web`
     still over their alarms; nightly `e2e` median-5 12m49s.
@@ -137,7 +142,9 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [todo] **Atlassian API-token quota: re-check developer.atlassian.com/changelog before releases.**
   - API-token traffic is excluded from the 2026 points-based rate limits.
   - Atlassian is evaluating a quota for tokens "with advance notice".
-  - Last checked 2026-10-30 (1.31.0): no token quota announced (the only new entry, a Forge custom-field UI RFC, does not touch Flow).
+  - Last checked 2026-10-31 (1.38.0): no token quota announced (the only entry since 10-29, the Forge custom-field UI RFC-154, does not touch
+    Flow).
+    2026-10-30 (1.31.0): no token quota announced (the only new entry, a Forge custom-field UI RFC, does not touch Flow).
     2026-10-30 (1.28.0): no token quota announced (entries through 10-28: Bitbucket SSH, Confluence byline, org-level app
     sharing, an MCP tool promotion — none touch Flow's endpoints). 2026-10-29 (1.26.0): no token quota announced (entries through 10-28; the 10-27 `portfolioChildIssuesOf()` JQL change
     does not touch Flow, which never sends it). 2026-10-28 (1.22.1): the 2026-10-20 Tier 2 clarification covers apps (per-tenant quotas), not tokens.
