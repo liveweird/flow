@@ -2146,6 +2146,21 @@ the time. `local-times.mjs slow-tests` reproduces this table for any run.
    - **Why it stays small.** The walk and details logic (watermarks, re-lists, the GraphQL breaker, the skip budget, deferred stamps) is tested against fake clients, not a stub SYNC per case; only the stub cases pay the real streams.
    - **Verdict.** No action; no budget changed (the 3-min target was missed before this PR; the alarm is 6 min). `server/test-weights.tsv` refreshed from this run. If the GitLab classes keep growing with PRs 9-11, the next lever is `GitLabConnectorTest`'s whole-stub SYNC cases, which could read `SyncedGitLabFixture` or a clone instead of syncing again.
 
+56. **GitLab RECONCILE adds ~5 s of class time; the 5m02s-5m13s gates were the fork balance, not the tests - MEASURED 2026-10-31 (`feat/gitlab-reconcile`, PR 9).**
+   Question: two gate runs on the PR 9 branch took 5m02s and 5m13s against a 4m49s median after WHY 55. Is RECONCILE's test cost that large?
+   - **World.** `scripts/gates.sh all` twice on the branch, then `node scripts/timings/local-times.mjs slow-tests --forks 2` and `test-weights` from the second run, then `scripts/gates.sh server` once more with the refreshed weights (the local machine, two forks).
+   - **Result.**
+
+     | run | GitLab classes | sum of class times | span | excess over sum/2 | `server-build` |
+     |---|---|---|---|---|---|
+     | WHY 55 (PR 8 head) | 21.3 s | 9m11s | 4m42s | 4.3 s | 4m58s |
+     | PR 9, master's weights | 26.4 s | 9m21s | 4m57s | **17 s (6.1 %)** | 5m13s |
+     | PR 9, refreshed weights | - | 9m07s | 4m36s | **2.2 s (0.8 %)** | 4m54s |
+
+     The new classes: `GitLabReconcileStreamsTest` 2.3 s (six stub cases on their own connections, no fixture), `GitLabReconcileTest` 0.7 s (fake client); `GitLabConnectorTest` +0.5 s (its day-zero RECONCILE case now walks every stream), `GitLabCommitsStreamTest`/`GitLabCommitsWalkTest` and the store tests the rest.
+   - **Why.** The weights file had no row for the two new classes, so the balancer placed them blind and one fork ran 17 s longer than the other; the class times themselves moved by ~5 s (the sum's other ±10 s is run-to-run noise: it went DOWN to 9m07s on the third run).
+   - **Verdict.** No budget changed. `server/test-weights.tsv` refreshed in this PR. Lesson for a PR that adds test classes: refresh the weights from its own full run BEFORE reading the gate time as a regression.
+
 ## Review cadence
 
 - Run `node scripts/timings/ci-times.mjs --branch master` at every milestone / PR, and in every
