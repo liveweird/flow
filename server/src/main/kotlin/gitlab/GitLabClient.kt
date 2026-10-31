@@ -49,6 +49,27 @@ interface GitLabClient {
      * is `FORBIDDEN_SCOPE`). The strings are extracted inside the transform, so no tree outlives the call.
      */
     suspend fun userEmails(userId: Long): List<String>
+
+    /**
+     * `GET /projects/:id/repository/commits` with `with_stats=true`, page [page] (1-based): the commits reachable from [refName] -
+     * a branch, a SHA or a range `a..b` (sent as a query VALUE, so the dots and the branch name are encoded, never spliced into the
+     * path) - newest first, limited to those committed after [since] (an ISO instant, [isoInstant]) when given. Each commit is reduced to
+     * a [GitLabCommitSummary] inside the transform: no message body, committer or diff is kept.
+     */
+    suspend fun commits(projectId: Long, refName: String, since: String?, page: Int): GitLabCommitPage
+
+    /**
+     * `GET /projects/:id/repository/merge_base`: the best common ancestor of [refA] and [refB], as its SHA. A ref GitLab does not know
+     * (it answers 400 or 404) is [REF_NOT_FOUND].
+     */
+    suspend fun mergeBase(projectId: Long, refA: String, refB: String): String
+
+    /**
+     * `GET /projects/:id/repository/commits/:sha/diff`, page [page] (1-based): the files of one commit, each reduced inside the transform
+     * to its path, flags and counted lines ([summarizeDiffFile]); the diff text is counted once and dropped. [sha] must be a full
+     * commit id ([SHA_PATTERN]) or the call is refused before any request.
+     */
+    suspend fun commitDiff(projectId: Long, sha: String, page: Int): GitLabDiffPage
 }
 
 /** One user of `/users` reduced to small values: the identity columns, the user's own emails and the slim payload (no `emails` yet). */
@@ -76,6 +97,9 @@ private val NUMERIC_ID = Regex("^[0-9]{1,18}$")
 
 /** The shape of a full group path: segments of letters, digits, `_`, `.` and `-` joined by `/`. */
 private val GROUP_PATH = Regex("^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]*)*$")
+
+private const val HTTP_BAD_REQUEST = 400
+private const val HTTP_NOT_FOUND = 404
 
 private val LENIENT_JSON = Json { ignoreUnknownKeys = true }
 
@@ -124,6 +148,37 @@ class HttpGitLabClient(
         }
     }
 
+    override suspend fun commits(projectId: Long, refName: String, since: String?, page: Int): GitLabCommitPage {
+        val endpoint = "/projects/${requireNumericId(projectId, "/projects/{id}/repository/commits")}/repository/commits"
+        val extra = buildMap {
+            put("ref_name", refName)
+            put("with_stats", "true")
+            since?.let { put("since", it) }
+        }
+        val paged = getPaged(endpoint, page, extra) { items -> items.map(::summarizeCommit) }
+        return GitLabCommitPage(paged.value, paged.nextPage, paged.total)
+    }
+
+    override suspend fun mergeBase(projectId: Long, refA: String, refB: String): String {
+        val endpoint = "/projects/${requireNumericId(projectId, "/projects/{id}/repository/merge_base")}/repository/merge_base"
+        return getTree(
+            endpoint,
+            repeatedQuery = listOf("refs[]" to refA, "refs[]" to refB),
+            statusCodeOverrides = mapOf(HTTP_BAD_REQUEST to REF_NOT_FOUND, HTTP_NOT_FOUND to REF_NOT_FOUND),
+        ) { tree ->
+            (tree as? JsonObject)?.text("id")?.takeIf { SHA_PATTERN.matches(it) }
+                ?: throw FetchException(GITLAB_SOURCE, "INVALID_RESPONSE", null, "/projects/{id}/repository/merge_base")
+        }
+    }
+
+    override suspend fun commitDiff(projectId: Long, sha: String, page: Int): GitLabDiffPage {
+        val template = "/projects/{id}/repository/commits/{sha}/diff"
+        if (!SHA_PATTERN.matches(sha)) throw FetchException(GITLAB_SOURCE, "INVALID_RESPONSE", null, template)
+        val endpoint = "/projects/${requireNumericId(projectId, template)}/repository/commits/$sha/diff"
+        val paged = getPaged(endpoint, page, emptyMap()) { items -> items.map(::summarizeDiffFile) }
+        return GitLabDiffPage(paged.value, paged.nextPage)
+    }
+
     private fun summarizeUser(item: JsonElement): GitLabUserSummary {
         val user = item as? JsonObject ?: throw FetchException(GITLAB_SOURCE, "INVALID_RESPONSE", null, "/users")
         val id = (user["id"] as? JsonPrimitive)?.longOrNull ?: throw FetchException(GITLAB_SOURCE, "INVALID_RESPONSE", null, "/users")
@@ -138,8 +193,15 @@ class HttpGitLabClient(
         )
     }
 
-    private suspend fun <T> getTree(path: String, query: Map<String, String> = emptyMap(), transform: (JsonElement) -> T): T =
-        http.requestAs(HttpMethod.Get, "$base$path", query, null, auth, pauseKey = pauseKey, transform = transform)
+    private suspend fun <T> getTree(
+        path: String,
+        query: Map<String, String> = emptyMap(),
+        repeatedQuery: List<Pair<String, String>> = emptyList(),
+        statusCodeOverrides: Map<Int, String> = emptyMap(),
+        transform: (JsonElement) -> T,
+    ): T = http.requestAs(
+        HttpMethod.Get, "$base$path", query, null, auth, statusCodeOverrides, repeatedQuery, pauseKey = pauseKey, transform = transform,
+    )
 
     private class Paged<T>(val value: T, val nextPage: Int?, val total: Long?)
 
