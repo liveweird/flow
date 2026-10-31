@@ -15,7 +15,9 @@ private const val MAX_LOGGED_IDS = 20
  * The end of RECONCILE's merge-request re-list: the tombstones, each CONFIRMED by GitLab first - the [CommitsSweep] discipline
  * (`gitlab-integration.md` "Streams"). A listing that does not show a merge request is only a CANDIDATE, never evidence: the live merge
  * requests of LIVE projects in a group the pass listed to its last page (`completedGroups`), updated at or after the floor (older ones
- * are kept but not re-checked), that nothing has seen since the pass began (`last_seen_at < passStartedAt`), newest first.
+ * are kept but not re-checked), that nothing has seen since the pass began (`last_seen_at < passStartedAt`), the stalest-checked first: a
+ * stable set of kept-but-unlisted merge requests larger than the cap rotates (each run's probes touch them, so the next run reaches the
+ * rest) instead of starving the tail.
  *
  * At most [MAX_MR_CONFIRMATIONS] are confirmed per run, grouped by project. Per project, in order:
  *  1. `GET /projects/:id` must answer 200 FIRST. A 404 means every candidate of the project is UNCONFIRMED; any other failure of this

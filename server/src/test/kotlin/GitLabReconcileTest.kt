@@ -411,6 +411,31 @@ class GitLabReconcileTest {
         assertEquals(total.toLong(), store.counts(connId).mergeRequestsDeleted)
     }
 
+    @Test
+    fun `a set of unlisted merge requests larger than the cap that all answer 200 is fully probed over two runs`() = runBlocking<Unit> {
+        val connId = connection()
+        val total = MAX_MR_CONFIRMATIONS + 5
+        store.upsertMergeRequests(connId, (1..total).map { mr(it.toLong()) }, now = SEEDED_AT)
+        val client = FakeClient().apply {
+            listing(mapOf(PLATFORM_GROUP to emptyList(), APPS_GROUP to emptyList()))
+            projectOf = { detail(it) }
+            mergeRequestOf = { _, iid -> mr(iid) }
+        }
+        reconcile(client, connId)
+        val firstRun = client.mrProbes.toSet()
+        assertEquals(MAX_MR_CONFIRMATIONS, firstRun.size)
+
+        Thread.sleep(5) // the second pass must start after the first pass's touches
+        client.mrProbes.clear()
+        reconcile(client, connId)
+        val secondRun = client.mrProbes.toSet()
+        val neverChecked = ((1L..total).toSet() - firstRun.map { it.second }.toSet()).map { 1L to it }
+        assertEquals(5, neverChecked.size)
+        assertTrue(secondRun.containsAll(neverChecked), "the five never checked come first in the next run")
+        assertEquals(total, (firstRun + secondRun).size, "every row was probed within two runs")
+        assertTrue(store.mergeRequestRows(connId).all { it[MergeRequests.deletedAt] == null })
+    }
+
     // --- 6. the stats re-ask -------------------------------------------------------------------------------------------------
 
     private suspend fun settledGaps(connId: UInt, vararg mrs: RawGitLabMergeRequest) {

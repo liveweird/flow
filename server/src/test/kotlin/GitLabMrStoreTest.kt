@@ -446,7 +446,7 @@ class GitLabMrStoreTest {
     }
 
     @Test
-    fun `reconcile candidates are the unseen live rows of live projects in the listed groups at or above the floor, newest first`() =
+    fun `reconcile candidates are the unseen live rows of live projects in the listed groups above the floor, stalest first`() =
         runBlocking<Unit> {
         val connId = connection()
         store.upsertProjects(connId, listOf(project(1), project(2), project(3, group = "tools", groupId = 8)), now = 1_000)
@@ -468,7 +468,7 @@ class GitLabMrStoreTest {
             "iid 3 is below the floor, 4 is of a moved-out project, 5 of another group, 6 is tombstoned, 7 was seen this pass")
         assertEquals(listOf(1L, 2L, 5L, 8L), candidates(listOf("platform", "tools", "platform")))
         assertEquals(listOf(1L, 2L), candidates(listOf("platform", "tools"), limit = 2))
-        assertEquals(listOf(1L, 2L, 7L, 8L), candidates(listOf("platform"), passStartedAt = 3_001), "the touch is before this pass")
+        assertEquals(listOf(1L, 2L, 8L, 7L), candidates(listOf("platform"), passStartedAt = 3_001), "the touched row is checked last")
         assertTrue(candidates(emptyList()).isEmpty())
         assertTrue(candidates(listOf("elsewhere")).isEmpty())
         val first = store.mrReconcileCandidates(connId, 5_000, 2_000, listOf("platform"), 1).single()
@@ -484,7 +484,7 @@ class GitLabMrStoreTest {
         val at = store.mrReconcileCandidates(connId, 5_000, passStartedAt = 2_000, listOf("platform"), 10).map { it.iid }
         assertEquals(listOf(2L), at, "last_seen_at == passStartedAt counts as seen by the pass")
         val after = store.mrReconcileCandidates(connId, 5_000, passStartedAt = 2_001, listOf("platform"), 10).map { it.iid }
-        assertEquals(listOf(1L, 2L), after)
+        assertEquals(listOf(2L, 1L), after, "the one seen at 2_000 is checked last")
     }
 
     @Test

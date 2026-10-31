@@ -304,7 +304,7 @@ class GitLabRawStore(database: R2dbcDatabase) {
 
     suspend fun countStaleMergeRequests(connectionId: UInt): Long = mrReads.countStaleMergeRequests(connectionId)
 
-    /** The merge requests RECONCILE's re-list did not see and that are old enough to be asked about (see [GitLabMrReads]). */
+    /** The merge requests RECONCILE's re-list did not show and that are old enough to ask about, stalest-checked first. */
     suspend fun mrReconcileCandidates(
         connectionId: UInt,
         floorMillis: Long,

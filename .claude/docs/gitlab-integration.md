@@ -194,8 +194,8 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
   (`GitLabUserSummary`) INSIDE the response transform, and each `/users/:id/emails` answer is reduced to its address strings inside its own, so the
   page's tree is garbage before the first emails call is parsed.
 - **SYNC order and guards** - the job first re-probes `/personal_access_tokens/self` and `/user`: a token with a scope beyond `read_*` fails
-  the job `TOKEN_SCOPE_TOO_BROAD`, an inactive one `TOKEN_INACTIVE` (`JobRefusedException`), before anything is stored. RECONCILE and REPROCESS are accepted no-ops until PR 9/10;
-  PURGE drains all four raw tables. The streams run PROJECTS -> USERS -> COMMITS -> COMMIT FILES. The job runs under the shared `CallTally` (GitLab's throttling lands under the stored `jira*` progress keys).
+  the job `TOKEN_SCOPE_TOO_BROAD`, an inactive one `TOKEN_INACTIVE` (`JobRefusedException`), before anything is stored. REPROCESS is an accepted no-op until PR 10; RECONCILE is below;
+  PURGE drains all six raw tables. The streams run PROJECTS -> USERS -> COMMITS -> COMMIT FILES. The job runs under the shared `CallTally` (GitLab's throttling lands under the stored `jira*` progress keys).
 - **COMMITS** (as built, PR 7; `GitLabCommitsStream.kt` + `GitLabCommitsSweep.kt`, cursor `{passStartedAt, lastCompletedProjectId, walk}`) - per live project in id order
   (`moved_out_at`/`deleted_at` null), the commits of the DEFAULT branch into `raw.gitlab_commits` (no hash, a commit is immutable by SHA; the stored
   whitelist is `title`, author name/email, authored/committed time, parent count and `stats`: never the body, the committer or a diff). What a
@@ -206,7 +206,7 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
   the project is RELISTED. A RANGE listing that answers `NOT_FOUND` (the head vanished) turns into a RELIST in the same run. A renamed default
   branch needs no case: the head is a SHA. A project without a default branch, or whose branch or project answers `NOT_FOUND` (on the CHECK, or on the listing of a FULL or RELIST;
   only a RANGE turns a `NOT_FOUND` into a RELIST), is skipped (`commitsProjectsSkipped`, one WARN naming ids, any re-list request left as it was);
-  PROJECTS will rename it or RECONCILE (PR 9) delete it. Every listing page commits its rows and the cursor in one transaction; the head moves (and
+  PROJECTS will rename it or RECONCILE delete it. Every listing page commits its rows and the cursor in one transaction; the head moves (and
   the request clears) with the LAST page of a FULL/RANGE walk and with the sweep of a RELIST, never before the commits are stored. A saved walk for
   another branch than the stored `default_branch` is dropped. Budget: `RunCeiling(500 pages, 50,000 commits)` per project per run (a trip is
   `LIMIT_EXCEEDED` before the page's transaction).
@@ -237,7 +237,7 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
   TOUCHED and counted (`commitsSweepUnconfirmed`): keeping a gone commit live is the safe error (RECONCILE re-checks), and a persistently failing
   candidate must not pin the project in RELIST. Only when MORE candidates remain than the cap does `relist_requested` (and the epoch) stay set for the
   next run (`commitsSweepDeferred`); otherwise the request and the epoch clear, and a missing tip keeps the stored head. The same early stop can leave a
-  gap in a FULL listing from the backfill floor; RECONCILE (PR 9) is the catch-up. Progress: `pages`, `commits` (inserted), `commitsRelisted`,
+  gap in a FULL listing from the backfill floor; RECONCILE's `since`-less walk (below) is the catch-up. Progress: `pages`, `commits` (inserted), `commitsRelisted`,
   `commitsTombstoned`, `commitsSweepKept`, `commitsSweepUnconfirmed`, `commitsSweepDeferred`, `commitsProjectsSkipped`.
 - **COMMIT FILES** (as built, PR 7; `GitLabCommitFilesStream.kt`, cursor-less: the backlog IS its state) - the live NON-MERGE commits (`parent_count <= 1`;
   a merge's diff is against its first parent, a double count) of LIVE projects (not moved out or deleted: a moved-out project's commits cost no diff call and
@@ -266,7 +266,7 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
   nothing (`mrGroupsSkipped`). **Newest first** is deliberate: with offset paging a merge request UPDATED mid-pass moves to the FRONT and the next page
   re-shows one already seen (an `UNCHANGED`), whereas `sort=asc` would skip the first item of the next page. It does NOT cover an item that DROPS OUT
   mid-pass (a merge request deleted, or leaving the group): everything after it shifts one place earlier and the first item of the next page is skipped,
-  with an `updated_at` below the watermark. **That residual gap is closed by RECONCILE (PR 9), which re-lists every group's merge requests from the floor
+  with an `updated_at` below the watermark. **That residual gap is closed by RECONCILE (below), which re-lists every group's merge requests from the floor
   with no watermark.**
   **Incremental per group:** a group's first pass asks `updated_after` from the backfill floor, every later pass from its WATERMARK minus
   `MR_LIST_OVERLAP_MILLIS` (15 min). The watermark is GitLab's OWN clock - the largest `updated_at` the group's pages showed, page 1's first item - and it
@@ -283,7 +283,7 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
   live stored project is `mrGroupsSkipped`. The heartbeat counts as progress whenever the page cursor advanced. A merge request whose project is not a stored project row
   (an archived one, an older server ignoring `non_archived`) is skipped and counted (`mrSkipped`, one WARN per run naming at most 20 ids); any stored
   project, moved out included, qualifies. **Nothing here tombstones:** a merge request an incremental listing omits is no evidence it is gone;
-  `deleted_at` is RECONCILE's (PR 9, positive check only). Ceiling: `GitLabCeilings.mergeRequests` (1,000 pages / 100,000 items per group per run;
+  `deleted_at` is RECONCILE's, on a positive check only. Ceiling: `GitLabCeilings.mergeRequests` (1,000 pages / 100,000 items per group per run;
   `LIMIT_EXCEEDED` before the page's transaction, the cursor resumes). Stated assumptions, on the PR 12 smoke list: `updated_after` is inclusive, filters by
   `updated_at` and is unaffected by deletions; `non_archived` defaults to true. A merge request in a project created after PROJECTS ran but listed before
   the next PROJECTS pass is skipped (`mrSkipped`); the project's later arrival re-lists the group from the floor (above). Progress:
@@ -308,18 +308,45 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
   the GraphQL call answering `errors[]`, a null project or lacking a merge request, or failing with `INVALID_RESPONSE`/`NOT_FOUND`/`LIMIT_EXCEEDED`/`REDIRECT`/`FORBIDDEN_SCOPE` (answer problems, or fast and usually permanent: GraphQL disabled,
   redirected or refused) -> a NULL
   GAP for those merge requests (`mrDiffStatsGaps`, counted when the merge request is stamped; one WARN per run with the count and the first error code),
-  stamped complete and NOT asked again until the merge request changes (RECONCILE may re-ask). **The GraphQL circuit breaker:** the first failure of a
+  stamped complete and NOT asked again until the merge request changes (RECONCILE re-asks the gaps and un-stamps failed reads, below). **The GraphQL circuit breaker:** the first failure of a
   TRANSIENT-outage kind (`TIMEOUT`, `UPSTREAM_UNAVAILABLE`) makes NO further GraphQL call for the rest of the run (`mrGraphqlBreaker` 1, one WARN) but the stream
   KEEPS DRAINING: every merge request settled from then on, the failing batch included, is stamped with its stats gapped and its REST reads go on, so an
   outage costs one GraphQL call a run and never stalls the events backlog (a disabled, redirected or refused endpoint is a gap per batch instead). Every other failure - a rate limit, a rejected token, a
   blocked host - propagates after the deferred stamps are written. Progress: `mrDetails`, `mrEvents`, `mrNotesCapped`, `mrDetailsMissing`,
   `mrDetailsOversized`, `mrDetailsFailed`, `mrDiffStatsGaps`, `mrGraphqlBreaker`, `mrApprovalsUnavailable`, `mrReviewersUnavailable`, `mrDetailsPending`.
-- **RECONCILE** — a SHA re-list per project tombstones vanished commits; a 404 marks a project deleted; a moved project is
-  marked out of scope; an archived project keeps its data; an MR id re-list tombstones deleted MRs. **PR 9 must also** re-list every group's merge
-  requests from the backfill floor with NO watermark (the catch-all for an item that dropped out of the newest-first listing mid-pass and shifted a
-  neighbour out of reach); re-ask the GraphQL stats of GAPPED merge requests, breaker gaps included; re-read the merge requests stamped `FETCH_FAILED` (and
-  `LIMIT_EXCEEDED`, if cheap) - a merged or closed one never changes, so nothing else will; and the status view gains a count of merge requests whose
-  details are unread (`FETCH_FAILED` / `LIMIT_EXCEEDED` / `NOT_FOUND`; no status or spec change in PR 8).
+- **RECONCILE** (as built, PR 9; `GitLabConnector.runReconcile`) - once a day past `reconcile_hour_utc` and on "Reconcile now" (the queue, schedule, back-off, V38 pause and button
+  are the existing ones). The token is re-probed first, then three streams run in this order under the shared tally, each with its own `current_stream`: the cheap, high-value
+  merge-request work lands before the ~800-call commits walk, so a wall-clock stop lands in the commits. Nothing SYNC's cursors hold is read or written; every cursor is cleared at the
+  pass end. Durable changes (tombstones, marks, refilled stats, un-stamps, an upsert that changed a row, a confirmation batch that kept candidates) heartbeat `changed = true`; a listing
+  page of unchanged rows and a probe that wrote nothing heartbeat `false`, so a RECONCILE that trips a ceiling every day without changing anything is paused like a SYNC.
+  1. **`reconcile_projects`** (`GitLabReconcileProjectsStream`, no cursor) - `GET /projects/:id` for each moved-out, not yet deleted project (at most `MAX_PROJECT_PROBES` = 500): a
+     **404** sets `deleted_at` (`projectsDeleted`; guarded, so a repeat writes nothing), a 200 with `archived` sets `archived = true` and nothing else (`projectsArchived`), any other
+     200 writes nothing (`projectsProbed`). The 200 body is NEVER upserted (`changeProject` would resurrect the row). A deletion cascades nothing: the project's commits and merge
+     requests keep their rows. A deleted LIVE project becomes moved out at the next SYNC and deleted at the next RECONCILE.
+  2. **`reconcile_merge_requests`** (`GitLabMergeRequestsStream` in `reconcile` mode, cursor `MergeRequestsCursor` with `reconcile {passStartedAt, completedGroups, listingDone}` and
+     empty watermarks) - every group re-listed from the backfill floor, same page transaction and ceiling. The **candidates** are the live merge requests of LIVE projects in a group
+     the pass listed to its last page, updated at or after the floor, not seen since the pass began - stalest-checked first, so a stable unlisted set larger than the cap rotates.
+     Each is **confirmed** before it is tombstoned (the commits sweep's discipline): `GET /projects/:id` must answer 200 first (404: every candidate unconfirmed; another failure
+     propagates), then `GET .../merge_requests/:iid` - 200 keeps it (the body is stored: unchanged rows are touched, a changed one is refreshed and its details go stale; `mrReconcileKept`),
+     404 is tentative, any other failure leaves it live and touched (`mrReconcileUnconfirmed`); if any verdict was 404 the project is probed again and only a 200 tombstones them
+     (`deleted_at`, PROCESS flagged, events kept; `mergeRequestsDeleted`). At most `MAX_MR_CONFIRMATIONS` = 200 per run (`mrReconcileDeferred`). What prevents a wrong tombstone: a failing
+     listing propagates before any sweep; a skipped page makes a candidate that answers 200; a group that was `NOT_FOUND` or skipped is not in `completedGroups`; an invisible project
+     fails the pre-probe, one lost mid-batch the post-probe; a project that moved out of the group minutes ago answers 200 by id and is kept (the next SYNC marks it moved out and the
+     next RECONCILE excludes it); a merge request exactly at the floor is probed and kept; a project with merge requests switched off answers 200 while its merge requests 404 - they ARE
+     tombstoned (rows and events stay; a listing that shows them again resurrects them). After the sweep the **stats re-ask** (settled live merge requests of live projects with no
+     diff stats, grouped by project, 50 per GraphQL call, at most `RECONCILE_STATS_CALLS` = 100 calls; an outage code ends the pass, a gap code or a null project moves on; the stamp is
+     untouched; `mrStatsRefilled`, `mrGraphqlBreaker`) and the **details retries** (ONE un-stamp of at most `RECONCILE_DETAILS_RETRIES` = 10 merge requests stamped `FETCH_FAILED` or
+     `NOT_FOUND`, the stalest first, so the next SYNC's MR DETAILS reads them; `LIMIT_EXCEEDED` is included only on "Reconcile now", because an oversized merge request stays
+     oversized until `gitlab.maxResponseBytes` is raised; `mrDetailsRetried`). RECONCILE never runs MR DETAILS itself.
+  3. **`reconcile_commits`** (`GitLabCommitsStream` in `reconcile` mode, a `CommitsCursor` whose walk has `reconcile = true`) - a project without a head is left to SYNC's FULL walk; every
+     other synced project gets a RELIST under a FRESH epoch (so the candidates earlier kept UNCONFIRMED are asked again) with NO `since` on the wire: GitLab's `since` cuts a
+     skew-dated commit AND its parents, so only a walk from the tip lists them. Rows older than the floor are passed through, never stored, and the listing ends after a page entirely
+     older than the floor minus `RECONCILE_COMMITS_SLACK_MILLIS` (14 days). The sweep is the unchanged `CommitsSweep`. A branch or project answering `NOT_FOUND` is skipped with its request left
+     set (the renamed default branch: the next SYNC follows it).
+  Daily cost at scale (~200 projects, 60k in-window commits, 20k merge requests): ~1,000-1,100 calls, 1-2 minutes at 10-20 calls/s, far inside `ingest.maxJobMinutes`. Progress keys:
+  `projectsDeleted`, `projectsArchived`, `projectsProbed`, `mrReconcileCandidates`, `mrReconcileKept`, `mrReconcileUnconfirmed`, `mrReconcileDeferred`, `mergeRequestsDeleted`,
+  `mrStatsRefilled`, `mrGraphqlBreaker`, `mrDetailsRetried`, plus the listings' own (`pages`, `commits`, `commitsRelisted`, `commitsTombstoned`, `commitsSweep*`, `commitsProjectsSkipped`,
+  `mergeRequestsChanged`, `mrSkipped`, `mrGroupsSkipped`, `mrGroupsNotFound`). The two new outbound GETs go through the same guarded client as every call. REPROCESS stays a no-op until PR 10.
 - **PROCESS / PROFILE** — into `norm.code_*` under `CODE_PROCESSING_VERSION`, separate from Jira's `PROCESSING_VERSION`, so
   neither side reprocesses the other.
 
@@ -365,8 +392,8 @@ file then counts unless it is itself excluded (the stub's `special.tooLarge` pin
   parent count, title, stats, the three-state files model: `files_fetched_at IS NULL` = pending, terminal `files_error` (`LIMIT_EXCEEDED`/`NOT_FOUND`)
   with `files_changed` null, complete otherwise; `files_capped`, tombstone, processing columns, partial indexes for the files backlog and PROCESS),
   `raw.gitlab_commit_files` (cascades with its commit; paths cut to 1,024 characters and 2,000 bytes). The ADMIN status view
-  (`GET /api/v1/data-sources/{id}/status`, `counts.gitlab`) carries `commits`, `commitsMerge`, `commitsDeleted` and `commitFilesPending`, and (V43) `mergeRequests`, `mergeRequestsMerged`, `mrEvents`, `mrDetailsPending` and `mrDiffStatsMissing` (counts only; the pending figure reuses the stream's backlog predicate).
-- **V43** — `raw.gitlab_merge_requests` (details watermark, tombstone), `raw.gitlab_mr_events` (NOTE / APPROVAL / REVIEWER).
+  (`GET /api/v1/data-sources/{id}/status`, `counts.gitlab`) carries `commits`, `commitsMerge`, `commitsDeleted` and `commitFilesPending`, and (V43) `mergeRequests`, `mergeRequestsMerged`, `mrEvents`, `mrDetailsPending`, `mrDiffStatsMissing` and (PR 9) `mergeRequestsDeleted` and `mrDetailsUnread` (live merge requests of live projects with a `details_error` stamp) (counts only; the pending figure reuses the stream's backlog predicate).
+- **V43** — `raw.gitlab_merge_requests` (details watermark, tombstone `deleted_at` set by RECONCILE only), `raw.gitlab_mr_events` (NOTE / APPROVAL / REVIEWER).
 - **V44** — `norm.code_projects`, `code_identities`, `code_commits`, `code_merge_requests`, `code_mr_events` (COMMENT /
   DIFF_COMMENT / APPROVAL / REVIEW_REQUESTED / REVIEWED / CHANGES_REQUESTED).
 - **V45** — `public.code_identity_links`.
@@ -377,12 +404,12 @@ permission list.
 ## Stub (as built, PR 5)
 
 `sample-data/gitlab/generate.mjs` (zero dependencies, seeded, byte-identical; `--users/--projects/--months/--out`) writes
-`sample-data/gitlab-stub/{mappings,__files}` (1,220 mappings, ~11 MiB) and `sample-data/gitlab/expected.json`. It is served by the
+`sample-data/gitlab-stub/{mappings,__files}` (1,300 mappings, ~11 MiB) and `sample-data/gitlab/expected.json`. It is served by the
 compose `gitlab-stub` (WireMock, `127.0.0.1:8095`, read-only mount; `GITLAB_STUB_BASE_URL` points the app at it) and the in-JVM
 `GitLabStubServer` (`server/src/test/kotlin/`, `JiraStubServer`'s twin); `GitLabStubServerTest` pins the contract over plain HTTP and
 `node --test sample-data/gitlab/generate.test.mjs` (in `scripts/gates.sh e2e` and the CI `e2e-static` job) guards the generator.
 The full contract (every endpoint and its match rule, auth, pagination headers, 404 shapes, the day-2 deltas, the scale flags) is
-`sample-data/README.md` "GitLab stub"; the figures tests assert are in `expected.json`.
+`sample-data/README.md` "GitLab stub"; the figures tests assert are in `expected.json`. PR 9 added `GET /projects/:id/merge_requests/:iid` (the listing's object; a deleted or not-yet-existing merge request falls to the 404 catch-all): RECONCILE's confirmation probe.
 
 The world: host `gitlab.flow-sample.example`, GitLab `19.3.1`; groups `platform` (7) with subgroup `platform/tooling` (8), `apps` (9),
 and an out-of-scope `sandbox` (12); 4 in-scope projects (`gateway`, `build-kit`, `storefront`, `ledger` with default branch `master`),
@@ -411,7 +438,7 @@ so a lock file changed beside the too-large file is not credited to it. The stub
 `fallbackSubtractingCountedOthersSuperseded` the earlier "minus the other files' *counted* lines" figure, which over-attributes the
 excluded files' lines and is kept only for comparison.
 
-PR 6's `GitLabConnectorTest` runs its own SYNC against the in-JVM stub (`GitLabFixtures`, `GitLabTestSupport.kt`: a disabled connection per test,
+`GitLabReconcileTest` (fake client) and `GitLabReconcileStreamsTest` (the stub, own connections only, no shared fixture: the Started state is PROJECTS + COMMITS + MERGE REQUESTS through `runStream`) cover RECONCILE. PR 6's `GitLabConnectorTest` runs its own SYNC against the in-JVM stub (`GitLabFixtures`, `GitLabTestSupport.kt`: a disabled connection per test,
 `stubClient()`, `run(...)`, `freshContext(...)`/`runStream(...)`). **`SyncedGitLabFixture` (PR 7, extended in PR 8)** is the one full SYNC per fork (all six streams, in order;
 printed as `fixture-cost gitlab-sync`, `build-times.md` WHY 55) that `GitLabCommitsStreamTest` and `GitLabMrStreamsTest` read: a class warms it in a `@BeforeClass` through its own
 `warmGitLabFixture()` (`StubFixtureWarmupGuardTest` enforces the pair, so the Jira-fixture classes do not pay for it), its tripwire is 300 live commits, 60 live merge requests and no pending
@@ -431,7 +458,7 @@ force-pushed project's old commits and its divergence commit are in the stub too
 | 6 | data source + PROJECTS/USERS (V41), web kind picker (landed) | 1.34.0 | Opus (outbound use) |
 | 7 | commits + per-file counting + exclusions (V42) | 1.35.0 | Opus (migration) |
 | 8 | merge requests + details (V43) | 1.36.0 | Opus (migration) |
-| 9 | RECONCILE | 1.36.1 | Opus |
+| 9 | RECONCILE (landed) | 1.36.1 | Opus |
 | 10 | `norm.code_*` + PURGE + profile (V44) | 1.37.0 | Opus (migration) |
 | 11 | identity mapping (V45, `identities/`) | 1.38.0 | Opus + authorization |
 | 12 | scaled-world performance run (`build-times.md` WHY) + real-instance smoke checklist | — | — |
@@ -445,7 +472,10 @@ force-pushed project's old commits and its divergence commit are in the stub too
 - **First backfill:** ~110k calls (commit files + MR details), spread over several runs by the budgets — about 45 min at
   ~40 req/s, longer with instance rate limits on.
 - **Commit ↔ MR linking:** only merge and squash SHAs are stored for now.
-- **First-sync ordering:** `since` with out-of-order dates may stop early (see COMMITS, "RELIST and the `since` caveat"); RECONCILE's full re-list catches up.
+- **First-sync ordering:** `since` with out-of-order dates may stop early (see COMMITS, "RELIST and the `since` caveat"); RECONCILE's `since`-less re-list catches up (the 14-day stop is a residual, below).
+- **RECONCILE smoke list** (PR 12): `GET /projects/:id` answers 404 for a project the token cannot see (a deletion mark is then wrong-but-recoverable: PROJECTS resurrects it); the
+  per-merge-request 404 of a project whose merge-request feature is off while the project answers 200 (those ARE tombstoned); `updated_after` at the floor (inclusive or exclusive);
+  the residual of the 14-day stop (a child skewed by more than that and sitting last on a page); and the daily call figure (~1,000-1,100) against a real instance.
 - **Real-instance confirmation** (the user's smoke run, PR 12): `a..b` ranges, `diffStatsSummary`, commit `/diff` paging, that `since` early-stops
   the commit list (and does not filter) on the real instance, that the commits listing sends `X-Next-Page`, that `merge_base(<unreachable commit>, <branch>)` answers the fork point rather than an error,
   `RateLimit-*` headers and visible emails on that version. Only figures are shared back, never names or hosts.

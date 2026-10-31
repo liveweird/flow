@@ -21,9 +21,14 @@ private const val READ_API = "read_api"
 
 /**
  * The GitLab connector (`gitlab-integration.md`): Test connection, and the SYNC job's six streams, in this order: PROJECTS, USERS,
- * COMMITS, MERGE REQUESTS (the listings), then COMMIT FILES and MR DETAILS (the budgeted backlogs). The other job
- * kinds are accepted and do nothing yet - RECONCILE and REPROCESS arrive with the streams that need them (the plan's PRs 9 and 10), PURGE
- * drains the raw tables, and DERIVE never reaches a connector (`IngestWorker` chains it for kinds that derive metrics only).
+ * COMMITS, MERGE REQUESTS (the listings), then COMMIT FILES and MR DETAILS (the budgeted backlogs).
+ *
+ * RECONCILE runs three streams, cheap and high-value first so a wall-clock stop lands in the long one: `reconcile_projects` (a
+ * `GET /projects/:id` per moved-out project: 404 marks it deleted, `archived` marks it archived), `reconcile_merge_requests` (the
+ * group re-list from the floor, the confirmed tombstones of the merge requests it did not show, the stats re-ask and the failed
+ * details retries) and `reconcile_commits` (the `since`-less re-list of every synced project and its confirmed tombstones). It
+ * reads nothing SYNC's cursors hold and writes only its own. PURGE drains the raw tables; REPROCESS is accepted and does nothing until
+ * the norm layer (the plan's PR 10); DERIVE never reaches a connector (`IngestWorker` chains it for kinds that derive metrics only).
  */
 class GitLabConnector(
     private val newClient: GitLabClientFactory,
@@ -41,8 +46,9 @@ class GitLabConnector(
         when (context.claim.kind) {
             SyncJobKind.SYNC -> runSync(context)
             SyncJobKind.PURGE -> purgeSteps.forEach { it.purge(context.claim.connectionId) }
-            // No-ops until the streams they need exist (RECONCILE: the SHA re-list and tombstones; REPROCESS: the norm layer).
-            SyncJobKind.RECONCILE, SyncJobKind.REPROCESS -> Unit
+            SyncJobKind.RECONCILE -> runReconcile(context)
+            // A no-op until the norm layer exists (the plan's PR 10).
+            SyncJobKind.REPROCESS -> Unit
             // DERIVE is connector-agnostic and dispatched before a connector's run(); a GitLab connection never has one.
             SyncJobKind.DERIVE -> Unit
         }
@@ -60,14 +66,7 @@ class GitLabConnector(
         val stored = deps.dataSources.readGitLabForSync(claim.connectionId) ?: return
         val client = newClient(stored.baseUrl, stored.token)
         ConnectorRun.withTally(context, deps.database, deps.cursors, now, deadlineExemptStreams = emptySet()) { streamContext ->
-            val token = client.tokenSelf()
-            if (token.scopes.tooBroad()) {
-                throw JobRefusedException(
-                    TOKEN_SCOPE_TOO_BROAD,
-                    "the token carries a scope beyond reading (${token.scopes.joinToString(", ")}); Flow needs $READ_API only",
-                )
-            }
-            if (!token.active) throw JobRefusedException(TOKEN_INACTIVE, "the token is inactive (revoked or expired)")
+            refuseUnlessReadOnly(client)
             val isAdmin = client.currentUser().isAdmin
             val backfill = backfillFromEpochMillis(stored.backfillFrom)
             val streams: List<Stream> = listOf(
@@ -85,6 +84,47 @@ class GitLabConnector(
                 stream.run(streamContext)
             }
         }
+    }
+
+    /**
+     * RECONCILE: the same token re-probe as SYNC, then `reconcile_projects` -> `reconcile_merge_requests` -> `reconcile_commits` inside
+     * the shared call tally. The order is deliberate (see the class kdoc). A scheduled run leaves `LIMIT_EXCEEDED` details stamps alone;
+     * "Reconcile now" (`requestedOnDemand`) un-stamps them too, once the operator has raised the response ceiling.
+     */
+    private suspend fun runReconcile(context: SyncJobRunContext) {
+        val deps = checkNotNull(sync) { "GitLabConnector.run(RECONCILE) requires GitLabSyncDependencies (configureGitLab)" }
+        val claim = context.claim
+        val stored = deps.dataSources.readGitLabForSync(claim.connectionId) ?: return
+        val client = newClient(stored.baseUrl, stored.token)
+        ConnectorRun.withTally(context, deps.database, deps.cursors, now, deadlineExemptStreams = emptySet()) { streamContext ->
+            refuseUnlessReadOnly(client)
+            val backfill = backfillFromEpochMillis(stored.backfillFrom)
+            val streams: List<Stream> = listOf(
+                GitLabReconcileProjectsStream(client, deps.rawStore),
+                GitLabMergeRequestsStream(
+                    client, deps.rawStore, stored.groupPaths, backfill, reconcile = true,
+                    sweep = GitLabMrReconcileSweep(client, deps.rawStore, backfill),
+                    refresh = GitLabMrReconcileRefresh(client, deps.rawStore, claim.requestedOnDemand),
+                ),
+                GitLabCommitsStream(client, deps.rawStore, backfill, reconcile = true),
+            )
+            streams.forEach { stream ->
+                streamContext.currentStreamName = stream.name
+                stream.run(streamContext)
+            }
+        }
+    }
+
+    /** Re-probes the token on EVERY run (SYNC and RECONCILE): a scope beyond reading, or an inactive token, refuses the job. */
+    private suspend fun refuseUnlessReadOnly(client: GitLabClient) {
+        val token = client.tokenSelf()
+        if (token.scopes.tooBroad()) {
+            throw JobRefusedException(
+                TOKEN_SCOPE_TOO_BROAD,
+                "the token carries a scope beyond reading (${token.scopes.joinToString(", ")}); Flow needs $READ_API only",
+            )
+        }
+        if (!token.active) throw JobRefusedException(TOKEN_INACTIVE, "the token is inactive (revoked or expired)")
     }
 
     /**

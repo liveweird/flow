@@ -87,7 +87,8 @@ internal class GitLabMrReads(private val database: R2dbcDatabase) {
     }
 
     /**
-     * RECONCILE's merge-request candidates, newest `updated_at` first (ties: `mr_id`): live rows of a LIVE project in one of [groupPaths]
+     * RECONCILE's merge-request candidates, the STALEST-CHECKED first (`last_seen_at` ascending, then newest `updated_at`, then `mr_id`):
+     * live rows of a LIVE project in one of [groupPaths]
      * (the groups this pass listed to the end) with `updated_at >= floorMillis` that no page of the pass and no probe has seen since
      * [passStartedAt]. "Unlisted" is only a candidate: the caller confirms each against GitLab before it tombstones one. An empty group
      * set asks nothing.
@@ -107,7 +108,10 @@ internal class GitLabMrReads(private val database: R2dbcDatabase) {
                         (MergeRequests.updatedAt greaterEq floorMillis) and (MergeRequests.lastSeenAt less passStartedAt) and
                         liveProjectOfMr(Projects.groupPath inList groupPaths.distinct())
                 }
-                .orderBy(MergeRequests.updatedAt to SortOrder.DESC, MergeRequests.mrId to SortOrder.ASC)
+                .orderBy(
+                    MergeRequests.lastSeenAt to SortOrder.ASC, MergeRequests.updatedAt to SortOrder.DESC,
+                    MergeRequests.mrId to SortOrder.ASC,
+                )
                 .limit(limit)
                 .toList()
                 .map { StaleMergeRequest(it[MergeRequests.mrId], it[MergeRequests.projectId], it[MergeRequests.iid]) }
