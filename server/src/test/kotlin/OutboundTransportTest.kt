@@ -119,8 +119,9 @@ class OutboundTransportTest {
     }
 
     private fun loopbackClient(timeoutSeconds: Long = 5): HttpClient = buildGuardedJiraHttpClient(
+        originAllowed = null,
         allowedHost = { true },
-        skipAddressCheck = { true },
+        addressAllowed = { _, _ -> true },
         requestTimeoutSeconds = timeoutSeconds,
     )
 
@@ -166,7 +167,7 @@ class OutboundTransportTest {
     fun `negative control - the old client request() pattern is stuck in that same leak window`() {
         runBlocking {
             LocalHttpServer(status = 503, heldBodyBytes = 4096).use { server ->
-                val okHttp = guardedOkHttpClient(allowedHost = { true }, skipAddressCheck = { true }, timeoutSeconds = 5)
+                val okHttp = guardedOkHttpClient(allowedHost = { true }, addressAllowed = { _, _ -> true }, timeoutSeconds = 5)
                 HttpClient(OkHttp) {
                     engine { preconfigured = okHttp }
                     expectSuccess = false
@@ -255,7 +256,7 @@ class OutboundTransportTest {
                 allowedHost = { it == host },
                 resolver = { resolveCalls++; listOf(pinned) },
                 timeoutSeconds = 5,
-                skipAddressCheck = { true },
+                addressAllowed = { _, _ -> true },
                 eventListener = recorder,
             )
             assertTrue(client.socketFactory === DirectSocketFactory, "the guarded client must use the direct socket factory")

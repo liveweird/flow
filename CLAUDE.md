@@ -13,9 +13,8 @@ outlier detection, and input for continuous improvement. The name refers to the 
 where work waits, not who is busy.
 
 **Roadmap:** v0.1.0 foundation, v0.2.0 Jira ingestion, v0.3.0 the domain model, metrics and reports, v0.4.0 the Deep dive (report 17), and
-**1.x (current, 1.33.0) — this codebase**: twenty reports on nineteen pages; **Home** (`/`) is the overview of up to three picked teams — one request (`GET /api/v1/reports/home?teamId=…`), seven sections over the trailing 90 days with a trend against the 90 days before, every bar and
-count drillable; Compare people, Person trend, Task estimates, by-epic sprint splits, reports read per team or domain (never the whole
-unit), one Jira site per data source, and the Costs revamp with per-team work-category targets. Next: `BACKLOG.md`. The per-version scope:
+**1.x (current, 1.33.0) — this codebase**: twenty reports on nineteen pages; **Home** (`/`) overviews up to three teams in one request (`GET /api/v1/reports/home?teamId=…`), 90 days against the 90 before,
+all drillable; reports read per team or domain (never the whole unit), one Jira site per data source; GitLab in progress. Next: `BACKLOG.md`. The per-version scope:
 `.claude/docs/product.md`.
 
 Brand: blue (the `flow` colour tuple in `web/src/theme.ts`, `primaryShade: { light: 8, dark: 9 }`); the logo is "Rolling" — a
@@ -94,7 +93,7 @@ catalog). Resolved Gradle dependencies use strict locking and SHA-256 verificati
 application is wired declaratively in `server/src/main/resources/application.yaml` under
 `ktor.application.modules` — each entry is a fully-qualified extension function on `Application`
 (e.g. `ch.nokillswit.plugins.HttpKt.configureHttp`). **Module order is load-bearing**: plugins →
-infra (Mail → Crypto → Flyway → Database → Bootstrap → Health) → Jira → Metrics → IngestWorker →
+infra (Mail → Crypto → Flyway → Database → Bootstrap → Health) → Jira → GitLab → Metrics → IngestWorker →
 feature route modules → `RoutingKt.configureRouting` strictly last (the SPA catch-all).
 `configureDatabase` (most services), `configureJira`, `configureMetrics` and the reports routes
 each publish their own services into `Application.attributes` via `AttributeKey`s. To add a cross-cutting concern, create a `configureXxx()` extension under
@@ -122,7 +121,7 @@ override). One line per package; `ls` gives the files. **Layering is one-way (`P
 - `infra/db/` — Flyway bootstrap, the R2DBC composition root, the seed bootstrap (admin rotation, prod fail-closed), `SoftDelete.kt` (the `SoftDeletable` trait: ONE `active()` predicate, `nowMillis()`, `lockActiveForWrite`), `Sql.kt` (`containsNormalized` — the only substring filter), `Jsonb.kt`, `MultiRowInsert.kt` (`insertRows`/`upsertRows`/`insertRowsIgnoringConflicts`), `StatementTimeoutCache.kt` (only `queryTimeout` may set `STATEMENT_TIMEOUT`).
 - `infra/paging/` — the shared list-endpoint machinery (Lettuce's, ported verbatim; `list-endpoints.md`).
 - `infra/validation/` — cross-feature input helpers (`sanitizeSingleLine`: trim + control-char 400).
-- `infra/outbound/` — `OutboundGuard.kt`, the SSRF guard for EVERY server-initiated call (address-range check, the Jira host allow-list, `GuardedDns`, the no-proxy/no-redirect client) + `AtlassianSites.kt`; see `.claude/docs/security.md` "Outbound HTTP calls".
+- `infra/outbound/` — `OutboundGuard.kt`, the SSRF guard for EVERY server-initiated call (address check, `GuardedDns`, origin rule, no proxy/redirects); `SelfManagedHosts.kt` (the operator's GitLab hosts/CIDRs); `security.md` "Outbound HTTP calls".
 - `infra/json/` — `CanonicalJson.kt` (canonical JSON + sha256 for stored payloads), `JsonArrays.kt`.
 - `infra/time/` — `Millis.kt`, `MILLIS_PER_DAY`, the one fixed-24h-day constant.
 - `infra/config/` — `requireConfigInt`/`requireConfigLong`, boot-validated numeric config (Lettuce's).
@@ -135,6 +134,7 @@ override). One line per package; `ls` gives the files. **Layering is one-way (`P
 - `ingest/` — v0.2.0 Jira ingestion (`.claude/docs/ingestion.md`): the connector registry (`DataSource*`, V8), the `Connector`/`Stream` contracts, the `sync_jobs` queue (`SyncJobs.kt`) + `IngestWorker`, `sync_cursors`, read-only status/raw-issue/profile views. `JobHandlers.kt`'s `JobHandlerRegistry` (on `attributes`) is how other packages plug in the DERIVE handler, extra PURGE steps, the config-revision source and the backfill floor — `ingest/` never imports `metrics/` (checkup D5).
 - `fetch/` — the shared HTTP transport (`SourceHttp`, `CallTally`, ceilings); a connector passes its `FetchSource`.
 - `jira/` — the Jira Cloud connector (`.claude/docs/jira-integration.md`): `JiraRawStore` (V10–V12 `raw.jira_*`; a facade over the `JiraRaw*` collaborators), the streams, `JiraNormalizer`; `Jira.kt` refuses a stub URL in production.
+- `gitlab/` — the self-managed GitLab connector (`.claude/docs/gitlab-integration.md`); `GitLab.kt` builds its guarded client.
 - `norm/` — the connector-agnostic normalized layer (V13 `norm.*`): `Tiling.kt` (interval tiling + anomaly flags), `Normalization.kt` (`PROCESSING_VERSION`), `Hierarchy.kt` (the ONE hierarchy-bucketing rule, A31), `WorkItemStore.kt` (tables, row shapes and the ONE facade over one collaborator per concern, `persistence.md`). `SourceFileSizeTest` caps main source files at 400 lines.
 - `metrics/` — v0.3.0 configuration + the DERIVE job (`.claude/docs/metrics.md`; `V15–V17` `metrics.*`). `MetricsStore` is a facade over `Metrics{DimDate,Aggregate,DeriveRun}Store`, `Metrics{Dim,Fact,Sprint}Writes`, `MetricsAnalyzer` and `MetricsPurge`. Config: `MetricsSettingsService` (the singleton + the shared revision bump), `MetricsConfigService` (per connection, PUT/PURGE drain), `MetricsConfigOptions`, `DomainOwnerResolver` (A19/A22). Capacity (A32, V24): `SprintCalendar*` + the pure `CapacityKernels.kt`; work-category targets (V32, A43): `TeamWorkCategoryTarget*` (read at query time, no DERIVE); `PublicHoliday*` (V25) folds into the ONE `WorkingCalendar` (`readWithCalendar`, A33). `MetricsJobHandlers.kt` (`registerMetricsHandlers`) plugs DERIVE/PURGE into the `ingest/` registry.
 - `reports/` — the reports API (`.claude/docs/reports.md`): shared filter/`meta`/`Distribution` machinery (`ReportSupport`, `SnapshotSupport`, `DataQuality*`) + one `<Name>Report.kt` per report; the drill from a bar to its items (`…/items`, "Drill to items") is `ReportDrill.kt` + `ReportDrillRoutes.kt` + one `<Name>Drill.kt` beside each drillable report. Sets with their own `reports.md` "Code and tests": Home (`Home{Wire,Kernels,Reads,Report,Drill,Routes}.kt`), Costs (`Costs{Report,Breakdown,Sprints,Categories,Drill}.kt`, `CostCapacity.kt` the per-person capacity kernel A39), Compare people (`ComparePeople*.kt`, A41), Person trend (`PersonTrend*.kt`, A46), Task estimates (`TaskEstimates{Report,Drill}.kt`) and the sprint charts' by-epic split (`EpicSegments.kt`, `CommitmentsEpics.kt`, `ThroughputEpics.kt`).

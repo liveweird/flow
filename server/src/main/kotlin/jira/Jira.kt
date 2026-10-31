@@ -3,8 +3,12 @@ package ch.nokillswit.jira
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.infra.db.R2dbcDatabaseKey
+import ch.nokillswit.infra.outbound.Origin
+import ch.nokillswit.infra.outbound.guardedKtorClient
 import ch.nokillswit.infra.outbound.guardedOkHttpClient
 import ch.nokillswit.infra.outbound.isAllowedJiraHost
+import ch.nokillswit.infra.outbound.isAllowedJiraOrigin
+import ch.nokillswit.infra.outbound.publicAddressesOnly
 import ch.nokillswit.infra.time.MILLIS_PER_HOUR
 import ch.nokillswit.ingest.connectorRegistry
 import ch.nokillswit.ingest.DataSourceServiceKey
@@ -12,8 +16,6 @@ import ch.nokillswit.ingest.SyncCursorsServiceKey
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.norm.WorkItemStoreKey
 import io.ktor.client.HttpClient
-import io.ktor.client.engine.okhttp.OkHttp
-import io.ktor.client.plugins.HttpTimeout
 import io.ktor.server.application.*
 import io.ktor.util.AttributeKey
 import java.net.InetAddress
@@ -65,17 +67,26 @@ fun Application.configureJira() {
     attributes.put(JiraHeapShareKey, JiraHeapShare(jiraHeapShareCapacityBytes(maxResponseBytes)))
     val stubHost = stubBaseUrl?.let { URI(it).host }
     val stubScheme = stubBaseUrl?.let { URI(it).scheme }
+    val stubOrigin = stubBaseUrl?.let { raw ->
+        val uri = URI(raw)
+        Origin(uri.scheme, uri.host, if (uri.port != -1) uri.port else if (uri.scheme == "https") HTTPS_PORT else HTTP_PORT)
+    }
 
     val httpClient = buildGuardedJiraHttpClient(
         allowedHost = { host -> isAllowedJiraHost(host, stubHost, developmentMode) },
         // The stub is a local compose/in-JVM fixture BY DESIGN (see GuardedDns's kdoc) — its
-        // address is expected to be loopback/private, unlike a genuine Jira Cloud host.
-        skipAddressCheck = { host -> developmentMode && stubHost != null && host.equals(stubHost, ignoreCase = true) },
+        // address is expected to be loopback/private, unlike a genuine Jira Cloud host. Every other host: public addresses only.
+        addressAllowed = { host, address ->
+            (developmentMode && stubHost != null && host.equals(stubHost, ignoreCase = true)) || publicAddressesOnly(host, address)
+        },
         // [LOW-5] The stub may be plain http:// (the compose demo) — audit its real scheme rather
         // than the https constant that's correct for every genuine Jira Cloud host.
         schemeFor = { host ->
             if (developmentMode && stubHost != null && host.equals(stubHost, ignoreCase = true)) stubScheme ?: "https" else "https"
         },
+        // The transport-level rule (JiraOriginGuardTest pins this wiring): https:443 to an allowed Jira host, or the dev stub's exact
+        // origin. It also refuses an IP-literal URL, which OkHttp never hands to the DNS guard.
+        originAllowed = { scheme, host, port -> isAllowedJiraOrigin(scheme, host, port, stubOrigin, developmentMode) },
         requestTimeoutSeconds = requestTimeoutSeconds,
     )
     // ONE long-lived client for the app's whole life: closing it on ApplicationStopped releases the OkHttp
@@ -127,36 +138,28 @@ fun Application.configureJira() {
  * [MED-3] Builds EXACTLY the guarded Ktor `HttpClient(OkHttp)` [configureJira] wires into
  * production — factored out so a test can build the SAME client (not a hand-rolled approximation
  * that could silently drift if the guard were ever unwired) and drive it against a real loopback
- * WireMock fixture (`OutboundGuardTest`'s production-wiring integration test).
+ * WireMock fixture (`OutboundGuardTest`'s production-wiring integration test). [originAllowed] has no default, so every caller
+ * states it: null (no per-request origin check) only in those loopback tests; [configureJira] always passes the real rule.
  */
 fun buildGuardedJiraHttpClient(
     allowedHost: (String) -> Boolean,
     resolver: (String) -> List<InetAddress> = { InetAddress.getAllByName(it).toList() },
-    skipAddressCheck: (String) -> Boolean = { false },
+    addressAllowed: (String, InetAddress) -> Boolean = publicAddressesOnly,
     schemeFor: (String) -> String = { "https" },
     eventListener: EventListener = EventListener.NONE,
+    originAllowed: ((scheme: String, host: String, port: Int) -> Boolean)?,
     requestTimeoutSeconds: Long,
 ): HttpClient {
     val okHttpClient = guardedOkHttpClient(
         allowedHost = allowedHost,
         resolver = resolver,
         timeoutSeconds = requestTimeoutSeconds,
-        skipAddressCheck = skipAddressCheck,
+        addressAllowed = addressAllowed,
         schemeFor = schemeFor,
         eventListener = eventListener,
+        originAllowed = originAllowed,
     )
-    return HttpClient(OkHttp) {
-        engine { preconfigured = okHttpClient }
-        expectSuccess = false
-        // Ktor's client-side HttpRedirect plugin is separate from the OkHttp engine's own
-        // followRedirects (already false in guardedOkHttpClient) — both must refuse a 3xx, or
-        // checking-then-following would defeat the resolve-check-connect guard.
-        followRedirects = false
-        install(HttpTimeout) {
-            requestTimeoutMillis = requestTimeoutSeconds * MILLIS_PER_SECOND
-            connectTimeoutMillis = requestTimeoutSeconds * MILLIS_PER_SECOND
-        }
-    }
+    return guardedKtorClient(okHttpClient, requestTimeoutSeconds)
 }
 
 private const val MIN_TIMEOUT_SECONDS = 1L
@@ -181,3 +184,5 @@ private const val MAX_CONCURRENCY = 64
 private const val MIN_RETRIES = 0
 private const val MAX_RETRIES = 10
 private const val MILLIS_PER_SECOND = 1_000L
+private const val HTTPS_PORT = 443
+private const val HTTP_PORT = 80

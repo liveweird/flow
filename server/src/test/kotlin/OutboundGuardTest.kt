@@ -138,6 +138,8 @@ class OutboundGuardTest {
             "IPv6 unique-local fc00::/7" to ipv6(0xfc00, 0, 0, 0, 0, 0, 0, 1),
             "IPv6 unique-local fd00::/7" to ipv6(0xfd12, 0x3456, 0, 0, 0, 0, 0, 1),
             "IPv6 link-local fe80::/10" to ipv6(0xfe80, 0, 0, 0, 0, 0, 0, 1),
+            "6to4 2002::/16 embedding a public IPv4" to ipv6(0x2002, 0xcb00, 0x710a, 0, 0, 0, 0, 1),
+            "Teredo 2001:0::/32" to ipv6(0x2001, 0, 0x4136, 0xe378, 0x8000, 0x63bf, 0x3fff, 0xfdd2),
             "IPv4-mapped IPv6 loopback ::ffff:127.0.0.1" to ipv6(0, 0, 0, 0, 0, 0xffff, 0x7f00, 0x0001),
             "IPv4-mapped IPv6 private ::ffff:10.0.0.1" to ipv6(0, 0, 0, 0, 0, 0xffff, 0x0a00, 0x0001),
             "NAT64 64:ff9b::/96 embedding a private IPv4" to ipv6(0x0064, 0xff9b, 0, 0, 0, 0, 0xc0a8, 0x0101),
@@ -146,6 +148,42 @@ class OutboundGuardTest {
             val dns = GuardedDns(allowedHost = { true }, resolver = { listOf(address) })
             assertFailsWith<BlockedHostException>("expected $label to be blocked") { dns.lookup("api.atlassian.com") }
         }
+    }
+
+    /** An `Inet6Address` holding IPv4-mapped bytes: `getByName` folds the literal into an `Inet4Address`, this constructor does not. */
+    private fun rawMapped(a: Int, b: Int, c: Int, d: Int): InetAddress {
+        val bytes = ByteArray(16).also {
+            it[10] = 0xFF.toByte()
+            it[11] = 0xFF.toByte()
+            it[12] = a.toByte(); it[13] = b.toByte(); it[14] = c.toByte(); it[15] = d.toByte()
+        }
+        return java.net.Inet6Address.getByAddress(null, bytes, 0)
+    }
+
+    @Test
+    fun `GuardedDns refuses an unfolded IPv4-mapped Inet6Address by its IPv4 form, and accepts a public one`() {
+        val blocked = listOf(rawMapped(127, 0, 0, 1), rawMapped(10, 0, 0, 1), rawMapped(169, 254, 169, 254), rawMapped(192, 168, 1, 1))
+        blocked.forEach { address ->
+            assertTrue(address is java.net.Inet6Address, "the fixture must stay an unfolded Inet6Address")
+            val dns = GuardedDns(allowedHost = { true }, resolver = { listOf(address) })
+            assertFailsWith<BlockedHostException>("expected ${address.hostAddress} to be blocked") { dns.lookup("api.atlassian.com") }
+        }
+        val public = GuardedDns(allowedHost = { true }, resolver = { listOf(rawMapped(203, 0, 113, 10)) })
+        assertEquals(1, public.lookup("api.atlassian.com").size)
+    }
+
+    @Test
+    fun `the address rule is injectable - the default is public addresses only, a custom one decides per host and address`() {
+        val seen = mutableListOf<Pair<String, InetAddress>>()
+        val allowEverythingForOneHost = GuardedDns(
+            allowedHost = { true },
+            resolver = { listOf(ipv4(10, 0, 0, 1)) },
+            addressAllowed = { host, address -> seen += host to address; host == "stub-host" },
+        )
+        assertEquals(1, allowEverythingForOneHost.lookup("stub-host").size)
+        assertFailsWith<BlockedHostException> { allowEverythingForOneHost.lookup("api.atlassian.com") }
+        assertEquals(listOf("stub-host", "api.atlassian.com"), seen.map { it.first })
+        assertFailsWith<BlockedHostException> { GuardedDns(allowedHost = { true }, resolver = { listOf(ipv4(10, 0, 0, 1)) }).lookup("any") }
     }
 
     @Test
@@ -186,9 +224,9 @@ class OutboundGuardTest {
         val stubUrl = JiraStubServer.start()
         var resolveCalls = 0
         val httpClient = buildGuardedJiraHttpClient(
+            originAllowed = null,
             allowedHost = { true },
             resolver = { resolveCalls++; InetAddress.getAllByName(it).toList() },
-            skipAddressCheck = { false },
             requestTimeoutSeconds = 5,
         )
         // [MED-1] mutation-check: revert BlockedHostException to a bare RuntimeException and this
@@ -204,12 +242,13 @@ class OutboundGuardTest {
         val stubUrl = JiraStubServer.start()
         var resolveCalls = 0
         val httpClient = buildGuardedJiraHttpClient(
+            originAllowed = null,
             allowedHost = { true },
             resolver = { host ->
                 if (resolveCalls++ == 0) throw UnknownHostException(host) else InetAddress.getAllByName(host).toList()
             },
             // The stub is loopback by construction (the `jira.stubBaseUrl` convention): skip the address-SHAPE check only.
-            skipAddressCheck = { true },
+            addressAllowed = { _, _ -> true },
             requestTimeoutSeconds = 5,
         )
         val jiraHttp = createJiraHttp(httpClient, maxRetries = 2, maxResponseBytes = 1_000_000, maxConcurrentRequests = 4, sleeper = {})
@@ -224,6 +263,7 @@ class OutboundGuardTest {
         var resolveCalls = 0
         val sleeps = mutableListOf<Long>()
         val httpClient = buildGuardedJiraHttpClient(
+            originAllowed = null,
             allowedHost = { true },
             resolver = { host -> resolveCalls++; throw UnknownHostException(host) },
             requestTimeoutSeconds = 5,
@@ -249,6 +289,7 @@ class OutboundGuardTest {
     fun `production wiring - a disallowed host is BLOCKED_HOST without ever invoking the resolver`() = runBlocking {
         var resolveCalls = 0
         val httpClient = buildGuardedJiraHttpClient(
+            originAllowed = null,
             allowedHost = { false },
             resolver = { resolveCalls++; listOf(InetAddress.getByName("203.0.113.10")) },
             requestTimeoutSeconds = 5,
@@ -268,10 +309,11 @@ class OutboundGuardTest {
         )
         try {
             val httpClient = buildGuardedJiraHttpClient(
+                originAllowed = null,
                 // The stub is loopback by construction (same convention as `jira.stubBaseUrl` in
                 // development) — skip the address-shape check for it the same way production does.
                 allowedHost = { true },
-                skipAddressCheck = { true },
+                addressAllowed = { _, _ -> true },
                 requestTimeoutSeconds = 5,
             )
             val jiraHttp = createJiraHttp(httpClient, maxRetries = 0, maxResponseBytes = 1_000_000, maxConcurrentRequests = 4)
@@ -292,7 +334,10 @@ class OutboundGuardTest {
         System.setProperty("http.proxyHost", "203.0.113.10")
         System.setProperty("http.proxyPort", "1")
         try {
-            val httpClient = buildGuardedJiraHttpClient(allowedHost = { true }, skipAddressCheck = { true }, requestTimeoutSeconds = 5)
+            val httpClient = buildGuardedJiraHttpClient(
+                originAllowed = null,
+                allowedHost = { true }, addressAllowed = { _, _ -> true }, requestTimeoutSeconds = 5,
+            )
             val jiraHttp = createJiraHttp(httpClient, maxRetries = 0, maxResponseBytes = 1_000_000, maxConcurrentRequests = 4)
             val result = jiraHttp.request(HttpMethod.Get, "$stubUrl/_edge/tenant_info")
             assertTrue(result.toString().contains("cloudId"), "expected the real tenant_info stub body: $result")
@@ -326,8 +371,9 @@ class OutboundGuardTest {
         val listener = CountingEventListener()
         try {
             val httpClient = buildGuardedJiraHttpClient(
+                originAllowed = null,
                 allowedHost = { true },
-                skipAddressCheck = { true },
+                addressAllowed = { _, _ -> true },
                 requestTimeoutSeconds = 5,
                 eventListener = listener,
             )
