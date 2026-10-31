@@ -29,13 +29,25 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
  * not match against the index (the V42 lesson, `NON_MERGE_PARENTS`). The project is an `EXISTS` on its primary key.
  */
 internal val MR_DETAILS_BACKLOG: Op<Boolean> = MergeRequests.deletedAt.isNull() and
-    (MergeRequests.detailsSyncedAt.isNull() or (MergeRequests.detailsSyncedAt less MergeRequests.changedAt)) and
-    exists(
-        Projects.selectAll().where {
-            (Projects.connectionId eq MergeRequests.connectionId) and (Projects.projectId eq MergeRequests.projectId) and
-                Projects.movedOutAt.isNull() and Projects.deletedAt.isNull()
-        },
-    )
+    (MergeRequests.detailsSyncedAt.isNull() or (MergeRequests.detailsSyncedAt less MergeRequests.changedAt)) and liveProjectOfMr()
+
+/** The merge request's project is LIVE (not moved out, not deleted): an `EXISTS` on the project's primary key, [extra] ANDed inside it. */
+internal fun liveProjectOfMr(extra: Op<Boolean>? = null): Op<Boolean> = exists(
+    Projects.selectAll().where {
+        val live = (Projects.connectionId eq MergeRequests.connectionId) and (Projects.projectId eq MergeRequests.projectId) and
+            Projects.movedOutAt.isNull() and Projects.deletedAt.isNull()
+        if (extra == null) live else live and extra
+    },
+)
+
+/**
+ * A SETTLED merge request with no diff stats: live, stamped at or after its last change, no `details_error`, `additions IS NULL`. A
+ * changed row is pending instead, and a pending row's stats are not yet asked again. The status figure `mrDiffStatsMissing` and
+ * RECONCILE's stats re-ask ([GitLabMrReads.gappedMergeRequests]) are this one predicate.
+ */
+internal val DIFF_STATS_GAP: Op<Boolean> = MergeRequests.deletedAt.isNull() and MergeRequests.detailsSyncedAt.isNotNull() and
+    (MergeRequests.detailsSyncedAt greaterEq MergeRequests.changedAt) and MergeRequests.detailsError.isNull() and
+    MergeRequests.additions.isNull()
 
 /** The merge-request reads (V43): the details backlog, the status figures, the group lookups and the rows tests inspect. */
 internal class GitLabMrReads(private val database: R2dbcDatabase) {
@@ -55,8 +67,9 @@ internal class GitLabMrReads(private val database: R2dbcDatabase) {
     }
 
     /**
-     * The five figures as database-side `count(*)`s: no row is loaded. `mrDiffStatsMissing` counts the gaps of settled rows only (stamped
-     * at or after the last change, no error): a changed row is pending, and a pending row's stats are not yet asked again.
+     * The seven figures as database-side `count(*)`s: no row is loaded. `mrDiffStatsMissing` counts the gaps of settled rows only
+     * ([DIFF_STATS_GAP]); `mergeRequestsDeleted` the tombstoned rows and `mrDetailsUnread` the LIVE rows of LIVE projects carrying any
+     * `details_error` (what a reconcile can clear; the `FILES_BACKLOG` shape).
      */
     suspend fun mrCounts(connectionId: UInt): MrCounts = suspendTransaction(database) {
         suspend fun mrs(extra: Op<Boolean>) =
@@ -67,11 +80,52 @@ internal class GitLabMrReads(private val database: R2dbcDatabase) {
             mergeRequestsMerged = mrs(live and (MergeRequests.state eq "merged")),
             mrEvents = MrEvents.selectAll().where { MrEvents.connectionId eq connectionId }.count(),
             mrDetailsPending = mrs(MR_DETAILS_BACKLOG),
-            mrDiffStatsMissing = mrs(
-                live and MergeRequests.detailsSyncedAt.isNotNull() and (MergeRequests.detailsSyncedAt greaterEq MergeRequests.changedAt) and
-                    MergeRequests.detailsError.isNull() and MergeRequests.additions.isNull(),
-            ),
+            mrDiffStatsMissing = mrs(DIFF_STATS_GAP),
+            mergeRequestsDeleted = mrs(MergeRequests.deletedAt.isNotNull()),
+            mrDetailsUnread = mrs(live and MergeRequests.detailsError.isNotNull() and liveProjectOfMr()),
         )
+    }
+
+    /**
+     * RECONCILE's merge-request candidates, the STALEST-CHECKED first (`last_seen_at` ascending, then newest `updated_at`, then `mr_id`):
+     * live rows of a LIVE project in one of [groupPaths]
+     * (the groups this pass listed to the end) with `updated_at >= floorMillis` that no page of the pass and no probe has seen since
+     * [passStartedAt]. "Unlisted" is only a candidate: the caller confirms each against GitLab before it tombstones one. An empty group
+     * set asks nothing.
+     */
+    suspend fun mrReconcileCandidates(
+        connectionId: UInt,
+        floorMillis: Long,
+        passStartedAt: Long,
+        groupPaths: Collection<String>,
+        limit: Int,
+    ): List<StaleMergeRequest> {
+        if (groupPaths.isEmpty()) return emptyList()
+        return suspendTransaction(database) {
+            MergeRequests.select(MergeRequests.mrId, MergeRequests.projectId, MergeRequests.iid)
+                .where {
+                    (MergeRequests.connectionId eq connectionId) and MergeRequests.deletedAt.isNull() and
+                        (MergeRequests.updatedAt greaterEq floorMillis) and (MergeRequests.lastSeenAt less passStartedAt) and
+                        liveProjectOfMr(Projects.groupPath inList groupPaths.distinct())
+                }
+                .orderBy(
+                    MergeRequests.lastSeenAt to SortOrder.ASC, MergeRequests.updatedAt to SortOrder.DESC,
+                    MergeRequests.mrId to SortOrder.ASC,
+                )
+                .limit(limit)
+                .toList()
+                .map { StaleMergeRequest(it[MergeRequests.mrId], it[MergeRequests.projectId], it[MergeRequests.iid]) }
+        }
+    }
+
+    /** The settled merge requests with no diff stats ([DIFF_STATS_GAP]) of LIVE projects, newest first: RECONCILE's stats re-ask. */
+    suspend fun gappedMergeRequests(connectionId: UInt, limit: Int): List<StaleMergeRequest> = suspendTransaction(database) {
+        MergeRequests.select(MergeRequests.mrId, MergeRequests.projectId, MergeRequests.iid)
+            .where { (MergeRequests.connectionId eq connectionId) and DIFF_STATS_GAP and liveProjectOfMr() }
+            .orderBy(MergeRequests.updatedAt to SortOrder.DESC, MergeRequests.mrId to SortOrder.ASC)
+            .limit(limit)
+            .toList()
+            .map { StaleMergeRequest(it[MergeRequests.mrId], it[MergeRequests.projectId], it[MergeRequests.iid]) }
     }
 
     /**

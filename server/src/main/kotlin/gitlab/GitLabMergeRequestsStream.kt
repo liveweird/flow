@@ -21,7 +21,7 @@ private const val MAX_LOGGED_IDS = 20
  * next page re-shows an item already seen (`UNCHANGED`), whereas oldest first would skip one. It does NOT make paging safe against an
  * item that DROPS OUT mid-pass (a merge request deleted, or leaving the group): everything after it shifts one place earlier, so the
  * first item of the next page is skipped, and its `updated_at` sits below the watermark. That residual gap is closed by RECONCILE
- * (PR 9), which re-lists every group's merge requests from the floor with no watermark.
+ * (the RECONCILE mode below), which re-lists every group's merge requests from the floor with no watermark.
  *
  * Incremental per group by `updated_after`: a group's first pass asks from the backfill floor, a later one from its WATERMARK minus
  * [MR_LIST_OVERLAP_MILLIS]. The watermark is GitLab's OWN clock - the newest `updated_at` the group's pages showed - and moves only when
@@ -40,6 +40,15 @@ private const val MAX_LOGGED_IDS = 20
  *
  * Progress: `pages`, `mergeRequests` (inserted), `mergeRequestsChanged` (changed or resurrected), `mrSkipped`, `mrGroupsSkipped`,
  * `mrGroupsNotFound`.
+ *
+ * **RECONCILE mode** (`reconcile = true`, the stream `reconcile_merge_requests`): the same listing machinery - the page transaction, the
+ * ceiling, `mrSkipped`/`mrGroupsSkipped`/`mrGroupsNotFound` - in its OWN cursor row, so SYNC's watermarks and project sets are
+ * never read or written. Every group is listed from the backfill floor (no watermark), and a group's last page adds its path to the state's
+ * `completedGroups` instead of moving a watermark. When the last group is done the state is saved `listingDone`, then [sweep] confirms
+ * and tombstones the merge requests the listing did not show, [refresh] re-asks the stats gaps and the failed details reads, and the cursor
+ * is cleared. The pass resumes across attempts and jobs from the state; a pass saved for another group list is dropped with its state; a
+ * saved `listingDone` goes straight to the sweep. A listing page counts as progress only when it changed a row: the pass cursor is
+ * cleared when it ends, so a pass that re-lists identical pages every day is not progress.
  */
 internal class GitLabMergeRequestsStream(
     private val client: GitLabClient,
@@ -47,8 +56,15 @@ internal class GitLabMergeRequestsStream(
     groupPaths: List<String>,
     private val backfillFromMillis: Long,
     private val ceilings: GitLabCeilings = GitLabCeilings(),
+    private val reconcile: Boolean = false,
+    private val sweep: GitLabMrReconcileSweep? = null,
+    private val refresh: GitLabMrReconcileRefresh? = null,
 ) : Stream {
-    override val name: String = "merge_requests"
+    init {
+        require(!reconcile || (sweep != null && refresh != null)) { "RECONCILE mode needs its sweep and its refresh" }
+    }
+
+    override val name: String = if (reconcile) "reconcile_merge_requests" else "merge_requests"
 
     private val configured: List<String> = groupPaths.distinct()
 
@@ -62,6 +78,8 @@ internal class GitLabMergeRequestsStream(
         /** The live stored project ids per group path now, and as recorded at each group's last completed pass. */
         val liveProjects: Map<String, List<Long>>,
         val projectSets: MutableMap<String, List<Long>>,
+        /** RECONCILE mode only: the pass state, replaced as groups complete. */
+        var reconcileState: MrReconcileState? = null,
     ) {
         var skipped = 0L
         val skippedIds = mutableListOf<Long>()
@@ -75,13 +93,45 @@ internal class GitLabMergeRequestsStream(
         val run = Run(
             context, stored.watermarks.filterKeys { it in configured }.toMutableMap(), row?.lastCompletedAt,
             rawStore.configuredGroupIds(context.connectionId), rawStore.storedProjectIds(context.connectionId),
-            rawStore.liveProjectIdsByGroup(context.connectionId), stored.projectSets.filterKeys { it in configured }.toMutableMap(),
+            // RECONCILE keeps no project sets and lists every group from the floor: the group lookup would be unused.
+            if (reconcile) emptyMap() else rawStore.liveProjectIdsByGroup(context.connectionId),
+            stored.projectSets.filterKeys { it in configured }.toMutableMap(),
         )
         // A pass saved for another list of groups (an edit while it was interrupted) names other groups by index: restart at group 0.
-        val first = stored.pass?.takeIf { it.groups == configured && it.groupIndex in configured.indices } ?: passFor(run, 0)
-        for (index in first.groupIndex until configured.size) {
-            listGroup(run, index, if (index == first.groupIndex) first else passFor(run, index))
+        val savedPass = stored.pass?.takeIf { it.groups == configured && it.groupIndex in configured.indices }
+        if (reconcile) run.reconcileState = resumedState(context, stored, savedPass)
+        if (run.reconcileState?.listingDone != true) {
+            val first = savedPass ?: passFor(run, 0)
+            for (index in first.groupIndex until configured.size) {
+                listGroup(run, index, if (index == first.groupIndex) first else passFor(run, index))
+            }
+            warnAboutSkips(run)
         }
+        if (reconcile) finishReconcile(run)
+    }
+
+    /**
+     * RECONCILE's pass state: the saved one when it can be resumed (its pass is for THIS group list, or its listing is done), else a fresh
+     * one starting now. Completed groups no longer configured are dropped.
+     */
+    private fun resumedState(context: StreamContext, stored: MergeRequestsCursor, savedPass: MergeRequestsPass?): MrReconcileState {
+        val saved = stored.reconcile
+        return if (saved != null && (saved.listingDone || savedPass != null)) {
+            saved.copy(completedGroups = saved.completedGroups.filter { it in configured })
+        } else {
+            MrReconcileState(context.clock())
+        }
+    }
+
+    /** The listing is done: confirm and tombstone, re-ask the gaps and the failed reads, then end the pass. */
+    private suspend fun finishReconcile(run: Run) {
+        val state = checkNotNull(run.reconcileState)
+        checkNotNull(sweep).run(run.context, state)
+        checkNotNull(refresh).run(run.context)
+        run.context.transaction { run.context.clearCursor(name) }
+    }
+
+    private fun warnAboutSkips(run: Run) {
         if (run.skipped > 0) {
             log.warn("GitLab merge requests skipped (their project is not a stored project): {} (ids {})", run.skipped,
                 run.skippedIds.take(MAX_LOGGED_IDS))
@@ -101,12 +151,19 @@ internal class GitLabMergeRequestsStream(
         val current = run.liveProjects[path].orEmpty()
         val recorded = run.projectSets[path]?.toSet()
         val entered = recorded != null && current.any { it !in recorded }
+        if (reconcile) return MergeRequestsPass(configured, index, 1, isoInstant(backfillFromMillis))
         val from = if (entered) backfillFromMillis else run.watermarks[path]?.let { it - MR_LIST_OVERLAP_MILLIS } ?: backfillFromMillis
         return MergeRequestsPass(configured, index, 1, isoInstant(from), projectIds = current)
     }
 
     /** The cursor row for [pass] (null = the pass is over): the watermarks as they stand, written inside the caller's transaction. */
     private suspend fun saveCursor(run: Run, pass: MergeRequestsPass?) {
+        if (reconcile) {
+            // No watermark, no project sets: the pass and its state only. The listing is done exactly when the pass is over.
+            val state = checkNotNull(run.reconcileState).copy(listingDone = pass == null).also { run.reconcileState = it }
+            run.context.putCursor(name, encodeCursor(MergeRequestsCursor(pass = pass, reconcile = state)))
+            return
+        }
         run.context.putCursor(
             name, encodeCursor(MergeRequestsCursor(run.watermarks.toMap(), pass, run.projectSets.toMap())),
             watermarkAt = run.watermarks.values.minOrNull(),
@@ -150,19 +207,31 @@ internal class GitLabMergeRequestsStream(
                     pass = pass.copy(page = next, seenMax = seenMax)
                     saveCursor(run, pass)
                 } else {
-                    // The group's listing is complete: its watermark moves to GitLab's newest updated_at it showed, never backwards.
-                    seenMax?.let { run.watermarks.merge(path, it, ::maxOf) }
-                    // An empty set is a pass saved before the field existed (a group with no live project is skipped, never completed):
-                    // unknown, so nothing is recorded and the group's next completed pass records one.
-                    if (pass.projectIds.isNotEmpty()) run.projectSets[path] = pass.projectIds
+                    completeGroup(run, path, pass, seenMax)
                     saveCursor(run, after(run, index))
                 }
                 outcomes.any { it.isChange }
             }
             noteSkipped(run, answer.mergeRequests.filter { it.projectId !in run.known }.map { it.mrId })
-            context.heartbeat(changed || next != null) // an advanced page cursor is progress even when every row came back unchanged
+            // An advanced page cursor is progress even when every row came back unchanged - except in RECONCILE mode, whose cursor is
+            // cleared when the pass ends: a daily re-list of identical pages must not read as progress.
+            context.heartbeat(changed || (!reconcile && next != null))
             if (next == null) return
         }
+    }
+
+    /** The group's listing is complete: a watermark moves (SYNC) or the group joins the pass's completed set (RECONCILE). */
+    private fun completeGroup(run: Run, path: String, pass: MergeRequestsPass, seenMax: Long?) {
+        if (reconcile) {
+            val state = checkNotNull(run.reconcileState)
+            run.reconcileState = state.copy(completedGroups = state.completedGroups + path)
+            return
+        }
+        // The group's watermark moves to GitLab's newest updated_at it showed, never backwards.
+        seenMax?.let { run.watermarks.merge(path, it, ::maxOf) }
+        // An empty set is a pass saved before the field existed (a group with no live project is skipped, never completed):
+        // unknown, so nothing is recorded and the group's next completed pass records one.
+        if (pass.projectIds.isNotEmpty()) run.projectSets[path] = pass.projectIds
     }
 
     private fun count(context: StreamContext, outcomes: List<RawUpsertOutcome>, skipped: Int) {

@@ -10,9 +10,11 @@ import ch.nokillswit.gitlab.GitLabGroup
 import ch.nokillswit.gitlab.GitLabMergeRequestPage
 import ch.nokillswit.gitlab.GitLabNotePage
 import ch.nokillswit.gitlab.GitLabPage
+import ch.nokillswit.gitlab.GitLabProjectDetail
 import ch.nokillswit.gitlab.GitLabReviewerSummary
 import ch.nokillswit.gitlab.GitLabTokenInfo
 import ch.nokillswit.gitlab.GitLabUserPage
+import ch.nokillswit.gitlab.RawGitLabMergeRequest
 
 /** The source a scripted failure of [FakeClient] names (messages start "GitLab fetch failed"). */
 val fakeSource = FetchSource("GitLab", "gitlab.maxResponseBytes")
@@ -76,6 +78,14 @@ class FakeClient : GitLabClient {
     var reviewersOf: (projectId: Long, iid: Long) -> List<GitLabReviewerSummary> = { _, _ -> error("no reviewers scripted") }
     var diffStatsOf: (fullPath: String, iids: List<Long>) -> GitLabDiffStatsAnswer = { _, _ -> error("no diff stats scripted") }
 
+    /** RECONCILE's probes: the project detail and the single merge request; each throws "not scripted" until a test sets it. */
+    var projectOf: (projectId: Long) -> GitLabProjectDetail = { error("no project probe scripted") }
+    var mergeRequestOf: (projectId: Long, iid: Long) -> RawGitLabMergeRequest = { _, _ -> error("no merge-request probe scripted") }
+
+    /** Every project probe as the project id, every single-merge-request probe as (projectId, iid). */
+    val projectProbes = mutableListOf<Long>()
+    val mrProbes = mutableListOf<Pair<Long, Long>>()
+
     /** Every merge-request listing call as (groupId, updatedAfter, page). */
     val listedMrs = mutableListOf<Triple<Long, String?, Int>>()
 
@@ -88,6 +98,16 @@ class FakeClient : GitLabClient {
     override suspend fun groupMergeRequests(groupId: Long, updatedAfter: String?, page: Int): GitLabMergeRequestPage {
         listedMrs += Triple(groupId, updatedAfter, page)
         return groupMergeRequestsOf(groupId, updatedAfter, page)
+    }
+
+    override suspend fun project(projectId: Long): GitLabProjectDetail {
+        projectProbes += projectId
+        return projectOf(projectId)
+    }
+
+    override suspend fun mergeRequest(projectId: Long, iid: Long): RawGitLabMergeRequest {
+        mrProbes += projectId to iid
+        return mergeRequestOf(projectId, iid)
     }
 
     override suspend fun mergeRequestNotes(projectId: Long, iid: Long, page: Int): GitLabNotePage {

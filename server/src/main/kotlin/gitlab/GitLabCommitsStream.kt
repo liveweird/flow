@@ -34,6 +34,19 @@ private const val MAX_LOGGED_IDS = 20
  * branch or project answers `NOT_FOUND` (on a CHECK or mid-listing), is skipped (counted, one WARN naming ids, any re-list request left
  * as it was); PROJECTS will rename it or RECONCILE (PR 9) delete it.
  *
+ * **RECONCILE mode** (`reconcile = true`, the stream `reconcile_commits` with its OWN cursor row, so SYNC's `commits` resume point is never
+ * stolen): a project never synced (no head) is left to SYNC's FULL walk; every other project gets a RELIST under a FRESH epoch (so the
+ * candidates earlier kept UNCONFIRMED are asked again) that sends NO `since`: GitLab's `since` cuts a skewed commit AND its parents, so a
+ * walk with `since` hides the same commits again. The branch is walked from its tip, rows older than the floor are passed through
+ * (never stored), and the listing ends after a page entirely older than the floor minus [RECONCILE_COMMITS_SLACK_MILLIS] (or at the
+ * last page). A commit the walk lists and SYNC missed is inserted; one it does not list is only a candidate, confirmed by the same sweep.
+ * The fresh epoch lives in the walk's cursor, NOT on the project row, and the walk raises no `relist_requested`: a skipped, failed or
+ * cut reconcile leaves the row exactly as it was and the next SYNC is a plain CHECK. Only a sweep that defers its candidates writes the
+ * request and the epoch (`finishRelist`), so SYNC's `continueRelist` finishes under the epoch that defines them. A failure one PROJECT
+ * can cause on its own ([PROJECT_SCOPED_FAILURE_CODES]) skips that project (`commitsProjectsSkipped`, its walk cursor dropped) and the pass
+ * goes on; [RECONCILE_CONSECUTIVE_FAILURES] in a row rethrow, like the outage they read as. A project whose FULL walk listed nothing has no
+ * head and is never reconciled.
+ *
  * Progress: `pages` (listing pages), `commits` (inserted), `commitsTombstoned`, `commitsRelisted`, `commitsSweepKept`,
  * `commitsSweepUnconfirmed`, `commitsSweepDeferred` (candidates beyond the per-run cap), `commitsProjectsSkipped`.
  */
@@ -42,8 +55,9 @@ internal class GitLabCommitsStream(
     private val rawStore: GitLabRawStore,
     private val backfillFromMillis: Long,
     private val ceilings: GitLabCeilings = GitLabCeilings(),
+    private val reconcile: Boolean = false,
 ) : Stream {
-    override val name: String = "commits"
+    override val name: String = if (reconcile) "reconcile_commits" else "commits"
 
     private val sweeper = CommitsSweep(client, rawStore, name)
 
@@ -61,22 +75,24 @@ internal class GitLabCommitsStream(
         val resumed = context.cursor(name)?.cursor?.let { decodeCursor<CommitsCursor>(it) }
         val pass = Pass(resumed?.passStartedAt ?: context.clock(), resumed?.lastCompletedProjectId)
         val skippedIds = mutableListOf<Long>()
+        val streak = ProjectFailureStreak()
         val projects = rawStore.liveProjectsForCommits(context.connectionId).filter { project ->
             pass.lastCompleted?.let { project.projectId > it } ?: true
         }
         for (project in projects) {
             // A walk saved for another branch (the default branch was renamed mid-pass) names a listing that no longer exists: drop it.
             val saved = resumed?.walk?.takeIf { it.projectId == project.projectId && it.branch == project.defaultBranch }
-            when (val decision = if (saved != null) Decision.Walk(saved) else decide(context, project)) {
-                Decision.Unchanged -> Unit
-                Decision.Skip -> {
-                    skippedIds += project.projectId
-                    context.incrementProgress("commitsProjectsSkipped")
-                }
-                is Decision.Walk -> if (!walk(context, pass, decision.cursor)) {
-                    skippedIds += project.projectId
-                    context.incrementProgress("commitsProjectsSkipped")
-                }
+            val skipped = try {
+                visit(context, pass, project, saved).also { if (it.called) streak.succeeded() }.skipped
+            } catch (failure: FetchException) {
+                if (!reconcile || !failure.isProjectScoped()) throw failure
+                streak.failed(failure)
+                abandon(context, pass, project.projectId)
+                true
+            }
+            if (skipped) {
+                skippedIds += project.projectId
+                context.incrementProgress("commitsProjectsSkipped")
             }
             context.heartbeat(changed = false) // a project that wrote nothing still checks the lease and the clock
         }
@@ -89,10 +105,36 @@ internal class GitLabCommitsStream(
         context.transaction { context.clearCursor(name) }
     }
 
+    /**
+     * What visiting one project came to: [skipped] (no branch, or the branch or project is gone) and whether GitLab was [called] at all.
+     * Only a visit that called GitLab proves it is answering, so only that resets [ProjectFailureStreak]; a project without a head or
+     * without a branch says nothing about an outage.
+     */
+    private class Visit(val skipped: Boolean, val called: Boolean)
+
+    /** Decides and walks one project. */
+    private suspend fun visit(context: StreamContext, pass: Pass, project: CommitsProjectRow, saved: CommitsWalkCursor?): Visit =
+        when (val decision = if (saved != null) Decision.Walk(saved) else decide(context, project)) {
+            Decision.Unchanged -> Visit(skipped = false, called = !reconcile) // a reconcile finds Unchanged only for a project with no head
+            Decision.Skip -> Visit(skipped = true, called = false)
+            is Decision.Walk -> Visit(skipped = !walk(context, pass, decision.cursor), called = true)
+        }
+
+    /** RECONCILE gave up on [projectId] for this pass (a project-scoped failure): its walk is dropped so the pass moves past it. */
+    private suspend fun abandon(context: StreamContext, pass: Pass, projectId: Long) {
+        pass.lastCompleted = projectId
+        context.transaction { context.putCursor(name, encodeCursor(CommitsCursor(pass.startedAt, projectId, null))) }
+    }
+
     /** What [project] needs this run, from at most a page and a merge-base; writes nothing except the re-list request of a force-push. */
     private suspend fun decide(context: StreamContext, project: CommitsProjectRow): Decision {
         val branch = project.defaultBranch ?: return Decision.Skip
         val id = project.projectId
+        if (reconcile) {
+            // Never synced: SYNC's FULL walk is still to come. Otherwise a fresh-epoch re-list without `since`.
+            if (project.headSha == null) return Decision.Unchanged
+            return Decision.Walk(relistWalk(context, id, branch, restartEpoch = true, reconcile = true))
+        }
         val head = project.headSha ?: return Decision.Walk(fullWalk(id, branch))
         if (project.relistRequested) return continueRelist(context, id, branch, head)
         return check(context, id, branch, head)
@@ -131,14 +173,22 @@ internal class GitLabCommitsStream(
     /**
      * Begins (or continues) the project's re-list: the request and the epoch are recorded first, so a run cut anywhere finds both. The
      * listing starts at the oldest live stored commit, but never before the backfill floor (an ancient commit merged in through a RANGE
-     * must not make a re-list list the whole repository).
+     * must not make a re-list list the whole repository). In RECONCILE mode the window IS the floor, `since` stays off the wire and nothing
+     * is written: the epoch is the clock now and lives in the cursor (see the class kdoc).
      */
     private suspend fun relistWalk(
         context: StreamContext,
         projectId: Long,
         branch: String,
         restartEpoch: Boolean = false,
+        reconcile: Boolean = false,
     ): CommitsWalkCursor {
+        if (reconcile) {
+            return CommitsWalkCursor(
+                projectId, WalkMode.RELIST, branch, since = null, sinceMillis = backfillFromMillis, epochMillis = context.clock(),
+                reconcile = true,
+            )
+        }
         val epoch = context.transaction { rawStore.beginRelist(context.connectionId, projectId, context.clock(), restartEpoch) }
         val oldest = rawStore.oldestLiveCommittedAt(context.connectionId, projectId) ?: backfillFromMillis
         val sinceMillis = maxOf(oldest, backfillFromMillis)
@@ -181,10 +231,10 @@ internal class GitLabCommitsStream(
             }
             budget.add(answer.commits.size)
             val tip = cursor.tipSha ?: answer.commits.firstOrNull()?.sha
-            val next = answer.nextPage
+            val next = if (cursor.reconcile && pastWindow(cursor, answer.commits)) null else answer.nextPage
             val position = if (next != null) cursor.copy(page = next, tipSha = tip) else cursor.copy(tipSha = tip, listingDone = true)
             val changed = context.transaction {
-                val rows = answer.commits.map(::rawCommit)
+                val rows = answer.commits.filter { !cursor.reconcile || it.committedAt >= (cursor.sinceMillis ?: 0) }.map(::rawCommit)
                 val outcomes = rawStore.upsertCommits(context.connectionId, cursor.projectId, rows, context.clock())
                 context.incrementProgress("pages")
                 val inserted = outcomes.count { it == RawUpsertOutcome.INSERTED }
@@ -203,6 +253,12 @@ internal class GitLabCommitsStream(
             if (next == null) return position
             cursor = position
         }
+    }
+
+    /** RECONCILE's early stop: a non-empty page whose commits are ALL older than the floor minus the slack ends the listing. */
+    private fun pastWindow(cursor: CommitsWalkCursor, commits: List<GitLabCommitSummary>): Boolean {
+        val limit = (cursor.sinceMillis ?: 0) - RECONCILE_COMMITS_SLACK_MILLIS
+        return commits.isNotEmpty() && commits.all { it.committedAt < limit }
     }
 
     private fun rawCommit(commit: GitLabCommitSummary) = RawGitLabCommit(

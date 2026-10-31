@@ -196,7 +196,9 @@
       "mergeRequestsMerged": "Merged merge requests",
       "mrEvents": "MR events (notes, approvals, reviewer states)",
       "mrDetailsPending": "Merge requests awaiting details",
-      "mrDiffStatsMissing": "Merge requests without size statistics"
+      "mrDiffStatsMissing": "Merge requests without size statistics",
+      "mergeRequestsDeleted": "Merge requests deleted",
+      "mrDetailsUnread": "Merge requests with unreadable details"
     },
     "jobsTitle": "Sync jobs",
     "jobsLoadFailed": "Could not load the sync jobs",

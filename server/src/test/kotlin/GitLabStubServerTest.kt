@@ -275,6 +275,10 @@ class GitLabStubServerTest {
         assertEquals("2", first.header("X-Next-Page"))
         assertEquals("", second.header("X-Next-Page"))
         assertEquals(busy.str("notes").toInt(), first.array().size + second.array().size)
+        val single = call(path)
+        assertEquals(200, single.status)
+        assertEquals(busy.str("iid"), single.obj().str("iid"))
+        assertEquals(busy.str("projectId"), single.obj().str("project_id"))
         assertEquals(200, call("$path/approvals").status)
         assertTrue(call("$path/reviewers").array().all { it.jsonObject.containsKey("state") })
         val group = call(groupMergeRequests(groupOf(mergeProject), "&updated_after=2020-01-01T00:00:00Z"))
@@ -328,6 +332,12 @@ class GitLabStubServerTest {
     @Test
     fun `day2 force-pushes a project, renames a default branch, deletes a merge request and moves a project out`() {
         val day2 = expected.at("day2").jsonObject
+        // the single-merge-request GET (RECONCILE's probe): the merge request exists at day zero, then 404s at day2 (below)
+        val goneMr = day2.getValue("deletedMergeRequest").jsonObject
+        val goneMrPath = "/api/v4/projects/${goneMr.str("projectId")}/merge_requests/${goneMr.str("iid")}"
+        val atStarted = call(goneMrPath)
+        assertEquals(200, atStarted.status)
+        assertEquals(goneMr.str("id"), atStarted.obj().str("id"))
         GitLabStubServer.setScenarioState(GitLabStubServer.SCENARIO, GitLabStubServer.DAY2)
         try {
             // force-push: the head moved, and merge_base with the old head is an older commit
@@ -348,6 +358,8 @@ class GitLabStubServerTest {
             // a deleted merge request is gone from the lists and 404 on its endpoints
             val gone = day2.getValue("deletedMergeRequest").jsonObject
             assertEquals(404, call("/api/v4/projects/${gone.str("projectId")}/merge_requests/${gone.str("iid")}/approvals").status)
+            assertEquals(404, call(goneMrPath).status)
+            assertEquals("""{"message":"404 Not found"}""", call(goneMrPath).body)
             val groupList = call(groupMergeRequests(groupOf(gone.str("projectId").toInt())))
             assertTrue(groupList.array().none { it.str("iid") == gone.str("iid") && it.str("project_id") == gone.str("projectId") })
             // the moved project leaves the in-scope groups but still answers by id, now in the new namespace

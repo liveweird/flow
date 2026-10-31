@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.flowusers.FlowUserRole
 import ch.nokillswit.gitlab.CommitFilesOutcome
 import ch.nokillswit.gitlab.CommitFilesResult
+import ch.nokillswit.gitlab.DETAILS_ERROR_FETCH_FAILED
 import ch.nokillswit.gitlab.GitLabDiffStats
 import ch.nokillswit.gitlab.MrDetailsOutcome
 import ch.nokillswit.gitlab.MrEventSource
@@ -437,16 +438,20 @@ class GitLabDataSourceRoutesTest {
                 store.tombstoneCommits(created.id, 1, listOf(commitSha(3)), now = 6_000)
                 val files = CommitFilesResult(listOf(RawGitLabCommitFile("a.go", null, 1, 0, false, false, false, false)), false)
                 store.flushCommitFiles(created.id, listOf(CommitFilesOutcome(1, commitSha(4), files, null)), now = 7_000)
-                // Three merge requests: 1 merged and read with stats and two events, 2 opened and read with a GraphQL gap, 3 never read.
+                // Five merge requests: 1 merged and read with stats and two events, 2 opened and read with a GraphQL gap, 3 never read,
+                // 4 stamped FETCH_FAILED (live, unread) and 5 tombstoned by a reconcile.
                 store.upsertMergeRequests(
-                    created.id, listOf(rawMr(1, "merged"), rawMr(2, "opened"), rawMr(3, "opened")), now = 8_000,
+                    created.id, listOf(rawMr(1, "merged"), rawMr(2, "opened"), rawMr(3, "opened"), rawMr(4, "opened"), rawMr(5, "opened")),
+                    now = 8_000,
                 )
+                store.tombstoneMergeRequests(created.id, listOf(1_005L), now = 8_500)
                 val events = listOf(
                     RawGitLabMrEvent(MrEventSource.NOTE, 11, 5, 9_000, system = true, noteType = null, action = "MERGED"),
                     RawGitLabMrEvent(MrEventSource.APPROVAL, 5, 5, null, system = false, noteType = null, action = "APPROVAL"),
                 )
                 store.settleMrDetails(created.id, 1_001, events, now = 20_000, MrDetailsOutcome(stats = GitLabDiffStats(7, 3, 2)))
                 store.settleMrDetails(created.id, 1_002, emptyList(), now = 20_000, MrDetailsOutcome())
+                store.settleMrDetails(created.id, 1_004, emptyList(), now = 20_000, MrDetailsOutcome(error = DETAILS_ERROR_FETCH_FAILED))
             }
             val status = admin.get("/api/v1/data-sources/${created.id}/status")
             assertEquals(HttpStatusCode.OK, status.status)
@@ -463,11 +468,13 @@ class GitLabDataSourceRoutesTest {
             assertEquals(1L, counts.commitsMerge)
             assertEquals(1L, counts.commitsDeleted)
             assertEquals(1L, counts.commitFilesPending, "the backlog excludes the merge, the tombstone and the read commit")
-            assertEquals(3L, counts.mergeRequests)
+            assertEquals(4L, counts.mergeRequests, "the tombstoned one is not live")
             assertEquals(1L, counts.mergeRequestsMerged)
             assertEquals(2L, counts.mrEvents, "the notes, approvals and reviewer states stored")
             assertEquals(1L, counts.mrDetailsPending, "only the merge request never read")
             assertEquals(1L, counts.mrDiffStatsMissing, "the read merge request whose stats are a gap")
+            assertEquals(1L, counts.mergeRequestsDeleted, "marked deleted by a reconcile")
+            assertEquals(1L, counts.mrDetailsUnread, "the live merge request whose details read failed")
             assertEquals(0L, body.counts.rawIssues)
 
             val queued = admin.postJson("/api/v1/data-sources/${created.id}/sync-jobs", buildJsonObject { put("kind",

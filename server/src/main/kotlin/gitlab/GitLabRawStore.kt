@@ -5,34 +5,10 @@ import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.GitLabSyncCounts
 import ch.nokillswit.ingest.RawUpsertOutcome
 import io.ktor.util.AttributeKey
-import kotlinx.serialization.json.JsonElement
 import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 
 val GitLabRawStoreKey = AttributeKey<GitLabRawStore>("GitLabRawStore")
-
-/** One project as the PROJECTS stream hands it over: the group it was LISTED under and GitLab's document (slimmed on write). */
-class RawGitLabProject(
-    val projectId: Long,
-    val pathWithNamespace: String,
-    /** The configured group path (lowercase) the project was listed under, and that group's numeric id. */
-    val groupPath: String,
-    val groupId: Long,
-    val defaultBranch: String?,
-    val archived: Boolean,
-    val payload: JsonElement,
-)
-
-/** One user as the USERS stream hands it over; [emails] is the sorted, distinct, lowercase union (`gitLabUserEmails`). */
-class RawGitLabUser(
-    val userId: Long,
-    val username: String,
-    val name: String,
-    val state: String,
-    val bot: Boolean,
-    val emails: List<String>,
-    val payload: JsonElement,
-)
 
 /**
  * The GitLab raw store (V41-V43): `raw.gitlab_projects`/`raw.gitlab_users` (V41), `raw.gitlab_commits`/`raw.gitlab_commit_files`
@@ -214,6 +190,20 @@ class GitLabRawStore(database: R2dbcDatabase) {
     suspend fun markUsersDeletedNotSeenSince(connectionId: UInt, passStartedAt: Long, now: Long): Int =
         writes.markUsersDeletedNotSeenSince(connectionId, passStartedAt, now)
 
+    /**
+     * RECONCILE's writes are guarded on the marker they set, so a repeated pass is a no-op. Marks a moved-out project deleted (a 404 of
+     * `GET /projects/:id`); true when the row changed.
+     */
+    suspend fun markProjectDeleted(connectionId: UInt, projectId: Long, now: Long): Boolean =
+        writes.markProjectDeleted(connectionId, projectId, now)
+
+    /** Sets `archived = true` on a project RECONCILE found archived; touches no marker and no payload (see [GitLabRawWrites]). */
+    suspend fun markProjectArchived(connectionId: UInt, projectId: Long): Boolean = writes.markProjectArchived(connectionId, projectId)
+
+    /** The ids of up to [limit] moved-out, not deleted projects above [afterProjectId], by id: the RECONCILE project probes. */
+    suspend fun movedOutProjects(connectionId: UInt, limit: Int, afterProjectId: Long = 0): List<Long> =
+        reads.movedOutProjects(connectionId, limit, afterProjectId)
+
     suspend fun counts(connectionId: UInt): GitLabSyncCounts = reads.counts(connectionId, mrReads.mrCounts(connectionId))
 
     /** The `last_seen_at` of the OLDEST live user row, or null when there is none: the users-freshness read. */
@@ -240,10 +230,11 @@ class GitLabRawStore(database: R2dbcDatabase) {
 
     /**
      * Ends a re-list's sweep: records [headSha] when there is one (an empty listing keeps the stored head), writes `relist_requested =
-     * [moreToDo]` and clears the epoch once it is false.
+     * [moreToDo]` and clears the epoch once it is false. A RECONCILE re-list passes its cursor's [epoch]: it is recorded on the row (when
+     * none is set) only if [moreToDo], so SYNC's `continueRelist` finishes the sweep under the epoch that defines the candidates.
      */
-    suspend fun finishRelist(connectionId: UInt, projectId: Long, headSha: String?, moreToDo: Boolean) =
-        commitWrites.finishRelist(connectionId, projectId, headSha, moreToDo)
+    suspend fun finishRelist(connectionId: UInt, projectId: Long, headSha: String?, moreToDo: Boolean, epoch: Long? = null) =
+        commitWrites.finishRelist(connectionId, projectId, headSha, moreToDo, epoch)
 
     /** Marks the live [shas] seen now: the re-list sweep confirmed they are still on the branch. */
     suspend fun touchCommits(connectionId: UInt, projectId: Long, shas: List<String>, now: Long) =
@@ -315,7 +306,37 @@ class GitLabRawStore(database: R2dbcDatabase) {
 
     suspend fun countStaleMergeRequests(connectionId: UInt): Long = mrReads.countStaleMergeRequests(connectionId)
 
-    /** The five merge-request figures of the status view. */
+    /** The merge requests RECONCILE's re-list did not show and that are old enough to ask about, stalest-checked first. */
+    suspend fun mrReconcileCandidates(
+        connectionId: UInt,
+        floorMillis: Long,
+        passStartedAt: Long,
+        groupPaths: Collection<String>,
+        limit: Int,
+    ): List<StaleMergeRequest> =
+        mrReads.mrReconcileCandidates(connectionId, floorMillis, passStartedAt, groupPaths, limit)
+
+    /** Live merge requests of live projects whose settled details lack diff stats, newest first: RECONCILE's stats re-ask. */
+    suspend fun gappedMergeRequests(connectionId: UInt, limit: Int): List<StaleMergeRequest> =
+        mrReads.gappedMergeRequests(connectionId, limit)
+
+    /** Tombstones the live [mrIds] (RECONCILE confirmed they are gone) and flags PROCESS; returns how many. */
+    suspend fun tombstoneMergeRequests(connectionId: UInt, mrIds: Collection<Long>, now: Long): Int =
+        mrWrites.tombstoneMergeRequests(connectionId, mrIds, now)
+
+    /** Marks the live [mrIds] seen now (RECONCILE could not disprove them). */
+    suspend fun touchMergeRequests(connectionId: UInt, mrIds: Collection<Long>, now: Long) =
+        mrWrites.touchMergeRequests(connectionId, mrIds, now)
+
+    /** Fills the diff stats of the project's live merge requests by iid and flags PROCESS; the details stamp is untouched. */
+    suspend fun writeMrDiffStats(connectionId: UInt, projectId: Long, statsByIid: Map<Long, GitLabDiffStats>): Int =
+        mrWrites.writeMrDiffStats(connectionId, projectId, statsByIid)
+
+    /** Un-stamps up to [limit] live merge requests whose `details_error` is in [errors], stalest first (MR DETAILS rereads them). */
+    suspend fun retryMrDetails(connectionId: UInt, errors: Collection<String>, limit: Int): Int =
+        mrWrites.retryMrDetails(connectionId, errors, limit)
+
+    /** The seven merge-request figures of the status view. */
     suspend fun mrCounts(connectionId: UInt): MrCounts = mrReads.mrCounts(connectionId)
 
     /** The stored projects' configured group: `group_path` to `group_id` (the MERGE REQUESTS stream lists per group id). */

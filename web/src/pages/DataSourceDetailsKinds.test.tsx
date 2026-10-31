@@ -71,6 +71,8 @@ const GITLAB_COUNTS = {
     mrEvents: 698,
     mrDetailsPending: 9,
     mrDiffStatsMissing: 1,
+    mergeRequestsDeleted: 2,
+    mrDetailsUnread: 3,
   },
 };
 
@@ -127,7 +129,7 @@ describe("DataSourceDetails page: the connection kinds", () => {
     expect(screen.getByText("Raw issues")).toBeInTheDocument();
   });
 
-  test("a GitLab source shows its instance, groups and GitLab counts; the Jira-only pages and actions are not offered", async () => {
+  test("a GitLab source shows its instance, groups and GitLab counts; the Jira-only pages and Reprocess are not offered, Reconcile now is", async () => {
     serve(mockFetch, GITLAB_CONNECTION, GITLAB_COUNTS);
     renderPage();
 
@@ -155,6 +157,8 @@ describe("DataSourceDetails page: the connection kinds", () => {
     expect(row("MR events (notes, approvals, reviewer states)")).toHaveTextContent("698");
     expect(row("Merge requests awaiting details")).toHaveTextContent("9");
     expect(row("Merge requests without size statistics")).toHaveTextContent("1");
+    expect(row("Merge requests deleted")).toHaveTextContent("2");
+    expect(row("Merge requests with unreadable details")).toHaveTextContent("3");
     expect(within(counts).queryByText("Raw issues")).not.toBeInTheDocument();
 
     expect(screen.getByRole("button", { name: "Sync now" })).toBeInTheDocument();
@@ -162,7 +166,7 @@ describe("DataSourceDetails page: the connection kinds", () => {
     for (const link of ["Data profile", "Raw issue inspector", "Metrics configuration"]) {
       expect(screen.queryByRole("link", { name: link })).not.toBeInTheDocument();
     }
-    expect(screen.queryByRole("button", { name: "Reconcile now" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reconcile now" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Reprocess" })).not.toBeInTheDocument();
   });
 
@@ -178,6 +182,8 @@ describe("DataSourceDetails page: the connection kinds", () => {
     expect(within(counts).getByText("Merge requests").closest("tr")).toHaveTextContent("—");
     expect(within(counts).getByText("MR events (notes, approvals, reviewer states)").closest("tr")).toHaveTextContent("—");
     expect(within(counts).getByText("Merge requests without size statistics").closest("tr")).toHaveTextContent("—");
+    expect(within(counts).getByText("Merge requests deleted").closest("tr")).toHaveTextContent("—");
+    expect(within(counts).getByText("Merge requests with unreadable details").closest("tr")).toHaveTextContent("—");
   });
 
   test("a GitLab source with an empty exclusion list says so", async () => {

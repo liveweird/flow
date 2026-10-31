@@ -90,3 +90,19 @@ fun parseDiffStatsAnswer(tree: JsonElement, iids: List<Long>): GitLabDiffStatsAn
     val stats = if (project is JsonObject) projectStats(project, iids.toSet()) else emptyMap()
     return GitLabDiffStatsAnswer(stats, errors?.size ?: 0, project is JsonNull, code)
 }
+
+/**
+ * The transport failures of the ONE GraphQL call that mean the ENDPOINT is TRANSIENTLY out ("outage" kind: slow or down): the first one
+ * in a run trips the circuit breaker (`mrGraphqlBreaker`): NO further GraphQL call is made for the rest of the run, and every merge
+ * request settled from then on - the batch that tripped it included - is stamped with its stats GAPPED while its REST reads go on. An
+ * outage costs one GraphQL call a run and never stalls the events backlog. Everything else - a rate limit, a rejected token, a blocked
+ * host - ends the run as it would for any REST call.
+ */
+internal val GRAPHQL_OUTAGE_CODES = setOf("TIMEOUT", "UPSTREAM_UNAVAILABLE")
+
+/**
+ * The GraphQL failures about the ANSWER, or that fail fast and are usually permanent (unreadable, too big, no such endpoint, GraphQL
+ * disabled or redirected, refused to this token): a NULL GAP for that project's merge requests. One cheap call per batch, so the REST
+ * events backlog never waits on a nicety that will not come.
+ */
+internal val GRAPHQL_GAP_CODES = setOf("INVALID_RESPONSE", "NOT_FOUND", "LIMIT_EXCEEDED", "REDIRECT", "FORBIDDEN_SCOPE")

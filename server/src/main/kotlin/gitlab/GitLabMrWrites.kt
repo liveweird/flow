@@ -11,10 +11,13 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import org.jetbrains.exposed.v1.core.CustomLongFunction
+import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.longLiteral
+import org.jetbrains.exposed.v1.core.statements.UpdateStatement
 import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
@@ -33,8 +36,10 @@ private fun String?.asSha(): String? = this?.takeIf { SHA_PATTERN.matches(it) }
 /**
  * The merge-request writes (V43). [upsertMergeRequests] is the shared hashed page rule ([diffPage]) over a 100-row page: ONE key load
  * (`mr_id, sha256, deleted_at`), new rows in one multi-row `INSERT`, unchanged live rows ONE `UPDATE ... SET last_seen_at`, a changed or
- * tombstoned row rewritten on its own (`changed_at = now`, which is what makes its details stale). Nothing here tombstones a merge
- * request - `deleted_at` is RECONCILE's (PR 9) - and a listing that does not mention a row is no evidence about it.
+ * tombstoned row rewritten on its own (`changed_at = now`, which is what makes its details stale). The upsert never tombstones a merge
+ * request - a listing that does not mention a row is no evidence about it; `deleted_at` is written by [tombstoneMergeRequests] only,
+ * which RECONCILE calls after a per-merge-request 404 confirmed by the project answering. Its other writes are [writeMrDiffStats] and
+ * [retryMrDetails]. All three are guarded on what they set, so a repeated pass is a no-op.
  *
  * Every stored text is NUL-replaced and cut on a code-point boundary ([cutText]); no column of either table that is part of a key holds
  * upstream text (the keys are numeric ids and the fixed `source` code), so no byte cap beyond the column widths is needed.
@@ -202,4 +207,74 @@ internal class GitLabMrWrites(private val database: R2dbcDatabase) {
     private fun targetsJson(targets: List<String>): String? =
         targets.map { cutText(it, MAX_TARGET_CHARS) }.filter { it.isNotEmpty() }.distinct().take(MAX_TARGETS).takeIf { it.isNotEmpty() }
             ?.let { canonicalJson(JsonArray(it.map(::JsonPrimitive))) }
+
+    /** Tombstones the LIVE [mrIds] (`deleted_at = now`, PROCESS flagged); rows and events stay. Returns how many rows changed. */
+    suspend fun tombstoneMergeRequests(connectionId: UInt, mrIds: Collection<Long>, now: Long): Int = onLiveRows(connectionId, mrIds) {
+        it[deletedAt] = now
+        it[needsProcessing] = true
+    }
+
+    /** Marks the LIVE [mrIds] seen now: the pass could not disprove them, so they leave this pass's candidate set. */
+    suspend fun touchMergeRequests(connectionId: UInt, mrIds: Collection<Long>, now: Long) {
+        onLiveRows(connectionId, mrIds) { it[lastSeenAt] = now }
+    }
+
+    private suspend fun onLiveRows(connectionId: UInt, mrIds: Collection<Long>, set: MergeRequests.(UpdateStatement) -> Unit): Int {
+        if (mrIds.isEmpty()) return 0
+        return suspendTransaction(database) {
+            mrIds.distinct().sorted().chunked(KEY_CHUNK).sumOf { chunk ->
+                MergeRequests.update({
+                    (MergeRequests.connectionId eq connectionId) and (MergeRequests.mrId inList chunk) and MergeRequests.deletedAt.isNull()
+                }) { MergeRequests.set(it) }
+            }
+        }
+    }
+
+    /**
+     * Fills the diff stats of the project's LIVE merge requests by iid and flags PROCESS: one UPDATE per row (at most a GraphQL page, 50),
+     * guarded on `additions IS NULL` (the gap's own column), so only a gap is filled: a repeat is a no-op, a row that gained stats in the
+     * meantime is never overwritten, and the count means "rows filled". The details stamp, the error and the events are untouched - a
+     * stats gap is not a details failure.
+     */
+    suspend fun writeMrDiffStats(connectionId: UInt, projectId: Long, statsByIid: Map<Long, GitLabDiffStats>): Int {
+        if (statsByIid.isEmpty()) return 0
+        return suspendTransaction(database) {
+            statsByIid.entries.sortedBy { it.key }.sumOf { (iid, stats) ->
+                MergeRequests.update({
+                    (MergeRequests.connectionId eq connectionId) and (MergeRequests.projectId eq projectId) and
+                        (MergeRequests.iid eq iid) and MergeRequests.deletedAt.isNull() and MergeRequests.additions.isNull()
+                }) {
+                    it[additions] = stats.additions
+                    it[deletions] = stats.deletions
+                    it[fileCount] = stats.fileCount
+                    it[needsProcessing] = true
+                }
+            }
+        }
+    }
+
+    /**
+     * Un-stamps up to [limit] LIVE merge requests of live projects whose `details_error` is in [errors], the stalest stamp first (ties:
+     * `mr_id`): `details_synced_at` and `details_error` become null, so the next SYNC's MR DETAILS reads them again (they re-enter its
+     * backlog). The UPDATE repeats the SELECT's predicate (live, the error set, a live project), so a row tombstoned, re-stamped or
+     * moved out between the two is left alone; no lock is held across them. Returns how many.
+     */
+    suspend fun retryMrDetails(connectionId: UInt, errors: Collection<String>, limit: Int): Int {
+        if (errors.isEmpty() || limit <= 0) return 0
+        return suspendTransaction(database) {
+            val unread = (MergeRequests.connectionId eq connectionId) and MergeRequests.deletedAt.isNull() and
+                (MergeRequests.detailsError inList errors.toList()) and liveProjectOfMr()
+            val ids = MergeRequests.select(MergeRequests.mrId)
+                .where { unread }
+                .orderBy(MergeRequests.detailsSyncedAt to SortOrder.ASC, MergeRequests.mrId to SortOrder.ASC)
+                .limit(limit)
+                .toList()
+                .map { it[MergeRequests.mrId] }
+            if (ids.isEmpty()) return@suspendTransaction 0
+            MergeRequests.update({ unread and (MergeRequests.mrId inList ids) }) {
+                it[detailsSyncedAt] = null
+                it[detailsError] = null
+            }
+        }
+    }
 }

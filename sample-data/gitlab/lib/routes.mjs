@@ -186,6 +186,11 @@ export function defineRoutes(w, world) {
   }
   for (const m of world.mrs) {
     const base = `${API}/projects/${m.projectId}/merge_requests/${m.iid}`;
+    // The single-MR GET (RECONCILE's confirmation probe, PR 9): the group listing's object; a deleted or not-yet-existing MR falls to `mr-unknown`'s 404.
+    w.emit(`p${m.projectId}-mr-${m.iid}`, (state) => {
+      const e = mrState(m, state);
+      return e ? { type: "single", urlPath: base, body: mrJson(e, { ...projectById.get(e.projectId), fullPath: pathIn(m, state).fullPath }) } : null;
+    });
     w.emit(`p${m.projectId}-mr-${m.iid}-notes`, (state) => {
       const e = mrState(m, state);
       if (!e) return null;

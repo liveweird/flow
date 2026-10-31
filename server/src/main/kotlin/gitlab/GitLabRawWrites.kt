@@ -13,6 +13,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
@@ -177,4 +178,34 @@ internal class GitLabRawWrites(private val database: R2dbcDatabase) {
                 it[deletedAt] = now
             }
         }
+
+    /**
+     * RECONCILE's deletion mark: a MOVED-OUT project whose `GET /projects/:id` answered 404. Guarded on `moved_out_at IS NOT NULL` (a
+     * live project is never marked: PROJECTS owns its state) and `deleted_at IS NULL`, so a repeated pass is a no-op; true when a row
+     * changed. Only the marker is written (no payload, no hash): PROJECTS resurrects the project when it is listed again
+     * ([changeProject] clears both markers).
+     */
+    suspend fun markProjectDeleted(connectionId: UInt, projectId: Long, now: Long): Boolean = suspendTransaction(database) {
+        Projects.update({
+            (Projects.connectionId eq connectionId) and (Projects.projectId eq projectId) and Projects.movedOutAt.isNotNull() and
+                Projects.deletedAt.isNull()
+        }) {
+            it[deletedAt] = now
+        } > 0
+    }
+
+    /**
+     * RECONCILE's archival mark for a MOVED-OUT project that now answers `archived` (true when a row changed): only `archived` is set,
+     * guarded on `moved_out_at IS NOT NULL` and `archived = false`. It touches no marker, no payload and no hash on purpose:
+     * [changeProject] would resurrect the project (clear `moved_out_at`/`deleted_at`) on the archived body's changed hash, and PROJECTS
+     * (which lists `archived=false`) is what marks an archived project moved out and brings it back if it is listed again.
+     */
+    suspend fun markProjectArchived(connectionId: UInt, projectId: Long): Boolean = suspendTransaction(database) {
+        Projects.update({
+            (Projects.connectionId eq connectionId) and (Projects.projectId eq projectId) and Projects.movedOutAt.isNotNull() and
+                (Projects.archived eq false)
+        }) {
+            it[archived] = true
+        } > 0
+    }
 }

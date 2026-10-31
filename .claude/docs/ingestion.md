@@ -573,8 +573,9 @@ above).
 `ConnectorRun.withTally` scaffolding as Jira (the `CallTally` around the streams, the carried counters of a retry, the typed ceiling trip,
 the hard stop; `ingest/ConnectorRun.kt`, which also holds `ceilingTripOf`). It first re-probes `/personal_access_tokens/self` and refuses
 a token with a scope outside the read-only allow-list (`JobRefusedException(TOKEN_SCOPE_TOO_BROAD)`) or an inactive one
-(`TOKEN_INACTIVE`) before anything is stored. RECONCILE and
-REPROCESS are accepted no-ops until PR 9/10, PURGE drains `raw.gitlab_*` (commits, then merge requests - their events cascade - then users and projects).
+(`TOKEN_INACTIVE`) before anything is stored. **Its RECONCILE** re-probes the token the same way, then runs `reconcile_projects` → `reconcile_merge_requests` →
+`reconcile_commits` (moved-out project probes; the group re-list from the floor with confirmed tombstones, the stats re-ask and the failed-read retries; the `since`-less
+commits re-list and its sweep); REPROCESS is an accepted no-op until PR 10. PURGE drains `raw.gitlab_*` (commits, then merge requests - their events cascade - then users and projects).
 
 **Cursor shapes.**
 
@@ -586,6 +587,8 @@ REPROCESS are accepted no-ops until PR 9/10, PURGE drains `raw.gitlab_*` (commit
   every listing page commits with it, a RELIST's last page sets `listingDone` (the sweep's `merge_base` calls run outside a transaction and resume from it), a
   walk for a branch other than the stored `default_branch` is dropped, cleared when the pass ends. **`commit_files`** has no cursor: the backlog (`raw.gitlab_commits`
   with `files_fetched_at` null, live, non-merge) is its state.
+- **`reconcile_commits`** is a `CommitsCursor` whose walk has `reconcile = true` (a RELIST with no `since`, bounded by `sinceMillis`); **`reconcile_merge_requests`** is a `MergeRequestsCursor` with
+  `reconcile {passStartedAt, completedGroups, listingDone}` and empty watermarks; both are cleared when the pass ends (a `listingDone` state resumes at the sweep). `reconcile_projects` keeps a `ProjectProbeCursor {lastProbedId}` only while the moved-out set is larger than one run's 500 probes (a keyset it rotates over, wrapping).
 - **`merge_requests`** (`MergeRequestsCursor`): `{watermarks: {groupPath: updatedAtMillis}, pass, projectSets: {groupPath: [projectId]}}` with `pass = {groups, groupIndex, page, updatedAfter, seenMax, projectIds}` or null (`projectSets`: the group's live project ids at its last completed pass - a newcomer re-lists the group from the floor).
   UNLIKE every other GitLab cursor it is NOT cleared at the end of a pass: the row carries the per-group watermarks (GitLab's own newest `updated_at` of the group's
   last completed pass; the next listing asks `updated_after = watermark - 15 min`), `sync_cursors.watermark_at` = the smallest watermark and `last_completed_at` the end of the last
@@ -1328,7 +1331,8 @@ call)/`usersSkipped` (the whole stream skipped: every live user was seen within 
 sweep)/`commitsProjectsSkipped` (no default branch, or the branch or project is gone), `commitFiles`/`commitFileRows`/`commitFilesCapped`/`commitFilesOversized`/
 `commitFilesMissing` (COMMIT FILES: commits read, their file rows, the 1,000-file cap, the terminal errors) and `commitFilesPending` (the backlog left when the run stopped,
 non-zero only; `gitlab.commitFilesPerRun` is the call budget),
-`mergeRequests` (MERGE REQUESTS: inserted)/`mergeRequestsChanged` (changed or resurrected)/`mrSkipped` (a merge request of a project that is not a stored row)/`mrGroupsSkipped` (a group with no
+`mergeRequests` (MERGE REQUESTS: inserted)/`mergeRequestsChanged` (changed or resurrected)/RECONCILE's `projectsDeleted`/`projectsArchived`/`projectsProbed`/`projectProbesFailed` (moved-out project probes), `mrReconcileCandidates`/`mrReconcileKept`/`mrReconcileUnconfirmed`/`mrReconcileDeferred`/`mergeRequestsDeleted` (the confirmed merge-request tombstones), `mrStatsRefilled` and `mrDetailsRetried` (the re-ask and the un-stamps),
+`mrSkipped` (a merge request of a project that is not a stored row)/`mrGroupsSkipped` (a group with no
 live stored project)/`mrGroupsNotFound` (a group GitLab answered `NOT_FOUND` for), `mrDetails`/`mrEvents`/`mrNotesCapped`/`mrDetailsMissing`/`mrDetailsOversized`/`mrDetailsFailed`/`mrDiffStatsGaps`/`mrGraphqlBreaker` (the GraphQL endpoint was out: no further GraphQL call that run, the stats of the rest are gaps, the stream drains on)/`mrApprovalsUnavailable`/`mrReviewersUnavailable`
 (MR DETAILS: merge requests read, their event rows, the 1,000-note cap, the terminal errors (`NOT_FOUND`, `LIMIT_EXCEEDED`, `FETCH_FAILED`), the GraphQL gaps, a missing `/approvals` or `/reviewers`) and `mrDetailsPending` (the backlog left when the run
 stopped, non-zero only; `gitlab.mrDetailsPerRun` is the call budget, REST and GraphQL). `gitlab-integration.md` "Streams" has each.
@@ -1371,7 +1375,7 @@ source of truth:
   CHANGELOGS/WORKLOGS streams all flag into). For a GITLAB connection these Jira integers are 0 and
   **`counts.gitlab`** (`GitLabSyncCounts`, read from `GitLabRawStore`, V41-V43) carries `projects` (live), `projectsMovedOut`,
   `projectsDeleted`, `users` (live), `usersDeleted` and the commits: `commits` (live, merges included), `commitsMerge` (live, `parent_count > 1`),
-  `commitsDeleted` (tombstoned) and `commitFilesPending` (the COMMIT FILES backlog: diff unread, not a merge, not tombstoned) and the merge requests (V43): `mergeRequests` (live), `mergeRequestsMerged` (live, `state = 'merged'`), `mrEvents` (every stored note, approval and reviewer-state row), `mrDetailsPending` (the MR DETAILS backlog, the stream's own predicate: live, of a live project, details unread or older than the last change) and `mrDiffStatsMissing` (settled without error, GraphQL gave no stats). All are database-side
+  `commitsDeleted` (tombstoned) and `commitFilesPending` (the COMMIT FILES backlog: diff unread, not a merge, not tombstoned) and the merge requests (V43): `mergeRequests` (live), `mergeRequestsMerged` (live, `state = 'merged'`), `mrEvents` (every stored note, approval and reviewer-state row), `mrDetailsPending` (the MR DETAILS backlog, the stream's own predicate: live, of a live project, details unread or older than the last change), `mrDiffStatsMissing` (settled without error, GraphQL gave no stats), `mergeRequestsDeleted` (tombstoned by a reconcile, rows and events kept) and `mrDetailsUnread` (live, of a live project, `details_error` set: `NOT_FOUND` / `LIMIT_EXCEEDED` / `FETCH_FAILED`). All are database-side
   `count(*)`s (`GitLabRawReads.counts`, `GitLabMrReads.mrCounts`); it is null when this process has no GitLab store (GitLab off here).
 - **`lastJobs`** — the most recently REQUESTED job of each `SyncJobKind`, keyed by name
   (`SyncJobsService.lastJobsByKind`) — terminal or not, and a kind never requested is simply absent
@@ -1423,8 +1427,7 @@ out of every Jira-only path (V40 + `ingest/`, pinned by `ConnectorSeamTest` and 
   Jira-only (`readGitLabForSync` is GitLab's). `delete`, the scheduler scans (`dueForSync`/`dueForReconcile`/`dueForPurge`) and
   `connectionHealth` are kind-agnostic on purpose: every kind syncs, reconciles and purges through its own connector. The backfill floor
   (history horizon) applies to GitLab sources too (it is the COMMITS stream's first-run floor, PR 7). The sync-job and status routes are
-  kind-agnostic (a GitLab source accepts REPROCESS and RECONCILE requests, which are no-op successes until PR 9/10; the SPA does not offer
-  them). `uq_source_connections_name_active` spans kinds. With GitLab switched off after sources exist, list/read/delete keep working,
+  kind-agnostic (a GitLab source accepts REPROCESS, a no-op success until PR 10, and RECONCILE; the SPA offers "Reconcile now" for both kinds and "Reprocess" for Jira only). `uq_source_connections_name_active` spans kinds. With GitLab switched off after sources exist, list/read/delete keep working,
   a PUT is `400 gitlab-disabled`, the stored Test connection `409 data-source-kind-unsupported`, and scheduled jobs are skipped (above).
 
 ## Data sources

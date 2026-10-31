@@ -97,11 +97,15 @@ class MrDetailsOutcome(val notesCapped: Boolean = false, val stats: GitLabDiffSt
 /** A live merge request whose details are stale (the MR DETAILS backlog), newest `updated_at` first. */
 class StaleMergeRequest(val mrId: Long, val projectId: Long, val iid: Long)
 
-/** The five merge-request figures of the status view (A5 puts them on the DTO). */
+/** The seven merge-request figures of the status view (`GitLabSyncCounts`). */
 class MrCounts(
     val mergeRequests: Long,
     val mergeRequestsMerged: Long,
     val mrEvents: Long,
     val mrDetailsPending: Long,
     val mrDiffStatsMissing: Long,
+    /** Tombstoned by a reconcile (`deleted_at` set). */
+    val mergeRequestsDeleted: Long,
+    /** Live merge requests carrying a `details_error` stamp (`NOT_FOUND`, `LIMIT_EXCEEDED` or `FETCH_FAILED`). */
+    val mrDetailsUnread: Long,
 )

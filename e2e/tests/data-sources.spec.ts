@@ -127,7 +127,7 @@ test("admin connects the Jira stub, syncs it, and inspects the result", async ({
   await expect(page.getByRole("link", { name: `Open ${name}` })).toHaveCount(0);
 });
 
-test("admin connects the GitLab stub, syncs it, and reads back its projects, users, commits and merge requests", async ({ page }) => {
+test("admin connects the GitLab stub, syncs and reconciles it, and reads back its projects, users, commits and merge requests", async ({ page }) => {
   test.setTimeout(300_000);
   await login(page);
   const name = uniqueText("e2e-gitlab");
@@ -178,7 +178,7 @@ test("admin connects the GitLab stub, syncs it, and reads back its projects, use
   await expect(page).toHaveURL(/\/data-sources\/\d+$/);
   await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
 
-  // The connection table names the kind and the groups; the Jira-only pages and actions are not offered for GitLab.
+  // The connection table names the kind and the groups; the Jira-only pages and Reprocess are not offered for GitLab (Reconcile now is, since 1.36.1).
   const connection = page.getByRole("table", { name: "Connection", exact: true });
   await expect(connection).toContainText("GitLab");
   await expect(connection).toContainText("platform, apps");
@@ -193,8 +193,8 @@ test("admin connects the GitLab stub, syncs it, and reads back its projects, use
   // merges (`commits.inScopeTotals`), and none still awaiting file details (one SYNC drains the 281 diffs under the default budget); then
   // its merge requests: 60 (`mergeRequests.total`), 34 merged (`byState.merged`), 698 review events (`events.noteTotal` 582 +
   // `approvalsEndpointTotal` 40 + `reviewersTotal` 76), none awaiting details (one SYNC drains ~190 calls under the default budget) and the one
-  // GraphQL gap without size statistics (`mergeRequests.nullDiffStatsGap`). Scope the job row to the "Sync"
-  // kind so a co-occurring Reconcile row's own "Succeeded" is never what we matched.
+  // GraphQL gap without size statistics (`mergeRequests.nullDiffStatsGap`), no merge request deleted and none with unreadable details.
+  // Scope the job row to the "Sync" kind so a co-occurring Reconcile row's own "Succeeded" is never what we matched.
   await page.getByRole("button", { name: "Sync now" }).click();
   const syncJobRow = page.getByRole("row").filter({ hasText: "Sync" }).filter({ hasText: "Succeeded" });
   await expect(async () => {
@@ -211,7 +211,22 @@ test("admin connects the GitLab stub, syncs it, and reads back its projects, use
     await expect(page.getByRole("row", { name: /^MR events .* \d+$/ })).toContainText("698");
     await expect(page.getByRole("row", { name: /^Merge requests awaiting details \d+$/ })).toContainText("0");
     await expect(page.getByRole("row", { name: /^Merge requests without size statistics \d+$/ })).toContainText("1");
+    await expect(page.getByRole("row", { name: /^Merge requests deleted \d+$/ })).toContainText("0");
+    await expect(page.getByRole("row", { name: /^Merge requests with unreadable details \d+$/ })).toContainText("0");
   }).toPass({ timeout: 280_000, intervals: [10_000] });
+
+  // Reconcile now (day zero: the stub has nothing deleted, moved or force-pushed, so it is ~15 calls and changes no count): the job row
+  // reads Succeeded and the figures stand. The day-2 reconcile is graded by the server's GitLabReconcileStreamsTest.
+  await page.getByRole("button", { name: "Reconcile now" }).click();
+  const reconcileJobRow = page.getByRole("row").filter({ hasText: "Reconcile" }).filter({ hasText: "Succeeded" });
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+    await expect(reconcileJobRow.first()).toBeVisible();
+    await expect(page.getByRole("row", { name: /^Commits \d+$/ })).toContainText("300");
+    await expect(page.getByRole("row", { name: /^Merge requests \d+$/ })).toContainText("60");
+    await expect(page.getByRole("row", { name: /^Merge requests deleted \d+$/ })).toContainText("0");
+  }).toPass({ timeout: 120_000, intervals: [5_000] });
 
   // Delete from the list's row menu.
   await page.goto("/data-sources");

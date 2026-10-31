@@ -329,7 +329,7 @@ class GitLabConnectorTest {
     // ------------------------------------------------------------------ the other job kinds
 
     @Test
-    fun `PURGE drains all six tables, and RECONCILE and REPROCESS are accepted no-ops until their streams exist`() = runBlocking<Unit> {
+    fun `PURGE drains all six tables, REPROCESS is an accepted no-op, and a RECONCILE at day zero changes no row`() = runBlocking<Unit> {
         val connId = connection()
         val connector = GitLabFixtures.connector(dataSources)
         GitLabFixtures.run(connector, connId, onDemand = true)
@@ -339,10 +339,16 @@ class GitLabConnectorTest {
         assertEquals(60, store.mergeRequestRows(connId).size)
         assertTrue(store.mrEventRows(connId).isNotEmpty())
 
-        GitLabFixtures.run(connector, connId, SyncJobKind.RECONCILE)
+        val reconcile = mutableListOf<String>()
+        GitLabFixtures.run(connector, connId, SyncJobKind.RECONCILE, progress = reconcile)
         GitLabFixtures.run(connector, connId, SyncJobKind.REPROCESS)
         assertEquals(stored,
             store.projectRows(connId).map { it[GitLabRawStore.Projects.projectId] to it[GitLabRawStore.Projects.changedAt] })
+        assertEquals(0L, store.counts(connId).mergeRequestsDeleted)
+        assertEquals(60, store.mergeRequestRows(connId).size)
+        assertEquals(4L, lastProgress(reconcile)["commitsRelisted"], "the four synced projects are re-listed")
+        val leftover = SyncCursorsService(sharedDatabaseForTests()).getAll(connId).map { it.stream }.filter { it.startsWith("reconcile_") }
+        assertEquals(emptyList(), leftover, "every reconcile cursor is cleared at the pass end")
 
         GitLabFixtures.run(connector, connId, SyncJobKind.PURGE)
         assertTrue(store.projectRows(connId).isEmpty() && store.userRows(connId).isEmpty())

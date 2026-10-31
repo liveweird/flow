@@ -711,6 +711,56 @@ class GitLabClientTest {
     }
 
     @Test
+    fun `project reduces the detail body to the probe's fields and a 404 is NOT_FOUND`() = runBlocking {
+        val tokens = mutableListOf<String?>()
+        val engine = MockEngine { request ->
+            tokens += request.headers["PRIVATE-TOKEN"]
+            when (request.url.encodedPath) {
+                "/api/v4/projects/4" -> respond(
+                    """{"id":4,"path_with_namespace":"platform/tools/p4","archived":true,"default_branch":"main","description":"SECRET",
+                        "namespace":{"id":8,"full_path":"platform/tools","kind":"group"},"statistics":{"commit_count":9}}""",
+                    HttpStatusCode.OK, json,
+                )
+                "/api/v4/projects/5" ->
+                    respond("""{"id":5,"path_with_namespace":"platform/p5","default_branch":null}""", HttpStatusCode.OK, json)
+                "/api/v4/projects/6" -> respond("""{"id":6}""", HttpStatusCode.OK, json)
+                else -> respond("""{"message":"404 Project Not Found"}""", HttpStatusCode.NotFound, json)
+            }
+        }
+        val client = client(engine)
+        val detail = client.project(4)
+        assertEquals(listOf(4L, "platform/tools/p4", "platform/tools", true, "main"),
+            listOf(detail.id, detail.pathWithNamespace, detail.namespaceFullPath, detail.archived, detail.defaultBranch))
+        assertEquals("glpat-secret", tokens.first())
+        val bare = client.project(5)
+        assertFalse(bare.archived, "a missing archived is false")
+        assertNull(bare.namespaceFullPath)
+        assertNull(bare.defaultBranch)
+        assertEquals("INVALID_RESPONSE", assertFailsWith<FetchException> { client.project(6) }.code, "no path_with_namespace")
+        assertEquals("NOT_FOUND", assertFailsWith<FetchException> { client.project(99) }.code)
+    }
+
+    @Test
+    fun `mergeRequest asks the single merge request, slims it and a 404 is NOT_FOUND`() = runBlocking {
+        val seen = mutableListOf<String>()
+        val engine = MockEngine { request ->
+            seen += request.url.encodedPath
+            if (request.url.encodedPath == "/api/v4/projects/7/merge_requests/4") respond(mrItem, HttpStatusCode.OK, json)
+            else respond("""{"message":"404 Not found"}""", HttpStatusCode.NotFound, json)
+        }
+        val client = client(engine)
+        val mr = client.mergeRequest(7, 4)
+        assertEquals(listOf(1041L, 7L, 4L), listOf(mr.mrId, mr.projectId, mr.iid))
+        assertEquals("merged", mr.state)
+        val payload = mr.payload as kotlinx.serialization.json.JsonObject
+        assertTrue(payload.keys.all { it in MR_KEYS }, "only whitelisted keys: ${payload.keys}")
+        assertTrue(listOf("id", "iid", "project_id", "state", "updated_at").all { it in payload })
+        assertFalse("description" in payload || "SECRET" in payload.toString())
+        assertEquals("NOT_FOUND", assertFailsWith<FetchException> { client.mergeRequest(7, 12) }.code)
+        assertEquals(listOf("/api/v4/projects/7/merge_requests/4", "/api/v4/projects/7/merge_requests/12"), seen)
+    }
+
+    @Test
     fun `a non-numeric or negative id is refused before any merge-request request`() = runBlocking {
         var requests = 0
         val engine = MockEngine {
@@ -724,6 +774,9 @@ class GitLabClientTest {
             { client.mergeRequestNotes(7, -4, 1) },
             { client.mergeRequestApprovals(7, -4) },
             { client.mergeRequestReviewers(-7, 4) },
+            { client.mergeRequest(-7, 4) },
+            { client.mergeRequest(7, -4) },
+            { client.project(-4) },
         )) assertEquals("INVALID_RESPONSE", assertFailsWith<FetchException> { call() }.code)
         assertEquals(0, requests)
     }

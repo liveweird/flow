@@ -64,6 +64,11 @@ internal data class CommitsWalkCursor(
     val listingDone: Boolean = false,
     /** A RELIST's epoch (`raw.gitlab_projects.relist_started_at`): the sweep's candidates are the live commits nothing has seen since. */
     val epochMillis: Long? = null,
+    /**
+     * A RELIST without `since` on the wire (RECONCILE's, [since] is null): the listing walks the branch from the tip and is bounded
+     * client-side by [sinceMillis] (the backfill floor), so a commit GitLab's `since` would hide with its skewed child is listed too.
+     */
+    val reconcile: Boolean = false,
 ) {
     /** The branch being walked: the part after `..` of a range (git refs cannot contain `..`). */
     val branch: String get() = refName.substringAfter("..")
@@ -83,6 +88,21 @@ internal data class MergeRequestsCursor(
     val watermarks: Map<String, Long> = emptyMap(),
     val pass: MergeRequestsPass? = null,
     val projectSets: Map<String, List<Long>> = emptyMap(),
+    /** `reconcile_merge_requests` only: the pass's state beside [pass] (the watermarks and project sets stay empty there). */
+    val reconcile: MrReconcileState? = null,
+)
+
+/**
+ * RECONCILE's merge-request re-list state: [passStartedAt] (a merge request seen at or after it was shown by this pass), the group paths
+ * whose listing reached its last page ([completedGroups]: only their projects' unlisted merge requests are candidates - a group that
+ * answered `NOT_FOUND` or was skipped is absent) and [listingDone] (the probes and the refresh are what is left). Saved with every page,
+ * so a run cut anywhere resumes the same pass, across attempts and jobs.
+ */
+@Serializable
+internal data class MrReconcileState(
+    val passStartedAt: Long,
+    val completedGroups: List<String> = emptyList(),
+    val listingDone: Boolean = false,
 )
 
 /**
@@ -101,3 +121,7 @@ internal data class MergeRequestsPass(
     val seenMax: Long? = null,
     val projectIds: List<Long> = emptyList(),
 )
+
+/** `reconcile_projects`' rotation: the last project id the previous run probed (see [GitLabReconcileProjectsStream]). */
+@Serializable
+internal data class ProjectProbeCursor(val lastProbedId: Long)

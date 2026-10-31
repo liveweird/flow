@@ -116,13 +116,22 @@ internal class GitLabCommitWrites(private val database: R2dbcDatabase) {
         row[Projects.relistStartedAt] ?: now
     }
 
-    /** The end of a sweep: the head when there is one, the request as [moreToDo], and the epoch cleared once nothing is left to do. */
-    suspend fun finishRelist(connectionId: UInt, projectId: Long, headSha: String?, moreToDo: Boolean) {
+    /**
+     * The end of a sweep: the head when there is one, the request as [moreToDo], and the epoch cleared once nothing is left to do. A
+     * RECONCILE re-list never began a request (its epoch lives in its cursor); when it defers, [epoch] is recorded on the row unless one is
+     * already set, and the request is raised, so SYNC's `continueRelist` finishes under the epoch that defines the candidates. An epoch
+     * that is already set (a SYNC re-list deferred earlier) is KEPT, the older one: the deferred candidates that SYNC saw between the two
+     * epochs are then not candidates of that continuation and wait for the next RECONCILE - they stay live, which is the safe side.
+     */
+    suspend fun finishRelist(connectionId: UInt, projectId: Long, headSha: String?, moreToDo: Boolean, epoch: Long? = null) {
         suspendTransaction(database) {
             Projects.update({ project(connectionId, projectId) }) {
                 if (headSha != null) it[commitsHeadSha] = headSha
                 it[relistRequested] = moreToDo
                 if (!moreToDo) it[relistStartedAt] = null
+            }
+            if (moreToDo && epoch != null) {
+                Projects.update({ project(connectionId, projectId) and Projects.relistStartedAt.isNull() }) { it[relistStartedAt] = epoch }
             }
         }
     }

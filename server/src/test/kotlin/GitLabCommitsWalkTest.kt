@@ -20,6 +20,7 @@ import ch.nokillswit.gitlab.decodeCursor
 import ch.nokillswit.gitlab.encodeCursor
 import ch.nokillswit.gitlab.isoInstant
 import ch.nokillswit.gitlab.purgeAll
+import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.ingest.LeaseLostException
 import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.ingest.SyncCursorsService
@@ -526,6 +527,248 @@ class GitLabCommitsWalkTest {
         }
         run(client, connId, floor = 7_000)
         assertEquals(isoInstant(7_000), client.listed.last().second, "an ancient commit does not widen the window past the floor")
+    }
+
+    // --- RECONCILE mode: a `since`-less re-list under a fresh epoch, stream `reconcile_commits` --------------------------------
+
+    private suspend fun runReconcile(
+        client: FakeClient,
+        connId: UInt,
+        context: StreamContext = GitLabFixtures.freshContext(connId),
+        floor: Long = BACKFILL,
+    ) = GitLabFixtures.runStream(GitLabCommitsStream(client, store, floor, reconcile = true), connId, context)
+
+    private fun at(n: Int, days: Long) = summary(n, committedAt = days * MILLIS_PER_DAY)
+
+    @Test
+    fun `reconcile sends no since, lists from page 1, ends past the slack below the floor and stores only commits at or above it`() =
+        runBlocking<Unit> {
+        val connId = connection()
+        val floor = 100 * MILLIS_PER_DAY
+        store.upsertCommits(connId, PROJECT, listOf(raw(1, committedAt = 150 * MILLIS_PER_DAY)), now = 100)
+        store.recordCommitsHead(connId, PROJECT, sha(1))
+        val client = FakeClient().apply {
+            listingOf = { _, _, _, page ->
+                when (page) {
+                    1 -> GitLabCommitPage(listOf(at(1, 200), at(2, 150), at(3, 101)), 2, null)
+                    2 -> GitLabCommitPage(listOf(at(4, 99), at(5, 90)), 3, null)
+                    3 -> GitLabCommitPage(listOf(at(6, 85), at(7, 80)), 4, null)
+                    else -> error("page 4 must never be asked")
+                }
+            }
+            mergeBaseOf = { _, a, _ -> a }
+        }
+        val progress = runReconcile(client, connId, floor = floor)
+        assertEquals(listOf(1, 2, 3), client.listed.map { it.third }, "page 2 is inside the slack; page 3 is entirely older and ends it")
+        assertTrue(client.listed.all { it.first == BRANCH && it.second == null }, "no since on the wire")
+        assertEquals(setOf(sha(1), sha(2), sha(3)), store.commitRows(connId).map { it[GitLabRawStore.Commits.sha] }.toSet(),
+            "commits below the floor are passed through, never stored")
+        assertEquals(2L, progress["commits"])
+        assertEquals(3L, progress["pages"])
+        assertNull(cursors.get(connId, "reconcile_commits"), "the pass ended")
+        assertNull(cursors.get(connId, "commits"), "SYNC's cursor row is never touched")
+        assertEquals(sha(1), project(connId).headSha)
+    }
+
+    @Test
+    fun `reconcile lists a commit SYNC never stored, flags it for PROCESS, and a following SYNC is a plain CHECK`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertCommits(connId, PROJECT, listOf(raw(1), raw(2), raw(4)), now = 100)
+        store.recordCommitsHead(connId, PROJECT, sha(4))
+        val client = FakeClient().apply {
+            listingOf = { _, _, _, _ -> commitPage(4 downTo 1) }
+            mergeBaseOf = { _, a, _ -> a }
+        }
+        val progress = runReconcile(client, connId)
+        assertEquals(1L, progress["commits"], "the hidden parent is inserted")
+        val rows = store.commitRows(connId).associateBy { it[GitLabRawStore.Commits.sha] }
+        assertEquals(4, rows.size)
+        assertTrue(rows.getValue(sha(3))[GitLabRawStore.Commits.needsProcessing])
+        assertTrue(rows.values.all { it[GitLabRawStore.Commits.lastSeenAt] > 100 }, "the walk touched every listed row")
+        assertEquals(0, client.mergeBaseCalls, "no candidate: no confirmation")
+        assertNull(progress["commitsTombstoned"])
+        assertEquals(sha(4), project(connId).headSha)
+        assertFalse(project(connId).relistRequested)
+
+        client.listed.clear()
+        client.listingOf = { _, _, _, _ -> commitPage(4 downTo 4) }
+        val sync = run(client, connId)
+        assertEquals(1, client.listCalls, "tip == head: one page, nothing else")
+        assertEquals(0, client.mergeBaseCalls)
+        assertEquals(emptySet(), sync.keys.intersect(setOf("pages", "commits", "commitsRelisted")))
+    }
+
+    @Test
+    fun `reconcile asks again about the commits an earlier sweep kept unconfirmed`() = runBlocking<Unit> {
+        for (verdict in listOf("gone", "kept", "tip moved")) {
+            val connId = connection()
+            store.upsertCommits(connId, PROJECT, (1..3).map { raw(it) }, now = 100)
+            store.recordCommitsHead(connId, PROJECT, sha(3))
+            // An earlier re-list kept commit 2 UNCONFIRMED: touched inside its epoch, so the epoch alone would not ask again.
+            store.beginRelist(connId, PROJECT, now = 120)
+            store.touchCommits(connId, PROJECT, listOf(sha(2)), now = 150)
+            val client = FakeClient().apply {
+                listingOf = { _, _, _, _ -> GitLabCommitPage(listOf(summary(3), summary(1)), null, null) }
+                mergeBaseOf = { _, a, b ->
+                    when {
+                        verdict == "tip moved" && b == BRANCH -> sha(1)
+                        verdict == "gone" && a == sha(2) -> sha(1)
+                        else -> a
+                    }
+                }
+            }
+            val progress = runReconcile(client, connId)
+            val deleted = store.commitRows(connId).filter { it[GitLabRawStore.Commits.deletedAt] != null }
+                .map { it[GitLabRawStore.Commits.sha] }
+            when (verdict) {
+                "gone" -> {
+                    assertEquals(1L, progress["commitsTombstoned"])
+                    assertEquals(listOf(sha(2)), deleted)
+                }
+                "kept" -> {
+                    assertEquals(1L, progress["commitsSweepKept"])
+                    assertTrue(deleted.isEmpty())
+                }
+                else -> {
+                    assertEquals(1L, progress["commitsSweepUnconfirmed"], "the tip is no longer on the branch: nothing is believed")
+                    assertNull(progress["commitsTombstoned"])
+                    assertTrue(deleted.isEmpty())
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `reconcile leaves a headless project to SYNC, skips a gone branch untouched and resumes a failed listing from its cursor`() =
+        runBlocking<Unit> {
+        val headless = connection()
+        val untouched = FakeClient()
+        val headlessProgress = runReconcile(untouched, headless)
+        assertEquals(0, untouched.listCalls, "never synced: SYNC's FULL walk is pending")
+        assertNull(headlessProgress["commitsProjectsSkipped"])
+        assertNull(cursors.get(headless, "reconcile_commits"))
+        assertNull(project(headless).headSha)
+
+        val gone = connection()
+        store.upsertCommits(gone, PROJECT, listOf(raw(1)), now = 100)
+        store.recordCommitsHead(gone, PROJECT, sha(1))
+        val skipped = runReconcile(FakeClient().apply { listingOf = { _, _, _, _ -> throw fetchFailure("NOT_FOUND") } }, gone)
+        assertEquals(1L, skipped["commitsProjectsSkipped"])
+        assertFalse(project(gone).relistRequested, "a skipped reconcile walk raises no re-list request")
+        assertNull(store.projectRows(gone).single()[GitLabRawStore.Projects.relistStartedAt], "and records no epoch")
+        val afterSkip = FakeClient().apply { listingOf = { _, _, _, _ -> commitPage(1 downTo 1) } }
+        run(afterSkip, gone)
+        assertEquals(1, afterSkip.listCalls, "the next SYNC is a plain CHECK: tip == head")
+        assertEquals(0, afterSkip.mergeBaseCalls)
+
+        val connId = connection()
+        store.upsertCommits(connId, PROJECT, listOf(raw(1)), now = 100)
+        store.recordCommitsHead(connId, PROJECT, sha(1))
+        val client = FakeClient().apply {
+            listingOf = { _, _, _, page -> if (page == 1) commitPage(5 downTo 4, next = 2) else throw fetchFailure("RATE_LIMITED") }
+            mergeBaseOf = { _, a, _ -> a }
+        }
+        assertFailsWith<FetchException> { runReconcile(client, connId) }
+        val saved = decodeCursor<CommitsCursor>(assertNotNull(cursors.get(connId, "reconcile_commits")).cursor)
+        assertEquals(2, saved.walk?.page)
+        assertTrue(saved.walk?.reconcile == true)
+        assertNull(saved.walk?.since)
+        assertNull(cursors.get(connId, "commits"))
+        assertNotNull(saved.walk?.epochMillis, "the epoch lives in the cursor")
+        assertNull(store.projectRows(connId).single()[GitLabRawStore.Projects.relistStartedAt], "not on the project row")
+        assertFalse(project(connId).relistRequested, "a cut reconcile leaves the flag as it was")
+
+        client.listed.clear()
+        client.listingOf = { _, _, _, _ -> commitPage(3 downTo 1) }
+        runReconcile(client, connId)
+        assertEquals(listOf(2), client.listed.map { it.third }, "resumed at page 2, no new epoch")
+        assertNull(cursors.get(connId, "reconcile_commits"))
+    }
+
+    @Test
+    fun `a deferring reconcile sweep raises the request and records its epoch, and the next SYNC finishes under it`() = runBlocking<Unit> {
+        val connId = connection()
+        val hidden = MAX_SWEEP_CONFIRMATIONS + 50
+        store.upsertCommits(connId, PROJECT, (1..hidden).map { raw(it) }, now = 100)
+        store.recordCommitsHead(connId, PROJECT, sha(hidden))
+        val client = FakeClient().apply {
+            listingOf = { _, _, _, _ -> commitPage((hidden + 1)..(hidden + 1)) }
+            mergeBaseOf = { _, a, _ -> a }
+        }
+        val first = runReconcile(client, connId)
+        assertEquals(MAX_SWEEP_CONFIRMATIONS.toLong(), first["commitsSweepKept"])
+        assertTrue(project(connId).relistRequested, "more candidates than the cap: SYNC's continueRelist finishes")
+        assertNotNull(store.projectRows(connId).single()[GitLabRawStore.Projects.relistStartedAt], "under the reconcile's epoch")
+
+        client.mergeBaseCalls = 0
+        val second = run(client, connId)
+        assertEquals(50L, second["commitsSweepKept"], "the kept candidates did not come back: the epoch is the reconcile's")
+        assertFalse(project(connId).relistRequested)
+        assertNull(store.projectRows(connId).single()[GitLabRawStore.Projects.relistStartedAt])
+    }
+
+    /** [projects] projects with a head and a commit each, except the [headless] ones (no head yet) and the [branchless] (no branch). */
+    private suspend fun connectionWith(projects: Int, headless: Set<Int> = emptySet(), branchless: Set<Int> = emptySet()): UInt {
+        val connId = connection()
+        val extra = (2..projects).map {
+            val payload = Json.parseToJsonElement("""{"id":$it,"path":"p$it","path_with_namespace":"platform/p$it","name":"p$it"}""")
+            RawGitLabProject(it.toLong(), "platform/p$it", "platform", 7, BRANCH.takeUnless { _ -> it in branchless }, false, payload)
+        }
+        store.upsertProjects(connId, extra, now = 1)
+        for (id in (1..projects).filter { it !in headless }) {
+            store.upsertCommits(connId, id.toLong(), listOf(raw(1)), now = 100)
+            store.recordCommitsHead(connId, id.toLong(), sha(1))
+        }
+        return connId
+    }
+
+    @Test
+    fun `a deferring reconcile sweep keeps the older epoch a row already has`() = runBlocking<Unit> {
+        val connId = connection()
+        val hidden = MAX_SWEEP_CONFIRMATIONS + 10
+        store.upsertCommits(connId, PROJECT, (1..hidden).map { raw(it) }, now = 100)
+        store.recordCommitsHead(connId, PROJECT, sha(hidden))
+        store.beginRelist(connId, PROJECT, now = 50) // a SYNC re-list deferred earlier: request set, epoch 50
+        val client = FakeClient().apply {
+            listingOf = { _, _, _, _ -> commitPage((hidden + 1)..(hidden + 1)) }
+            mergeBaseOf = { _, a, _ -> a }
+        }
+        runReconcile(client, connId)
+        val row = store.projectRows(connId).single()
+        assertEquals(50L, row[GitLabRawStore.Projects.relistStartedAt], "the older epoch is kept, not replaced by the reconcile's")
+        assertTrue(row[GitLabRawStore.Projects.relistRequested])
+    }
+
+    @Test
+    fun `a project without a head or a branch does not reset the failure streak`() = runBlocking<Unit> {
+        // 1 fails, 2 has no head, 3 has no branch, 4 and 5 fail: three failures in a row as far as GitLab is concerned.
+        val connId = connectionWith(5, headless = setOf(2), branchless = setOf(3))
+        val failing = FakeClient().apply { listingOf = { _, _, _, _ -> throw fetchFailure("UPSTREAM_UNAVAILABLE") } }
+        assertEquals("UPSTREAM_UNAVAILABLE", assertFailsWith<FetchException> { runReconcile(failing, connId) }.code)
+        assertEquals(3, failing.listCalls, "projects 1, 4 and 5 called GitLab; 2 and 3 made no call and proved nothing")
+    }
+
+    @Test
+    fun `a project the token cannot see is skipped by reconcile and the pass goes on, three in a row fail the run`() = runBlocking<Unit> {
+        val connId = connectionWith(3)
+        val client = FakeClient().apply {
+            listingOf = { project, _, _, _ -> if (project == 2L) throw fetchFailure("FORBIDDEN_SCOPE") else commitPage(1 downTo 1) }
+        }
+        val progress = runReconcile(client, connId)
+        assertEquals(1L, progress["commitsProjectsSkipped"])
+        assertEquals(3, client.listed.size, "projects 1 and 3 were walked, the one between them failed")
+        assertNull(cursors.get(connId, "reconcile_commits"), "the pass ended: the skipped project's walk is not kept")
+        assertTrue(store.liveProjectsForCommits(connId).none { it.relistRequested })
+
+        val outage = connectionWith(3)
+        val failing = FakeClient().apply { listingOf = { _, _, _, _ -> throw fetchFailure("UPSTREAM_UNAVAILABLE") } }
+        assertEquals("UPSTREAM_UNAVAILABLE", assertFailsWith<FetchException> { runReconcile(failing, outage) }.code)
+        assertEquals(3, failing.listCalls, "two skips, the third failure in a row is rethrown")
+
+        val limited = connectionWith(3)
+        val rateLimited = FakeClient().apply { listingOf = { _, _, _, _ -> throw fetchFailure("RATE_LIMITED") } }
+        assertEquals("RATE_LIMITED", assertFailsWith<FetchException> { runReconcile(rateLimited, limited) }.code)
+        assertEquals(1, rateLimited.listCalls, "a connection-wide failure propagates at once")
     }
 
     // --- COMMIT FILES --------------------------------------------------------------------------------------------------------
