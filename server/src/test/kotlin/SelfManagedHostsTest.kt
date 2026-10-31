@@ -148,7 +148,7 @@ class SelfManagedHostsTest {
 
     @Test
     fun `valid CIDRs parse`() {
-        val cidrs = "10.20.0.0/16, 172.16.0.0/12,192.168.5.0/24,10.0.0.0/8,fd12:3456::/32,fd12:3456:789a::/48,10.1.2.3/32"
+        val cidrs = "10.20.0.0/16, 172.16.0.0/12,192.168.5.0/24,10.0.0.0/8,fd12:3456::/32,fd12:3456:789a::/48,10.1.2.3/32,2001:db8::/32"
         val hosts = parseGitLabHosts("gitlab.example.com", cidrs)
         assertTrue(hosts.enabled)
     }
@@ -255,6 +255,17 @@ class SelfManagedHostsTest {
         assertTrue(listed.addressAllowed(unlistedHost, ip("203.0.113.10")))
         assertTrue(SelfManagedHosts.NONE.addressAllowed(unlistedHost, ip("8.8.8.8")))
         assertTrue(listed.addressAllowed(listedHost, ip("2606:4700:4700::1111")))
+        // Teredo is exactly 2001:0000::/32: the rest of 2001: space (global unicast, documentation) stays allowed.
+        assertTrue(listed.addressAllowed(listedHost, ip("2001:4860:4860::8888")))
+        assertTrue(listed.addressAllowed(unlistedHost, ip("2001:db8::1")))
+    }
+
+    @Test
+    fun `a host-shaped entry that is not a DNS name is named by position only`() {
+        // A 64-character hex secret pasted into the wrong variable is host-shaped but never a host: it must not reach a log.
+        val secret = "a".repeat(32) + "0123456789abcdef0123456789abcdef"
+        val message = refusal(hosts = "gitlab.example.com,$secret")
+        assertTrue("entry 2" in message && secret !in message, message)
     }
 
     @Test

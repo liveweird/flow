@@ -119,6 +119,7 @@ class OutboundTransportTest {
     }
 
     private fun loopbackClient(timeoutSeconds: Long = 5): HttpClient = buildGuardedJiraHttpClient(
+        originAllowed = null,
         allowedHost = { true },
         addressAllowed = { _, _ -> true },
         requestTimeoutSeconds = timeoutSeconds,

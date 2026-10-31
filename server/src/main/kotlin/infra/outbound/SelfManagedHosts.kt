@@ -101,7 +101,13 @@ private fun parseHostEntry(entry: String, index: Int, key: String): SelfManagedH
     } else {
         DEFAULT_HTTPS_PORT
     }
-    if (!isDnsName(host)) refuse("must be a DNS host name (letters, digits and hyphens in dot-separated labels, never an IP literal)")
+    // Echoed only when every label is DNS-shaped (an IP literal, a near-miss name); a long token (a 64-character hex secret
+    // pasted into the wrong variable) is host-shaped but not label-shaped, so it is named by position only.
+    if (!isDnsName(host)) {
+        val labelShaped = host.split('.').all { it.length <= MAX_LABEL_LENGTH && DNS_LABEL.matches(it) }
+        val named = if (labelShaped) describe(index, entry, HOST_SHAPED) else "entry ${index + 1}"
+        error("Config \"$key\": $named must be a DNS host name (letters, digits and hyphens in dot-separated labels, no IP literal)")
+    }
     return SelfManagedHosts.HostEntry(host, port)
 }
 

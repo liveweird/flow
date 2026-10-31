@@ -139,8 +139,8 @@ fun Application.configureJira() {
  * [MED-3] Builds EXACTLY the guarded Ktor `HttpClient(OkHttp)` [configureJira] wires into
  * production — factored out so a test can build the SAME client (not a hand-rolled approximation
  * that could silently drift if the guard were ever unwired) and drive it against a real loopback
- * WireMock fixture (`OutboundGuardTest`'s production-wiring integration test). [originAllowed] is null (no per-request origin
- * check) only for those loopback tests; [configureJira] always passes the real rule.
+ * WireMock fixture (`OutboundGuardTest`'s production-wiring integration test). [originAllowed] has no default, so every caller
+ * states it: null (no per-request origin check) only in those loopback tests; [configureJira] always passes the real rule.
  */
 fun buildGuardedJiraHttpClient(
     allowedHost: (String) -> Boolean,
@@ -148,7 +148,7 @@ fun buildGuardedJiraHttpClient(
     addressAllowed: (String, InetAddress) -> Boolean = publicAddressesOnly,
     schemeFor: (String) -> String = { "https" },
     eventListener: EventListener = EventListener.NONE,
-    originAllowed: ((scheme: String, host: String, port: Int) -> Boolean)? = null,
+    originAllowed: ((scheme: String, host: String, port: Int) -> Boolean)?,
     requestTimeoutSeconds: Long,
 ): HttpClient {
     val okHttpClient = guardedOkHttpClient(

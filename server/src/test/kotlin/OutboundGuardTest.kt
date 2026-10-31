@@ -224,6 +224,7 @@ class OutboundGuardTest {
         val stubUrl = JiraStubServer.start()
         var resolveCalls = 0
         val httpClient = buildGuardedJiraHttpClient(
+            originAllowed = null,
             allowedHost = { true },
             resolver = { resolveCalls++; InetAddress.getAllByName(it).toList() },
             requestTimeoutSeconds = 5,
@@ -241,6 +242,7 @@ class OutboundGuardTest {
         val stubUrl = JiraStubServer.start()
         var resolveCalls = 0
         val httpClient = buildGuardedJiraHttpClient(
+            originAllowed = null,
             allowedHost = { true },
             resolver = { host ->
                 if (resolveCalls++ == 0) throw UnknownHostException(host) else InetAddress.getAllByName(host).toList()
@@ -261,6 +263,7 @@ class OutboundGuardTest {
         var resolveCalls = 0
         val sleeps = mutableListOf<Long>()
         val httpClient = buildGuardedJiraHttpClient(
+            originAllowed = null,
             allowedHost = { true },
             resolver = { host -> resolveCalls++; throw UnknownHostException(host) },
             requestTimeoutSeconds = 5,
@@ -286,6 +289,7 @@ class OutboundGuardTest {
     fun `production wiring - a disallowed host is BLOCKED_HOST without ever invoking the resolver`() = runBlocking {
         var resolveCalls = 0
         val httpClient = buildGuardedJiraHttpClient(
+            originAllowed = null,
             allowedHost = { false },
             resolver = { resolveCalls++; listOf(InetAddress.getByName("203.0.113.10")) },
             requestTimeoutSeconds = 5,
@@ -305,6 +309,7 @@ class OutboundGuardTest {
         )
         try {
             val httpClient = buildGuardedJiraHttpClient(
+                originAllowed = null,
                 // The stub is loopback by construction (same convention as `jira.stubBaseUrl` in
                 // development) — skip the address-shape check for it the same way production does.
                 allowedHost = { true },
@@ -330,6 +335,7 @@ class OutboundGuardTest {
         System.setProperty("http.proxyPort", "1")
         try {
             val httpClient = buildGuardedJiraHttpClient(
+                originAllowed = null,
                 allowedHost = { true }, addressAllowed = { _, _ -> true }, requestTimeoutSeconds = 5,
             )
             val jiraHttp = createJiraHttp(httpClient, maxRetries = 0, maxResponseBytes = 1_000_000, maxConcurrentRequests = 4)
@@ -365,6 +371,7 @@ class OutboundGuardTest {
         val listener = CountingEventListener()
         try {
             val httpClient = buildGuardedJiraHttpClient(
+                originAllowed = null,
                 allowedHost = { true },
                 addressAllowed = { _, _ -> true },
                 requestTimeoutSeconds = 5,

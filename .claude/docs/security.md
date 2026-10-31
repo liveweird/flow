@@ -484,7 +484,7 @@ it for that one connector. Nothing a user or an admin types can widen them: a da
   jira.maxResponseBytes` of Jira requests only (PR 6 requirement in `gitlab-integration.md` "Outbound calls"). In k8s the egress NetworkPolicy still excludes the private ranges: a private GitLab needs its own
   additional egress rule (the policy is the second layer; the guard is the first).
 - Pinned by `SelfManagedHostsTest` (parsing, every boot refusal, the address matrix), `GitLabOutboundGuardTest` (rebinding, mixed answers,
-  redirect, unlisted host audit, IP literal, port, proxy), `GitLabBaseUrlTest`, `GitLabCaBundleTest`, `GitLabBootTest` and the
+  redirect, unlisted host audit, IP literal, port, proxy, Host header), `GitLabBaseUrlTest`, `GitLabCaBundleTest`, `GitLabBootTest` and the
   `PackageBoundaryTest` rules (`gitlab` never imports `jira`, `metrics` or `reports`; `infra/outbound` imports no feature).
 
 What pins the transport (beyond the allow-list/address tests above): `OutboundTransportTest` runs against a LOCAL
