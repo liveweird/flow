@@ -381,7 +381,7 @@ place:
 The "is this team there and active" check every one of those reads runs is ONE function, `teams/TeamActive.kt` `Teams.requireActive(teamId) { failure }` (the caller picks
 the status: `Teams.requireActiveOrNotFound` for a path team, a `400` for the reports' `teamId` filter); the row-locking twin is `lockActiveForWrite`.
 - `ingest/SyncStatusRoutes.kt` (the ADMIN status view) READS `gitlab/GitLabRawStore.counts(connectionId)` (V41/V42: row COUNTS of `raw.gitlab_projects` /
-  `raw.gitlab_users` / `raw.gitlab_commits` by their markers - live, merge, tombstoned, files pending - never a payload or a commit's title, author or path) for a GITLAB connection, through the store published as `GitLabRawStoreKey` (absent when GitLab is off
+  `raw.gitlab_users` / `raw.gitlab_commits` by their markers - live, merge, tombstoned, files pending - and, from V43, the merge-request counts: live, merged, events, details pending, diff stats missing - never a payload, a commit's title, author or path, or a merge request's title, branch or username) for a GITLAB connection, through the store published as `GitLabRawStoreKey` (absent when GitLab is off
   in the process: `counts.gitlab` is then null). `gitlab/GitLabConnector` WRITES only `raw.gitlab_*` and its two `sync_cursors` streams, and READS the
   connection through `DataSourceService.readGitLabForSync` (the decrypted token, for the connector alone).
 
@@ -900,7 +900,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V42`:
+Current migrations are `V1`–`V43`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -1086,6 +1086,7 @@ Current migrations are `V1`–`V42`:
   is added: the list above is unchanged.
 - `V41__gitlab_raw_store` - see "The GitLab raw store (V41)" below: `raw.gitlab_projects` and `raw.gitlab_users`.
 - `V42__gitlab_commits_raw_store` - see "The GitLab commits raw store (V42)" below: `raw.gitlab_commits` and `raw.gitlab_commit_files`, and `raw.gitlab_projects.commits_head_sha` widened to `VARCHAR(64)`.
+- `V43__gitlab_merge_requests_raw_store` - see "The GitLab merge-request raw store (V43)" below: `raw.gitlab_merge_requests` and `raw.gitlab_mr_events`.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
@@ -1344,6 +1345,45 @@ canonicalised later), `authored_at`/`committed_at`, `parent_count`, `additions`/
   to 1,000 file rows (the files cap), so 25 bounds one statement to 25,000 cascaded rows where the 500 of the other tables would be up to 500,000; `GitLabRawStore.purgeAll` drains commits, then users, then projects. The telemetry size
   estimate picks both tables up by their `connection_id` column. Purely additive but for the widened column: an old pod never reads them.
   `MigrationChecksumTest` pins it.
+
+### The GitLab merge-request raw store (V43)
+
+`V43__gitlab_merge_requests_raw_store.sql` (`gitlab/GitLabMrWrites.kt`, `GitLabMrReads.kt`, `GitLabMrModels.kt`, the tables on `GitLabRawStore`; design
+`gitlab-integration.md` "Streams") adds the merge requests of the configured groups' projects and their review activity. Privacy (decision 9, pinned by
+`GitLabMrStoreTest` against `information_schema.columns`): the MR `title` (≤255), the two branch names (≤255), ids, times, states, counts and a slim
+`payload`; never a description, a label, a URL, a name, an avatar, a pipeline or merge status, or the BODY of any note.
+
+- **`raw.gitlab_merge_requests`**: PK `(connection_id, mr_id)` (GitLab's global id); unique `(connection_id, project_id, iid)` (the GraphQL answer and
+  RECONCILE's per-project re-list read by iid). A merge request is MUTABLE, so it is hashed like `raw.gitlab_projects`: `payload` (the slim projection) is
+  canonicalized and sha256'd, `diffPage` (`GitLabRawDiff.kt`, the ONE page rule of every hashed GitLab table) decides `INSERTED / UNCHANGED / CHANGED /
+  RESURRECTED`, and a change sets `changed_at` and `needs_processing` and clears a `NOT_FOUND` `details_error` (seeing it again disproves "gone"). The
+  queryable columns duplicate the payload (`state`, `draft`, authors, times, branches, `title`, the three SHAs - stored only when a full 40/64-hex id -,
+  `reviewer_ids` / `assignee_ids` as sorted distinct JSON arrays, `user_notes_count`). The page's key load is `SELECT ... FOR NO KEY UPDATE` (keys sorted),
+  never `FOR UPDATE`: the key never changes and `raw.gitlab_mr_events` is inserted into by the details transactions ("Row locks vs. FK locks").
+- **The stale-details rule** (one stamp for everything the details stream reads): `details_synced_at IS NULL OR details_synced_at < changed_at`, on a live
+  merge request of a live project (`MR_DETAILS_BACKLOG`, the `FILES_BACKLOG` shape), newest `updated_at` first. The partial index
+  `idx_raw_gitlab_mrs_details_backlog` has exactly that predicate; it contains no constant and the query renders no bind parameter for it (a
+  parameter in a partial-index predicate defeats a cached generic plan, the V42 lesson; `GitLabMrStoreTest` pins the rendered SQL). `stampMrDetails`
+  sets `details_synced_at`, `details_error` (`NOT_FOUND`: the notes answered 404; `LIMIT_EXCEEDED`: a notes page over the response ceiling) and, ONLY for
+  a complete read, `additions` / `deletions` / `file_count` (GraphQL's `diffStatsSummary`; null = a gap, never a job failure) and `notes_capped` (the
+  1,000-note cap cut the events); a terminal error leaves them as they were. The outcome type (`MrDetailsOutcome`) refuses the either/or violation.
+- **Nothing here tombstones.** `deleted_at` exists for RECONCILE (PR 9), which tombstones only on a positive per-MR 404 while the project answers; a
+  listing that omits a row (it is filtered by `updated_after`) and a notes 404 are no evidence.
+- **`raw.gitlab_mr_events`**: PK `(connection_id, mr_id, source, source_id)`, composite FK to the merge request `ON DELETE CASCADE`. `source` is `NOTE`
+  (`source_id` = the note id), `APPROVAL` (the legacy `/approvals` object, `source_id` = the approver's user id, `event_at` NULL - the endpoint has no
+  time) or `REVIEWER` (`/reviewers`, `action` = the state). A note is reduced to an action code (`COMMENT`, `DIFF_COMMENT`, `APPROVAL`, `UNAPPROVAL`,
+  `CHANGES_REQUESTED`, `REVIEW_REQUESTED`, `REVIEW_REQUEST_REMOVED`, `COMMITS_ADDED`, `MERGED`, `CLOSED`, `REOPENED`, `DRAFT`, `READY`, `OTHER_SYSTEM`);
+  `targets` (JSONB, ≤20 usernames of ≤255 characters) is kept for the two review-request actions of a NOTE only (`RawGitLabMrEvent` refuses it
+  elsewhere) - the only record of WHO was asked and WHEN. The set is REPLACED on every details refresh (`replaceMrEvents`: delete the merge request's
+  rows, insert the fresh set `ON CONFLICT DO NOTHING`, in the transaction of the stamp), so no PK holds upstream text: `source` is a fixed code.
+- **Text cut** (`GitLabText.kt`'s `cutText`, which `cutPath` now uses): NUL replaced, then cut by code points (never half a surrogate pair, which
+  `String.take` leaves) to the column width; a byte cap exists for a column inside a B-tree key and defaults to none.
+- **PURGE**: `GitLabRawPurge.purgeMergeRequestsBatch` deletes batches of 20 MERGE REQUESTS (`GITLAB_PURGE_MRS_BATCH_SIZE`); the batch counts merge requests,
+  not rows, and each cascades up to 1,000 notes plus its approvers and reviewers (~1,100 rows), so 20 bounds one statement to ~22,000 cascaded rows
+  (the commits' budget, ~25,000; 500 would be ~550,000). `GitLabRawStore.purgeAll` drains commits, merge requests, users, then projects.
+- `needs_processing` / `processed_at` / `processing_version` are PROCESS's (PR 10); `idx_raw_gitlab_mrs_needs_processing` serves its claim scan (a
+  query on it must not bind the boolean as a parameter). The telemetry size estimate picks both tables up by their `connection_id` column. Purely
+  additive: an old pod never reads them. `MigrationChecksumTest` pins it.
 
 ### Telemetry (V36)
 

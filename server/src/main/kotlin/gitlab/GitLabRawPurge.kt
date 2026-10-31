@@ -1,6 +1,7 @@
 package ch.nokillswit.gitlab
 
 import ch.nokillswit.gitlab.GitLabRawStore.Commits
+import ch.nokillswit.gitlab.GitLabRawStore.MergeRequests
 import ch.nokillswit.gitlab.GitLabRawStore.Projects
 import ch.nokillswit.gitlab.GitLabRawStore.Users
 import kotlinx.coroutines.flow.map
@@ -23,7 +24,15 @@ const val GITLAB_PURGE_BATCH_SIZE = 500
 const val GITLAB_PURGE_COMMITS_BATCH_SIZE = 25
 
 /**
- * The PURGE step's batched deletes over the `raw.gitlab_*` tables (the commit files go with their commits, V42's `ON DELETE CASCADE`);
+ * The merge-requests batch counts MERGE REQUESTS, not rows, and each cascades its events: up to 1,000 notes (the notes cap) plus its
+ * approvers and reviewers, ~1,100 rows. 20 bound one statement to ~22,000 cascaded rows (the commits batch's budget of ~25,000), where the
+ * 500 of the other tables would be ~550,000.
+ */
+const val GITLAB_PURGE_MRS_BATCH_SIZE = 20
+
+/**
+ * The PURGE step's batched deletes over the `raw.gitlab_*` tables (the commit files go with their commits, V42's, and the merge-request
+ * events with their merge requests, V43's, `ON DELETE CASCADE`);
  * the drain loop is [purgeAll] below.
  */
 internal class GitLabRawPurge(private val database: R2dbcDatabase) {
@@ -40,6 +49,14 @@ internal class GitLabRawPurge(private val database: R2dbcDatabase) {
                 (Commits.connectionId eq connectionId) and (Commits.projectId eq projectId) and (Commits.sha inList shas)
             }
         }
+    }
+
+    /** Deletes up to [batchSize] merge requests; their events cascade (~1,100 rows each, hence [GITLAB_PURGE_MRS_BATCH_SIZE]). */
+    suspend fun purgeMergeRequestsBatch(connectionId: UInt, batchSize: Int): Int = suspendTransaction(database) {
+        val ids = MergeRequests.select(MergeRequests.mrId).where { MergeRequests.connectionId eq connectionId }.limit(batchSize)
+            .map { it[MergeRequests.mrId] }.toList()
+        if (ids.isEmpty()) return@suspendTransaction 0
+        MergeRequests.deleteWhere { (MergeRequests.connectionId eq connectionId) and (MergeRequests.mrId inList ids) }
     }
 
     suspend fun purgeProjectsBatch(connectionId: UInt, batchSize: Int): Int = suspendTransaction(database) {
@@ -60,6 +77,7 @@ internal class GitLabRawPurge(private val database: R2dbcDatabase) {
 /** Drains a connection's GitLab raw rows in batches: the PURGE step (`ingest/Connector.kt`'s `PurgeStep`). */
 suspend fun GitLabRawStore.purgeAll(connectionId: UInt, batchSize: Int = GITLAB_PURGE_BATCH_SIZE) {
     while (purgeCommitsBatch(connectionId, minOf(batchSize, GITLAB_PURGE_COMMITS_BATCH_SIZE)) > 0) { /* drain */ }
+    while (purgeMergeRequestsBatch(connectionId, minOf(batchSize, GITLAB_PURGE_MRS_BATCH_SIZE)) > 0) { /* drain */ }
     while (purgeUsersBatch(connectionId, batchSize) > 0) { /* drain */ }
     while (purgeProjectsBatch(connectionId, batchSize) > 0) { /* drain */ }
 }

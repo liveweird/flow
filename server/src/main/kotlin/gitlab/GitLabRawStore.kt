@@ -35,19 +35,22 @@ class RawGitLabUser(
 )
 
 /**
- * The GitLab raw store (V41, V42): `raw.gitlab_projects`/`raw.gitlab_users` (V41) and `raw.gitlab_commits`/`raw.gitlab_commit_files`
- * (V42) in the `raw` schema. Projects and users hold slim payloads canonicalized and
- * sha256-hashed before storage like `raw.jira_*` - the hash decides "changed" (`ingest/RawUpsertOutcome.kt`'s `classifyUpsert`, the
+ * The GitLab raw store (V41-V43): `raw.gitlab_projects`/`raw.gitlab_users` (V41), `raw.gitlab_commits`/`raw.gitlab_commit_files`
+ * (V42) and `raw.gitlab_merge_requests`/`raw.gitlab_mr_events` (V43) in the `raw` schema. Projects, users and merge requests hold slim
+ * payloads canonicalized and sha256-hashed before storage like `raw.jira_*` - the hash decides "changed"
+ * (`ingest/RawUpsertOutcome.kt`'s `classifyUpsert`, the
  * ONE diff rule). Every method opens its OWN `suspendTransaction`, joining an enclosing one, so a stream's `StreamContext.transaction`
  * can land a page and its cursor together. One small collaborator per concern, as `JiraRawStore`:
  *
  *  - [GitLabRawWrites] - the project/user upserts and the end-of-pass sweeps;
  *  - [GitLabCommitWrites] / [GitLabCommitFileWrites] - the commit upserts, the head and the tombstone sweep / the files flush;
- *  - [GitLabRawReads] / [GitLabCommitReads] - the status counts and freshness / the commit-stream reads;
+ *  - [GitLabMrWrites] - the merge-request upserts, the events replacement and the details stamp (V43);
+ *  - [GitLabRawReads] / [GitLabCommitReads] / [GitLabMrReads] - the status counts and freshness / the commit-stream reads / the
+ *    merge-request backlog, counts and group lookups;
  *  - [GitLabRawPurge] - the PURGE step's batched deletes.
  *
  * The commit tables carry no payload and no hash: a commit is immutable by SHA (`.claude/docs/persistence.md` "The GitLab commits raw
- * store (V42)").
+ * store (V42)"); a merge request is mutable and hashed, its events are a replaced set ("The GitLab merge-request raw store (V43)").
  */
 class GitLabRawStore(database: R2dbcDatabase) {
     private val writes = GitLabRawWrites(database)
@@ -56,6 +59,8 @@ class GitLabRawStore(database: R2dbcDatabase) {
     private val commitWrites = GitLabCommitWrites(database)
     private val commitFileWrites = GitLabCommitFileWrites(database)
     private val commitReads = GitLabCommitReads(database)
+    private val mrWrites = GitLabMrWrites(database)
+    private val mrReads = GitLabMrReads(database)
 
     object Projects : Table("raw.gitlab_projects") {
         val connectionId = reference("connection_id", DataSourceService.Connections)
@@ -134,6 +139,62 @@ class GitLabRawStore(database: R2dbcDatabase) {
         val renamedFile = bool("renamed_file")
         val generatedFile = bool("generated_file").default(false)
         override val primaryKey = PrimaryKey(connectionId, projectId, sha, path)
+    }
+
+    object MergeRequests : Table("raw.gitlab_merge_requests") {
+        val connectionId = reference("connection_id", DataSourceService.Connections)
+        val mrId = long("mr_id")
+        val projectId = long("project_id")
+        val iid = long("iid")
+        val state = varchar("state", MAX_STATE)
+        val draft = bool("draft")
+        val authorId = long("author_id").nullable()
+        val mergeUserId = long("merge_user_id").nullable()
+        val createdAt = long("created_at")
+        val updatedAt = long("updated_at")
+        val mergedAt = long("merged_at").nullable()
+        val closedAt = long("closed_at").nullable()
+        val sourceBranch = varchar("source_branch", MAX_BRANCH)
+        val targetBranch = varchar("target_branch", MAX_BRANCH)
+        val title = varchar("title", MAX_NAME)
+        val headSha = varchar("head_sha", MAX_SHA).nullable()
+        val mergeCommitSha = varchar("merge_commit_sha", MAX_SHA).nullable()
+        val squashCommitSha = varchar("squash_commit_sha", MAX_SHA).nullable()
+        val reviewerIds = jsonb("reviewer_ids")
+        val assigneeIds = jsonb("assignee_ids")
+        val userNotesCount = integer("user_notes_count").nullable()
+        val additions = integer("additions").nullable()
+        val deletions = integer("deletions").nullable()
+        val fileCount = integer("file_count").nullable()
+        val notesCapped = bool("notes_capped").default(false)
+        val detailsSyncedAt = long("details_synced_at").nullable()
+        val detailsError = varchar("details_error", MAX_DETAILS_ERROR).nullable()
+        val payload = jsonb("payload")
+        val sha256 = char("sha256", SHA256_LENGTH)
+        val firstSeenAt = long("first_seen_at")
+        val lastSeenAt = long("last_seen_at")
+        val changedAt = long("changed_at")
+        val deletedAt = long("deleted_at").nullable()
+        val needsProcessing = bool("needs_processing").default(true)
+        val processedAt = long("processed_at").nullable()
+        val processingVersion = integer("processing_version").nullable()
+        override val primaryKey = PrimaryKey(connectionId, mrId)
+    }
+
+    /** `connection_id` is typed through the reference only; the FK is the composite one to [MergeRequests] (V43, `ON DELETE CASCADE`). */
+    object MrEvents : Table("raw.gitlab_mr_events") {
+        val connectionId = reference("connection_id", DataSourceService.Connections)
+        val mrId = long("mr_id")
+        val eventSource = varchar("source", MAX_SOURCE)
+        val sourceId = long("source_id")
+        val projectId = long("project_id")
+        val actorId = long("actor_id").nullable()
+        val eventAt = long("event_at").nullable()
+        val system = bool("system")
+        val noteType = varchar("note_type", MAX_NOTE_TYPE).nullable()
+        val action = varchar("action", MAX_ACTION)
+        val targets = jsonb("targets").nullable()
+        override val primaryKey = PrimaryKey(connectionId, mrId, eventSource, sourceId)
     }
 
     suspend fun upsertProjects(connectionId: UInt, projects: List<RawGitLabProject>, now: Long): List<RawUpsertOutcome> =
@@ -228,9 +289,51 @@ class GitLabRawStore(database: R2dbcDatabase) {
     internal suspend fun commitFileRows(connectionId: UInt, projectId: Long, sha: String) =
         commitReads.commitFileRows(connectionId, projectId, sha)
 
+    /**
+     * Stores a page of merge requests by the hashed page rule (a repeated id is judged by its first occurrence); outcomes in input order.
+     * Nothing here tombstones a merge request: a listing that omits a row is no evidence (`deleted_at` is RECONCILE's).
+     */
+    suspend fun upsertMergeRequests(connectionId: UInt, mrs: List<RawGitLabMergeRequest>, now: Long): List<RawUpsertOutcome> =
+        mrWrites.upsertMergeRequests(connectionId, mrs, now)
+
+    /** Replaces the merge request's events with [events]; run it in [stampMrDetails]'s transaction so a cut keeps the old set whole. */
+    suspend fun replaceMrEvents(connectionId: UInt, mrId: Long, projectId: Long, events: List<RawGitLabMrEvent>) =
+        mrWrites.replaceMrEvents(connectionId, mrId, projectId, events)
+
+    /** Stamps the merge request's details read (stats and cap only for a complete read, see [MrDetailsOutcome]). */
+    suspend fun stampMrDetails(connectionId: UInt, mrId: Long, now: Long, outcome: MrDetailsOutcome) =
+        mrWrites.stampMrDetails(connectionId, mrId, now, outcome)
+
+    /** The MR DETAILS backlog, newest `updated_at` first: up to [limit] live merge requests of live projects whose details are stale. */
+    suspend fun staleMergeRequests(connectionId: UInt, limit: Int): List<StaleMergeRequest> =
+        mrReads.staleMergeRequests(connectionId, limit)
+
+    suspend fun countStaleMergeRequests(connectionId: UInt): Long = mrReads.countStaleMergeRequests(connectionId)
+
+    /** The five merge-request figures of the status view. */
+    suspend fun mrCounts(connectionId: UInt): MrCounts = mrReads.mrCounts(connectionId)
+
+    /** The stored projects' configured group: `group_path` to `group_id` (the MERGE REQUESTS stream lists per group id). */
+    suspend fun configuredGroupIds(connectionId: UInt): Map<String, Long> = mrReads.configuredGroupIds(connectionId)
+
+    /** The ids of every stored project, whatever its state: a merge request of any other project is not kept. */
+    suspend fun storedProjectIds(connectionId: UInt): Set<Long> = mrReads.storedProjectIds(connectionId)
+
+    /** `path_with_namespace` of the given stored projects (the GraphQL query names a project by it). */
+    suspend fun projectPaths(connectionId: UInt, projectIds: Collection<Long>): Map<Long, String> =
+        mrReads.projectPaths(connectionId, projectIds)
+
+    internal suspend fun mergeRequestRows(connectionId: UInt, projectId: Long? = null) = mrReads.mergeRequestRows(connectionId, projectId)
+
+    internal suspend fun mrEventRows(connectionId: UInt, mrId: Long? = null) = mrReads.mrEventRows(connectionId, mrId)
+
     /** Deletes up to [batchSize] commits of the connection (their files cascade, up to 1,000 rows each); returns the commits deleted. */
     suspend fun purgeCommitsBatch(connectionId: UInt, batchSize: Int = GITLAB_PURGE_COMMITS_BATCH_SIZE): Int =
         purge.purgeCommitsBatch(connectionId, batchSize)
+
+    /** Deletes up to [batchSize] merge requests of the connection (their events cascade, ~1,100 rows each); returns how many. */
+    suspend fun purgeMergeRequestsBatch(connectionId: UInt, batchSize: Int = GITLAB_PURGE_MRS_BATCH_SIZE): Int =
+        purge.purgeMergeRequestsBatch(connectionId, batchSize)
 
     suspend fun purgeProjectsBatch(connectionId: UInt, batchSize: Int = GITLAB_PURGE_BATCH_SIZE): Int =
         purge.purgeProjectsBatch(connectionId, batchSize)
@@ -238,7 +341,7 @@ class GitLabRawStore(database: R2dbcDatabase) {
     suspend fun purgeUsersBatch(connectionId: UInt, batchSize: Int = GITLAB_PURGE_BATCH_SIZE): Int =
         purge.purgeUsersBatch(connectionId, batchSize)
 
-    /** The column widths of V41/V42; the commit writes cut to them ([MAX_NAME] is `title`, `author_name` and `author_email`). */
+    /** The column widths of V41-V43; the commit writes cut to them ([MAX_NAME] is `title`, `author_name` and `author_email`). */
     internal companion object {
         const val MAX_PROJECT_PATH = 1024
         const val MAX_GROUP_PATH = 255
@@ -249,5 +352,9 @@ class GitLabRawStore(database: R2dbcDatabase) {
         const val MAX_SHA = 64
         const val MAX_PATH = 1024
         const val MAX_FILES_ERROR = 40
+        const val MAX_SOURCE = 10
+        const val MAX_ACTION = 40
+        const val MAX_NOTE_TYPE = 30
+        const val MAX_DETAILS_ERROR = 40
     }
 }

@@ -3,7 +3,6 @@ package ch.nokillswit.gitlab
 import ch.nokillswit.gitlab.GitLabRawStore.CommitFiles
 import ch.nokillswit.gitlab.GitLabRawStore.Commits
 import ch.nokillswit.infra.db.insertRowsIgnoringConflicts
-import ch.nokillswit.infra.json.replaceNul
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
@@ -17,37 +16,12 @@ import org.jetbrains.exposed.v1.r2dbc.update
  */
 internal const val MAX_PATH_BYTES = 2_000
 
-private const val ONE_BYTE_LIMIT = 0x80
-private const val TWO_BYTE_LIMIT = 0x800
-private const val THREE_BYTE_LIMIT = 0x10000
-
-/** The UTF-8 size of one code point. */
-private fun utf8Size(codePoint: Int): Int = when {
-    codePoint < ONE_BYTE_LIMIT -> 1
-    codePoint < TWO_BYTE_LIMIT -> 2
-    codePoint < THREE_BYTE_LIMIT -> 3
-    else -> 4
-}
-
 /**
  * A stored file path: the NUL-replaced text cut to at most [GitLabRawStore.MAX_PATH] characters AND [MAX_PATH_BYTES] UTF-8 bytes,
  * always on a code-point boundary (never half a surrogate pair). The result is what the column and the key hold, so two long paths
  * sharing the cut prefix are ONE file.
  */
-internal fun cutPath(path: String): String {
-    val text = path.replaceNul()
-    var end = 0
-    var chars = 0
-    var bytes = 0
-    while (end < text.length) {
-        val codePoint = text.codePointAt(end)
-        bytes += utf8Size(codePoint)
-        if (chars == GitLabRawStore.MAX_PATH || bytes > MAX_PATH_BYTES) break
-        chars++
-        end += Character.charCount(codePoint)
-    }
-    return text.substring(0, end)
-}
+internal fun cutPath(path: String): String = cutText(path, GitLabRawStore.MAX_PATH, MAX_PATH_BYTES)
 
 /**
  * The COMMIT FILES flush (V42): finished diffs land in ONE transaction - every file row of every outcome that has a result

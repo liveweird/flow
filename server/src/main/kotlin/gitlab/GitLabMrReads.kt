@@ -1,0 +1,111 @@
+package ch.nokillswit.gitlab
+
+import ch.nokillswit.gitlab.GitLabRawStore.MergeRequests
+import ch.nokillswit.gitlab.GitLabRawStore.MrEvents
+import ch.nokillswit.gitlab.GitLabRawStore.Projects
+import kotlinx.coroutines.flow.toList
+import org.jetbrains.exposed.v1.core.Op
+import org.jetbrains.exposed.v1.core.ResultRow
+import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.exists
+import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.isNotNull
+import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.core.less
+import org.jetbrains.exposed.v1.core.or
+import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
+import org.jetbrains.exposed.v1.r2dbc.select
+import org.jetbrains.exposed.v1.r2dbc.selectAll
+import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+
+/**
+ * The MR DETAILS backlog (the V43 partial index `idx_raw_gitlab_mrs_details_backlog` plus the project): live, details never read or read
+ * before the last change, and of a LIVE project (`moved_out_at`/`deleted_at` null; the `FILES_BACKLOG` shape - a moved-out project's merge
+ * requests cost no call and are not counted as pending). The index's own predicate is reproduced term for term and carries no bound
+ * value: `IS NULL` tests and one column-to-column comparison, so nothing is rendered as a bind parameter that a cached generic plan could
+ * not match against the index (the V42 lesson, `NON_MERGE_PARENTS`). The project is an `EXISTS` on its primary key.
+ */
+internal val MR_DETAILS_BACKLOG: Op<Boolean> = MergeRequests.deletedAt.isNull() and
+    (MergeRequests.detailsSyncedAt.isNull() or (MergeRequests.detailsSyncedAt less MergeRequests.changedAt)) and
+    exists(
+        Projects.selectAll().where {
+            (Projects.connectionId eq MergeRequests.connectionId) and (Projects.projectId eq MergeRequests.projectId) and
+                Projects.movedOutAt.isNull() and Projects.deletedAt.isNull()
+        },
+    )
+
+/** The merge-request reads (V43): the details backlog, the status figures, the group lookups and the rows tests inspect. */
+internal class GitLabMrReads(private val database: R2dbcDatabase) {
+
+    private fun pending(connectionId: UInt): Op<Boolean> = (MergeRequests.connectionId eq connectionId) and MR_DETAILS_BACKLOG
+
+    suspend fun staleMergeRequests(connectionId: UInt, limit: Int): List<StaleMergeRequest> = suspendTransaction(database) {
+        MergeRequests.select(MergeRequests.mrId, MergeRequests.projectId, MergeRequests.iid).where { pending(connectionId) }
+            .orderBy(MergeRequests.updatedAt to SortOrder.DESC, MergeRequests.mrId to SortOrder.ASC)
+            .limit(limit)
+            .toList()
+            .map { StaleMergeRequest(it[MergeRequests.mrId], it[MergeRequests.projectId], it[MergeRequests.iid]) }
+    }
+
+    suspend fun countStaleMergeRequests(connectionId: UInt): Long = suspendTransaction(database) {
+        MergeRequests.selectAll().where { pending(connectionId) }.count()
+    }
+
+    /** The five figures as database-side `count(*)`s: no row is loaded. */
+    suspend fun mrCounts(connectionId: UInt): MrCounts = suspendTransaction(database) {
+        suspend fun mrs(extra: Op<Boolean>) =
+            MergeRequests.selectAll().where { (MergeRequests.connectionId eq connectionId) and extra }.count()
+        val live = MergeRequests.deletedAt.isNull()
+        MrCounts(
+            mergeRequests = mrs(live),
+            mergeRequestsMerged = mrs(live and (MergeRequests.state eq "merged")),
+            mrEvents = MrEvents.selectAll().where { MrEvents.connectionId eq connectionId }.count(),
+            mrDetailsPending = mrs(MR_DETAILS_BACKLOG),
+            mrDiffStatsMissing = mrs(
+                live and MergeRequests.detailsSyncedAt.isNotNull() and MergeRequests.detailsError.isNull() and
+                    MergeRequests.additions.isNull(),
+            ),
+        )
+    }
+
+    /** `group_path` to `group_id` of the stored projects; a path with two ids (impossible by construction) takes the smaller. */
+    suspend fun configuredGroupIds(connectionId: UInt): Map<String, Long> = suspendTransaction(database) {
+        Projects.select(Projects.groupPath, Projects.groupId).withDistinct().where { Projects.connectionId eq connectionId }
+            .orderBy(Projects.groupPath to SortOrder.ASC, Projects.groupId to SortOrder.DESC)
+            .toList()
+            // Ascending by path, descending by id: the last entry of a path wins, which is its smallest id.
+            .associate { it[Projects.groupPath] to it[Projects.groupId] }
+    }
+
+    suspend fun storedProjectIds(connectionId: UInt): Set<Long> = suspendTransaction(database) {
+        Projects.select(Projects.projectId).where { Projects.connectionId eq connectionId }.toList()
+            .mapTo(HashSet()) { it[Projects.projectId] }
+    }
+
+    suspend fun projectPaths(connectionId: UInt, projectIds: Collection<Long>): Map<Long, String> {
+        if (projectIds.isEmpty()) return emptyMap()
+        return suspendTransaction(database) {
+            projectIds.distinct().sorted().chunked(KEY_CHUNK).flatMap { chunk ->
+                Projects.select(Projects.projectId, Projects.pathWithNamespace)
+                    .where { (Projects.connectionId eq connectionId) and (Projects.projectId inList chunk) }
+                    .toList()
+            }.associate { it[Projects.projectId] to it[Projects.pathWithNamespace] }
+        }
+    }
+
+    suspend fun mergeRequestRows(connectionId: UInt, projectId: Long?): List<ResultRow> = suspendTransaction(database) {
+        MergeRequests.selectAll()
+            .where { (MergeRequests.connectionId eq connectionId) and (projectId?.let { MergeRequests.projectId eq it } ?: Op.TRUE) }
+            .orderBy(MergeRequests.projectId to SortOrder.ASC, MergeRequests.iid to SortOrder.ASC)
+            .toList()
+    }
+
+    suspend fun mrEventRows(connectionId: UInt, mrId: Long?): List<ResultRow> = suspendTransaction(database) {
+        MrEvents.selectAll()
+            .where { (MrEvents.connectionId eq connectionId) and (mrId?.let { MrEvents.mrId eq it } ?: Op.TRUE) }
+            .orderBy(MrEvents.mrId to SortOrder.ASC, MrEvents.eventSource to SortOrder.ASC, MrEvents.sourceId to SortOrder.ASC)
+            .toList()
+    }
+}
