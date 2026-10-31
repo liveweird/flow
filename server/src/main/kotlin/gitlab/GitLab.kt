@@ -67,6 +67,7 @@ fun Application.configureGitLab() {
             cursors = attributes[SyncCursorsServiceKey],
             database = attributes[R2dbcDatabaseKey],
             usersRefreshMillis = settings.usersRefreshMillis,
+            commitFilesPerRun = settings.commitFilesPerRun,
         ),
     )
     attributes.put(GitLabConnectorKey, connector)

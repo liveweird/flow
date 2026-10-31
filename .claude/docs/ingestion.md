@@ -569,12 +569,12 @@ progress-counter API described in "Progress counters" below) — PROCESS and PRO
 streams that never call the cursor read/write half of that contract (see "Sync cursors (V9)"
 above).
 
-**The GitLab connector's SYNC** (`gitlab/GitLabConnector.kt`; `gitlab-integration.md` "Streams") runs **PROJECTS → USERS** inside the same
+**The GitLab connector's SYNC** (`gitlab/GitLabConnector.kt`; `gitlab-integration.md` "Streams") runs **PROJECTS → USERS → COMMITS → COMMIT FILES** inside the same
 `ConnectorRun.withTally` scaffolding as Jira (the `CallTally` around the streams, the carried counters of a retry, the typed ceiling trip,
 the hard stop; `ingest/ConnectorRun.kt`, which also holds `ceilingTripOf`). It first re-probes `/personal_access_tokens/self` and refuses
 a token with a scope outside the read-only allow-list (`JobRefusedException(TOKEN_SCOPE_TOO_BROAD)`) or an inactive one
 (`TOKEN_INACTIVE`) before anything is stored. RECONCILE and
-REPROCESS are accepted no-ops until PR 9/10, PURGE drains `raw.gitlab_*`.
+REPROCESS are accepted no-ops until PR 9/10, PURGE drains `raw.gitlab_*` (commits first; their files cascade).
 
 **Cursor shapes.**
 
@@ -582,6 +582,10 @@ REPROCESS are accepted no-ops until PR 9/10, PURGE drains `raw.gitlab_*`.
   page's rows in one transaction and cleared at the end of a completed pass (the sweep's reference instant survives a resume); a cursor with
   `groupIndex == groups` means only the sweep is left. A `projects` cursor resumes only when its `groups` equal the configured group paths;
   otherwise (an edited list, or a cursor written before the field existed) it is dropped and the pass restarts.
+- **`commits`** (`CommitsCursor`): `{passStartedAt, lastCompletedProjectId, walk}` with `walk = {projectId, mode FULL|RANGE|RELIST, refName, since, page, tipSha, sinceMillis, listingDone, epochMillis}`;
+  every listing page commits with it, a RELIST's last page sets `listingDone` (the sweep's `merge_base` calls run outside a transaction and resume from it), a
+  walk for a branch other than the stored `default_branch` is dropped, cleared when the pass ends. **`commit_files`** has no cursor: the backlog (`raw.gitlab_commits`
+  with `files_fetched_at` null, live, non-merge) is its state.
 - **`reference`** (`jira/JiraReferenceStream.kt`'s `ReferenceCursor`): `passStartedAt` (fixed for
   the whole pass, preserved across a resume), `step` (a `JiraEntityKind` — doubles as
   `raw.jira_entities.kind`, in the FIXED order the enum declares: `FIELD`, `STATUS`,
@@ -945,8 +949,8 @@ once the stream returns — RECONCILE's OWN job-level bookkeeping, parallel to h
 `.claude/docs/persistence.md` "The Jira RECONCILE scratch table (V12)") — every in-scope issue id
 Jira reports for THIS pass inside the window, nothing else. **The window** is the one the ISSUES
 stream's first run covers: `N` = WHOLE minutes (rounded down, so the sweep never starts before
-`backfillFrom`) from the connection's `backfillFrom` (UTC midnight, `jira/JiraTime.kt`'s
-`backfillFromEpochMillis`, shared with the SYNC runner) to `passStartedAt`. Without the bound the
+`backfillFrom`) from the connection's `backfillFrom` (UTC midnight, `ingest/BackfillFrom.kt`'s
+`backfillFromEpochMillis`, shared with the SYNC runner and the GitLab connector) to `passStartedAt`. Without the bound the
 sweep would list every older in-scope issue, and each one would be fetched by the index-gap path one
 `GET /issue/{id}` at a time. **Stored rows last updated before `backfillFrom` are kept but NOT
 re-checked** — their Jira deletions and moves are not detected. The JQL and the window start are
@@ -1314,7 +1318,11 @@ GitLab's (`gitlab/`): `pages` and `projects`/`projectsSkipped` (PROJECTS: archiv
 `default_branch` or path is longer than its column; a skipped project that was stored before is not seen, so the end-of-pass sweep
 counts it as moved out),
 `pages`/`users`/`usersEmailsSkipped` (USERS: users whose secondary emails were not fetched - not an admin token, or a 403/404 on the emails
-call)/`usersSkipped` (the whole stream skipped: every live user was seen within `gitlab.usersRefreshHours`; "Sync now" never skips).
+call)/`usersSkipped` (the whole stream skipped: every live user was seen within `gitlab.usersRefreshHours`; "Sync now" never skips),
+`commits` (COMMITS: commits inserted)/`commitsRelisted`/`commitsTombstoned`/`commitsSweepKept`/`commitsSweepUnconfirmed`/`commitsSweepDeferred` (a re-list and the confirmations of its
+sweep)/`commitsProjectsSkipped` (no default branch, or the branch or project is gone), `commitFiles`/`commitFileRows`/`commitFilesCapped`/`commitFilesOversized`/
+`commitFilesMissing` (COMMIT FILES: commits read, their file rows, the 1,000-file cap, the terminal errors) and `commitFilesPending` (the backlog left when the run stopped,
+non-zero only; `gitlab.commitFilesPerRun` is the call budget). `gitlab-integration.md` "Streams" has each.
 
 **Counters the connector adds (not a stream's):** `StreamContext(extraProgress = …)` is a `() -> Map<String, Long>` merged into every heartbeat's progress JSON (and
 into `progressSnapshot()`). `JiraConnector` passes the job's `CallTally` (`jiraRateLimited`, `jiraBackoffMs`, `jiraTenantPausedMs`, `jiraNearLimitPauses`; definitions
@@ -1352,8 +1360,10 @@ source of truth:
   (worklogs excludes tombstoned rows — "live" worklogs), `entitiesByKind` (per `JiraEntityKind`,
   `raw.jira_entities` grouped by `kind`), `needsProcessing` (the PROCESS backlog RECONCILE and the
   CHANGELOGS/WORKLOGS streams all flag into). For a GITLAB connection these Jira integers are 0 and
-  **`counts.gitlab`** (`GitLabSyncCounts`, read from `GitLabRawStore`, V41) carries `projects` (live), `projectsMovedOut`,
-  `projectsDeleted`, `users` (live) and `usersDeleted`; it is null when this process has no GitLab store (GitLab off here).
+  **`counts.gitlab`** (`GitLabSyncCounts`, read from `GitLabRawStore`, V41/V42) carries `projects` (live), `projectsMovedOut`,
+  `projectsDeleted`, `users` (live), `usersDeleted` and the commits: `commits` (live, merges included), `commitsMerge` (live, `parent_count > 1`),
+  `commitsDeleted` (tombstoned) and `commitFilesPending` (the COMMIT FILES backlog: diff unread, not a merge, not tombstoned). All are database-side
+  `count(*)`s (`GitLabRawReads.counts`); it is null when this process has no GitLab store (GitLab off here).
 - **`lastJobs`** — the most recently REQUESTED job of each `SyncJobKind`, keyed by name
   (`SyncJobsService.lastJobsByKind`) — terminal or not, and a kind never requested is simply absent
   from the map (not present with a null value).
@@ -1387,7 +1397,8 @@ out of every Jira-only path (V40 + `ingest/`, pinned by `ConnectorSeamTest` and 
   apiToken, projectKeys, authScheme)` and `GitLab(baseUrl, token, groupPaths)`; both mask the secret in `toString`. A connector answers
   its own case only (`JiraConnector` `check`s: an internal error, never reachable from a route).
 - **Settings by kind** (`DataSourceSettings.kt`): `ConnectionSettings` is a sealed interface with `JiraConnectionSettings` (stored JSON
-  unchanged since V8, no discriminator) and `GitLabConnectionSettings(baseUrl, groupPaths, pathExclusions?)`.
+  unchanged since V8, no discriminator) and `GitLabConnectionSettings(baseUrl, groupPaths, pathExclusions?)` (null = follow `DEFAULT_PATH_EXCLUSIONS`; `effectivePathExclusions(stored)` is the one read rule).
+  `GET /api/v1/data-sources/kinds` carries `defaultPathExclusions` per kind (GitLab: the 14 built-ins, Jira: empty).
   `decodeSettings(kind, raw)` picks the shape from the row's `kind`; `ResultRow.jiraSettings()` is the Jira-only read and throws for any
   other kind, so a missed gate fails loudly instead of reading GitLab JSON as Jira.
 - **Kind-leak guards** (a non-metrics / non-Jira row never reaches these): the scope rules (`DataSourceScope.kt`) read Jira rows only;
@@ -1412,7 +1423,7 @@ out of every Jira-only path (V40 + `ingest/`, pinned by `ConnectorSeamTest` and 
 `source_connections` (V8, `ingest/DataSourceService.kt`) is the generic connector registry: `kind`
 (`JIRA_CLOUD`, `GITLAB` since V40 - "Connector kinds"), typed common columns (schedule, sync status, `config_revision`) and a
 `settings` jsonb holding the per-kind shape (Jira's: `siteUrl`, `email`, `projectKeys`, `authScheme`,
-`cloudId`; GitLab's: `baseUrl`, `groupPaths`, `pathExclusions?` - null and unused until PR 7) — the GitLab connector reuses this table, its
+`cloudId`; GitLab's: `baseUrl`, `groupPaths`, `pathExclusions?` - null = the built-in defaults, on the wire since PR 7, applied by PROCESS in PR 10) — the GitLab connector reuses this table, its
 queue and its worker outright. The per-kind half of a write (which block a body carries, the settings it stores, the PUT merge with the
 identity/kind 409s, the ad-hoc test target) is `DataSourceKindWrites.kt`; the GitLab wire and validation is `GitLabDataSource.kt`. The service keeps the
 table, the CRUD and the PUT/scope locking; the rest sits beside it as verbatim moves taking an explicit `database`/`cipher`, the service
@@ -1758,5 +1769,5 @@ The same mappings are served by the compose `gitlab-stub` (`127.0.0.1:8095`) and
 `master` to `main`, a deleted merge request, a project moved out of the configured groups, a new project, and new commits. The
 Jira stub's people are the identity anchors: most GitLab users' emails equal the stub's `user<n>@flow-sample.example`
 (`expected.json` `users.jiraAlignment`). Endpoint contract, scale flags and the day-2 deltas: `sample-data/README.md` "GitLab stub".
-No sync fixture reads it yet (`SyncedGitLabFixture` lands with the COMMITS PR); `GitLabStubServerTest` pins the contract over
-plain HTTP.
+`SyncedGitLabFixture` (PR 7: one SYNC of it per fork, warmed through `warmGitLabFixture()`; `test-fixtures.md`) is read by `GitLabCommitsStreamTest`;
+`GitLabStubServerTest` pins the contract over plain HTTP.

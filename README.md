@@ -310,6 +310,7 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive (`.claude/
 | `GITLAB_MAX_RETRIES` | `4` | Retries (0..10) on 429/5xx/IOException before a GitLab call fails terminally. |
 | `GITLAB_REQUEST_DEADLINE_SECONDS` | `180` | Total budget (1..1800 s) for one logical GitLab call across every retry/backoff attempt. |
 | `GITLAB_USERS_REFRESH_HOURS` | `24` | How old (hours, 0..168) a GitLab data source's stored users may get before a SYNC fetches them again; `0` = every SYNC. "Sync now" always refreshes. |
+| `GITLAB_COMMIT_FILES_PER_RUN` | `5000` | The diff calls (pages, 10..100000) one GitLab SYNC run spends on the per-file line counts of the default-branch commits, newest first. A run that reaches it ends normally and the next run continues; a first backfill drains over several runs. |
 | `INGEST_SCHEDULER_TICK_SECONDS` | `15` | How often the `worker`-role scan loop runs: enqueue due jobs, prune old rows, claim+run. |
 | `INGEST_WORKER_SLOTS` | `2` | Cap on concurrently RUNNING sync jobs for this worker instance. Each slot may keep one worst-case Jira response tree (~112 MiB at the default response cap), so raising it means raising the worker's `-Xmx`: the worker refuses to start otherwise (see the `JAVA_OPTS` paragraph above). |
 | `INGEST_LEASE_SECONDS` | `300` | A claimed job's lease lifetime; heartbeated at `leaseSeconds/3`. An expired lease is reclaimable by any worker. |

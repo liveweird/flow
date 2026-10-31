@@ -12,6 +12,7 @@ import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobRunContext
+import ch.nokillswit.ingest.backfillFromEpochMillis
 import ch.nokillswit.norm.purgeAll
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull

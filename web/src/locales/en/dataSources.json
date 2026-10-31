@@ -97,6 +97,9 @@
     "tokenKeep": "Leave blank to keep the current token",
     "groupPaths": "Group paths",
     "groupPathsHint": "Full group paths (e.g. platform, platform/tooling); subgroups are included, archived projects are not",
+    "pathExclusions": "Excluded paths",
+    "pathExclusionsHint": "Glob patterns of files left out of the line counts (e.g. *.min.js, **/vendor/**); a name without / matches at any depth. Applied when commits are processed — the counts arrive in a later version.",
+    "pathExclusionsReset": "Reset to defaults",
     "backfillFrom": "Backfill from",
     "backfillFromHint": "ISO date (YYYY-MM-DD) — leave blank for 24 months back (clearing it later resets to that). An earlier date re-reads the whole range once at the next sync; a later date keeps the data already downloaded, but it is no longer re-checked.",
     "backfillFromHorizonHint": "The history horizon allows dates from {{floor}} on; blank means 24 months back, or that day when it is later.",
@@ -125,6 +128,8 @@
     "groupPathsCount": "Enter 1–10 group paths",
     "groupPathsInvalid": "Invalid group path: {{path}} (lowercase letters, digits, _ . - and / between subgroups)",
     "groupPathsNested": "Group path {{path}} is inside another listed group — subgroups are included automatically",
+    "pathExclusionsCount": "Enter at most 100 patterns",
+    "pathExclusionsInvalid": "Invalid pattern: {{pattern}}",
     "syncIntervalRange": "Sync interval must be between 5 and 1440 minutes",
     "reconcileHourRange": "Reconcile hour must be between 0 and 23",
     "backfillFromInvalid": "Backfill date must be an ISO date (YYYY-MM-DD)",
@@ -168,6 +173,7 @@
       "watermark": "Watermark",
       "lastCompleted": "Last completed"
     },
+    "pathExclusionsNone": "None",
     "counts": "Raw store counts",
     "count": {
       "rawIssues": "Raw issues",
@@ -181,7 +187,11 @@
       "projectsMovedOut": "Projects moved out of scope",
       "projectsDeleted": "Projects deleted",
       "users": "Users",
-      "usersDeleted": "Users deleted"
+      "usersDeleted": "Users deleted",
+      "commits": "Commits",
+      "commitsMerge": "Merge commits",
+      "commitsDeleted": "Commits deleted",
+      "commitFilesPending": "Commits awaiting file details"
     },
     "jobsTitle": "Sync jobs",
     "jobsLoadFailed": "Could not load the sync jobs",

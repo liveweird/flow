@@ -127,7 +127,7 @@ test("admin connects the Jira stub, syncs it, and inspects the result", async ({
   await expect(page.getByRole("link", { name: `Open ${name}` })).toHaveCount(0);
 });
 
-test("admin connects the GitLab stub, syncs it, and reads back its projects and users", async ({ page }) => {
+test("admin connects the GitLab stub, syncs it, and reads back its projects, users and commits", async ({ page }) => {
   test.setTimeout(300_000);
   await login(page);
   const name = uniqueText("e2e-gitlab");
@@ -138,6 +138,9 @@ test("admin connects the GitLab stub, syncs it, and reads back its projects and 
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("Name").fill(name);
   await dialog.getByRole("radiogroup", { name: "Kind" }).getByText("GitLab", { exact: true }).click();
+  // The Excluded paths field is prefilled with the server's built-in defaults (the `/kinds` read).
+  await expect(dialog.getByRole("combobox", { name: "Excluded paths" })).toBeVisible();
+  await expect(dialog.getByText("package-lock.json", { exact: true })).toBeVisible();
   // The compose stack's GITLAB_STUB_BASE_URL makes the stub's exact origin the only accepted base URL.
   await dialog.getByLabel("Base URL").fill("http://gitlab-stub:8080");
   await dialog.getByLabel("Access token").fill("e2e-fake-token");
@@ -179,13 +182,15 @@ test("admin connects the GitLab stub, syncs it, and reads back its projects and 
   const connection = page.getByRole("table", { name: "Connection", exact: true });
   await expect(connection).toContainText("GitLab");
   await expect(connection).toContainText("platform, apps");
+  await expect(connection.getByRole("row", { name: /^Excluded paths/ })).toContainText("package-lock.json");
   for (const link of ["Data profile", "Raw issue inspector", "Metrics configuration"]) {
     await expect(page.getByRole("link", { name: link })).toHaveCount(0);
   }
   await expect(page.getByRole("button", { name: "Reprocess" })).toHaveCount(0);
 
   // Sync now, then poll (reloading each attempt) until the SYNC job succeeded and the counts show the stub's in-scope world:
-  // 4 projects (sample-data/gitlab/expected.json `projects.inScopeIds`) and 8 users (`users.list`). Scope the job row to the "Sync"
+  // 4 projects (sample-data/gitlab/expected.json `projects.inScopeIds`), 8 users (`users.list`) and its commits: 300 live, 19 of them
+  // merges (`commits.inScopeTotals`), and none still awaiting file details (one SYNC drains the 281 diffs under the default budget). Scope the job row to the "Sync"
   // kind so a co-occurring Reconcile row's own "Succeeded" is never what we matched.
   await page.getByRole("button", { name: "Sync now" }).click();
   const syncJobRow = page.getByRole("row").filter({ hasText: "Sync" }).filter({ hasText: "Succeeded" });
@@ -195,6 +200,9 @@ test("admin connects the GitLab stub, syncs it, and reads back its projects and 
     await expect(syncJobRow.first()).toBeVisible();
     await expect(page.getByRole("row", { name: /^Projects \d+$/ })).toContainText("4");
     await expect(page.getByRole("row", { name: /^Users \d+$/ })).toContainText("8");
+    await expect(page.getByRole("row", { name: /^Commits \d+$/ })).toContainText("300");
+    await expect(page.getByRole("row", { name: /^Merge commits \d+$/ })).toContainText("19");
+    await expect(page.getByRole("row", { name: /^Commits awaiting file details \d+$/ })).toContainText("0");
   }).toPass({ timeout: 280_000, intervals: [10_000] });
 
   // Delete from the list's row menu.

@@ -3,7 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.jira.JiraProcessStream
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraReconcileStream
-import ch.nokillswit.jira.backfillFromEpochMillis
+import ch.nokillswit.ingest.backfillFromEpochMillis
 import ch.nokillswit.jira.parseJiraInstantEpochMillis
 import ch.nokillswit.norm.PROCESSING_VERSION
 import ch.nokillswit.norm.StatusCategory

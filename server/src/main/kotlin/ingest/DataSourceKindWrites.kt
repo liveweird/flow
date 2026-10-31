@@ -44,7 +44,7 @@ internal fun DataSourceRequest.newSettings(policy: GitLabBaseUrlPolicy?): Connec
         GitLabConnectionSettings(
             baseUrl = checkNotNull(policy) { "no GitLab base-URL policy" }.canonicalOrigin(it.baseUrl),
             groupPaths = it.groupPaths,
-            pathExclusions = null,
+            pathExclusions = it.pathExclusions,
         )
     }
 }
@@ -67,7 +67,7 @@ internal fun mergeSettings(current: ConnectionSettings, request: DataSourceReque
             if (checkNotNull(policy) { "no GitLab base-URL policy" }.canonicalOrigin(gitlab.baseUrl) != current.baseUrl) {
                 throw ConflictException("baseUrl is the data source identity; create a new connection to change it")
             }
-            current.copy(groupPaths = gitlab.groupPaths)
+            current.copy(groupPaths = gitlab.groupPaths, pathExclusions = gitlab.pathExclusions ?: current.pathExclusions)
         }
     }
 

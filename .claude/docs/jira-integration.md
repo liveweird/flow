@@ -48,7 +48,7 @@ takes the `FetchSource` as its first argument. `RateLimitSignal.pauseMillisAfter
 header on a successful response: a pause in milliseconds or null, slept holding the permit and counted by the tally (Jira: 1 s on
 `X-RateLimit-NearLimit: true`). `PackageBoundaryTest`: `fetch` references no connector or feature package, and `jira` and `gitlab` never
 reference each other. Still in `jira/` (lifted when a second connector needs them): the heap-fit and heap-share maths
-(`JiraHeapFit.kt`, `JiraHeapShare.kt`), `JiraStoredCeilings.kt`, `JiraFetchAhead.kt`, `SkipBudget` (`JiraOversized.kt`) and every
+(`JiraHeapFit.kt`, `JiraHeapShare.kt`), `JiraStoredCeilings.kt`, `JiraFetchAhead.kt` and every
 Jira endpoint constant and entity map (`JiraPagingCeilings.kt`).
 
 Three additions for the GitLab connector (PR 6), none changing what Jira sends or reads. (1) `FetchSource.authHeaderName` (default
@@ -495,7 +495,7 @@ attempted this run)` stops and fails with the existing `LIMIT_EXCEEDED` (`FetchE
 `sync_jobs.error_detail` reads e.g. `Jira fetch failed: LIMIT_EXCEEDED: CHANGELOGS skipped 37 of 120 issues over
 jira.maxResponseBytes or an answer ceiling - the WARNs name which`). Without it a mis-set `jira.maxResponseBytes` (where every response is
 oversized) would skip everything and the job would SUCCEED. "Attempted" is the ids that finished plus the ones skipped, so a
-halving's repeated asks never count twice, and each counted unit has its own budget (`SkipBudget` in `JiraOversized.kt`,
+halving's repeated asks never count twice, and each counted unit has its own budget (`SkipBudget` in `fetch/SkipBudget.kt`, constructed with `JIRA_SOURCE`,
 run-local): CHANGELOGS issues; WORKLOGS backfilled issues; WORKLOGS listed worklogs (across the feed's pages of one run).
 The run-local exclusion set of the claim scans can therefore never hold more ids than that threshold. A skip is checked as it
 happens, so a run that opens with 11 oversized issues fails even if thousands of fine ones would follow: that is deliberate
@@ -1042,7 +1042,8 @@ ONE parser every Jira-sourced timestamp string goes through, accepting the REST 
 without fractional seconds — a `DateTimeFormatterBuilder` appending `DateTimeFormatter
 .ISO_LOCAL_DATE_TIME` (the date/time/optional-fraction part) then the bracketed offset patterns
 `[XXX][XX][X]` (colon, colonless, then bare-hour/`Z`, tried in that order), parsed to an
-`OffsetDateTime` and converted with `toInstant()`. A malformed value throws
+`OffsetDateTime` and converted with `toInstant()` (that formatter is `infra/time/IsoOffsetInstant.kt`'s `ISO_OFFSET_INSTANT`,
+shared with the GitLab connector; `parseJiraInstant` adds the epoch-millis form on top). A malformed value throws
 `java.time.format.DateTimeParseException` — the SAME unchecked exception type `Instant.parse`
 itself always threw, so every call site's existing failure handling is unchanged: left uncaught in
 a stream (ISSUES/CHANGELOGS/WORKLOGS/RECONCILE), it fails that job exactly as a bad timestamp

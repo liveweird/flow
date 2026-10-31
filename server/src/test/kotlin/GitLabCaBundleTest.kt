@@ -126,7 +126,7 @@ class GitLabCaBundleTest {
         assertEquals(
             setOf(
                 "allowedHosts", "allowedCidrs", "caBundle", "stubBaseUrl", "requestTimeoutSeconds", "maxResponseBytes", "maxRetries",
-                "requestDeadlineSeconds", "usersRefreshHours",
+                "requestDeadlineSeconds", "usersRefreshHours", "commitFilesPerRun",
             ),
             keys.toSet(),
             "a new gitlab.* key is a reviewed decision",

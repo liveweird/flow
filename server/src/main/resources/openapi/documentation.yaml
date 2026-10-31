@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: flow-api
-  version: 1.34.0
+  version: 1.35.0
   description: |
     JWT-authenticated REST API for Flow — a developer-intelligence tool that reads Jira Cloud, stores the raw data
     incrementally and derives flow metrics (cycle and lead time, throughput, WIP, flow efficiency, work-item age),
@@ -4666,9 +4666,21 @@ components:
             Full group paths whose projects (subgroups included, archived and shared ones not) are read. Trimmed, stripped of
             leading/trailing `/`, lowercased and de-duplicated before validation (so the request accepts any case); each normalised path must then be
             `/`-separated segments of `[a-z0-9_][a-z0-9_.-]*` (else `400`), and none may equal or nest in another.
+        pathExclusions:
+          type: array
+          maxItems: 100
+          nullable: true
+          items: { type: string, minLength: 1, maxLength: 255 }
+          description: >-
+            Gitignore-like globs of files whose lines a commit does not count. A pattern without `/` matches the file name at any depth
+            (`package-lock.json`, `*.min.js`); one with `/` matches the whole path (`**` crosses `/`, `*` and `?` stay inside a segment,
+            `[...]` is a class); case-sensitive. Trimmed and de-duplicated, order kept; each must be a valid glob (else `400`).
+            Omitted or null on create = the built-in defaults (`GET /data-sources/kinds`), which the source then keeps following; omitted
+            or null on update = unchanged; a list replaces the stored one and an empty list excludes nothing. Applied when commits are
+            processed into the code layer (a later release), never at fetch: until then the list is stored and echoed only.
     GitLabConnectionResponse:
       type: object
-      required: [baseUrl, hasToken, groupPaths]
+      required: [baseUrl, hasToken, groupPaths, pathExclusions]
       properties:
         baseUrl: { type: string }
         hasToken:
@@ -4677,6 +4689,12 @@ components:
         groupPaths:
           type: array
           items: { type: string }
+        pathExclusions:
+          type: array
+          items: { type: string }
+          description: >-
+            The EFFECTIVE path-exclusion globs: the stored list, or the built-in defaults while the source never set its own. Not applied
+            until commits are processed into the code layer (a later release).
     DataSourceRequest:
       type: object
       required: [name, syncIntervalMinutes]
@@ -4833,13 +4851,19 @@ components:
           minimum: 0
     DataSourceKindInfo:
       type: object
-      required: [kind, enabled, allowedOrigins]
+      required: [kind, enabled, allowedOrigins, defaultPathExclusions]
       properties:
         kind:
           $ref: '#/components/schemas/DataSourceKind'
         enabled:
           type: boolean
           description: Whether a data source of this kind can be created on this server.
+        defaultPathExclusions:
+          type: array
+          items: { type: string }
+          description: >-
+            The path-exclusion globs a source of this kind follows until it sets its own (GitLab's built-ins; empty for Jira Cloud). The
+            editor prefills and restores them; they are not applied until commits are processed into the code layer (a later release).
         allowedOrigins:
           type: array
           items: { type: string }
@@ -4995,13 +5019,17 @@ components:
         lastCompletedAt: { type: integer, format: int64, nullable: true, description: Epoch millis }
     GitLabSyncCounts:
       type: object
-      required: [projects, projectsMovedOut, projectsDeleted, users, usersDeleted]
+      required: [projects, projectsMovedOut, projectsDeleted, users, usersDeleted, commits, commitsMerge, commitsDeleted, commitFilesPending]
       properties:
         projects: { type: integer, format: int64, minimum: 0, description: Live projects of the configured groups. }
         projectsMovedOut: { type: integer, format: int64, minimum: 0, description: Projects no longer listed under any configured group (rows kept). }
         projectsDeleted: { type: integer, format: int64, minimum: 0, description: Projects marked deleted by a reconcile. }
         users: { type: integer, format: int64, minimum: 0, description: Live users of the instance. }
         usersDeleted: { type: integer, format: int64, minimum: 0, description: Users no longer listed. }
+        commits: { type: integer, format: int64, minimum: 0, description: Live default-branch commits (merge commits included). }
+        commitsMerge: { type: integer, format: int64, minimum: 0, description: "Live merge commits (two or more parents), a subset of `commits`." }
+        commitsDeleted: { type: integer, format: int64, minimum: 0, description: Commits tombstoned because they left the default branch (rows kept). }
+        commitFilesPending: { type: integer, format: int64, minimum: 0, description: Live non-merge commits whose per-file diff has not been read yet. }
     SyncCounts:
       type: object
       description: >-

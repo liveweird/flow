@@ -15,7 +15,6 @@ import ch.nokillswit.jira.MAX_ANSWER_CHARS
 import ch.nokillswit.jira.MAX_ANSWER_HISTORIES
 import ch.nokillswit.jira.MAX_ANSWER_PAGES
 import ch.nokillswit.jira.RawIssueInput
-import ch.nokillswit.jira.SkipBudget
 import com.github.tomakehurst.wiremock.client.MappingBuilder
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
@@ -515,21 +514,6 @@ class JiraOversizedBatchTest {
         assertEquals(1, halvedBatchSize(current = 2, attempted = 2))
         assertEquals(1, halvedBatchSize(current = 1, attempted = 1), "the floor is one id")
         assertEquals(1, halvedBatchSize(current = 3, attempted = 1))
-    }
-
-    @Test
-    fun `the skip budget allows ten skips, then a tenth of the ids attempted`() {
-        val small = SkipBudget("CHANGELOGS", "issues")
-        repeat(10) { small.skip() }
-        val failure = assertFailsWith<FetchException> { small.skip() }
-        assertEquals("LIMIT_EXCEEDED", failure.code)
-        assertTrue("CHANGELOGS skipped 11 of 11 issues" in failure.message.orEmpty())
-
-        val large = SkipBudget("WORKLOGS", "issues")
-        large.settled(200)
-        repeat(22) { large.skip() } // 22 of 222 is under a tenth (22.2): still fine
-        val over = assertFailsWith<FetchException> { large.skip() } // 23 of 223 is over the 22 allowed
-        assertTrue("WORKLOGS skipped 23 of 223 issues" in over.message.orEmpty(), over.message)
     }
 
     // --- WORKLOGS -----------------------------------------------------------------------------------------------

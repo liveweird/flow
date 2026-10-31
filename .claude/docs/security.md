@@ -26,7 +26,7 @@ checks**:
   production; in **any** mode a malformed `gitlab.allowedHosts` entry (wildcard, IP literal, scheme/path/credentials), a malformed or
   too-wide `gitlab.allowedCidrs` entry (`/0`, IPv4 wider than /8, IPv6 wider than /32, anything overlapping loopback, link-local, any-local,
   multicast, 6to4, Teredo, mapped or NAT64), CIDRs or a `gitlab.caBundle` without hosts, an unreadable or certificate-less CA bundle, an
-  out-of-range `gitlab.requestTimeoutSeconds`/`gitlab.maxRetries`/`gitlab.requestDeadlineSeconds`/`gitlab.usersRefreshHours`/`gitlab.maxResponseBytes`, or an explicit `gitlab.maxResponseBytes` above
+  out-of-range `gitlab.requestTimeoutSeconds`/`gitlab.maxRetries`/`gitlab.requestDeadlineSeconds`/`gitlab.usersRefreshHours`/`gitlab.commitFilesPerRun`/`gitlab.maxResponseBytes`, or an explicit `gitlab.maxResponseBytes` above
   `jira.maxResponseBytes` refuse startup. See "Outbound HTTP calls" below; covered by `GitLabBootTest`.
 - **Mail transport** (`infra/mail/Mail.kt`): `mail.transport=log` writes outbound email (including
   password-reset links and MFA codes) into the application log — permitted with a warning in development,
@@ -477,6 +477,10 @@ it for that one connector. Nothing a user or an admin types can widen them: a da
   in-memory KeyStore holding both, a standard PKIX trust manager over it). The Jira client keeps the platform trust. Boot refuses an
   unreadable, over-1-MiB, malformed or certificate-less file, and a bundle without listed hosts. There is no skip-TLS, trust-all or hostname-verifier switch anywhere
   (`GitLabCaBundleTest` pins the `gitlab.*` key set and scans the client code).
+- **What the commit streams store (PR 7).** `raw.gitlab_commits`: the commit's first line (`title`, <=255), author name and email, authored/committed
+  time, parent count and the `stats` totals; `raw.gitlab_commit_files`: the path, old path (renames), lines and flags. No message body, committer, diff text or
+  payload is stored, and the diff is counted inside the response transform and dropped. The ref of a commit listing goes out as a query value and a commit
+  SHA as a path segment only after it matches `^[0-9a-f]{40}$|^[0-9a-f]{64}$`, never as concatenated text.
 - Kept from the Jira client: no redirects (OkHttp and Ktor), no proxy, no connection-failure retry. `gitlab.stubBaseUrl` (`GITLAB_STUB_BASE_URL`)
   is development-only and production refuses a non-blank value. `gitlab.maxResponseBytes` defaults to `min(8 MiB, jira.maxResponseBytes)` and an
   explicit value may not exceed `jira.maxResponseBytes`. That keeps a GitLab response tree inside the per-slot tree `JiraHeapFit` sizes

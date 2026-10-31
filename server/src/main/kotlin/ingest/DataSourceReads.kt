@@ -48,7 +48,12 @@ internal fun ResultRow.toDataSourceResponse(): DataSourceResponse {
             )
         },
         gitlab = (settings as? GitLabConnectionSettings)?.let {
-            GitLabConnectionResponse(baseUrl = it.baseUrl, hasToken = hasSecret, groupPaths = it.groupPaths)
+            GitLabConnectionResponse(
+                baseUrl = it.baseUrl,
+                hasToken = hasSecret,
+                groupPaths = it.groupPaths,
+                pathExclusions = effectivePathExclusions(it.pathExclusions),
+            )
         },
         status = toDataSourceStatus(),
         createdAt = this[Connections.createdAt],

@@ -97,6 +97,9 @@
     "tokenKeep": "Zostaw puste, aby zachować obecny token",
     "groupPaths": "Ścieżki grup",
     "groupPathsHint": "Pełne ścieżki grup (np. platform, platform/tooling); podgrupy są uwzględniane, zarchiwizowane projekty nie",
+    "pathExclusions": "Wykluczone ścieżki",
+    "pathExclusionsHint": "Wzorce glob plików pomijanych w liczbie linii (np. *.min.js, **/vendor/**); nazwa bez / pasuje na każdej głębokości. Stosowane przy przetwarzaniu commitów — zliczenia pojawią się w kolejnej wersji.",
+    "pathExclusionsReset": "Przywróć domyślne",
     "backfillFrom": "Uzupełnij dane od",
     "backfillFromHint": "Data ISO (RRRR-MM-DD) — zostaw puste, aby pobrać 24 miesiące wstecz (wyczyszczenie pola później przywraca tę wartość). Wcześniejsza data jednorazowo wczyta ponownie cały zakres przy następnej synchronizacji; późniejsza zachowa dane już pobrane, ale nie będą one już weryfikowane.",
     "backfillFromHorizonHint": "Horyzont historii dopuszcza daty od {{floor}}; puste pole oznacza 24 miesiące wstecz lub ten dzień, jeśli jest późniejszy.",
@@ -125,6 +128,8 @@
     "groupPathsCount": "Podaj od 1 do 10 ścieżek grup",
     "groupPathsInvalid": "Nieprawidłowa ścieżka grupy: {{path}} (małe litery, cyfry, _ . - oraz / między podgrupami)",
     "groupPathsNested": "Ścieżka grupy {{path}} leży wewnątrz innej wymienionej grupy — podgrupy są uwzględniane automatycznie",
+    "pathExclusionsCount": "Podaj najwyżej 100 wzorców",
+    "pathExclusionsInvalid": "Nieprawidłowy wzorzec: {{pattern}}",
     "syncIntervalRange": "Interwał synchronizacji musi wynosić od 5 do 1440 minut",
     "reconcileHourRange": "Godzina uzgadniania musi być z zakresu 0–23",
     "backfillFromInvalid": "Data uzupełnienia musi być datą ISO (RRRR-MM-DD)",
@@ -168,6 +173,7 @@
       "watermark": "Znak wodny",
       "lastCompleted": "Ostatnio zakończono"
     },
+    "pathExclusionsNone": "Brak",
     "counts": "Liczniki surowego magazynu",
     "count": {
       "rawIssues": "Surowe zgłoszenia",
@@ -181,7 +187,11 @@
       "projectsMovedOut": "Projekty poza zakresem",
       "projectsDeleted": "Usunięte projekty",
       "users": "Użytkownicy/użytkowniczki",
-      "usersDeleted": "Usunięci/usunięte użytkownicy/użytkowniczki"
+      "usersDeleted": "Usunięci/usunięte użytkownicy/użytkowniczki",
+      "commits": "Commity",
+      "commitsMerge": "Commity scalające",
+      "commitsDeleted": "Commity usunięte",
+      "commitFilesPending": "Commity czekające na szczegóły plików"
     },
     "jobsTitle": "Zadania synchronizacji",
     "jobsLoadFailed": "Nie udało się wczytać zadań synchronizacji",

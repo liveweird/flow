@@ -15,4 +15,6 @@ class GitLabSyncDependencies(
     val database: R2dbcDatabase,
     /** `gitlab.usersRefreshHours` in ms (default 24 h): the USERS stream refetches only once the stored users are older; 0 = every SYNC. */
     val usersRefreshMillis: Long,
+    /** `gitlab.commitFilesPerRun`: the diff calls one SYNC run may spend on the COMMIT FILES backlog; the rest waits for the next run. */
+    val commitFilesPerRun: Int,
 )

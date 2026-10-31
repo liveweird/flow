@@ -2132,6 +2132,13 @@ the time. `local-times.mjs slow-tests` reproduces this table for any run.
    - **Verdict.** No action: a version bump costs the next scheduled round a few seconds per connection on this data size; the later rounds are back to routine (the 1-2 s over the old max is within the round-to-round spread). A larger tenant pays the same one-off pass scaled by its raw size (not measured here).
    - **Not done:** a timed REPROCESS on the `flow-perf` scaled world (~64k issues); the per-connection PROCESS durations (only the job totals were read).
 
+54. **The GitLab commits streams and `SyncedGitLabFixture` cost the server suite ~8 s of class time, ~4 s of wall time at two forks - MEASURED 2026-10-31 (`feat/gitlab-commits`, PR 7).**
+   Question: PR 7 adds a second shared fixture (one full GitLab SYNC of the stub per fork, ~300 commits and their diffs through the in-JVM stub) and five new test classes. Does the suite stay inside its budget, and does a fork that never reads the GitLab fixture pay for it?
+   - **World.** `scripts/gates.sh server` (two forks, the local machine, other agents' builds running), then `node scripts/timings/local-times.mjs test-weights` from the same run.
+   - **Result.** `SyncedGitLabFixture`'s one-time SYNC: 1.6 s on a warm Postgres (the Postgres start in the same fork: 3.4 s). The GitLab classes weigh 13.9 s of class time against 5.8 s on master (+8.1 s; the largest are `GitLabConnectorTest` 4.4 s, `GitLabCommitsStreamTest` 3.7 s, `GitLabBootTest` 3.0 s; `GitLabCommitsWalkTest` runs on a scripted fake client, 0.6 s). The whole gate: 4m45s against a 4m44s median of the last five runs (the 3-min target was already missed before this PR; the alarm is 6 min).
+   - **Why it stays small.** The fixture warms through its own `warmGitLabFixture()` (not `warmStubFixtures()`), so only the classes that read it trigger the SYNC and a Jira-only fork never pays; the walk logic (re-list, sweep, caps, resumes) is tested against a fake client instead of a stub SYNC per case.
+   - **Verdict.** No action; no budget changed. `server/test-weights.tsv` refreshed from this run so the two-fork balance sees the new classes.
+
 ## Review cadence
 
 - Run `node scripts/timings/ci-times.mjs --branch master` at every milestone / PR, and in every

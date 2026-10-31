@@ -2939,12 +2939,16 @@ export interface components {
             token?: string | null;
             /** @description Full group paths whose projects (subgroups included, archived and shared ones not) are read. Trimmed, stripped of leading/trailing `/`, lowercased and de-duplicated before validation (so the request accepts any case); each normalised path must then be `/`-separated segments of `[a-z0-9_][a-z0-9_.-]*` (else `400`), and none may equal or nest in another. */
             groupPaths: string[];
+            /** @description Gitignore-like globs of files whose lines a commit does not count. A pattern without `/` matches the file name at any depth (`package-lock.json`, `*.min.js`); one with `/` matches the whole path (`**` crosses `/`, `*` and `?` stay inside a segment, `[...]` is a class); case-sensitive. Trimmed and de-duplicated, order kept; each must be a valid glob (else `400`). Omitted or null on create = the built-in defaults (`GET /data-sources/kinds`), which the source then keeps following; omitted or null on update = unchanged; a list replaces the stored one and an empty list excludes nothing. Applied when commits are processed into the code layer (a later release), never at fetch: until then the list is stored and echoed only. */
+            pathExclusions?: string[] | null;
         };
         GitLabConnectionResponse: {
             baseUrl: string;
             /** @description The token itself is never returned. */
             hasToken: boolean;
             groupPaths: string[];
+            /** @description The EFFECTIVE path-exclusion globs: the stored list, or the built-in defaults while the source never set its own. Not applied until commits are processed into the code layer (a later release). */
+            pathExclusions: string[];
         };
         DataSourceRequest: {
             name: string;
@@ -3052,6 +3056,8 @@ export interface components {
             kind: components["schemas"]["DataSourceKind"];
             /** @description Whether a data source of this kind can be created on this server. */
             enabled: boolean;
+            /** @description The path-exclusion globs a source of this kind follows until it sets its own (GitLab's built-ins; empty for Jira Cloud). The editor prefills and restores them; they are not applied until commits are processed into the code layer (a later release). */
+            defaultPathExclusions: string[];
             /** @description The origins a `baseUrl` of this kind may name (`https://host[:port]`); empty for Jira Cloud (its allow-list is the Atlassian site shape) and for a disabled kind. */
             allowedOrigins: string[];
         };
@@ -3205,6 +3211,26 @@ export interface components {
              * @description Users no longer listed.
              */
             usersDeleted: number;
+            /**
+             * Format: int64
+             * @description Live default-branch commits (merge commits included).
+             */
+            commits: number;
+            /**
+             * Format: int64
+             * @description Live merge commits (two or more parents), a subset of `commits`.
+             */
+            commitsMerge: number;
+            /**
+             * Format: int64
+             * @description Commits tombstoned because they left the default branch (rows kept).
+             */
+            commitsDeleted: number;
+            /**
+             * Format: int64
+             * @description Live non-merge commits whose per-file diff has not been read yet.
+             */
+            commitFilesPending: number;
         };
         /** @description Raw-layer row counts. For a `GITLAB` connection the Jira integers are 0 and `gitlab` carries its counts (null when this process has no GitLab store, i.e. the kind is off here). */
         SyncCounts: {

@@ -128,6 +128,27 @@ export function defineRoutes(w, world) {
         });
       }
     }
+    // Re-list sweep confirmations (PR 7): the connector asks `merge_base(<stored commit>, <the listing's tip>)` for each commit the re-list listing did not show
+    // (by tip, so the answer is about the snapshot it listed), after one probe `merge_base(<tip>, <branch>)` that the tip is still an ancestor of the branch.
+    // A commit the listing no longer shows is only a CANDIDATE (GitLab's `since` can stop a listing early on a commit with a skewed date): its own merge base
+    // means it is still on the branch (every old commit at day zero, the divergence commit always); any other commit means it left the branch (the old commits
+    // after the force-push: they still exist as unreachable commits, their merge base is the fork point). Also mapped by branch name, as a human would ask.
+    if (repo.day2Info?.forcePush) {
+      const emitMergeBase = (name, sha, refOf, onlyDay2 = false) => w.emit(name, (state) => {
+        const view = repo.views[stateKey(state)];
+        if (!view || (onlyDay2 && stateKey(state) !== "day2")) return null;
+        return {
+          type: "single", urlPath: `${API}/projects/${p.id}/repository/merge_base`,
+          query: { "refs[]": { includes: [{ equalTo: sha(view) }, { equalTo: refOf(view) }] } }, body: commitJson(mergeBase(repo.commits, sha(view), view.tip), p),
+        };
+      });
+      for (const sha of [...repo.day2Info.removedShas, repo.day2Info.divergenceSha]) {
+        emitMergeBase(`p${p.id}-merge-base-candidate-${sha.slice(0, 12)}`, () => sha, (view) => view.branch);
+        emitMergeBase(`p${p.id}-merge-base-candidate-${sha.slice(0, 12)}-by-tip`, () => sha, (view) => view.tip);
+      }
+      // At day zero the probe is the started tip against the branch, which the `-started-tip` mappings above already answer.
+      emitMergeBase(`p${p.id}-merge-base-tip-probe`, (view) => view.tip, (view) => view.branch, true);
+    }
     // Commit diffs: gated to day2 only for commits that did not exist in the Started history.
     const startedSet = repo.views.started ? ancestors(repo.commits, repo.views.started.tip) : new Set();
     const ordered = [...repo.commits.values()].sort((a, b) => a.seq - b.seq);

@@ -53,8 +53,16 @@ policy accepts) or `"gitlab.allowedHosts" to "gitlab.example.com"` (any `https:/
 pauses), `GitLabRawStoreTest` (the V41 diff rule, sweeps, PURGE), `GitLabConnectorTest` (Test connection rows and a SYNC against the in-JVM stub,
 ground truth `expected.json`), `GitLabDataSourceRoutesTest` (the wire, `/kinds`, the allow-list, GitLab off, audits), `GitLabScopeTest`,
 `SourceHttpHeadersTest` (the `fetch/` additions). Group paths over HTTP take `grp-<8 hex>` so the overlap rule never depends on another class's rows.
-A connector fixture (`SyncedGitLabFixture`, one SYNC per fork) arrives with the COMMITS PR and
-follows the "warm it in `@BeforeClass`" rule below.
+**`SyncedGitLabFixture` (PR 7, 1.35.0)** is the GitLab connector fixture: ONE full SYNC of the stub (PROJECTS, USERS, COMMITS, COMMIT FILES) per fork, `connectionId()`/
+`assertUnchanged()`, a tripwire of 300 live commits and no pending files re-checked on every call, and a `fixture-cost\tgitlab-sync\t<ms>` marker
+(~1.6 s after Postgres, `build-times.md` WHY 54). It has its OWN warm-up, `warmGitLabFixture()` (`TestEnvironment.kt`), not `warmStubFixtures()`: a class that reads it declares
+`companion object { @JvmStatic @BeforeClass fun warmFixtures() = warmGitLabFixture() }` and `StubFixtureWarmupGuardTest` checks every fixture a class triggers against ITS warm-up
+call (a list of trigger/warm pairs). After the SYNC the fixture's data source is SOFT-DELETED and stamped purged (`recordPurgeSucceeded`, so the scheduler's `dueForPurge` never selects it): every active GitLab source must read one instance, so a permanent
+source on the stub would 409 every other-instance create of `GitLabScopeTest` in the same fork; the raw rows stay and readers use the raw store by connection id.
+A test that mutates (a second SYNC, `day2`, a head or budget change) creates its own connection with `GitLabFixtures.createConnection`. The classes: `GitLabCommitsStreamTest`
+(the fixture read-only against `expected.json`, then own-connection RANGE, day-2 force-push and rename, the call budget and the terminal outcomes), `GitLabCommitsWalkTest` (a scripted
+`FakeClient` (`GitLabFakeClient.kt`): modes and decisions, the resumable cursor, the re-list sweep with its `merge_base` confirmations and cap, the files stream's cap, skip budget and
+call budget), `GitLabCommitStoreTest` (the V42 store), `GitLabDiffCounterTest`, `GitLabTimeTest`. `GitLabFixtures` gained `freshContext(connId)` and `runStream(stream, connId)`.
 
 **Shared synced fixture (`SyncedStubFixture`, `server/src/test/kotlin/SyncedStubFixture.kt`).**
 `NormalizationPipelineTest`, `JiraSyncPipelineTest` and `DataProfileTest` each used to drive a

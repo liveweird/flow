@@ -14,12 +14,14 @@ import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.ingest.TOKEN_INACTIVE
 import ch.nokillswit.ingest.TOKEN_SCOPE_TOO_BROAD
+import ch.nokillswit.ingest.backfillFromEpochMillis
 
 private const val NOT_ADMIN = "NOT_ADMIN"
 private const val READ_API = "read_api"
 
 /**
- * The GitLab connector (`gitlab-integration.md`): Test connection, and the SYNC job's two streams, PROJECTS then USERS. The other job
+ * The GitLab connector (`gitlab-integration.md`): Test connection, and the SYNC job's four streams, PROJECTS, USERS, COMMITS then
+ * COMMIT FILES. The other job
  * kinds are accepted and do nothing yet - RECONCILE and REPROCESS arrive with the streams that need them (the plan's PRs 9 and 10), PURGE
  * drains the raw tables, and DERIVE never reaches a connector (`IngestWorker` chains it for kinds that derive metrics only).
  */
@@ -49,7 +51,7 @@ class GitLabConnector(
     /**
      * SYNC: refuse a token with a scope outside the read-only allow-list, or an inactive one (re-probed from
      * `/personal_access_tokens/self` on EVERY run, so a token widened or revoked after Test connection is caught before anything is
-     * stored: `TOKEN_SCOPE_TOO_BROAD` / `TOKEN_INACTIVE`), then PROJECTS and USERS inside the shared call tally
+     * stored: `TOKEN_SCOPE_TOO_BROAD` / `TOKEN_INACTIVE`), then PROJECTS, USERS, COMMITS and COMMIT FILES inside the shared call tally
      * (`ingest/ConnectorRun.kt`). "Sync now" refreshes the users whatever their age.
      */
     private suspend fun runSync(context: SyncJobRunContext) {
@@ -70,6 +72,8 @@ class GitLabConnector(
             val streams: List<Stream> = listOf(
                 GitLabProjectsStream(client, deps.rawStore, stored.groupPaths),
                 GitLabUsersStream(client, deps.rawStore, isAdmin, if (claim.requestedOnDemand) 0 else deps.usersRefreshMillis),
+                GitLabCommitsStream(client, deps.rawStore, backfillFromEpochMillis(stored.backfillFrom)),
+                GitLabCommitFilesStream(client, deps.rawStore, deps.commitFilesPerRun),
             )
             streams.forEach { stream ->
                 streamContext.currentStreamName = stream.name

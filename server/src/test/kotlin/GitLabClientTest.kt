@@ -29,7 +29,7 @@ private const val CLOCK_NOW = 1_800_000_000_000L
 
 /** `HttpGitLabClient` over the shared `SourceHttp` against a scripted `MockEngine` - no network, no WireMock. */
 class GitLabClientTest {
-    private val settings = GitLabSettings(SelfManagedHosts.NONE, null, null, 30, 8L * 1024 * 1024, 1, 180, 24)
+    private val settings = GitLabSettings(SelfManagedHosts.NONE, null, null, 30, 8L * 1024 * 1024, 1, 180, 24, 5_000)
 
     private class Wire(val sleeps: MutableList<Long> = mutableListOf())
 
@@ -39,7 +39,7 @@ class GitLabClientTest {
                 expectSuccess = false
                 followRedirects = false
             },
-            GitLabSettings(settings.hosts, null, null, 30, settings.maxResponseBytes, maxRetries, 180, 24),
+            GitLabSettings(settings.hosts, null, null, 30, settings.maxResponseBytes, maxRetries, 180, 24, 5_000),
             OutboundPermits(4),
             source = FetchSource("GitLab", "gitlab.maxResponseBytes", GitLabRateLimitSignal { CLOCK_NOW }, GITLAB_AUTH_HEADER),
             random = { 0.5 },
@@ -229,7 +229,7 @@ class GitLabClientTest {
         }
         val http = createGitLabHttp(
             HttpClient(engine) { expectSuccess = false },
-            GitLabSettings(settings.hosts, null, null, 30, settings.maxResponseBytes, 0, 180, 24),
+            GitLabSettings(settings.hosts, null, null, 30, settings.maxResponseBytes, 0, 180, 24, 5_000),
             OutboundPermits(4),
             random = { 0.5 },
             sleeper = { wire.sleeps += it },
@@ -260,5 +260,172 @@ class GitLabClientTest {
         assertFalse(listOf("read_api", "admin_mode").tooBroad())
         assertTrue(listOf("api", "admin_mode").tooBroad())
         assertTrue(listOf("read_api", "ADMIN_MODE").tooBroad())
+    }
+
+    // --- commits, merge base and diffs (V42, PR 7) ----------------------------------------------------------------------------
+
+    private val sha1 = "a".repeat(40)
+    private val sha2 = "b".repeat(40)
+    private val json = headersOf(HttpHeaders.ContentType to listOf("application/json"), "X-Next-Page" to listOf(""))
+
+    private fun commitJson(sha: String, parents: List<String>, extra: String = "") =
+        """{"id":"$sha","title":"Fix the thing","message":"Fix the thing\n\nlong body","author_name":"Ada","author_email":"ada@x.test",
+           "authored_date":"2026-08-31T13:27:54.000+02:00","committed_date":"2026-08-31T11:30:00Z","committer_name":"Bob",
+           "parent_ids":[${parents.joinToString(",") { "\"$it\"" }}]$extra}"""
+
+    @Test
+    fun `commits sends ref_name, with_stats, per_page and page, and since only when given`() = runBlocking {
+        val seen = mutableListOf<io.ktor.http.Url>()
+        val withStats = commitJson(sha1, listOf(sha2), ""","stats":{"additions":5,"deletions":2,"total":7}""")
+        val engine = MockEngine { request ->
+            seen += request.url
+            respond(
+                "[${withStats},${commitJson(sha2, listOf(sha1, sha1))}]",
+                HttpStatusCode.OK,
+                headersOf(HttpHeaders.ContentType to listOf("application/json"), "X-Next-Page" to listOf("3"), "X-Total" to listOf("250")),
+            )
+        }
+        val client = client(engine)
+        val page = client.commits(7, "main", null, 2)
+        assertEquals("/api/v4/projects/7/repository/commits", seen[0].encodedPath)
+        assertEquals(
+            mapOf("ref_name" to "main", "with_stats" to "true", "per_page" to "100", "page" to "2"),
+            seen[0].parameters.entries().associate { it.key to it.value.single() },
+        )
+        assertEquals(3, page.nextPage)
+        assertEquals(250L, page.total)
+        val (first, merge) = page.commits
+        assertEquals(sha1, first.sha)
+        assertEquals("Fix the thing", first.title)
+        assertEquals(1, first.parentCount)
+        assertEquals(5, first.additions)
+        assertEquals(2, first.deletions)
+        assertEquals("Ada", first.authorName)
+        assertEquals("ada@x.test", first.authorEmail)
+        assertEquals(java.time.Instant.parse("2026-08-31T11:27:54Z").toEpochMilli(), first.authoredAt)
+        assertEquals(java.time.Instant.parse("2026-08-31T11:30:00Z").toEpochMilli(), first.committedAt)
+        assertEquals(2, merge.parentCount, "two parents: a merge")
+        assertNull(merge.additions, "no stats, no lines")
+
+        client.commits(7, "main", "2026-01-01T00:00:00Z", 1)
+        assertEquals("2026-01-01T00:00:00Z", seen[1].parameters["since"])
+    }
+
+    @Test
+    fun `a range is sent verbatim as the ref_name value`() = runBlocking {
+        var query: String? = null
+        val engine = MockEngine { request ->
+            query = request.url.parameters["ref_name"]
+            respond("[]", HttpStatusCode.OK, json)
+        }
+        client(engine).commits(7, "$sha1..main", null, 1)
+        assertEquals("$sha1..main", query)
+    }
+
+    @Test
+    fun `an unusable commit is INVALID_RESPONSE and a message stands in for a missing title`() = runBlocking {
+        val bad = listOf(
+            """[{"id":"$sha1","committed_date":"2026-08-31T11:30:00Z","authored_date":"2026-08-31T11:30:00Z"}]""",
+            """[{"id":"xyz","parent_ids":[],"committed_date":"2026-08-31T11:30:00Z","authored_date":"2026-08-31T11:30:00Z"}]""",
+            """[{"id":"$sha1","parent_ids":[],"committed_date":"yesterday","authored_date":"2026-08-31T11:30:00Z"}]""",
+            """[{"id":"$sha1","parent_ids":[],"committed_date":"2026-08-31T11:30:00Z"}]""",
+            """["text"]""",
+        )
+        for (body in bad) {
+            val engine = MockEngine { respond(body, HttpStatusCode.OK, json) }
+            assertEquals("INVALID_RESPONSE", assertFailsWith<FetchException> { client(engine).commits(7, "main", null, 1) }.code, body)
+        }
+        val engine = MockEngine {
+            respond(
+                """[{"id":"$sha1","message":"First line\nsecond","parent_ids":[],"committed_date":"2026-08-31T11:30:00.000+0200",
+                    "authored_date":"2026-08-31T11:30:00Z"}]""",
+                HttpStatusCode.OK, json,
+            )
+        }
+        val commit = client(engine).commits(7, "main", null, 1).commits.single()
+        assertEquals("First line", commit.title)
+        assertEquals(0, commit.parentCount)
+    }
+
+    @Test
+    fun `mergeBase sends refs as two parameters and returns the id, and a 400 or 404 is REF_NOT_FOUND`() = runBlocking {
+        val seen = mutableListOf<io.ktor.http.Url>()
+        val engine = MockEngine { request ->
+            seen += request.url
+            respond(commitJson(sha2, emptyList()), HttpStatusCode.OK, json)
+        }
+        assertEquals(sha2, client(engine).mergeBase(7, sha1, "main"))
+        assertEquals("/api/v4/projects/7/repository/merge_base", seen.single().encodedPath)
+        assertEquals(listOf(sha1, "main"), seen.single().parameters.getAll("refs[]"))
+
+        for (status in listOf(HttpStatusCode.BadRequest, HttpStatusCode.NotFound)) {
+            val failing = MockEngine { respond("""{"message":"Could not find ref"}""", status, json) }
+            assertEquals("REF_NOT_FOUND", assertFailsWith<FetchException> { client(failing).mergeBase(7, sha1, "main") }.code, "$status")
+        }
+        val noId = MockEngine { respond("""{"id":"short"}""", HttpStatusCode.OK, json) }
+        assertEquals("INVALID_RESPONSE", assertFailsWith<FetchException> { client(noId).mergeBase(7, sha1, "main") }.code)
+    }
+
+    @Test
+    fun `commitDiff refuses a non-hex sha before any request`() = runBlocking {
+        var requests = 0
+        val engine = MockEngine {
+            requests++
+            respond("[]", HttpStatusCode.OK, json)
+        }
+        val client = client(engine)
+        for (bad in listOf("main", "../x", "ABCDEF" + "0".repeat(34), "a".repeat(39), "a".repeat(41), "")) {
+            assertEquals("INVALID_RESPONSE", assertFailsWith<FetchException> { client.commitDiff(7, bad, 1) }.code, "<$bad>")
+        }
+        assertEquals("INVALID_RESPONSE", assertFailsWith<FetchException> { client.commitDiff(-7, sha1, 1) }.code)
+        assertEquals(0, requests)
+        client.commitDiff(7, "c".repeat(64), 1) // SHA-256 repositories
+        assertEquals(1, requests)
+    }
+
+    @Test
+    fun `commitDiff counts a normal file, nulls the lines of a too_large file, keeps flags and reads X-Next-Page`() = runBlocking {
+        val seen = mutableListOf<io.ktor.http.Url>()
+        val engine = MockEngine { request ->
+            seen += request.url
+            respond(
+                """[{"diff":"@@ -1,2 +1,3 @@\n ctx\n-old\n+new\n+more\n\\ No newline at end of file\n","new_path":"src/a.go","old_path":"src/a.go",
+                    "new_file":false,"renamed_file":false,"deleted_file":false,"generated_file":false},
+                   {"diff":"","new_path":"data/big.json","old_path":"data/big.json","too_large":true,"generated_file":true},
+                   {"diff":"@@ -1 +1 @@\n-a\n+b\n","new_path":"docs/new.md","old_path":"docs/old.md","renamed_file":true},
+                   {"diff":"","new_path":"docs/collapsed.md","old_path":"docs/collapsed.md","collapsed":true},
+                   {"diff":"Binary files a/x.png and b/x.png differ\n","new_path":"x.png","old_path":"x.png","new_file":true},
+                   {"diff":"@@ -1 +0,0 @@\n-gone\n","new_path":"gone.txt","old_path":"gone.txt","deleted_file":true}]""",
+                HttpStatusCode.OK,
+                headersOf(HttpHeaders.ContentType to listOf("application/json"), "X-Next-Page" to listOf("2")),
+            )
+        }
+        val page = client(engine).commitDiff(7, sha1, 1)
+        assertEquals("/api/v4/projects/7/repository/commits/$sha1/diff", seen.single().encodedPath)
+        val query = seen.single().parameters.entries().associate { it.key to it.value.single() }
+        assertEquals(mapOf("per_page" to "100", "page" to "1"), query)
+        assertEquals(2, page.nextPage)
+        val files = page.files.associateBy { it.path }
+        assertEquals(2, files.getValue("src/a.go").additions)
+        assertEquals(1, files.getValue("src/a.go").deletions)
+        assertNull(files.getValue("src/a.go").oldPath, "old_path is kept for a rename only")
+        assertNull(files.getValue("data/big.json").additions)
+        assertNull(files.getValue("data/big.json").deletions)
+        assertTrue(files.getValue("data/big.json").generatedFile)
+        assertTrue(files.getValue("docs/new.md").renamedFile)
+        assertEquals("docs/old.md", files.getValue("docs/new.md").oldPath)
+        assertEquals(1, files.getValue("docs/new.md").additions)
+        assertNull(files.getValue("docs/collapsed.md").additions)
+        assertEquals(0, files.getValue("x.png").additions, "a binary file counts 0/0")
+        assertEquals(0, files.getValue("x.png").deletions)
+        assertTrue(files.getValue("x.png").newFile)
+        assertTrue(files.getValue("gone.txt").deletedFile)
+        assertEquals(1, files.getValue("gone.txt").deletions)
+    }
+
+    @Test
+    fun `a diff entry without new_path is INVALID_RESPONSE`() = runBlocking {
+        val engine = MockEngine { respond("""[{"diff":"@@ -1 +1 @@\n-a\n+b\n"}]""", HttpStatusCode.OK, json) }
+        assertEquals("INVALID_RESPONSE", assertFailsWith<FetchException> { client(engine).commitDiff(7, sha1, 1) }.code)
     }
 }

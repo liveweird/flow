@@ -432,7 +432,7 @@ on groups' projects, ...) are ignored.
 | `GET /projects/:id/repository/branches/:branch` | the default branch of each project (`master` for project 4) |
 | `GET /users` | admin view (`email`, `bot`, `state`, `is_admin`, `commit_email`), `per_page=100`; `GET /users/:id/emails` the confirmed secondary emails (`[]` for most) |
 | `GET /projects/:id/repository/commits` | `ref_name=<branch>` or `<sha>..<branch>`, `with_stats=true`, `per_page=100`, newest first in `git log` order; ranges for each project's **stored head** (a mainline commit ~80% in) and its **started tip** (empty at day zero) |
-| `GET /projects/:id/repository/merge_base` | `refs[]=<sha>&refs[]=<branch or tip sha>` in either order, for the stored head and the started tip of each project; the commit object |
+| `GET /projects/:id/repository/merge_base` | `refs[]=<sha>&refs[]=<branch or tip sha>` in either order, for the stored head and the started tip of each project; the commit object. Also, for project 1's five force-pushed commits (the base is the commit itself at day zero, the fork point after the force-push) and its divergence commit (always itself), `refs[]=<sha>&refs[]=<branch>` and `refs[]=<sha>&refs[]=<tip>`, plus the probe `refs[]=<tip>&refs[]=<branch>` (the tip itself): the re-list sweep's confirmations; any other pair is unmapped (404) |
 | `GET /projects/:id/repository/commits/:sha/diff` | `per_page=100` (+`page`): `diff`, `new_path`, `old_path`, `a_mode`, `b_mode`, `new_file`, `renamed_file`, `deleted_file`, `generated_file`, and `too_large` / `collapsed` only on the files they apply to; sorted by path |
 | `GET /groups/:id/merge_requests` | `scope=all`, `state=all`, `include_subgroups=true`, `order_by=updated_at`, `sort=asc`, `per_page=100`; `updated_after` is ignored (the full set is always answered) |
 | `GET /projects/:id/merge_requests/:iid/notes` | `sort=asc`, `order_by=created_at`, `per_page=100` (+`page`) |
@@ -466,4 +466,4 @@ mapping; the rest come in a `-started` and a `-day2` variant. The deltas, all re
 
 ## Size
 
-`gitlab-stub/` is ~11 MiB (1,196 mappings, 712 bodies), under the Jira stub's ~13 MiB; most of it is commit diffs (one body per commit) and the 1,040-file commit. About 470 of the mappings are the per-list past-the-end answers (they share one `[]` body).
+`gitlab-stub/` is ~11 MiB (1,220 mappings, 736 bodies), under the Jira stub's ~13 MiB; most of it is commit diffs (one body per commit) and the 1,040-file commit. About 470 of the mappings are the per-list past-the-end answers (they share one `[]` body).
