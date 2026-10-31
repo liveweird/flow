@@ -79,12 +79,11 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     `scripts/gates.sh`.
 - [parked] **Data profile: multi-project boards.** A board whose filter spans several projects shows no observed or
   unmapped statuses, because `BoardRef` carries a single project key. Revisit if real boards span projects.
-- [parked] **D6 — de-Jira the `Connector` seam: not before the GitLab connector (YAGNI).**
-  - Today these are Jira-shaped:
-    - `ingest/Connector.kt` `testConnection(siteUrl, email, apiToken, projectKeys, authScheme)`;
-    - `JiraConnectorKey` in `DataSourceRoutes.kt`;
-    - `DataSourceRequest.jira`.
-  - Generalising them is speculative until a second connector exists. Revisit with GitLab.
+- [next] **GitLab integration (self-managed), 1.34.0–1.38.0.** Approved 2026-10-31; design and PR order in
+  `.claude/docs/gitlab-integration.md`.
+  - Per-person commits (files, lines), merge requests and review activity, read from a self-managed GitLab with an
+    admin-issued read-only token; no git mirror, no repository content stored.
+  - D6 (de-Jira the `Connector` seam) is its PR 3. Reports over `norm.code_*` are a separate, later plan.
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 
