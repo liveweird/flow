@@ -8,10 +8,13 @@ import java.net.SocketException
 import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 import javax.net.SocketFactory
+import javax.net.ssl.SSLSocketFactory
+import javax.net.ssl.X509TrustManager
 import okhttp3.Authenticator
 import okhttp3.CookieJar
 import okhttp3.Dns
 import okhttp3.EventListener
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import org.slf4j.LoggerFactory
 
@@ -76,10 +79,33 @@ fun isAllowedJiraHost(host: String, stubHost: String?, developmentMode: Boolean)
     return developmentMode && !stubHost.isNullOrBlank() && normalized == stubHost.lowercase()
 }
 
-/** Ported VERBATIM from Toadie's `infra/fetch/UrlFetch.kt` (`isBlockedAddress`, lines 129-154). */
-internal fun InetAddress.isBlockedAddress(): Boolean =
+/**
+ * Ported from Toadie's `infra/fetch/UrlFetch.kt` (`isBlockedAddress`, lines 129-154), with ONE addition: an IPv4-mapped IPv6
+ * address (`::ffff:a.b.c.d`) is unwrapped to its IPv4 form first ([withoutIpv4Mapping]). The JDK folds a mapped literal into an
+ * `Inet4Address` on its own, but an `Inet6Address` built from the raw 16 bytes is not folded, and its `isLoopbackAddress`/
+ * `isSiteLocalAddress` would answer for the IPv6 form only.
+ */
+internal fun InetAddress.isBlockedAddress(): Boolean = withoutIpv4Mapping().isBlockedForm()
+
+private fun InetAddress.isBlockedForm(): Boolean =
     isLoopbackAddress || isSiteLocalAddress || isLinkLocalAddress || isAnyLocalAddress ||
         isMulticastAddress || isUniqueLocalIpv6() || isSpecialIpv4() || isNat64()
+
+/** The IPv4 address inside an IPv4-mapped IPv6 address (`::ffff:0:0/96`), or this address unchanged. */
+internal fun InetAddress.withoutIpv4Mapping(): InetAddress {
+    val bytes = address
+    if (bytes.size != IPV6_BYTES) return this
+    val mapped = (0 until IPV4_MAPPED_ZERO_BYTES).all { bytes[it] == 0.toByte() } &&
+        bytes[IPV4_MAPPED_ZERO_BYTES] == 0xFF.toByte() && bytes[IPV4_MAPPED_ZERO_BYTES + 1] == 0xFF.toByte()
+    return if (mapped) InetAddress.getByAddress(bytes.copyOfRange(IPV6_BYTES - IPV4_BYTES, IPV6_BYTES)) else this
+}
+
+private const val IPV4_BYTES = 4
+private const val IPV6_BYTES = 16
+private const val IPV4_MAPPED_ZERO_BYTES = 10
+
+/** The address rule of every client that is not a self-managed host: public addresses only ([isBlockedAddress]). */
+val publicAddressesOnly: (String, InetAddress) -> Boolean = { _, address -> !address.isBlockedAddress() }
 
 private fun InetAddress.isUniqueLocalIpv6(): Boolean {
     val bytes = address
@@ -120,14 +146,14 @@ class GuardedDns(
     private val allowedHost: (String) -> Boolean,
     private val resolver: (String) -> List<InetAddress> = { InetAddress.getAllByName(it).toList() },
     /**
-     * True ONLY for the development `jira.stubBaseUrl` host: it is, by construction, a local
-     * compose/in-JVM fixture (loopback or a docker-network private address), so the address-range
-     * check below would otherwise block the one host [allowedHost] deliberately admits in
-     * development. The allow-list check above still applies unconditionally — this never widens
-     * which HOSTS are reachable, only skips the address-shape check for that one already-approved
-     * host.
+     * The address rule, asked of EVERY address a lookup resolved to (all-or-nothing: one refused address fails the whole
+     * lookup, audited). The default is [publicAddressesOnly]. The development stub host (`jira.stubBaseUrl`,
+     * `gitlab.stubBaseUrl`) answers `true` for its own host only: it is, by construction, a local compose/in-JVM fixture
+     * (loopback or a docker-network private address). A self-managed GitLab host answers through
+     * `SelfManagedHosts.addressAllowed` (`.claude/docs/security.md` "Outbound HTTP calls"). The allow-list check above
+     * still applies unconditionally — this never widens which HOSTS are reachable.
      */
-    private val skipAddressCheck: (String) -> Boolean = { false },
+    private val addressAllowed: (String, InetAddress) -> Boolean = publicAddressesOnly,
     /**
      * [LOW-5] The scheme actually used to reach [hostname] — every genuine Jira Cloud host is
      * `https`, but the development `jira.stubBaseUrl` may be plain `http://` (the compose demo).
@@ -150,9 +176,7 @@ class GuardedDns(
             throw dnsFailure(hostname)
         }
         if (addresses.isEmpty()) throw dnsFailure(hostname)
-        if (!skipAddressCheck(hostname) && addresses.any { it.isBlockedAddress() }) {
-            auditBlockedOutbound(schemeFor(hostname), hostname)
-        }
+        if (addresses.any { !addressAllowed(hostname, it) }) auditBlockedOutbound(schemeFor(hostname), hostname)
         return addresses
     }
 
@@ -189,16 +213,37 @@ internal object DirectSocketFactory : SocketFactory() {
  * outside the single already-checked address list), no cookies/proxy-authenticator. [eventListener]
  * is a test seam (`OutboundGuardTest`'s connection-pool-leak test — LOW-3); production never sets
  * one.
+ *
+ * [sslSocketFactory] and [trustManager] (both or neither) replace the JVM default trust: the GitLab client adds an operator
+ * CA bundle ALONGSIDE the default CAs this way. There is no option to skip certificate or hostname verification.
+ * [originAllowed] (scheme, host, port) is checked on every request before it is sent, so a `host:port` allow-list entry
+ * means that port only (DNS sees a hostname, never a port); a refusal is audited `outbound.blocked` like a DNS one.
  */
 fun guardedOkHttpClient(
     allowedHost: (String) -> Boolean,
     resolver: (String) -> List<InetAddress> = { InetAddress.getAllByName(it).toList() },
     timeoutSeconds: Long,
-    skipAddressCheck: (String) -> Boolean = { false },
+    addressAllowed: (String, InetAddress) -> Boolean = publicAddressesOnly,
     schemeFor: (String) -> String = { "https" },
     eventListener: EventListener = EventListener.NONE,
+    sslSocketFactory: SSLSocketFactory? = null,
+    trustManager: X509TrustManager? = null,
+    originAllowed: ((scheme: String, host: String, port: Int) -> Boolean)? = null,
 ): OkHttpClient = OkHttpClient.Builder()
-    .dns(GuardedDns(allowedHost, resolver, skipAddressCheck, schemeFor))
+    .dns(GuardedDns(allowedHost, resolver, addressAllowed, schemeFor))
+    .apply {
+        require((sslSocketFactory == null) == (trustManager == null)) { "sslSocketFactory and trustManager go together" }
+        if (sslSocketFactory != null && trustManager != null) sslSocketFactory(sslSocketFactory, trustManager)
+        if (originAllowed != null) {
+            addInterceptor(
+                Interceptor { chain ->
+                    val url = chain.request().url
+                    if (!originAllowed(url.scheme, url.host, url.port)) auditBlockedOutbound(url.scheme, url.host)
+                    chain.proceed(chain.request())
+                },
+            )
+        }
+    }
     .proxy(Proxy.NO_PROXY)
     .socketFactory(DirectSocketFactory)
     .fastFallback(false)

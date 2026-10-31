@@ -397,10 +397,12 @@ create/update time (one source of truth), or — development mode ONLY — the c
 `jira.stubBaseUrl` host. `GuardedDns` (an `okhttp3.Dns`) re-checks the allow-list and re-resolves +
 re-checks addresses on every NEW connection (not just once per request, since the Jira `HttpClient`
 is long-lived and shared across every connection — pooled connections REUSE an already-checked
-address rather than re-resolving on every call); a `skipAddressCheck` predicate exempts ONLY the
-already-allow-listed stub host from the address-range check, since the dev/compose/in-JVM stub is,
-by construction, a loopback or docker-network-private address — the allow-list still gates it
-unconditionally, this only skips the address-SHAPE check for that one host. The guarded
+address rather than re-resolving on every call); the address rule is an injectable `addressAllowed(host, address)`
+(default `publicAddressesOnly`, i.e. `!isBlockedAddress()`; the lookup is all-or-nothing, one refused answer fails it): the Jira
+wiring answers `true` for the already-allow-listed stub host ONLY (the dev/compose/in-JVM stub is, by construction, a
+loopback or docker-network-private address) and `publicAddressesOnly` for everything else — the allow-list still gates the stub
+unconditionally, this only skips the address-SHAPE check for that one host. `isBlockedAddress` first unwraps an IPv4-mapped IPv6
+address (`::ffff:a.b.c.d`, also an unfolded `Inet6Address`) to its IPv4 form, pinned by `OutboundGuardTest`. The guarded
 `OkHttpClient` (`guardedOkHttpClient`) sets `Proxy.NO_PROXY`, `followRedirects(false)` (both at the
 OkHttp engine level AND Ktor's own client-side `HttpRedirect` plugin — `HttpClient { followRedirects
 = false }` in `jira/Jira.kt` — checking-then-following would defeat the address check either way),
@@ -433,6 +435,42 @@ answer-text slot (those two convert every page under the big-parse lock, so only
 ceiling (`jira.maxStoredPayloadBytes`, a history, a worklog; measured as the rendered size, so an exponent number cannot hide plain-digit
 bloat), PROCESS claims pages by stored bytes (`jira.processPageBytes`), whole entity kinds are read only in chunks of that size, and the `web` role's
 raw-issue inspector answers 413 for an issue over it, embeds stored text unparsed and serves two issues at a time.
+
+**A self-managed GitLab host (operator-only allowance, `infra/outbound/SelfManagedHosts.kt`, `Cidr.kt`, `CaBundle.kt`; `gitlab/GitLab.kt`).**
+A self-managed GitLab usually lives on a private address, which the guard above refuses by design, so two operator settings widen
+it for that one connector. Nothing a user or an admin types can widen them: a data source's base URL is validated against them
+(`gitlab/GitLabBaseUrl.kt`), never the reverse. The rule, in `SelfManagedHosts.addressAllowed`:
+
+- `GITLAB_ALLOWED_HOSTS` (`gitlab.allowedHosts`): exact lowercase DNS names, `host` or `host:port` (no port = 443). No wildcard (a
+  wildcard turns a typo or a subdomain takeover into an allowed internal target), no IP literal in any notation (the JDK reads
+  `2130706433` or `0x7f.1` as an address, and OkHttp never consults the DNS guard for a literal), no scheme/path/query/userinfo
+  (credentials must never sit in a config value that can reach a log). Empty = the GitLab kind is off and no client is built.
+- `GITLAB_ALLOWED_CIDRS` (`gitlab.allowedCidrs`): the private ranges a LISTED host may resolve to. Boot refuses `/0`, IPv4 wider than /8
+  and IPv6 wider than /32 (a typo cannot open a whole private class), any range that overlaps loopback (`127/8`, `::1`), link-local
+  (`169.254/16`, which holds the cloud metadata address `169.254.169.254`, and `fe80::/10`), any-local (`0/8`, `::`, `::/96`) or multicast
+  (`224/4`, `ff00::/8`), an IPv4-mapped (`::ffff:0:0/96`) or NAT64 (`64:ff9b::/96`) range (write the IPv4 range), a range with host bits
+  set, a malformed entry (the address part is matched against a literal-only grammar before it reaches the JDK, so a typo is never a DNS
+  lookup), and CIDRs without hosts. Every error names the key and the entry, except an entry with a character outside the plain
+  host/CIDR alphabet (an `@`, `?`, `#`, a space, a `%`), which is named by position only so `user:secret@host` never reaches a log.
+- Per lookup: loopback, link-local, any-local, multicast, `0.0.0.0/8` and `::/96` are refused for EVERY host whatever the CIDRs say;
+  any other address that is not blocked today (public) is allowed for every host as before; any other blocked address (private,
+  unique-local, CGNAT, ...) is allowed only for a listed host and only inside a CIDR. An IPv4-mapped address is judged as its IPv4 form.
+  Unlisted hosts keep exactly the Jira rule. A mixed answer (one allowed address, one refused) fails the whole lookup, audited
+  `outbound.blocked`; every NEW connection resolves and checks afresh, so a DNS-rebinding answer is judged when it arrives.
+- Request origin (`guardedOkHttpClient(originAllowed = ...)`): DNS only sees a hostname, and OkHttp skips DNS for an IP-literal URL, so the
+  GitLab client also checks every request's (scheme, host, port) against the list before sending: `https` to a listed `host[:port]` only
+  (an entry with a port means that port). Plain `http`, another port, and any IP literal are `outbound.blocked`.
+- `GITLAB_CA_BUNDLE`: a PEM file of X.509 certificates added to the GitLab client's trust store ALONGSIDE the JVM default CAs (a fresh
+  in-memory KeyStore holding both, a standard PKIX trust manager over it). The Jira client keeps the platform trust. Boot refuses an
+  unreadable, over-1-MiB, malformed or certificate-less file. There is no skip-TLS, trust-all or hostname-verifier switch anywhere
+  (`GitLabCaBundleTest` pins the `gitlab.*` key set and scans the client code).
+- Kept from the Jira client: no redirects (OkHttp and Ktor), no proxy, no connection-failure retry. `gitlab.stubBaseUrl` (`GITLAB_STUB_BASE_URL`)
+  is development-only and production refuses a non-blank value; `gitlab.maxResponseBytes` may not exceed `jira.maxResponseBytes`, so the
+  worker's heap-fit check covers it. In k8s the egress NetworkPolicy still excludes the private ranges: a private GitLab needs its own
+  additional egress rule (the policy is the second layer; the guard is the first).
+- Pinned by `SelfManagedHostsTest` (parsing, every boot refusal, the address matrix), `GitLabOutboundGuardTest` (rebinding, mixed answers,
+  redirect, unlisted host audit, IP literal, port, proxy), `GitLabBaseUrlTest`, `GitLabCaBundleTest`, `GitLabBootTest` and the
+  `PackageBoundaryTest` rules (`gitlab` never imports `jira`, `metrics` or `reports`; `infra/outbound` imports no feature).
 
 What pins the transport (beyond the allow-list/address tests above): `OutboundTransportTest` runs against a LOCAL
 socket server only. The response/connection release in `jira/JiraHttp.kt` (`prepareRequest {}.execute {}`) is

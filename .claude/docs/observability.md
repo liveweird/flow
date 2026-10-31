@@ -171,7 +171,8 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   exception's message inlines its statement's bound values). The `sync_job.failed`/`.released` audit follows the write that finally lands.
 - `outbound.blocked` (scheme/host ONLY — never the full URL) — a rejection by `infra/outbound/OutboundGuard.kt`'s host
   allow-list or address-range check ONLY, emitted by `GuardedDns` on the Jira HTTP client's every outbound call
-  (`.claude/docs/jira-integration.md`). A DNS failure (the resolver throwing, or an empty answer, for an allow-listed host) is
+  (`.claude/docs/jira-integration.md`) and on the GitLab client's (`gitlab/GitLab.kt`; there also by the request-origin check - an
+  IP-literal URL, another port of a listed host, plain `http` - which names the URL's own scheme and host). A DNS failure (the resolver throwing, or an empty answer, for an allow-listed host) is
   not a rejection and emits no audit event: `GuardedDns` logs a WARN per attempt, `DNS resolution failed for allow-listed outbound host
   <host>` (logger `ch.nokillswit.outbound`, host only) and the call is retried like any other IO failure.
 - `metrics_settings.updated` (byUserId/configRevision) — the global `metrics.settings` singleton's

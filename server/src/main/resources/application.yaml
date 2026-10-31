@@ -42,6 +42,10 @@ ktor:
       # The guarded Jira HTTP stack (outbound guard + Test-connection service + the Connector
       # registry) — before the data-sources/sync-job routes, which read it off attributes.
       - ch.nokillswit.jira.JiraKt.configureJira
+      # The GitLab outbound side (gitlab/GitLab.kt; `.claude/docs/gitlab-integration.md`): validates `gitlab.*` and builds the ONE
+      # guarded client for a self-managed host. No GitLab call, route or connector yet. After configureJira: its response ceiling may
+      # not exceed jira.maxResponseBytes (the worker heap fit counts that one). Runs in every role.
+      - ch.nokillswit.gitlab.GitLabKt.configureGitLab
       # The metrics layer's composition root (v0.3.0 M1 commit 3, `.claude/docs/domain-model.md`
       # "Configuration"; `.claude/docs/metrics.md` is its own guide):
       # publishes MetricsConfigService/TeamMembershipService and registers the tiny
@@ -339,6 +343,29 @@ jira:
   # (sample-data/jira-stub) — DEVELOPMENT ONLY; production startup refuses a non-blank value
   # (jira/Jira.kt's fail-closed check, ported from the crypto-key/mail-transport precedent).
   stubBaseUrl: "$JIRA_STUB_BASE_URL:"
+
+gitlab:
+  # The self-managed GitLab outbound side (gitlab/GitLab.kt, infra/outbound/SelfManagedHosts.kt; `.claude/docs/security.md`
+  # "Outbound HTTP calls", `.claude/docs/gitlab-integration.md`). Operator-only: nothing in the UI or API can widen these lists.
+  # Comma-separated exact DNS names, each `host` or `host:port` (no port = 443); no wildcard, no IP literal, no scheme/path/
+  # credentials. Empty = the GitLab kind is OFF (no client is built). A malformed entry refuses startup.
+  allowedHosts: "$GITLAB_ALLOWED_HOSTS:"
+  # Comma-separated IPv4/IPv6 CIDRs a LISTED host may resolve to (a self-managed GitLab usually sits on a private address). Any other
+  # host keeps the full address check. Startup refuses /0, IPv4 wider than /8, IPv6 wider than /32, any range that overlaps loopback,
+  # link-local (169.254/16 incl. the cloud metadata address, fe80::/10), any-local or multicast, and CIDRs without allowedHosts.
+  allowedCidrs: "$GITLAB_ALLOWED_CIDRS:"
+  # A PEM file with one or more X.509 CA certificates, added to the GitLab client's trust ALONGSIDE the JVM default CAs (the Jira
+  # client is untouched). Startup refuses an unreadable or certificate-less file. There is no skip-TLS / trust-all setting.
+  caBundle: "$GITLAB_CA_BUNDLE:"
+  # Reroutes GitLab calls to the in-JVM/compose GitLab stub (an http(s) origin) - DEVELOPMENT ONLY; production startup refuses a
+  # non-blank value (gitlab/GitLabConfig.kt), like jira.stubBaseUrl.
+  stubBaseUrl: "$GITLAB_STUB_BASE_URL:"
+  # Per-attempt request and connect timeout (1..120 s), like jira.requestTimeoutSeconds.
+  requestTimeoutSeconds: "$GITLAB_REQUEST_TIMEOUT_SECONDS:30"
+  # The bounded-read ceiling on one GitLab response body (1 KiB..128 MiB). It may not exceed jira.maxResponseBytes (startup refuses
+  # otherwise): the worker's boot-time heap fit (jira/JiraHeapFit.kt) counts the Jira ceiling, so a smaller-or-equal GitLab ceiling is
+  # covered by it.
+  maxResponseBytes: "$GITLAB_MAX_RESPONSE_BYTES:8388608"
 
 ingest:
   # The sync-job queue and worker scheduler (v0.2.0 plan §5/§9, ingest/IngestWorker.kt,

@@ -7,14 +7,15 @@ import kotlin.test.assertTrue
 
 /**
  * The one-way package layering (CLAUDE.md "Package layout", `.claude/docs/ingestion.md` "The DERIVE job kind", checkup D5):
- * the connector side (`ingest`, `norm`, `jira`) never references `metrics` or `reports`, and `metrics` never references
+ * the connector side (`ingest`, `norm`, `jira`, `gitlab`) never references `metrics` or `reports` (and `jira` and `gitlab` never
+ * reference each other), and `metrics` never references
  * `reports`. `metrics/` reaches the worker only by registering on `ingest/JobHandlers.kt`'s `JobHandlerRegistry`, so the
  * ingestion core stays connector- and metrics-agnostic. A plain source scan (no Docker, no classpath tricks): any non-comment
  * line of a file declaring the lower package that mentions an upper package by its qualified name (an import, a wildcard
  * import or an inline reference) is a violation.
  *
  * The same rule holds from the bottom (checkup-3 D2-13/D9-6): everything under `infra/` is the foundation every feature
- * builds on, so it never references a feature package (`ingest`, `norm`, `jira`, `metrics`, `reports`, `teams`, `flowusers`,
+ * builds on, so it never references a feature package (`ingest`, `norm`, `jira`, `gitlab`, `metrics`, `reports`, `teams`, `flowusers`,
  * `auth`, `authz`). `audit` (the cross-cutting audit trail) and `plugins` (Ktor wiring: `respondProblem`) are not features and
  * stay open to `infra`. The composition root is the one documented exception ([infraCompositionRoot]): the DB/bootstrap
  * wiring MUST construct the feature services it publishes on `Application.attributes`, so exactly those two files may name
@@ -38,7 +39,8 @@ class PackageBoundaryTest {
         "Bootstrap.kt" to setOf("auth", "ingest", "flowusers"),
     )
 
-    private val featurePackages = listOf("ingest", "norm", "jira", "metrics", "reports", "teams", "flowusers", "auth", "authz", "telemetry")
+    private val featurePackages =
+        listOf("ingest", "norm", "jira", "gitlab", "metrics", "reports", "teams", "flowusers", "auth", "authz", "telemetry")
 
     private fun packageOf(text: String): String? =
         text.lineSequence().firstOrNull { it.startsWith("package ") }?.removePrefix("package ")?.trim()
@@ -61,11 +63,21 @@ class PackageBoundaryTest {
     }
 
     @Test
-    fun `ingest, norm and jira never reference metrics or reports`() {
-        val lower = setOf("ch.nokillswit.ingest", "ch.nokillswit.norm", "ch.nokillswit.jira")
+    fun `ingest, norm, jira and gitlab never reference metrics or reports`() {
+        val lower = setOf("ch.nokillswit.ingest", "ch.nokillswit.norm", "ch.nokillswit.jira", "ch.nokillswit.gitlab")
         // The scan must actually see those packages, or an empty result proves nothing (a moved directory, a renamed package).
         for (pkg in lower) assertTrue(mainSources.any { packageOf(it.readText()) == pkg }, "no source declares $pkg")
         assertEquals(emptyList(), violations(lower, listOf("metrics", "reports")))
+    }
+
+    @Test
+    fun `jira and gitlab never reference each other`() {
+        // Each connector reaches the other's world only through ingest/ (the registry) and the shared infra; the scan must see both.
+        for (pkg in listOf("ch.nokillswit.jira", "ch.nokillswit.gitlab")) {
+            assertTrue(mainSources.any { packageOf(it.readText()) == pkg }, "no source declares $pkg")
+        }
+        assertEquals(emptyList(), violations(setOf("ch.nokillswit.jira"), listOf("gitlab")))
+        assertEquals(emptyList(), violations(setOf("ch.nokillswit.gitlab"), listOf("jira")))
     }
 
     @Test

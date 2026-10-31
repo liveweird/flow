@@ -61,23 +61,41 @@ pauses near zero (clamped). `PackageBoundaryTest`: `jira` and `gitlab` never imp
 
 ## Outbound calls to a self-managed host
 
-The SSRF guard (`infra/outbound/OutboundGuard.kt`, `.claude/docs/security.md` "Outbound HTTP calls") stays the only way
-out. A self-managed host usually lives on a private address, so the guard gains an operator-only allowance:
+**As built (PR 4).** The SSRF guard (`infra/outbound/OutboundGuard.kt`, `.claude/docs/security.md` "Outbound HTTP calls" has the
+full rule and the reason for each refusal) stays the only way out. A self-managed host usually lives on a private address, so the
+guard gains an operator-only allowance. Nothing in `gitlab/` makes a GitLab call yet: it builds the client the data source (PR 6) uses.
 
-- **`GITLAB_ALLOWED_HOSTS`** — exact `host[:port]` entries, no wildcards, no IP literals. Empty = the GitLab kind is off.
-  The admin UI cannot widen it: a data source whose base URL's host is not listed is a 400.
-- **`GITLAB_ALLOWED_CIDRS`** — private ranges a *listed* host may resolve to; any other host keeps the full address check.
-  Boot refuses `/0`, ranges wider than /8 (IPv6: /32), and any overlap with loopback, link-local (incl. 169.254/16, cloud
-  metadata), any-local or multicast.
-- **Guard seam.** `GuardedDns.skipAddressCheck` becomes `addressAllowed(host, addr)`; the Jira default is unchanged.
-  Resolution and the check happen per connection, so DNS rebinding cannot swap in an address after validation.
-- **Base URL:** `https`, origin only (no path, query or fragment).
-- **Internal CA:** `GITLAB_CA_BUNDLE` (PEM), added to the GitLab client's trust store only. There is no "skip TLS" switch.
-- **Kept from Jira:** no redirects, no proxy. `Link` headers are never followed: only their page/keyset parameters are read
-  and re-applied to the configured origin.
-- **Stub:** `gitlab.stubBaseUrl` is development-only; production refuses to start with it set, or with any malformed host,
-  CIDR or CA setting.
-- **Memory:** `gitlab.maxResponseBytes ≤ jira.maxResponseBytes`, so the worker's existing heap-fit check covers GitLab.
+- **`GITLAB_ALLOWED_HOSTS`** (`gitlab.allowedHosts`) - exact `host[:port]` DNS names (no port = 443), no wildcards, no IP literals. Empty =
+  the GitLab kind is off (no client). The admin UI cannot widen it: a data source whose base URL's host is not listed is a 400.
+- **`GITLAB_ALLOWED_CIDRS`** (`gitlab.allowedCidrs`) - private ranges a *listed* host may resolve to; any other host keeps the full address
+  check. Boot refuses `/0`, ranges wider than /8 (IPv6: /32), any overlap with loopback, link-local (incl. 169.254/16, cloud metadata),
+  any-local or multicast, and CIDRs without hosts. Parsed by `infra/outbound/SelfManagedHosts.kt` + `Cidr.kt` (`parseSelfManagedHosts`);
+  `SelfManagedHosts.addressAllowed(host, address)` is the rule.
+- **Guard seam.** `GuardedDns`/`guardedOkHttpClient`/`buildGuardedJiraHttpClient` take `addressAllowed(host, address)` (default
+  `publicAddressesOnly`); Jira's wiring answers `true` for its dev stub host and `publicAddressesOnly` otherwise, unchanged. Resolution and
+  the check happen per connection, so DNS rebinding cannot swap in an address after validation; a mixed answer fails the whole lookup.
+  `guardedOkHttpClient` also takes `originAllowed` (scheme, host, port, checked per request: https to a listed `host[:port]` only, which
+  also refuses an IP-literal URL OkHttp would never send to DNS) and an optional `sslSocketFactory`/`trustManager` pair.
+- **Base URL:** `gitlab/GitLabBaseUrl.kt` `validateGitLabBaseUrl(raw, hosts, devStub)` - `https`, origin only (empty or `/` path, no query,
+  fragment or userinfo), host[:port] on the list (443 = no port); `http` only for the dev stub's own origin. A failure is a
+  `GitLabBaseUrlException` whose stable `code` (`gitlab-base-url-invalid|scheme|not-origin`, `gitlab-disabled`, `gitlab-host-not-allowed`)
+  the data-source 400 maps from. PR 6's validator calls it.
+- **Internal CA:** `GITLAB_CA_BUNDLE` (PEM, `infra/outbound/CaBundle.kt` `loadCaBundleTrust`) is added to the GitLab client's trust store
+  only, alongside the JVM defaults. There is no "skip TLS" switch (`GitLabCaBundleTest` pins the `gitlab.*` key set).
+- **Kept from Jira:** no redirects, no proxy, no connection-failure retry. `Link` headers are never followed: only their page/keyset
+  parameters are read and re-applied to the configured origin (PR 6+).
+- **Stub:** `gitlab.stubBaseUrl` (`GITLAB_STUB_BASE_URL`) is development-only; production refuses to start with it set, or with any
+  malformed host, CIDR or CA setting. In development the stub host is also an allowed host and skips the address check, on its own
+  origin only.
+- **Memory:** `gitlab.maxResponseBytes` (`GITLAB_MAX_RESPONSE_BYTES`, default 8 MiB) must not exceed `jira.maxResponseBytes`, so the
+  worker's existing heap-fit check covers GitLab. `gitlab.requestTimeoutSeconds` (1..120, default 30).
+- **Wiring:** `gitlab/GitLab.kt` `configureGitLab()` runs in every role, right after `configureJira`. It publishes `GitLabSettingsKey`,
+  `GitLabHostsKey` (always) and `GitLabHttpClientKey` (only when enabled: hosts listed or a dev stub; closed on `ApplicationStopped`).
+  `buildGuardedGitLabHttpClient` is the factory tests reuse. `gitlab/GitLabConfig.kt` reads and validates `gitlab.*`.
+- **Tests:** `SelfManagedHostsTest`, `GitLabOutboundGuardTest`, `GitLabBaseUrlTest`, `GitLabCaBundleTest` (test-only CA
+  `server/src/test/resources/gitlab-test-ca.pem`, no private key), `GitLabBootTest`, `PackageBoundaryTest` (`jira` and `gitlab` never
+  reference each other).
+- **k8s:** the egress NetworkPolicy excludes private ranges; a private GitLab needs its own additional egress rule.
 
 Example (neutral): `GITLAB_ALLOWED_HOSTS=gitlab.example.com`, `GITLAB_ALLOWED_CIDRS=10.20.0.0/16`.
 
