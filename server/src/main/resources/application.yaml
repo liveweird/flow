@@ -69,6 +69,9 @@ ktor:
       - ch.nokillswit.ingest.SyncStatusRoutesKt.configureSyncStatusRoutes
       - ch.nokillswit.ingest.RawIssueInspectorRoutesKt.configureRawIssueInspectorRoutes
       - ch.nokillswit.ingest.DataProfileRoutesKt.configureDataProfileRoutes
+      # The GitLab identity mapping (V45): publishes the resolver and the service in EVERY role, the ADMIN routes where the API is served;
+      # after the Jira/GitLab modules (WorkItemStoreKey, CodeActivityStoreKey) and the database (R2dbcDatabaseKey).
+      - ch.nokillswit.identities.CodeIdentityRoutesKt.configureCodeIdentities
       - ch.nokillswit.metrics.MetricsConfigRoutesKt.configureMetricsConfigRoutes
       - ch.nokillswit.metrics.TeamMembershipRoutesKt.configureTeamMembershipRoutes
       - ch.nokillswit.metrics.TeamMembershipSeedRoutesKt.configureTeamMembershipSeedRoutes
