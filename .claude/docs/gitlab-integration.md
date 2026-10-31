@@ -223,7 +223,7 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
   time (sequential: a GitLab job holds one permit), at most `gitlab.commitFilesPerRun` diff CALLS per run. The client transform counts each
   file's `+`/`-` lines (after the first `@@`; `---`/`+++` inside a hunk are content; not `\ No newline at end of file`) and drops the text, so the
   tree is garbage before the next call; a file with no `diff` string, or `too_large`/`collapsed`, keeps its path with NULL lines (unknown beats an
-  undercount). Kept per file: `path` (`new_path`, <=1,024), `old_path` (renames only), additions, deletions, new/deleted/renamed flags and GitLab's
+  undercount). Kept per file: `path` (`new_path`, cut to 1,024 characters and 2,000 bytes), `old_path` (renames only), additions, deletions, new/deleted/renamed flags and GitLab's
   `generated_file`; a path GitLab lists twice (delete + add at one path) is ONE row, lines summed. At most 1,000 files (10 pages; an 11th page
   makes the commit `files_capped`). A commit is written with its stamp when complete - in batches of 25 commits or 5,000 rows, at the end of each
   claimed batch of 50, and on a failure - so a run cut anywhere stores every complete commit and never half of one. Terminal outcomes are stamped so
@@ -269,9 +269,10 @@ file then counts unless it is itself excluded (the stub's `special.tooLarge` pin
 - **V40** — `source_connections.kind` CHECK widened to `('JIRA_CLOUD','GITLAB')` (V16's constraint-swap pattern).
 - **V41** (landed, PR 6; `persistence.md` "The GitLab raw store (V41)") — `raw.gitlab_projects` (`commits_head_sha`, relist flag, seen/moved/deleted markers, slim payload + sha256),
   `raw.gitlab_users` (`emails` JSONB); `GitLabRawStore` is the facade over `GitLabRawWrites`/`Reads`/`Purge`.
-- **V42** — `raw.gitlab_commits` (author name/email, authored/committed time, parent count, title, stats, `files_changed`
-  null = pending, `files_capped`, tombstone, processing columns, partial indexes for the files backlog and PROCESS),
-  `raw.gitlab_commit_files` (cascades with its commit).
+- **V42** (landed, PR 7; `persistence.md` "The GitLab commits raw store (V42)") — `raw.gitlab_commits` (author name/email, authored/committed time,
+  parent count, title, stats, the three-state files model: `files_fetched_at IS NULL` = pending, terminal `files_error` (`LIMIT_EXCEEDED`/`NOT_FOUND`)
+  with `files_changed` null, complete otherwise; `files_capped`, tombstone, processing columns, partial indexes for the files backlog and PROCESS),
+  `raw.gitlab_commit_files` (cascades with its commit; paths cut to 1,024 characters and 2,000 bytes).
 - **V43** — `raw.gitlab_merge_requests` (details watermark, tombstone), `raw.gitlab_mr_events` (NOTE / APPROVAL / REVIEWER).
 - **V44** — `norm.code_projects`, `code_identities`, `code_commits`, `code_merge_requests`, `code_mr_events` (COMMENT /
   DIFF_COMMENT / APPROVAL / REVIEW_REQUESTED / REVIEWED / CHANGES_REQUESTED).

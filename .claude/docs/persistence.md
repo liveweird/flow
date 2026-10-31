@@ -1307,14 +1307,22 @@ Privacy: no message body, committer, diff text or payload is stored - a commit's
 canonicalised later), `authored_at`/`committed_at`, `parent_count`, `additions`/`deletions` from `stats`, and per file only the path, its lines and flags.
 
 - **`raw.gitlab_commits`**: PK `(connection_id, project_id, sha)`, `sha VARCHAR(64)` (SHA-1 or SHA-256 repositories). **No payload and no hash**: a commit is
-  immutable by SHA, so a re-listing only touches `last_seen_at` (`UNCHANGED`) and clears a tombstone (`RESURRECTED`, which sets `needs_processing` again);
-  there is no `CHANGED` outcome. No FK to `raw.gitlab_projects` (as `raw.jira_issues` has none to its project).
+  immutable by SHA, so a re-listing only touches `last_seen_at` (`UNCHANGED`) and clears a tombstone (`RESURRECTED`, which sets `needs_processing` again
+  and resets a `files_error = 'NOT_FOUND'` stamp - `files_fetched_at`/`files_error` back to NULL, since NOT_FOUND meant "gone" and seeing the commit
+  again disproves it, so it re-enters the files backlog; its stored files and a `LIMIT_EXCEEDED` stamp stay); there is no `CHANGED` outcome. No FK to
+  `raw.gitlab_projects` (as `raw.jira_issues` has none to its project). The page's key load is `SELECT ... FOR NO KEY UPDATE` (keys sorted), never
+  `FOR UPDATE`: the key never changes and `raw.gitlab_commit_files` references these rows ("Row locks vs. FK locks").
 - **The files-backlog states** (one column set, three states): `files_fetched_at` NULL = the `/diff` has not been read (the COMMIT FILES backlog; a merge
   commit, `parent_count > 1`, and a tombstoned one never enter it); set with `files_error` NULL = the file rows are complete (`files_changed` = the rows
   stored, `files_capped` = the 1,000-file cap cut them, in which case `files_changed` is 1,000 and PR 10 reads the flag, never a total); set with
   `files_error` (`LIMIT_EXCEEDED`: a diff page over `gitlab.maxResponseBytes`; `NOT_FOUND`: the commit is gone) = terminal, `files_changed` stays NULL and
   the commit's `stats` are all PROCESS has. `idx_raw_gitlab_commits_files_backlog` is the partial index of exactly the pending predicate, newest first.
-- **`raw.gitlab_commit_files`**: PK `(connection_id, project_id, sha, path)`, `path` = GitLab's `new_path` (≤1024), `old_path` for a rename only,
+- **`raw.gitlab_commit_files`**: PK `(connection_id, project_id, sha, path)`, `path` = GitLab's `new_path`, `old_path` for a rename only. **Both are cut
+  by characters AND bytes** (`cutPath`, after the NUL replacement): at most 1,024 characters (the `VARCHAR(1024)` width) and at most 2,000 UTF-8 bytes,
+  on a code-point boundary. The byte cap is what keeps the PK B-tree entry (connection 4 + project 8 + sha ≤64 + path ≤2,000, plus headers) under the
+  ~2,704-byte limit, so no flush can fail on a long CJK path; 1,024 characters alone can reach 4,096 bytes. `files_changed` is the number of distinct
+  paths AFTER the cut (the flush collapses the outcome's files by cut path, the first wins), so two long paths sharing the cut prefix are ONE row and
+  ONE in the count, always equal to the rows stored.
   `additions`/`deletions` NULL when GitLab sent the file `too_large` or `collapsed` (a binary file counts 0/0), the new/deleted/renamed flags and
   `generated_file` (GitLab's own `linguist-generated` detection, free at fetch time and not recoverable at PROCESS without a refetch). The composite FK to
   `raw.gitlab_commits` is `ON DELETE CASCADE`; the `connection_id` column alone has no FK, the commit's already pins it. A flush
@@ -1327,8 +1335,9 @@ canonicalised later), `authored_at`/`committed_at`, `parent_count`, `additions`/
   (`oldestLiveCommittedAt`, the sweep).
 - **`raw.gitlab_projects.commits_head_sha`** is widened from `CHAR(40)` (V41, never written before this migration) to `VARCHAR(64)`: a SHA-256
   repository would otherwise truncate the head silently. `recordCommitsHead` writes the head and the `relist_requested` flag in one `UPDATE`.
-- **PURGE**: `GitLabRawPurge.purgeCommitsBatch` deletes 500-row batches of commits per connection (a delete per project, so a SHA shared by two projects -
-  a fork - stays exact) and the files go through the cascade; `GitLabRawStore.purgeAll` drains commits, then users, then projects. The telemetry size
+- **PURGE**: `GitLabRawPurge.purgeCommitsBatch` deletes batches of 25 COMMITS per connection (`GITLAB_PURGE_COMMITS_BATCH_SIZE`; a delete per project, so a
+  SHA shared by two projects - a fork - stays exact) and the files go through the cascade. The batch counts commits, not rows, and each commit cascades up
+  to 1,000 file rows (the files cap), so 25 bounds one statement to 25,000 cascaded rows where the 500 of the other tables would be up to 500,000; `GitLabRawStore.purgeAll` drains commits, then users, then projects. The telemetry size
   estimate picks both tables up by their `connection_id` column. Purely additive but for the widened column: an old pod never reads them.
   `MigrationChecksumTest` pins it.
 

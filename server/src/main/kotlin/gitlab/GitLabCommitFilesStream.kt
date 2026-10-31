@@ -12,7 +12,6 @@ import org.slf4j.LoggerFactory
 private val log = LoggerFactory.getLogger(GitLabCommitFilesStream::class.java)
 
 private const val NOT_FOUND = "NOT_FOUND"
-private const val LIMIT_EXCEEDED = "LIMIT_EXCEEDED"
 
 /** The pages of a commit's diff that fit under [MAX_COMMIT_FILES] (100 files a page). */
 private const val COMMIT_FILES_PAGES = MAX_COMMIT_FILES / GITLAB_PAGE_SIZE
@@ -95,7 +94,7 @@ internal class GitLabCommitFilesStream(
             when {
                 failure.isOversized() -> {
                     log.warn("GitLab commit diff over the response cap or a node ceiling, data source {}", context.connectionId)
-                    fetched.oversized += CommitFilesOutcome(commit.projectId, commit.sha, null, LIMIT_EXCEEDED)
+                    fetched.oversized += CommitFilesOutcome(commit.projectId, commit.sha, null, FILES_ERROR_LIMIT_EXCEEDED)
                     context.incrementProgress("commitFilesOversized")
                     try {
                         skips.skip()
@@ -105,7 +104,7 @@ internal class GitLabCommitFilesStream(
                     }
                 }
                 failure.code == NOT_FOUND -> {
-                    fetched.outcomes += CommitFilesOutcome(commit.projectId, commit.sha, null, NOT_FOUND)
+                    fetched.outcomes += CommitFilesOutcome(commit.projectId, commit.sha, null, FILES_ERROR_NOT_FOUND)
                     context.incrementProgress("commitFilesMissing")
                     skips.settled()
                 }

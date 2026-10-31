@@ -17,12 +17,21 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 const val GITLAB_PURGE_BATCH_SIZE = 500
 
 /**
+ * The commits batch counts COMMITS, not rows, and each cascades up to 1,000 file rows (the files cap): 25 commits bound one statement to
+ * 25,000 cascaded file rows (plus their FK trigger work), where 500 would have been up to 500,000.
+ */
+const val GITLAB_PURGE_COMMITS_BATCH_SIZE = 25
+
+/**
  * The PURGE step's batched deletes over the `raw.gitlab_*` tables (the commit files go with their commits, V42's `ON DELETE CASCADE`);
  * the drain loop is [purgeAll] below.
  */
 internal class GitLabRawPurge(private val database: R2dbcDatabase) {
 
-    /** Deletes up to [batchSize] commits; their files cascade. Per project, so a SHA shared by two projects (a fork) stays exact. */
+    /**
+     * Deletes up to [batchSize] commits; their files cascade (up to 1,000 rows each, hence [GITLAB_PURGE_COMMITS_BATCH_SIZE]). Per project,
+     * so a SHA shared by two projects (a fork) stays exact.
+     */
     suspend fun purgeCommitsBatch(connectionId: UInt, batchSize: Int): Int = suspendTransaction(database) {
         val keys = Commits.select(Commits.projectId, Commits.sha).where { Commits.connectionId eq connectionId }.limit(batchSize)
             .map { it[Commits.projectId] to it[Commits.sha] }.toList()
@@ -50,7 +59,7 @@ internal class GitLabRawPurge(private val database: R2dbcDatabase) {
 
 /** Drains a connection's GitLab raw rows in batches: the PURGE step (`ingest/Connector.kt`'s `PurgeStep`). */
 suspend fun GitLabRawStore.purgeAll(connectionId: UInt, batchSize: Int = GITLAB_PURGE_BATCH_SIZE) {
-    while (purgeCommitsBatch(connectionId, batchSize) > 0) { /* drain */ }
+    while (purgeCommitsBatch(connectionId, minOf(batchSize, GITLAB_PURGE_COMMITS_BATCH_SIZE)) > 0) { /* drain */ }
     while (purgeUsersBatch(connectionId, batchSize) > 0) { /* drain */ }
     while (purgeProjectsBatch(connectionId, batchSize) > 0) { /* drain */ }
 }

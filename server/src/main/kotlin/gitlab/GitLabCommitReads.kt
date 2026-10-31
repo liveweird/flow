@@ -4,8 +4,10 @@ import ch.nokillswit.gitlab.GitLabRawStore.CommitFiles
 import ch.nokillswit.gitlab.GitLabRawStore.Commits
 import ch.nokillswit.gitlab.GitLabRawStore.Projects
 import kotlinx.coroutines.flow.toList
+import org.jetbrains.exposed.v1.core.LiteralOp
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
+import org.jetbrains.exposed.v1.core.ShortColumnType
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
@@ -19,8 +21,12 @@ import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
-/** A merge commit has two or more parents; the files backlog takes the rest (L4). */
-private const val MAX_NON_MERGE_PARENTS: Short = 1
+/**
+ * A merge commit has two or more parents; the files backlog takes the rest (L4). Rendered as a SQL LITERAL, never a bind parameter:
+ * the partial index `idx_raw_gitlab_commits_files_backlog` is declared `WHERE ... parent_count <= 1`, and a cached generic plan with
+ * a `?` there cannot prove the predicate implies the index's, so it would never use the index.
+ */
+internal val NON_MERGE_PARENTS: Op<Boolean> = Commits.parentCount lessEq LiteralOp(ShortColumnType(), 1.toShort())
 
 /** The commit-stream reads (V42): the projects to walk, the re-list window, the files backlog and the rows tests inspect. */
 internal class GitLabCommitReads(private val database: R2dbcDatabase) {
@@ -48,7 +54,7 @@ internal class GitLabCommitReads(private val database: R2dbcDatabase) {
     /** The files-backlog predicate (the V42 partial index): diff unread, not a merge, not tombstoned. */
     private fun pending(connectionId: UInt): Op<Boolean> =
         (Commits.connectionId eq connectionId) and Commits.filesFetchedAt.isNull() and
-            (Commits.parentCount lessEq MAX_NON_MERGE_PARENTS) and Commits.deletedAt.isNull()
+            NON_MERGE_PARENTS and Commits.deletedAt.isNull()
 
     suspend fun staleCommitShas(
         connectionId: UInt,

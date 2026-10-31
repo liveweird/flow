@@ -10,19 +10,18 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
 
-/** The column width of V42's `title`, `author_name` and `author_email`: a longer value is cut, never a failing insert. */
-private const val MAX_TEXT = 255
-
 /**
  * The commit writes (V42). A commit is immutable by SHA, so there is no payload and no hash: [upsertCommits] is the
  * `GitLabRawWrites` page rule without the diff - ONE `SELECT ... IN (...) FOR UPDATE` loads which of the page's SHAs are stored (and
  * tombstoned or not; keys sorted, so rows lock in key order), new SHAs go out as one multi-row `INSERT`, a live one is only touched
- * (`last_seen_at`), a tombstoned one is resurrected (`deleted_at` cleared, `needs_processing` set again so PROCESS re-reads it).
+ * (`last_seen_at`), a tombstoned one is resurrected (`deleted_at` cleared, `needs_processing` set again so PROCESS re-reads it, a
+ * `NOT_FOUND` files stamp reset so the diff is read again).
  */
 internal class GitLabCommitWrites(private val database: R2dbcDatabase) {
 
@@ -32,7 +31,9 @@ internal class GitLabCommitWrites(private val database: R2dbcDatabase) {
             val stored = commits.map { it.sha }.distinct().sorted().chunked(KEY_CHUNK).flatMap { chunk ->
                 Commits.select(Commits.sha, Commits.deletedAt)
                     .where { (Commits.connectionId eq connectionId) and (Commits.projectId eq projectId) and (Commits.sha inList chunk) }
-                    .orderBy(Commits.sha).forUpdate().toList()
+                    // NO KEY UPDATE, not FOR UPDATE: the key never changes and `raw.gitlab_commit_files` references these rows
+                    // (persistence.md "Row locks vs. FK locks").
+                    .orderBy(Commits.sha).forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate).toList()
             }.associate { it[Commits.sha] to (it[Commits.deletedAt] != null) }
             val inserts = mutableListOf<RawGitLabCommit>()
             val touches = mutableListOf<String>()
@@ -56,6 +57,14 @@ internal class GitLabCommitWrites(private val database: R2dbcDatabase) {
                     it[deletedAt] = null
                     it[needsProcessing] = true
                 }
+                // NOT_FOUND meant "the commit is gone"; seeing it again disproves that, so it re-enters the files backlog. The files
+                // already stored and a LIMIT_EXCEEDED stamp (a property of the diff, not of the commit's presence) stay.
+                Commits.update({
+                    key(connectionId, projectId) and (Commits.sha inList chunk) and (Commits.filesError eq FILES_ERROR_NOT_FOUND)
+                }) {
+                    it[filesFetchedAt] = null
+                    it[filesError] = null
+                }
             }
             outcomes
         }
@@ -68,9 +77,9 @@ internal class GitLabCommitWrites(private val database: R2dbcDatabase) {
             this[Commits.connectionId] = connectionId
             this[Commits.projectId] = projectId
             this[Commits.sha] = it.sha
-            this[Commits.title] = it.title.replaceNul().take(MAX_TEXT)
-            this[Commits.authorName] = it.authorName.replaceNul().take(MAX_TEXT)
-            this[Commits.authorEmail] = it.authorEmail.replaceNul().take(MAX_TEXT)
+            this[Commits.title] = it.title.replaceNul().take(GitLabRawStore.MAX_NAME)
+            this[Commits.authorName] = it.authorName.replaceNul().take(GitLabRawStore.MAX_NAME)
+            this[Commits.authorEmail] = it.authorEmail.replaceNul().take(GitLabRawStore.MAX_NAME)
             this[Commits.authoredAt] = it.authoredAt
             this[Commits.committedAt] = it.committedAt
             this[Commits.parentCount] = it.parentCount.toShort()

@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.gitlab.CommitFilesOutcome
 import ch.nokillswit.gitlab.CommitFilesResult
 import ch.nokillswit.gitlab.GitLabRawStore
+import ch.nokillswit.gitlab.NON_MERGE_PARENTS
 import ch.nokillswit.gitlab.RawGitLabCommit
 import ch.nokillswit.gitlab.RawGitLabCommitFile
 import ch.nokillswit.gitlab.RawGitLabProject
@@ -10,6 +11,7 @@ import ch.nokillswit.gitlab.purgeAll
 import ch.nokillswit.ingest.RawUpsertOutcome
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import org.jetbrains.exposed.v1.core.QueryBuilder
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
@@ -17,6 +19,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -46,6 +49,13 @@ class GitLabCommitStoreTest {
         additions = n,
         deletions = 1,
     )
+
+    private fun commitWithSha(sha: String, committedAt: Long = 1_000) = RawGitLabCommit(
+        sha, "Commit", "Author", "a@x.test", committedAt - 10, committedAt, parentCount = 1, additions = 1, deletions = 1,
+    )
+
+    private fun ok(sha: String, vararg files: RawGitLabCommitFile, capped: Boolean = false) =
+        CommitFilesOutcome(1, sha, CommitFilesResult(files.toList(), capped), null)
 
     private fun file(path: String, additions: Int? = 3, deletions: Int? = 1, oldPath: String? = null, generated: Boolean = false) =
         RawGitLabCommitFile(path, oldPath, additions, deletions, newFile = false, deletedFile = false, renamedFile = oldPath != null,
@@ -193,7 +203,7 @@ class GitLabCommitStoreTest {
     }
 
     @Test
-    fun `a flush stores the files once, stamps the commit and a duplicate path or a re-flush changes nothing`() = runBlocking<Unit> {
+    fun `a flush stores the files once and stamps the commit, a re-flush adds no file row but moves the capped flag`() = runBlocking<Unit> {
         val connId = connection()
         store.upsertCommits(connId, 1, listOf(commit(1)), now = 1_000)
         val files = listOf(
@@ -295,5 +305,111 @@ class GitLabCommitStoreTest {
         for (n in 1..7) assertTrue(store.commitFileRows(connId, 1, sha(n)).isEmpty(), "files cascade with their commit")
         assertEquals(1, store.commitRows(other).size)
         assertEquals(1, store.commitFileRows(other, 1, sha(1)).size, "another connection's files are untouched")
+    }
+
+    @Test
+    fun `a 64-hex SHA-256 commit goes through the commit row, its file row and the cascading purge`() = runBlocking<Unit> {
+        val connId = connection()
+        val sha256 = "ab".repeat(32)
+        assertEquals(listOf(RawUpsertOutcome.INSERTED), store.upsertCommits(connId, 1, listOf(commitWithSha(sha256)), now = 1_000))
+        store.flushCommitFiles(connId, listOf(ok(sha256, file("a.go"))), now = 2_000)
+        assertEquals(sha256, store.commitRows(connId, 1).single()[GitLabRawStore.Commits.sha])
+        assertEquals(1, store.commitFileRows(connId, 1, sha256).size)
+        assertEquals(1, store.purgeCommitsBatch(connId))
+        assertTrue(store.commitRows(connId).isEmpty())
+        assertTrue(store.commitFileRows(connId, 1, sha256).isEmpty(), "the file cascaded with its commit")
+    }
+
+    @Test
+    fun `a resurrected commit keeps its files and stamp, NOT_FOUND is reset and LIMIT_EXCEEDED stays`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertCommits(connId, 1, (1..3).map { commit(it, committedAt = it * 1_000L) }, now = 1_000)
+        store.flushCommitFiles(
+            connId,
+            listOf(
+                ok(sha(1), file("a.go")),
+                CommitFilesOutcome(1, sha(2), null, "NOT_FOUND"),
+                CommitFilesOutcome(1, sha(3), null, "LIMIT_EXCEEDED"),
+            ),
+            now = 2_000,
+        )
+        assertEquals(3, sweep(connId, 1, sinceCommittedAt = 0, passStartedAt = 20_000, now = 21_000))
+        assertEquals(0L, store.countPendingCommitFiles(connId))
+
+        val back = store.upsertCommits(connId, 1, (1..3).map { commit(it, committedAt = it * 1_000L) }, now = 30_000)
+        assertEquals(List(3) { RawUpsertOutcome.RESURRECTED }, back)
+        val rows = store.commitRows(connId, 1).associateBy { it[GitLabRawStore.Commits.sha] }
+        val complete = rows.getValue(sha(1))
+        assertEquals(2_000L, complete[GitLabRawStore.Commits.filesFetchedAt], "a complete file list is kept")
+        assertEquals(1, complete[GitLabRawStore.Commits.filesChanged])
+        assertEquals(1, store.commitFileRows(connId, 1, sha(1)).size)
+        val gone = rows.getValue(sha(2))
+        assertNull(gone[GitLabRawStore.Commits.filesFetchedAt], "NOT_FOUND was disproved: back in the backlog")
+        assertNull(gone[GitLabRawStore.Commits.filesError])
+        val oversized = rows.getValue(sha(3))
+        assertEquals(2_000L, oversized[GitLabRawStore.Commits.filesFetchedAt])
+        assertEquals("LIMIT_EXCEEDED", oversized[GitLabRawStore.Commits.filesError])
+        assertEquals(listOf(sha(2)), store.pendingCommitFiles(connId, 10).map { it.sha })
+    }
+
+    @Test
+    fun `a path over 2000 UTF-8 bytes is cut on a code point, stored once and counted once`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertCommits(connId, 1, listOf(commit(1)), now = 1_000)
+        val cjk = "\u76ee".repeat(1_000)
+        val emoji = "\uD83D\uDE00".repeat(600)
+        val ascii = "d/" + "x".repeat(1_500)
+        store.flushCommitFiles(
+            connId,
+            listOf(ok(sha(1), file(cjk, oldPath = cjk + "z"), file(emoji), file(ascii), file("nul\u0000.go"))),
+            now = 2_000,
+        )
+        val paths = store.commitFileRows(connId, 1, sha(1)).associateBy { it[GitLabRawStore.CommitFiles.path].first() }
+        val cjkRow = paths.getValue('\u76ee')
+        assertEquals(666, cjkRow[GitLabRawStore.CommitFiles.path].length, "666 x 3 bytes = 1,998 <= 2,000")
+        assertEquals(666, cjkRow[GitLabRawStore.CommitFiles.oldPath]!!.length)
+        val emojiPath = paths.getValue('\uD83D')[GitLabRawStore.CommitFiles.path]
+        assertEquals(500, emojiPath.codePointCount(0, emojiPath.length), "500 x 4 bytes = 2,000, never half a surrogate pair")
+        assertEquals(1_024, paths.getValue('d')[GitLabRawStore.CommitFiles.path].length, "the column width still caps ASCII")
+        assertFalse('\u0000' in paths.getValue('n')[GitLabRawStore.CommitFiles.path], "NUL is replaced before the cut")
+        assertEquals(4, store.commitRows(connId, 1).single()[GitLabRawStore.Commits.filesChanged])
+    }
+
+    @Test
+    fun `two long paths sharing the cut prefix are one file row and one in files_changed`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertCommits(connId, 1, listOf(commit(1)), now = 1_000)
+        val prefix = "\u76ee".repeat(700)
+        store.flushCommitFiles(
+            connId,
+            listOf(ok(sha(1), file(prefix + "a", additions = 5), file(prefix + "b", additions = 9), file("short.go"))),
+            now = 2_000,
+        )
+        val rows = store.commitFileRows(connId, 1, sha(1))
+        assertEquals(2, rows.size)
+        val longRow = rows.single { it[GitLabRawStore.CommitFiles.path].startsWith("\u76ee") }
+        assertEquals(5, longRow[GitLabRawStore.CommitFiles.additions], "the first wins")
+        assertEquals(2, store.commitRows(connId, 1).single()[GitLabRawStore.Commits.filesChanged], "equals the rows stored")
+    }
+
+    @Test
+    fun `an outcome carries exactly one of a result and an error`() {
+        assertFailsWith<IllegalArgumentException> { CommitFilesOutcome(1, sha(1), null, null) }
+        assertFailsWith<IllegalArgumentException> { CommitFilesOutcome(1, sha(1), CommitFilesResult(emptyList(), false), "NOT_FOUND") }
+    }
+
+    @Test
+    fun `the backlog predicate renders the parent bound as a literal the partial index can match`() = runBlocking<Unit> {
+        val sql = suspendTransaction(sharedDatabaseForTests()) { QueryBuilder(true).also { it.append(NON_MERGE_PARENTS) }.toString() }
+        assertTrue(sql.endsWith("parent_count <= 1"), sql)
+        assertFalse("?" in sql, "a bind parameter would defeat the partial index under a cached generic plan")
+    }
+
+    @Test
+    fun `the default commits purge batch is 25 commits`() = runBlocking<Unit> {
+        val connId = connection()
+        store.upsertCommits(connId, 1, (1..30).map { commit(it) }, now = 1_000)
+        assertEquals(25, store.purgeCommitsBatch(connId))
+        assertEquals(5, store.commitRows(connId).size)
     }
 }

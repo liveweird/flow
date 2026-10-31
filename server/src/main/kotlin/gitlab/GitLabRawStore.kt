@@ -62,8 +62,16 @@ class RawGitLabCommitFile(
 /** A commit's complete file list; [capped] = the 1,000-file cap cut it. */
 class CommitFilesResult(val files: List<RawGitLabCommitFile>, val capped: Boolean)
 
+/** The terminal `files_error` values (V42): a diff page over the response ceiling, and a commit GitLab no longer has. */
+internal const val FILES_ERROR_LIMIT_EXCEEDED = "LIMIT_EXCEEDED"
+internal const val FILES_ERROR_NOT_FOUND = "NOT_FOUND"
+
 /** What the COMMIT FILES stream settled for one commit: its [result], or a terminal [error] (`LIMIT_EXCEEDED`, `NOT_FOUND`) with none. */
-class CommitFilesOutcome(val projectId: Long, val sha: String, val result: CommitFilesResult?, val error: String?)
+class CommitFilesOutcome(val projectId: Long, val sha: String, val result: CommitFilesResult?, val error: String?) {
+    init {
+        require((result == null) != (error == null)) { "a commit-files outcome carries exactly one of a result and an error" }
+    }
+}
 
 /** A non-merge live commit whose `/diff` has not been read. */
 class PendingCommit(val projectId: Long, val sha: String)
@@ -251,8 +259,8 @@ class GitLabRawStore(database: R2dbcDatabase) {
     internal suspend fun commitFileRows(connectionId: UInt, projectId: Long, sha: String) =
         commitReads.commitFileRows(connectionId, projectId, sha)
 
-    /** Deletes up to [batchSize] commits of the connection (their files cascade); returns the commits deleted. */
-    suspend fun purgeCommitsBatch(connectionId: UInt, batchSize: Int = GITLAB_PURGE_BATCH_SIZE): Int =
+    /** Deletes up to [batchSize] commits of the connection (their files cascade, up to 1,000 rows each); returns the commits deleted. */
+    suspend fun purgeCommitsBatch(connectionId: UInt, batchSize: Int = GITLAB_PURGE_COMMITS_BATCH_SIZE): Int =
         purge.purgeCommitsBatch(connectionId, batchSize)
 
     suspend fun purgeProjectsBatch(connectionId: UInt, batchSize: Int = GITLAB_PURGE_BATCH_SIZE): Int =
@@ -261,7 +269,8 @@ class GitLabRawStore(database: R2dbcDatabase) {
     suspend fun purgeUsersBatch(connectionId: UInt, batchSize: Int = GITLAB_PURGE_BATCH_SIZE): Int =
         purge.purgeUsersBatch(connectionId, batchSize)
 
-    private companion object {
+    /** The column widths of V41/V42; the commit writes cut to them ([MAX_NAME] is `title`, `author_name` and `author_email`). */
+    internal companion object {
         const val MAX_PROJECT_PATH = 1024
         const val MAX_GROUP_PATH = 255
         const val MAX_BRANCH = 255
