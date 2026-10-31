@@ -13,6 +13,7 @@ import ch.nokillswit.ingest.SprintsProfile
 import ch.nokillswit.ingest.WorkflowProfile
 import ch.nokillswit.ingest.WorkflowStatusProfile
 import ch.nokillswit.ingest.WorklogsProfile
+import ch.nokillswit.ingest.percentOf
 import ch.nokillswit.norm.BoardRef
 import ch.nokillswit.norm.HierarchyBucket
 import ch.nokillswit.norm.IntervalSource
@@ -131,8 +132,6 @@ object JiraProfile {
             .flatMap { it.statuses }.map { it.id }.distinct().sorted()
     }
 
-    private fun pct(count: Long, total: Long): Double = if (total <= 0) 0.0 else count.toDouble() * 100.0 / total
-
     private fun computeRange(items: List<WorkItemStore.ProfileWorkItemRow>): DataProfileRange? =
         if (items.isEmpty()) null else DataProfileRange(items.minOf { it.createdAt }, items.maxOf { it.updatedAt })
 
@@ -228,7 +227,7 @@ object JiraProfile {
                 fieldIds.flaggedFieldId -> "FLAGGED"
                 else -> "OTHER"
             }
-            CustomFieldProfile(id, name, type, nonNullCount, pct(nonNullCount, total), role)
+            CustomFieldProfile(id, name, type, nonNullCount, percentOf(nonNullCount, total), role)
         }.sortedBy { it.id }
     }
 
@@ -236,7 +235,7 @@ object JiraProfile {
         val total = items.size.toLong()
         val storyPoints = items.count { it.storyPoints != null }.toLong()
         val originalEstimate = items.count { it.originalEstimateSeconds != null }.toLong()
-        return EstimatesProfile(total, storyPoints, pct(storyPoints, total), originalEstimate, pct(originalEstimate, total))
+        return EstimatesProfile(total, storyPoints, percentOf(storyPoints, total), originalEstimate, percentOf(originalEstimate, total))
     }
 
     private const val SECONDS_PER_HOUR = 3600.0
@@ -246,7 +245,7 @@ object JiraProfile {
         val totalHours = worklogRows.sumOf { it.timeSpentSeconds } / SECONDS_PER_HOUR
         val itemsWithWorklog = worklogRows.map { it.issueId }.toSet().size.toLong()
         val authorCount = worklogRows.mapNotNull { it.authorAccountId }.toSet().size.toLong()
-        return WorklogsProfile(count, totalHours, itemsWithWorklog, pct(itemsWithWorklog, totalIssues), authorCount)
+        return WorklogsProfile(count, totalHours, itemsWithWorklog, percentOf(itemsWithWorklog, totalIssues), authorCount)
     }
 
     /** Reuses [Normalization.reopenCount] — the SAME pure DONE→non-DONE check `JiraSyncPipelineTest` asserts with. */
@@ -256,7 +255,7 @@ object JiraProfile {
     ): ReopensProfile {
         val total = items.size.toLong()
         val count = items.count { Normalization.reopenCount(intervalsByIssue[it.issueId].orEmpty()) > 0 }.toLong()
-        return ReopensProfile(count, total, pct(count, total))
+        return ReopensProfile(count, total, percentOf(count, total))
     }
 
     private fun computeSprints(
@@ -272,9 +271,9 @@ object JiraProfile {
             count = sprintRefs.size.toLong(),
             stateCounts = stateCounts,
             itemsWithSprint = itemsWithSprint,
-            itemsWithSprintPercent = pct(itemsWithSprint, totalIssues),
+            itemsWithSprintPercent = percentOf(itemsWithSprint, totalIssues),
             carryOverCount = carryOverCount,
-            carryOverPercent = pct(carryOverCount, itemsWithSprint),
+            carryOverPercent = percentOf(carryOverCount, itemsWithSprint),
         )
     }
 
@@ -282,7 +281,7 @@ object JiraProfile {
         val total = items.size.toLong()
         val activeAssignees = items.mapNotNull { it.assigneeAccountId }.toSet().size.toLong()
         val unassigned = items.count { it.assigneeAccountId == null }.toLong()
-        return PeopleProfile(activeAssignees, pct(unassigned, total))
+        return PeopleProfile(activeAssignees, percentOf(unassigned, total))
     }
 
     /** One entry of a `PROJECT_STATUSES` issue type's status list: the status id and name. */

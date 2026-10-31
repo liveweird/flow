@@ -5288,6 +5288,78 @@ components:
       properties:
         activeAssignees: { type: integer, format: int64, minimum: 0 }
         unassignedPercent: { type: number, format: double, minimum: 0, maximum: 100 }
+    GitLabProjectsProfile:
+      type: object
+      required: [live, movedOut, deleted, archived]
+      description: The GitLab projects by marker. `live` is neither moved out nor deleted; `archived` counts among the live ones.
+      properties:
+        live: { type: integer, format: int64, minimum: 0 }
+        movedOut: { type: integer, format: int64, minimum: 0 }
+        deleted: { type: integer, format: int64, minimum: 0 }
+        archived: { type: integer, format: int64, minimum: 0 }
+    GitLabCommitsProfile:
+      type: object
+      required: [count, merges, filesPending, filesUnavailable, filesCapped, commitsWithCounts]
+      description: The live commits. `count` is non-merge commits; the commit-time range covers all live commits.
+      properties:
+        count: { type: integer, format: int64, minimum: 0 }
+        merges: { type: integer, format: int64, minimum: 0 }
+        earliestCommittedAt: { type: integer, format: int64, nullable: true, description: "Epoch millis; null when there is no live commit." }
+        latestCommittedAt: { type: integer, format: int64, nullable: true, description: "Epoch millis; null when there is no live commit." }
+        filesPending: { type: integer, format: int64, minimum: 0, description: "Commits whose diff has not been read yet (the COMMIT FILES backlog)." }
+        filesUnavailable: { type: integer, format: int64, minimum: 0, description: "Live commits whose diff ended in a terminal error." }
+        filesCapped: { type: integer, format: int64, minimum: 0, description: "Non-merge commits with more files than were stored (the first 1,000)." }
+        commitsWithCounts: { type: integer, format: int64, minimum: 0, description: "Non-merge commits whose counted lines (after the path exclusions) are known." }
+    GitLabMergeRequestsProfile:
+      type: object
+      required: [byState, withDiffStats, withDiffStatsPercent, detailsPending, detailsUnreadable]
+      description: The live merge requests.
+      properties:
+        byState:
+          type: object
+          additionalProperties: { type: integer, format: int64, minimum: 0 }
+          description: Keyed by GitLab's merge request state (`opened`, `merged`, `closed`, `locked`).
+        withDiffStats: { type: integer, format: int64, minimum: 0, description: "Merge requests whose diff stats are not a gap." }
+        withDiffStatsPercent: { type: number, format: double, minimum: 0, maximum: 100, description: "One decimal." }
+        detailsPending: { type: integer, format: int64, minimum: 0, description: "Merge requests whose details (events, stats) are stale." }
+        detailsUnreadable: { type: integer, format: int64, minimum: 0, description: "Merge requests whose details read ended in a terminal error." }
+    GitLabEventsProfile:
+      type: object
+      required: [byKind]
+      description: The review events of the live merge requests.
+      properties:
+        byKind:
+          type: object
+          additionalProperties: { type: integer, format: int64, minimum: 0 }
+          description: Keyed by event kind (`COMMENT`, `DIFF_COMMENT`, `APPROVAL`, `REVIEW_REQUESTED`, `REVIEWED`, `CHANGES_REQUESTED`); every kind is present.
+    GitLabIdentitiesProfile:
+      type: object
+      required: [users, bots, usersDeleted, usersWithEmail, usersWithEmailPercent, ghosts, emailOnly, commitsUnmatched]
+      description: Counts of the people the code layer names. No name, address or key.
+      properties:
+        users: { type: integer, format: int64, minimum: 0, description: "Listed, live GitLab users (bots included)." }
+        bots: { type: integer, format: int64, minimum: 0 }
+        usersDeleted: { type: integer, format: int64, minimum: 0 }
+        usersWithEmail: { type: integer, format: int64, minimum: 0, description: "Live users with at least one known address." }
+        usersWithEmailPercent: { type: number, format: double, minimum: 0, maximum: 100, description: "Share of `users`, one decimal." }
+        ghosts: { type: integer, format: int64, minimum: 0, description: "User ids the facts name that the users listing never returned." }
+        emailOnly: { type: integer, format: int64, minimum: 0, description: "Commit author addresses matching no GitLab user." }
+        commitsUnmatched: { type: integer, format: int64, minimum: 0, description: "Live non-merge commits authored by those addresses." }
+    GitLabDataProfile:
+      type: object
+      required: [projects, commits, mergeRequests, events, identities]
+      description: The GitLab section of the data profile - facts about the stored code layer, counts only.
+      properties:
+        projects:
+          $ref: '#/components/schemas/GitLabProjectsProfile'
+        commits:
+          $ref: '#/components/schemas/GitLabCommitsProfile'
+        mergeRequests:
+          $ref: '#/components/schemas/GitLabMergeRequestsProfile'
+        events:
+          $ref: '#/components/schemas/GitLabEventsProfile'
+        identities:
+          $ref: '#/components/schemas/GitLabIdentitiesProfile'
     DataProfile:
       type: object
       required: [estimates, worklogs, reopens, sprints, people]
@@ -5349,6 +5421,10 @@ components:
           nullable: true
           items: { type: string }
           description: The `schemeFieldIds` union restricted to the issue types at hierarchy level 0 or below (sub-tasks count with tasks; a type of unknown level counts as a task type); null under the same rule as `schemeFieldIds`.
+        gitlab:
+          allOf: [{ $ref: '#/components/schemas/GitLabDataProfile' }]
+          nullable: true
+          description: Present for a GITLAB data source once its PROFILE ran; null for a Jira source and before the first PROFILE.
 
     MetricsStatusStage:
       type: object
