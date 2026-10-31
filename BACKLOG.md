@@ -102,22 +102,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - A reports plan must count approvals as distinct merge requests per person (an approve / unapprove / approve leaves two `APPROVAL` events).
   - Inputs measured 2026-10-31: 15k commits, 3k merge requests and 20.7k events are about 68 MB a source; the identities list answers in
     4-8 ms at 72 identities.
-- [new] **Jira DERIVE worklog statement: 35.8 s for the second of two connections (needs a reproduction).** Found 2026-10-31
-  (`build-times.md` WHY 59): in a Jira scale-20 pair, the worklog fact statement (`WITH sprint_team ... logged AS`) took 35,795 ms in the
-  second connection's DERIVE against 477 ms in the first connection's, over the same 24k-issue world (the whole DERIVE: 49.8 s against 14.1 s).
-  - Hypothesis, NOT confirmed: stale planner statistics for the second connection's freshly written `norm.*` rows (the DERIVE's own
-    `ANALYZE metrics.*` ran 394 ms after the statement), the shape of the "DERIVE never ANALYZEs what it just filled" cause in `build-times.md`.
-  - It ran while a GitLab SYNC was running on the same Postgres; whether that matters is unknown. It is a pre-existing Jira path, not GitLab.
-  - Next: derive two same-sized connections back to back, with and without a GitLab job beside them; `EXPLAIN (ANALYZE, BUFFERS)` of the
-    statement for the second connection; try `ANALYZE` of the `norm.*` tables before the DERIVE. A fix may be a migration or an `ANALYZE` placement.
-- [new] **GitLab PROFILE event count: 2.4 s for the second GitLab connection (needs a reproduction).** Found 2026-10-31
-  (`build-times.md` WHY 59): in the pair, the `SELECT e.kind, count(*) FROM norm.code_mr_events e JOIN norm.code_merge_requests m ... WHERE
-  e.connection_id = <id> AND m.deleted_at IS NULL GROUP BY e.kind` of the data profile took 2,436 ms; the first GitLab connection's, over
-  the same sizes (20.7k events, 3k merge requests), stayed under the 300 ms logging threshold.
-  - Hypothesis, NOT confirmed: the same stale-statistics shape as above (freshly written rows, no `ANALYZE` yet). It did not reproduce
-    after a `VACUUM FULL`.
-  - Next: reproduce with a second connection's PROFILE straight after its PROCESS, `EXPLAIN (ANALYZE, BUFFERS)`, and see whether the
-    existing index on `norm.code_mr_events` serves the join; a fix could be an `ANALYZE` after PROCESS or a different query shape.
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 
