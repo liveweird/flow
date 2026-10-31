@@ -93,7 +93,7 @@
     "baseUrlHint": "The instance origin (https://gitlab.example.com) — fixed once created. Allowed: {{origins}}",
     "baseUrlHintOpen": "The instance origin (https://gitlab.example.com) — fixed once created.",
     "token": "Access token",
-    "tokenHint": "A personal access token with the read_api scope only — a token that could write is refused.",
+    "tokenHint": "A personal access token with the read_api scope (plus admin_mode on an instance with Admin Mode on) — any other scope is refused.",
     "tokenKeep": "Leave blank to keep the current token",
     "groupPaths": "Group paths",
     "groupPathsHint": "Full group paths (e.g. platform, platform/tooling); subgroups are included, archived projects are not",

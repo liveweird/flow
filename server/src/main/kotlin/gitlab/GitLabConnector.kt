@@ -47,8 +47,9 @@ class GitLabConnector(
     }
 
     /**
-     * SYNC: refuse a token that could write (re-probed from `/personal_access_tokens/self` on EVERY run, so a token widened after Test
-     * connection is caught before anything is stored: `TOKEN_SCOPE_TOO_BROAD`), then PROJECTS and USERS inside the shared call tally
+     * SYNC: refuse a token with a scope outside the read-only allow-list, or an inactive one (re-probed from
+     * `/personal_access_tokens/self` on EVERY run, so a token widened or revoked after Test connection is caught before anything is
+     * stored: `TOKEN_SCOPE_TOO_BROAD` / `TOKEN_INACTIVE`), then PROJECTS and USERS inside the shared call tally
      * (`ingest/ConnectorRun.kt`). "Sync now" refreshes the users whatever their age.
      */
     private suspend fun runSync(context: SyncJobRunContext) {

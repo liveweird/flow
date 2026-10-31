@@ -572,14 +572,16 @@ above).
 **The GitLab connector's SYNC** (`gitlab/GitLabConnector.kt`; `gitlab-integration.md` "Streams") runs **PROJECTS → USERS** inside the same
 `ConnectorRun.withTally` scaffolding as Jira (the `CallTally` around the streams, the carried counters of a retry, the typed ceiling trip,
 the hard stop; `ingest/ConnectorRun.kt`, which also holds `ceilingTripOf`). It first re-probes `/personal_access_tokens/self` and refuses
-a token that could write or is inactive with `JobRefusedException(TOKEN_SCOPE_TOO_BROAD)` before anything is stored. RECONCILE and
+a token with a scope outside the read-only allow-list (`JobRefusedException(TOKEN_SCOPE_TOO_BROAD)`) or an inactive one
+(`TOKEN_INACTIVE`) before anything is stored. RECONCILE and
 REPROCESS are accepted no-ops until PR 9/10, PURGE drains `raw.gitlab_*`.
 
 **Cursor shapes.**
 
-- **`projects`** / **`users`** (`gitlab/GitLabCursor.kt`): `{passStartedAt, groupIndex, page}` and `{passStartedAt, page}`, written with each
+- **`projects`** / **`users`** (`gitlab/GitLabCursor.kt`): `{passStartedAt, groups, groupIndex, page}` and `{passStartedAt, page}`, written with each
   page's rows in one transaction and cleared at the end of a completed pass (the sweep's reference instant survives a resume); a cursor with
-  `groupIndex == groups` means only the sweep is left.
+  `groupIndex == groups` means only the sweep is left. A `projects` cursor resumes only when its `groups` equal the configured group paths;
+  otherwise (an edited list, or a cursor written before the field existed) it is dropped and the pass restarts.
 - **`reference`** (`jira/JiraReferenceStream.kt`'s `ReferenceCursor`): `passStartedAt` (fixed for
   the whole pass, preserved across a resume), `step` (a `JiraEntityKind` — doubles as
   `raw.jira_entities.kind`, in the FIXED order the enum declares: `FIELD`, `STATUS`,
@@ -1308,7 +1310,9 @@ in a batch — see "Normalized layer" above), `referenceRowsSkipped` (PROCESS, o
 "Reference-row robustness"), `profileComputed` (PROFILE, always `1` — a single
 recompute pass, not a per-row counter, see "Data profile" below).
 
-GitLab's (`gitlab/`): `pages` and `projects`/`projectsSkipped` (PROJECTS: archived or outside-the-group projects the defensive filters left out),
+GitLab's (`gitlab/`): `pages` and `projects`/`projectsSkipped` (PROJECTS: archived or outside-the-group projects the defensive filters left out, and projects whose
+`default_branch` or path is longer than its column; a skipped project that was stored before is not seen, so the end-of-pass sweep
+counts it as moved out),
 `pages`/`users`/`usersEmailsSkipped` (USERS: users whose secondary emails were not fetched - not an admin token, or a 403/404 on the emails
 call)/`usersSkipped` (the whole stream skipped: every live user was seen within `gitlab.usersRefreshHours`; "Sync now" never skips).
 

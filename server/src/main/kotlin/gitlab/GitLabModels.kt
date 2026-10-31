@@ -26,9 +26,14 @@ data class GitLabGroup(val id: Long, @SerialName("full_path") val fullPath: Stri
 
 /**
  * Whether these token scopes go beyond reading: an ALLOW-list, every scope must start with `read_` (`read_api`, `read_user`,
- * `read_repository`, ...). Anything else - `api`, `sudo`, `write_*`, `create_runner`, `manage_runner`, `k8s_proxy`,
- * `self_rotate`, `ai_features`,
- * or a scope GitLab adds later - is refused at Test connection and again at every SYNC (`TOKEN_SCOPE_TOO_BROAD`): Flow needs
- * `read_api` only.
+ * `read_repository`, ...) or be `admin_mode`. Anything else - `api`, `sudo`, `write_*`, `create_runner`, `manage_runner`,
+ * `k8s_proxy`, `self_rotate`, `ai_features`, or a scope GitLab adds later - is refused at Test connection and again at every
+ * SYNC (`TOKEN_SCOPE_TOO_BROAD`): Flow needs `read_api` only.
+ *
+ * `admin_mode` is allowed because on an instance with Admin Mode on, an admin token needs it to act as an admin through the API
+ * at all (without it `/user` hides `is_admin` and `/users/:id/emails` answers 403, so the identity proposals lose the emails).
+ * It only lifts what the other scopes allow, so beside `read_*` scopes the token stays read-only.
  */
-fun List<String>.tooBroad(): Boolean = any { !it.startsWith("read_") }
+fun List<String>.tooBroad(): Boolean = any { !it.startsWith("read_") && it != ADMIN_MODE_SCOPE }
+
+private const val ADMIN_MODE_SCOPE = "admin_mode"

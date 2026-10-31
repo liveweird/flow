@@ -256,5 +256,9 @@ class GitLabClientTest {
         assertFalse(listOf("read_api").tooBroad())
         assertFalse(listOf("read_api", "read_user", "read_repository").tooBroad())
         assertFalse(emptyList<String>().tooBroad())
+        // An Admin-Mode instance needs admin_mode for an admin token to read emails; beside read_* it stays read-only.
+        assertFalse(listOf("read_api", "admin_mode").tooBroad())
+        assertTrue(listOf("api", "admin_mode").tooBroad())
+        assertTrue(listOf("read_api", "ADMIN_MODE").tooBroad())
     }
 }

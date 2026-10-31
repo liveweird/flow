@@ -7,8 +7,9 @@ class LeaseLostException(jobId: UInt) : Exception("Lease lost for sync job $jobI
 class JobCancelRequestedException(jobId: UInt) : Exception("Cancel requested for sync job $jobId")
 
 /**
- * The `last_sync_error_code` / `sync_jobs.error_code` of a GitLab job refused because its token carries a write-capable scope (or is
- * inactive): a member of [SYNC_ERROR_CODES], a refusal no retry of the same job can fix until the token is replaced.
+ * The `last_sync_error_code` / `sync_jobs.error_code` of a GitLab job refused because its token carries a scope outside the read-only
+ * allow-list (`gitlab/GitLabModels.kt` `tooBroad`): a member of [SYNC_ERROR_CODES], a refusal no retry of the same job can fix until
+ * the token is replaced.
  */
 const val TOKEN_SCOPE_TOO_BROAD = "TOKEN_SCOPE_TOO_BROAD"
 

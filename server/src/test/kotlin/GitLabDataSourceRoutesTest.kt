@@ -381,7 +381,7 @@ class GitLabDataSourceRoutesTest {
                 JsonPrimitive("SYNC")) })
             assertEquals(HttpStatusCode.Accepted, queued.status, "the job API is kind-agnostic")
         } finally {
-                runBlocking { GitLabFixtures.rawStore().let { with(it) { purgeProjectsBatch(created.id); purgeUsersBatch(created.id) } } }
+            runBlocking { GitLabFixtures.rawStore().let { with(it) { purgeProjectsBatch(created.id); purgeUsersBatch(created.id) } } }
         }
     }
 

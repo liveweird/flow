@@ -17,6 +17,7 @@ import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JiraConnectionRequest
 import ch.nokillswit.ingest.JobHandlerRegistry
 import ch.nokillswit.ingest.JobRefusedException
+import ch.nokillswit.ingest.TOKEN_INACTIVE
 import ch.nokillswit.ingest.TOKEN_SCOPE_TOO_BROAD
 import ch.nokillswit.ingest.SyncJobClaim
 import ch.nokillswit.ingest.SyncJobKind
@@ -684,10 +685,14 @@ class IngestWorkerTest {
 
     @Test
     fun `a connector's JobRefusedException closes the job and the connection with its own error code`() = runBlocking {
+        for (code in listOf(TOKEN_SCOPE_TOO_BROAD, TOKEN_INACTIVE)) assertRefusalClosesWith(code)
+    }
+
+    private suspend fun assertRefusalClosesWith(code: String) {
         val ds = dataSources()
         val jobs = syncJobs()
         val connId = createConnection(ds, syncIntervalMinutes = 30, enabled = true)
-        val connector = FakeConnector { throw JobRefusedException(TOKEN_SCOPE_TOO_BROAD, "the token carries a write-capable scope (api)") }
+        val connector = FakeConnector { throw JobRefusedException(code, "the token was refused ($code)") }
         val worker = IngestWorker(
             jobs, ds, handlers(ds), mapOf(DataSourceKind.JIRA_CLOUD to connector), testConfig(workerSlots = 500), fixedEarlyMorningClock(),
         )
@@ -696,9 +701,8 @@ class IngestWorkerTest {
 
         val job = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single()
         assertEquals(SyncJobStatus.FAILED, job.status)
-        assertEquals(TOKEN_SCOPE_TOO_BROAD, job.errorCode)
-        assertEquals(TOKEN_SCOPE_TOO_BROAD, assertNotNull(ds.read(connId)).status.lastSyncErrorCode,
-            "inside the closed vocabulary, not RUN_FAILED")
+        assertEquals(code, job.errorCode)
+        assertEquals(code, assertNotNull(ds.read(connId)).status.lastSyncErrorCode, "$code is inside the closed vocabulary, not RUN_FAILED")
     }
 
     @Test

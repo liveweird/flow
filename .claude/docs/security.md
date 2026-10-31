@@ -671,7 +671,7 @@ API token is the first consumer, landed**: `source_connections.secret` (V8,
 every response instead carries `jira.hasApiToken`. **The GitLab personal access token is the second consumer** (PR 6, the same
 `secret` column and the same service, no new registration): `gitlab.token` is write-only the same way (`gitlab.hasToken` in responses, never in
 an audit line, masked in `GitLabConnectionRequest`/`StoredGitLabConnection`/`ConnectionTarget.GitLab` `toString`, pinned by
-`SecretToStringTest`), decrypted only for the connector and sent as the `PRIVATE-TOKEN` header; a token is refused unless every scope starts with `read_` (an allow-list: `api`, `sudo`, `write_*`, `create_runner`, `k8s_proxy`, ... are all
+`SecretToStringTest`), decrypted only for the connector and sent as the `PRIVATE-TOKEN` header; a token is refused unless every scope starts with `read_` or is `admin_mode` (an allow-list: `api`, `sudo`, `write_*`, `create_runner`, `k8s_proxy`, ... are all
 too broad) at Test connection and at every SYNC (`TOKEN_SCOPE_TOO_BROAD`; an inactive one is `TOKEN_INACTIVE`; a token-info answer missing a field is
 `INVALID_RESPONSE`, never a pass). Tests: `FieldCipherTest` (roundtrip, fresh
 nonces, legacy passthrough, tamper, wrong key, rotation, malformed keys), `CryptoBootTest`,

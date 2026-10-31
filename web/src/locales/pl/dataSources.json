@@ -93,7 +93,7 @@
     "baseUrlHint": "Adres źródłowy instancji (https://gitlab.example.com) — ustalony przy tworzeniu. Dozwolone: {{origins}}",
     "baseUrlHintOpen": "Adres źródłowy instancji (https://gitlab.example.com) — ustalony przy tworzeniu.",
     "token": "Token dostępu",
-    "tokenHint": "Osobisty token dostępu wyłącznie z zakresem read_api — token, który mógłby zapisywać, jest odrzucany.",
+    "tokenHint": "Osobisty token dostępu z zakresem read_api (oraz admin_mode na instancji z włączonym trybem Admin Mode) — każdy inny zakres jest odrzucany.",
     "tokenKeep": "Zostaw puste, aby zachować obecny token",
     "groupPaths": "Ścieżki grup",
     "groupPathsHint": "Pełne ścieżki grup (np. platform, platform/tooling); podgrupy są uwzględniane, zarchiwizowane projekty nie",

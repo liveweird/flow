@@ -23,7 +23,8 @@ lands, the section is rewritten as the as-built reference (file names, tests). T
 - **Scope = whole groups, subgroups included.** Archived projects are excluded. A project moved out of the configured groups
   is marked out of scope; its rows stay.
 - **Token = an admin-issued, read-only personal access token** (a bot user with `read_api`). Admin, so that user emails are
-  visible to the identity proposals. The token is refused unless EVERY scope starts with `read_` (an allow-list: `api`, `sudo`, `write_*`,
+  visible to the identity proposals. The token is refused unless EVERY scope starts with `read_` or is `admin_mode` (needed by an admin token on an instance
+  with Admin Mode on, and read-only beside `read_*`; an allow-list: `api`, `sudo`, `write_*`,
   `create_runner`, `manage_runner`, `k8s_proxy`, `self_rotate`, `ai_features` and any scope GitLab adds later are all `TOKEN_SCOPE_TOO_BROAD`), at Test
   connection and again at every SYNC (the job fails closed); an answer missing `scopes` or `active` is `INVALID_RESPONSE`, never a pass, and an
   inactive token is `TOKEN_INACTIVE`.

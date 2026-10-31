@@ -20,7 +20,8 @@ private const val PROJECTS_ENDPOINT = "/api/v4/groups/{id}/projects"
  * page its projects (`include_subgroups=true`, archived and shared excluded) into `raw.gitlab_projects`, hash-diffing each one
  * ([GitLabRawStore.upsertProjects]). A group GitLab does not show to the token is a `NOT_FOUND` failure of the stream, like a Jira
  * project the token cannot see. Defensive filters, for an older server that ignores a parameter: an archived project is skipped, and so
- * is one whose namespace is not the configured group or under it (a project shared INTO the group); each skip is counted
+ * is one whose namespace is not the configured group or under it (a project shared INTO the group), and so is one whose
+ * `default_branch` or path is longer than its column (never truncated); each skip is counted
  * (`projectsSkipped`) with one WARN per run that names ids only.
  *
  * The pass is resumable: the cursor holds the pass start, the group index and the next page; every page commits its rows and the
@@ -49,8 +50,10 @@ internal class GitLabProjectsStream(
             readGroup(context, passStartedAt, index, page, skippedIds)
         }
         if (skippedIds.isNotEmpty()) {
-            log.warn("GitLab projects skipped (archived or outside the configured group): {} (ids {})", skippedIds.size,
-                skippedIds.take(MAX_LOGGED_IDS))
+            log.warn(
+                "GitLab projects skipped (archived, outside the configured group, or an over-long branch/path): {} (ids {})",
+                skippedIds.size, skippedIds.take(MAX_LOGGED_IDS),
+            )
         }
         context.transaction {
             rawStore.markProjectsMovedOutNotSeenSince(context.connectionId, passStartedAt, context.clock())
