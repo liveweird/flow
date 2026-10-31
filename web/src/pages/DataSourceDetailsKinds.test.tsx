@@ -56,7 +56,22 @@ const JIRA_COUNTS = {
 const GITLAB_COUNTS = {
   ...JIRA_COUNTS,
   rawIssues: 0,
-  gitlab: { projects: 4, projectsMovedOut: 1, projectsDeleted: 2, users: 8, usersDeleted: 3, commits: 300, commitsMerge: 19, commitsDeleted: 5, commitFilesPending: 7 },
+  gitlab: {
+    projects: 4,
+    projectsMovedOut: 1,
+    projectsDeleted: 2,
+    users: 8,
+    usersDeleted: 3,
+    commits: 300,
+    commitsMerge: 19,
+    commitsDeleted: 5,
+    commitFilesPending: 7,
+    mergeRequests: 60,
+    mergeRequestsMerged: 34,
+    mrEvents: 698,
+    mrDetailsPending: 9,
+    mrDiffStatsMissing: 1,
+  },
 };
 
 function serve(mockFetch: ReturnType<typeof vi.fn>, connection: unknown, counts: unknown) {
@@ -135,6 +150,11 @@ describe("DataSourceDetails page: the connection kinds", () => {
     expect(row("Merge commits")).toHaveTextContent("19");
     expect(row("Commits deleted")).toHaveTextContent("5");
     expect(row("Commits awaiting file details")).toHaveTextContent("7");
+    expect(row("Merge requests")).toHaveTextContent("60");
+    expect(row("Merged merge requests")).toHaveTextContent("34");
+    expect(row("MR events (notes, approvals, reviewer states)")).toHaveTextContent("698");
+    expect(row("Merge requests awaiting details")).toHaveTextContent("9");
+    expect(row("Merge requests without size statistics")).toHaveTextContent("1");
     expect(within(counts).queryByText("Raw issues")).not.toBeInTheDocument();
 
     expect(screen.getByRole("button", { name: "Sync now" })).toBeInTheDocument();
@@ -155,6 +175,9 @@ describe("DataSourceDetails page: the connection kinds", () => {
     expect(within(counts).getByText("Users").closest("tr")).toHaveTextContent("—");
     expect(within(counts).getByText("Commits").closest("tr")).toHaveTextContent("—");
     expect(within(counts).getByText("Commits awaiting file details").closest("tr")).toHaveTextContent("—");
+    expect(within(counts).getByText("Merge requests").closest("tr")).toHaveTextContent("—");
+    expect(within(counts).getByText("MR events (notes, approvals, reviewer states)").closest("tr")).toHaveTextContent("—");
+    expect(within(counts).getByText("Merge requests without size statistics").closest("tr")).toHaveTextContent("—");
   });
 
   test("a GitLab source with an empty exclusion list says so", async () => {

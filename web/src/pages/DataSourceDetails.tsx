@@ -133,6 +133,11 @@ function GitLabCountRows({ counts }: { counts: SyncCounts }) {
       <DetailRow label={t("dataSources.details.count.commitsMerge")}>{gitlab?.commitsMerge ?? "—"}</DetailRow>
       <DetailRow label={t("dataSources.details.count.commitsDeleted")}>{gitlab?.commitsDeleted ?? "—"}</DetailRow>
       <DetailRow label={t("dataSources.details.count.commitFilesPending")}>{gitlab?.commitFilesPending ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.mergeRequests")}>{gitlab?.mergeRequests ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.mergeRequestsMerged")}>{gitlab?.mergeRequestsMerged ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.mrEvents")}>{gitlab?.mrEvents ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.mrDetailsPending")}>{gitlab?.mrDetailsPending ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.mrDiffStatsMissing")}>{gitlab?.mrDiffStatsMissing ?? "—"}</DetailRow>
     </>
   );
 }

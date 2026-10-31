@@ -191,7 +191,12 @@
       "commits": "Commits",
       "commitsMerge": "Merge commits",
       "commitsDeleted": "Commits deleted",
-      "commitFilesPending": "Commits awaiting file details"
+      "commitFilesPending": "Commits awaiting file details",
+      "mergeRequests": "Merge requests",
+      "mergeRequestsMerged": "Merged merge requests",
+      "mrEvents": "MR events (notes, approvals, reviewer states)",
+      "mrDetailsPending": "Merge requests awaiting details",
+      "mrDiffStatsMissing": "Merge requests without size statistics"
     },
     "jobsTitle": "Sync jobs",
     "jobsLoadFailed": "Could not load the sync jobs",
