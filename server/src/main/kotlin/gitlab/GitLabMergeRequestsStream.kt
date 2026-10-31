@@ -26,7 +26,7 @@ private const val MAX_LOGGED_IDS = 20
  * Incremental per group by `updated_after`: a group's first pass asks from the backfill floor, a later one from its WATERMARK minus
  * [MR_LIST_OVERLAP_MILLIS]. The watermark is GitLab's OWN clock - the newest `updated_at` the group's pages showed - and moves only when
  * the group's LAST page commits, in the same transaction as the cursor, so a run cut anywhere resumes at the page it stopped on with the
- * `updated_after` and the running maximum it started with, and no watermark ever passes a merge request that was not listed. The cursor
+ * `updated_after` and the running maximum it started with. The cursor
  * row persists between passes (it holds the watermarks); a pass saved for another list of groups is dropped and restarts, the watermarks
  * of groups no longer configured are dropped, and nothing here ever tombstones: a merge request a listing omits is no evidence it is
  * gone (`deleted_at` is RECONCILE's, PR 9). A project that NEWLY ENTERS a group (a move or a rename into the configured groups: its id is
@@ -152,7 +152,9 @@ internal class GitLabMergeRequestsStream(
                 } else {
                     // The group's listing is complete: its watermark moves to GitLab's newest updated_at it showed, never backwards.
                     seenMax?.let { run.watermarks.merge(path, it, ::maxOf) }
-                    run.projectSets[path] = pass.projectIds.ifEmpty { run.liveProjects[path].orEmpty() }
+                    // An empty set is a pass saved before the field existed (a group with no live project is skipped, never completed):
+                    // unknown, so nothing is recorded and the group's next completed pass records one.
+                    if (pass.projectIds.isNotEmpty()) run.projectSets[path] = pass.projectIds
                     saveCursor(run, after(run, index))
                 }
                 outcomes.any { it.isChange }

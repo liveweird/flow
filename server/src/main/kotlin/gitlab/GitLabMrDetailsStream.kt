@@ -15,9 +15,10 @@ private const val NOT_FOUND = "NOT_FOUND"
 
 /**
  * The transport failures of the ONE GraphQL call that mean the ENDPOINT is TRANSIENTLY out ("outage" kind: slow or down): the first one
- * in a run stops the stream for the rest of the run as a normal end (`mrGraphqlBreaker`), leaving the merge requests it has not settled
- * PENDING - an outage costs one GraphQL call a run and makes no permanent gap. Everything else - a rate limit, a rejected token, a
- * blocked host - ends the run as it would for any REST call.
+ * in a run trips the circuit breaker (`mrGraphqlBreaker`): NO further GraphQL call is made for the rest of the run, and every merge
+ * request settled from then on - the batch that tripped it included - is stamped with its stats GAPPED while its REST reads go on. An
+ * outage costs one GraphQL call a run and never stalls the events backlog. Everything else - a rate limit, a rejected token, a blocked
+ * host - ends the run as it would for any REST call.
  */
 private val GRAPHQL_OUTAGE_CODES = setOf("TIMEOUT", "UPSTREAM_UNAVAILABLE")
 
@@ -29,10 +30,7 @@ private val GRAPHQL_OUTAGE_CODES = setOf("TIMEOUT", "UPSTREAM_UNAVAILABLE")
 private val GRAPHQL_GAP_CODES = setOf("INVALID_RESPONSE", NOT_FOUND, "LIMIT_EXCEEDED", "REDIRECT", "FORBIDDEN_SCOPE")
 
 /** A merge request's REST read failing like this after the transport's retries is stamped [DETAILS_ERROR_FETCH_FAILED]. */
-private val MR_READ_FAILURE_CODES = setOf("UPSTREAM_UNAVAILABLE", "INVALID_RESPONSE")
-
-/** Thrown by the GraphQL call to unwind to [GitLabMrDetailsStream.drain]: the endpoint is down, stop this run's stream normally. */
-private class GraphqlOutage : Exception("the GraphQL endpoint is out")
+private val MR_READ_FAILURE_CODES = setOf("UPSTREAM_UNAVAILABLE", "INVALID_RESPONSE", "TIMEOUT")
 
 /**
  * The MR DETAILS stream (`gitlab-integration.md` "Streams"): the backlog of live merge requests (of live projects) whose details were
@@ -53,18 +51,20 @@ private class GraphqlOutage : Exception("the GraphQL endpoint is out")
  *  - `/approvals` or `/reviewers` alone answer `NOT_FOUND`: "none" for that merge request, `mrApprovalsUnavailable` /
  *    `mrReviewersUnavailable` (an instance lacking the endpoint must not mark every merge request gone);
  *  - a response over `gitlab.maxResponseBytes` or the node ceiling, on any of the three REST calls: `details_error = LIMIT_EXCEEDED`,
- *    `mrDetailsOversized`; one of the three failing `UPSTREAM_UNAVAILABLE` or `INVALID_RESPONSE` after the transport's retries:
- *    `details_error = FETCH_FAILED`, `mrDetailsFailed` (a merge request that fails every time must not block the backlog behind it).
- *    Both are stamped at the END of the run through ONE [SkipBudget] (more than `max(10, 10 %)` of them fail the run `LIMIT_EXCEEDED` and
- *    NONE is stamped: the cap is too small, or the instance is down, not isolated outliers). Until then they wait in memory and are
+ *    `mrDetailsOversized`; one of the three failing `UPSTREAM_UNAVAILABLE`, `TIMEOUT` or `INVALID_RESPONSE` after the transport's
+ *    retries: `details_error = FETCH_FAILED`, `mrDetailsFailed` (a merge request that fails every time must not block the backlog behind
+ *    it). Both are stamped at the END of the run through ONE [SkipBudget]: more than `max(10, 10 %)` of them fail the run and NONE is
+ *    stamped (the cap is too small, or the instance is down, not isolated outliers). The run fails `LIMIT_EXCEEDED` when the tripping
+ *    merge request was oversized, and with the read failure's OWN code when it was a failed read, so an outage backs off like an outage
+ *    and is never counted as a ceiling trip. Until then they wait in memory and are
  *    excluded from this run's re-claims, which would otherwise return them forever; a change of the merge request re-reads it;
  *  - the GraphQL call answers errors, lacks the project or a merge request, or fails with a per-answer code ([GRAPHQL_GAP_CODES]): a NULL
  *    GAP for those merge requests (`mrDiffStatsGaps`, counted when the merge request is stamped; one WARN per run with the count and the
  *    first code), stamped complete and NOT asked again until the merge request changes;
- *  - the GraphQL call fails with an OUTAGE code ([GRAPHQL_OUTAGE_CODES]): the circuit breaker. The call is made BEFORE the merge
- *    request's REST reads (memoised per project and batch), so the stream stops there - normally, `mrGraphqlBreaker` 1 - with nothing of
- *    the failed project settled. (Only transient codes trip it: a GraphQL endpoint that is disabled, redirected or refused is a gap per
- *    batch and never holds the REST backlog.)
+ *  - the GraphQL call fails with an OUTAGE code ([GRAPHQL_OUTAGE_CODES]): the circuit breaker (`mrGraphqlBreaker` 1, one WARN). No
+ *    further GraphQL call this run; every merge request settled from then on, the failing batch included, is stamped with a stats GAP
+ *    (as above) and its REST reads go on. (Only transient codes trip it: a disabled, redirected or refused endpoint is a gap per batch.)
+ *    RECONCILE (PR 9) re-asks gapped stats, breaker gaps included.
  * Any other failure propagates after the deferred stamps are written.
  *
  * Progress: `mrDetails`, `mrEvents`, `mrNotesCapped`, `mrDetailsMissing`, `mrDetailsOversized`, `mrDetailsFailed`, `mrDiffStatsGaps`,
@@ -88,6 +88,9 @@ internal class GitLabMrDetailsStream(
         var gaps = 0L
         var graphqlProblems = 0
         var firstGraphqlCode: String? = null
+
+        /** Set by the first GraphQL outage: no further GraphQL call this run. */
+        var breaker = false
     }
 
     /** A claimed batch: its project paths (the GraphQL names a project by it), its iids per project and the answers asked so far. */
@@ -129,12 +132,7 @@ internal class GitLabMrDetailsStream(
             val batch = Batch(claimed, rawStore.projectPaths(connectionId, claimed.map { it.projectId }))
             for (mr in claimed) {
                 if (session.calls >= callsPerRun) return
-                try {
-                    settle(session, batch, mr)
-                } catch (outage: GraphqlOutage) {
-                    log.warn("GitLab GraphQL endpoint unreachable, MR DETAILS stops for this run: {}", outage.message)
-                    return
-                }
+                settle(session, batch, mr)
             }
         }
     }
@@ -142,15 +140,15 @@ internal class GitLabMrDetailsStream(
     /** One merge request's outcome: its details stored with their stamp, or a terminal one; any other failure propagates to [run]. */
     private suspend fun settle(session: Session, batch: Batch, mr: StaleMergeRequest) {
         val context = session.context
-        // The GraphQL answer comes first (memoised per project and batch): an outage stops the stream before the REST reads.
+        // The GraphQL answer comes first (memoised per project and batch); after an outage it is a gap without a call.
         val stats = diffStatsOf(session, batch, mr)
         val read = try {
             readEvents(session, mr)
         } catch (failure: FetchException) {
             val stored = when {
-                failure.isOversized() -> defer(session, mr, DETAILS_ERROR_LIMIT_EXCEEDED, "mrDetailsOversized")
+                failure.isOversized() -> defer(session, mr, DETAILS_ERROR_LIMIT_EXCEEDED, "mrDetailsOversized", failure)
                 failure.code == NOT_FOUND -> markMissing(session, mr)
-                failure.code in MR_READ_FAILURE_CODES -> defer(session, mr, DETAILS_ERROR_FETCH_FAILED, "mrDetailsFailed")
+                failure.code in MR_READ_FAILURE_CODES -> defer(session, mr, DETAILS_ERROR_FETCH_FAILED, "mrDetailsFailed", failure)
                 else -> throw failure
             }
             context.heartbeat(changed = stored)
@@ -216,6 +214,7 @@ internal class GitLabMrDetailsStream(
 
     private suspend fun askDiffStats(session: Session, batch: Batch, projectId: Long): Map<Long, GitLabDiffStats> {
         val path = batch.paths[projectId] ?: return emptyMap()
+        if (session.breaker) return emptyMap() // the endpoint was out earlier in this run: its stats are gaps, no further call
         val iids = batch.iidsByProject.getValue(projectId)
         session.calls++
         return try {
@@ -231,7 +230,9 @@ internal class GitLabMrDetailsStream(
                 in GRAPHQL_OUTAGE_CODES -> {
                     noteGraphqlProblem(session, failure.code)
                     session.context.incrementProgress("mrGraphqlBreaker")
-                    throw GraphqlOutage()
+                    session.breaker = true
+                    log.warn("GitLab GraphQL endpoint out ({}), no further GraphQL call this run: stats are gaps", failure.code)
+                    emptyMap()
                 }
                 else -> throw failure
             }
@@ -244,10 +245,11 @@ internal class GitLabMrDetailsStream(
     }
 
     /**
-     * [mr]'s read ended in a terminal [error] ([counter] counts it): it waits for the END of the run's stamp; too many (a mis-set cap, an
-     * instance that is down) fail the run and stamp none.
+     * [mr]'s read ended in a terminal [error] ([counter] counts it) because of [cause]: it waits for the END of the run's stamp; too many
+     * (a mis-set cap, an instance that is down) fail the run and stamp none - `LIMIT_EXCEEDED` when this one was oversized, [cause] itself
+     * (the instance's own code) when it was a failed read.
      */
-    private fun defer(session: Session, mr: StaleMergeRequest, error: String, counter: String): Boolean {
+    private fun defer(session: Session, mr: StaleMergeRequest, error: String, counter: String, cause: FetchException): Boolean {
         log.warn("GitLab merge-request details not readable ({}), data source {}", error, session.context.connectionId)
         session.deferred += Deferred(mr, error)
         session.context.incrementProgress(counter)
@@ -255,7 +257,8 @@ internal class GitLabMrDetailsStream(
             session.skips.skip()
         } catch (trip: FetchException) {
             session.deferred.clear() // a mis-set cap or an outage: leave every deferred merge request stale for after the fix
-            throw trip
+            if (error == DETAILS_ERROR_LIMIT_EXCEEDED) throw trip
+            throw cause.also { it.addSuppressed(trip) }
         }
         return false // nothing is stored until the end of the run
     }

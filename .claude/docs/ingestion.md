@@ -1329,7 +1329,7 @@ sweep)/`commitsProjectsSkipped` (no default branch, or the branch or project is 
 `commitFilesMissing` (COMMIT FILES: commits read, their file rows, the 1,000-file cap, the terminal errors) and `commitFilesPending` (the backlog left when the run stopped,
 non-zero only; `gitlab.commitFilesPerRun` is the call budget),
 `mergeRequests` (MERGE REQUESTS: inserted)/`mergeRequestsChanged` (changed or resurrected)/`mrSkipped` (a merge request of a project that is not a stored row)/`mrGroupsSkipped` (a group with no
-live stored project)/`mrGroupsNotFound` (a group GitLab answered `NOT_FOUND` for), `mrDetails`/`mrEvents`/`mrNotesCapped`/`mrDetailsMissing`/`mrDetailsOversized`/`mrDetailsFailed`/`mrDiffStatsGaps`/`mrGraphqlBreaker` (the GraphQL endpoint was out: the stream stopped normally)/`mrApprovalsUnavailable`/`mrReviewersUnavailable`
+live stored project)/`mrGroupsNotFound` (a group GitLab answered `NOT_FOUND` for), `mrDetails`/`mrEvents`/`mrNotesCapped`/`mrDetailsMissing`/`mrDetailsOversized`/`mrDetailsFailed`/`mrDiffStatsGaps`/`mrGraphqlBreaker` (the GraphQL endpoint was out: no further GraphQL call that run, the stats of the rest are gaps, the stream drains on)/`mrApprovalsUnavailable`/`mrReviewersUnavailable`
 (MR DETAILS: merge requests read, their event rows, the 1,000-note cap, the terminal errors (`NOT_FOUND`, `LIMIT_EXCEEDED`, `FETCH_FAILED`), the GraphQL gaps, a missing `/approvals` or `/reviewers`) and `mrDetailsPending` (the backlog left when the run
 stopped, non-zero only; `gitlab.mrDetailsPerRun` is the call budget, REST and GraphQL). `gitlab-integration.md` "Streams" has each.
 

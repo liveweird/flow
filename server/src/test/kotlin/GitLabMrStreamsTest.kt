@@ -319,7 +319,7 @@ class GitLabMrStreamsTest {
     }
 
     @Test
-    fun `a GraphQL outage stops the details with everything pending and no gap, and the next run reads them all with their stats`() =
+    fun `a GraphQL outage gaps every diff stat after one call and the events are all read, nothing is re-read next run`() =
         runBlocking<Unit> {
             val connId = fresh()
             overrides += GitLabStubServer.addOverride(
@@ -328,17 +328,20 @@ class GitLabMrStreamsTest {
             val total = expected.at("mergeRequests", "total").int().toLong()
             val outage = run(connId)
             assertEquals(1L, outage.details["mrGraphqlBreaker"])
-            assertNull(outage.details["mrDetails"])
-            assertEquals(total, outage.details["mrDetailsPending"])
-            assertEquals(0L, store.mrCounts(connId).mrDiffStatsMissing, "an outage makes no permanent gap")
-            assertEquals(total, store.countStaleMergeRequests(connId))
+            assertEquals(total, outage.details["mrDetails"])
+            assertEquals(total, outage.details["mrDiffStatsGaps"])
+            assertNull(outage.details["mrDetailsPending"])
+            assertEquals(total, store.mrCounts(connId).mrDiffStatsMissing)
+            assertEquals(0L, store.countStaleMergeRequests(connId))
+            val events = expected.at("events")
+            val stored = events.at("noteTotal").int() + events.at("approvalsEndpointTotal").int() + events.at("reviewersTotal").int()
+            assertEquals(stored.toLong(), store.mrCounts(connId).mrEvents, "every note, approval and reviewer row is stored")
 
             overrides.forEach(GitLabStubServer::removeOverride)
             overrides.clear()
             val again = run(connId)
-            assertEquals(total, again.details["mrDetails"])
-            assertEquals(1L, store.mrCounts(connId).mrDiffStatsMissing, "only the stub's own null-stats merge request")
-            assertEquals(0L, store.countStaleMergeRequests(connId))
+            assertNull(again.details["mrDetails"], "gapped stats wait for a change of the merge request or RECONCILE (PR 9)")
+            assertEquals(total, store.mrCounts(connId).mrDiffStatsMissing)
         }
 
     @Test

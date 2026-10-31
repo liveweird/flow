@@ -197,7 +197,7 @@ class GitLabMrDetailsTest {
     }
 
     @Test
-    fun `the first GraphQL outage stops the stream normally with nothing gapped, costs one call, and the next run completes`() =
+    fun `the first GraphQL outage costs one call, gaps the stats of everything after it and keeps draining the events`() =
         runBlocking<Unit> {
             for (code in listOf("TIMEOUT", "UPSTREAM_UNAVAILABLE")) {
                 val connId = connection(3, otherProject = 2)
@@ -208,34 +208,35 @@ class GitLabMrDetailsTest {
                 val progress = details(client, connId)
                 assertEquals(1L, progress["mrGraphqlBreaker"], code)
                 assertEquals(1, client.graphqlCalls.size, "$code: one GraphQL call this run, not one per project")
-                assertEquals(0, client.restCalls, "$code: the stats come first, so no REST read was wasted")
-                assertNull(progress["mrDetails"], code)
-                assertNull(progress["mrDiffStatsGaps"], code)
-                assertEquals(5L, progress["mrDetailsPending"], code)
-                assertEquals(5L, store.countStaleMergeRequests(connId), "$code: nothing was stamped, so no permanent gap")
-
-                client.scriptAll()
-                val recovered = details(client, connId)
-                assertEquals(5L, recovered["mrDetails"], code)
-                assertNull(recovered["mrDiffStatsGaps"], code)
-                assertEquals(0L, store.mrCounts(connId).mrDiffStatsMissing, code)
+                assertEquals(15, client.restCalls, "$code: notes, approvals and reviewers of all five merge requests are read")
+                assertEquals(5L, progress["mrDetails"], code)
+                assertEquals(5L, progress["mrDiffStatsGaps"], code)
+                assertNull(progress["mrDetailsPending"], code)
+                assertEquals(0L, store.countStaleMergeRequests(connId), "$code: every merge request is settled")
+                assertEquals(5L, store.mrCounts(connId).mrDiffStatsMissing, code)
+                assertEquals(5L, store.mrCounts(connId).mrEvents, "$code: their events are stored")
             }
         }
 
     @Test
-    fun `an outage on a later project keeps the earlier project settled with its stats and leaves the rest pending`() = runBlocking<Unit> {
+    fun `an outage on a later project keeps the earlier project's stats and gaps the rest without another call`() = runBlocking<Unit> {
         val connId = connection(3, otherProject = 2)
+        store.upsertProjects(connId, listOf(project(5, "apps", 9)), now = 2)
+        store.upsertMergeRequests(connId, listOf(mr(1, projectId = 5, updatedAt = BASE)), now = 100) // the oldest: after project 3's
         val client = FakeClient().apply {
             scriptAll()
             val ok = diffStatsOf
             diffStatsOf = { path, iids -> if (path == "apps/p3") throw failure("UPSTREAM_UNAVAILABLE") else ok(path, iids) }
         }
         val progress = details(client, connId)
-        assertEquals(3L, progress["mrDetails"], "project 1's three, newest first")
+        assertEquals(6L, progress["mrDetails"])
         assertEquals(1L, progress["mrGraphqlBreaker"])
-        assertEquals(2, client.graphqlCalls.size)
-        assertEquals(2L, progress["mrDetailsPending"])
-        assertEquals(3, rowOf(connId, 3)[MergeRequests.additions])
+        assertEquals(listOf("platform/p1", "apps/p3"), client.graphqlCalls.map { it.first }, "project 5 is never asked after the outage")
+        assertEquals(3, rowOf(connId, 3)[MergeRequests.additions], "the earlier project keeps its stats")
+        assertNull(rowOf(connId, 2, projectId = 3)[MergeRequests.additions])
+        assertNull(rowOf(connId, 1, projectId = 5)[MergeRequests.additions])
+        assertEquals(3L, progress["mrDiffStatsGaps"])
+        assertEquals(0L, store.countStaleMergeRequests(connId))
     }
 
     @Test
@@ -448,7 +449,8 @@ class GitLabMrDetailsTest {
     @Test
     fun `a merge request whose read keeps failing is stamped FETCH_FAILED at the end, the older ones are read, and a change re-reads it`() =
         runBlocking<Unit> {
-            for (where in listOf("notes", "approvals", "reviewers")) {
+            for ((where, code) in listOf("notes" to "UPSTREAM_UNAVAILABLE", "approvals" to "INVALID_RESPONSE", "reviewers" to "TIMEOUT",
+                "notes" to "TIMEOUT")) {
                 val connId = connection(3)
                 val asked = mutableListOf<Long>()
                 val client = FakeClient().apply {
@@ -457,7 +459,7 @@ class GitLabMrDetailsTest {
                     val broken = { iid: Long ->
                         if (iid == 2L) {
                             asked += iid
-                            throw failure("UPSTREAM_UNAVAILABLE")
+                            throw failure(code)
                         }
                     }
                     val ok = notesOf
@@ -492,14 +494,28 @@ class GitLabMrDetailsTest {
         }
 
     @Test
-    fun `an outage across many merge requests trips the skip budget and stamps none of them`() = runBlocking<Unit> {
+    fun `an outage across many merge requests fails the run with the read failure's own code, stamping none of them`() = runBlocking<Unit> {
+        for (code in listOf("UPSTREAM_UNAVAILABLE", "TIMEOUT", "INVALID_RESPONSE")) {
+            val connId = connection(12)
+            val client = FakeClient().apply {
+                scriptAll()
+                notesOf = { _, _, _ -> throw failure(code) }
+            }
+            assertEquals(code, assertFailsWith<FetchException> { details(client, connId) }.code, "never a ceiling trip")
+            assertTrue(store.mergeRequestRows(connId).all { it[MergeRequests.detailsError] == null }, code)
+            assertEquals(12L, store.countStaleMergeRequests(connId), code)
+        }
+    }
+
+    @Test
+    fun `when the oversized merge request is the one that trips the skip budget the run fails LIMIT_EXCEEDED`() = runBlocking<Unit> {
         val connId = connection(12)
         val client = FakeClient().apply {
             scriptAll()
-            notesOf = { _, _, _ -> throw failure("UPSTREAM_UNAVAILABLE") }
+            // Ten failed reads (iids 12..3), then the oversized 11th trips the budget.
+            notesOf = { _, iid, _ -> throw failure(if (iid >= 3) "UPSTREAM_UNAVAILABLE" else "LIMIT_EXCEEDED") }
         }
         assertEquals("LIMIT_EXCEEDED", assertFailsWith<FetchException> { details(client, connId) }.code)
-        assertTrue(store.mergeRequestRows(connId).all { it[MergeRequests.detailsError] == null })
         assertEquals(12L, store.countStaleMergeRequests(connId))
     }
 

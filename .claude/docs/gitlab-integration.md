@@ -277,7 +277,7 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
   watermarks are kept; a watermark of a group no longer configured is dropped; the saved list must EQUAL the configured one, order included).
   **A project that newly enters a group** (moved or renamed into the configured groups) has older merge requests below the watermark: `projectSets` records,
   per group, the live stored project ids the group had when its last COMPLETED pass began, and a pass that finds a live project not in that set lists from the
-  backfill floor (cheap: the rest come back `UNCHANGED`); a shrinking set forces nothing, and a group with no recorded set (an older cursor) is unknown and forces
+  backfill floor (the cost is one listing page per 100 merge requests of the group plus a `last_seen_at` touch per row, the rest coming back `UNCHANGED`; a newly CREATED project triggers it too); a shrinking set forces nothing, and a group with no recorded set (an older cursor) is unknown and forces
   nothing until its next completed pass records one. A group GitLab answers `NOT_FOUND` for (any page) is skipped for the pass -
   `mrGroupsNotFound`, one WARN per run naming the configured paths, its watermark untouched - and fails neither the SYNC nor the other groups. A group with no
   live stored project is `mrGroupsSkipped`. The heartbeat counts as progress whenever the page cursor advanced. A merge request whose project is not a stored project row
@@ -301,23 +301,25 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
   every run: the notes (any page) answer `NOT_FOUND` -> `details_error = NOT_FOUND`, no events, `mrDetailsMissing`, NO tombstone (a re-listed, changed merge
   request clears the stamp); `/approvals` or `/reviewers` alone answer `NOT_FOUND` -> none for that merge request (`mrApprovalsUnavailable`,
   `mrReviewersUnavailable`; an instance without the endpoint must not mark every merge request gone); a REST response over `gitlab.maxResponseBytes` or the
-  node ceiling -> `details_error = LIMIT_EXCEEDED` (`mrDetailsOversized`); one of the three failing `UPSTREAM_UNAVAILABLE` or `INVALID_RESPONSE` after the
+  node ceiling -> `details_error = LIMIT_EXCEEDED` (`mrDetailsOversized`); one of the three failing `UPSTREAM_UNAVAILABLE`, `TIMEOUT` or `INVALID_RESPONSE` after the
   transport's retries -> `details_error = FETCH_FAILED` (`mrDetailsFailed`; a merge request that fails every time must not block the backlog behind it). Both
-  are stamped at the END of the run through ONE shared `SkipBudget` (more than `max(10, 10 %)` of them fail the run `LIMIT_EXCEEDED` and NONE is stamped), are
+  are stamped at the END of the run through ONE shared `SkipBudget` (more than `max(10, 10 %)` of them fail the run and NONE is stamped - `LIMIT_EXCEEDED` when the tripping one was oversized, the read failure's own code when it was a failed read, so an outage backs off like an outage and is never a ceiling trip), are
   excluded from this run's re-claims until then, and are read again when the merge request changes (the listing sheds a `NOT_FOUND`/`FETCH_FAILED` stamp);
   the GraphQL call answering `errors[]`, a null project or lacking a merge request, or failing with `INVALID_RESPONSE`/`NOT_FOUND`/`LIMIT_EXCEEDED`/`REDIRECT`/`FORBIDDEN_SCOPE` (answer problems, or fast and usually permanent: GraphQL disabled,
   redirected or refused) -> a NULL
   GAP for those merge requests (`mrDiffStatsGaps`, counted when the merge request is stamped; one WARN per run with the count and the first error code),
-  stamped complete and NOT asked again until the merge request changes (RECONCILE may re-ask). **The GraphQL circuit breaker:** the first failure of an
-  TRANSIENT-outage kind (`TIMEOUT`, `UPSTREAM_UNAVAILABLE`) stops the stream for the rest of the run as a normal end
-  (`mrGraphqlBreaker` 1): the merge requests not yet settled stay PENDING, so an outage costs one GraphQL call a run and makes no permanent gap (a
-  disabled, redirected or refused endpoint is a gap per batch instead, one fast call, and never holds the REST backlog). Every other failure - a rate limit, a rejected token, a
+  stamped complete and NOT asked again until the merge request changes (RECONCILE may re-ask). **The GraphQL circuit breaker:** the first failure of a
+  TRANSIENT-outage kind (`TIMEOUT`, `UPSTREAM_UNAVAILABLE`) makes NO further GraphQL call for the rest of the run (`mrGraphqlBreaker` 1, one WARN) but the stream
+  KEEPS DRAINING: every merge request settled from then on, the failing batch included, is stamped with its stats gapped and its REST reads go on, so an
+  outage costs one GraphQL call a run and never stalls the events backlog (a disabled, redirected or refused endpoint is a gap per batch instead). Every other failure - a rate limit, a rejected token, a
   blocked host - propagates after the deferred stamps are written. Progress: `mrDetails`, `mrEvents`, `mrNotesCapped`, `mrDetailsMissing`,
   `mrDetailsOversized`, `mrDetailsFailed`, `mrDiffStatsGaps`, `mrGraphqlBreaker`, `mrApprovalsUnavailable`, `mrReviewersUnavailable`, `mrDetailsPending`.
 - **RECONCILE** — a SHA re-list per project tombstones vanished commits; a 404 marks a project deleted; a moved project is
   marked out of scope; an archived project keeps its data; an MR id re-list tombstones deleted MRs. **PR 9 must also** re-list every group's merge
   requests from the backfill floor with NO watermark (the catch-all for an item that dropped out of the newest-first listing mid-pass and shifted a
-  neighbour out of reach), and may re-ask the GraphQL stats of gapped merge requests.
+  neighbour out of reach); re-ask the GraphQL stats of GAPPED merge requests, breaker gaps included; re-read the merge requests stamped `FETCH_FAILED` (and
+  `LIMIT_EXCEEDED`, if cheap) - a merged or closed one never changes, so nothing else will; and the status view gains a count of merge requests whose
+  details are unread (`FETCH_FAILED` / `LIMIT_EXCEEDED` / `NOT_FOUND`; no status or spec change in PR 8).
 - **PROCESS / PROFILE** — into `norm.code_*` under `CODE_PROCESSING_VERSION`, separate from Jira's `PROCESSING_VERSION`, so
   neither side reprocesses the other.
 
