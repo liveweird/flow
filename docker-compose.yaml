@@ -73,7 +73,7 @@ services:
     # Loopback-bound (see postgres) - the stub is a local dev/test fixture only.
     ports:
       - "127.0.0.1:8095:8080"
-    # Data-only like jira-stub; the day-zero world is ~9 MiB of mappings and bodies.
+    # Data-only like jira-stub; the day-zero world is ~11 MiB of mappings and bodies.
     mem_limit: 256m
 
   app:

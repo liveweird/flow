@@ -185,8 +185,7 @@ export function defineRoutes(w, world) {
   }
 
   // ---- GraphQL diffStatsSummary -------------------------------------------------------------------------------------
-  const nullGap = world.mrs.filter((m) => m.projectId === 1 && !m.day2Only).sort((a, b) => a.iid - b.iid).find((m) => m.state === "merged");
-  world.nullGapMr = nullGap ? { projectId: nullGap.projectId, iid: nullGap.iid } : null;
+  const nullGap = world.nullGapMr;
   for (const p of world.projects) {
     w.emit(`graphql-p${p.id}`, (state) => {
       if (p.day2Only && state === "Started") return null;

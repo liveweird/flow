@@ -417,7 +417,7 @@ as a confirmed **secondary** email (`GET /users/4/emails`); id 7 is `deactivated
 
 Every route is under `/api/v4` except GraphQL. **Auth:** a non-empty `PRIVATE-TOKEN` header or `Authorization: Bearer <non-empty>` is accepted (the value is never
 checked); otherwise every `/api/...` path answers `401 {"message":"401 Unauthorized"}` (priority 1, so no endpoint needs its own check). **Pagination:** offset only, and
-only `per_page=100` is mapped (another size falls through to `404 {"error":"404 Not Found"}`); page 1 matches with or without `page=1`, later pages need the exact `page`.
+only `per_page=100` is mapped (another size falls through to `404 {"error":"404 Not Found"}`); page 1 matches `page` absent or `1` only, later pages need the exact `page`, and any other numeric `page` (past the end, or `0`) answers `[]` with the usual headers (`X-Page` echoing the request, empty `X-Next-Page`/`X-Prev-Page`, the list's real `X-Total`, a `first`/`last` `Link`).
 Every list answers `X-Page`, `X-Per-Page`, `X-Next-Page` and `X-Prev-Page` (both empty at the ends), `X-Total`, `X-Total-Pages` (0 for an empty list) and a `Link`
 header of absolute URLs (`rel` prev/next/first/last, built from the request's own base URL by WireMock response templating; they carry the match parameters, not
 `since`/`updated_after`). Static `RateLimit-*` headers ride on every response. Extra query parameters a mapping does not name (`since`, `updated_after`, `order_by`
@@ -466,4 +466,4 @@ mapping; the rest come in a `-started` and a `-day2` variant. The deltas, all re
 
 ## Size
 
-`gitlab-stub/` is ~9 MiB (727 mappings, 711 bodies), under the Jira stub's ~13 MiB; most of it is commit diffs (one body per commit) and the 1,040-file commit.
+`gitlab-stub/` is ~11 MiB (1,196 mappings, 712 bodies), under the Jira stub's ~13 MiB; most of it is commit diffs (one body per commit) and the 1,040-file commit. About 470 of the mappings are the per-list past-the-end answers (they share one `[]` body).

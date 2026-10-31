@@ -20,13 +20,13 @@
 //   sample-data/gitlab/expected.json            - the figures the server tests assert against
 //   sample-data/gitlab-stub/mappings/*.json     - WireMock request matchers
 //   sample-data/gitlab-stub/__files/*.json      - WireMock response bodies
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_PARAMS, buildWorld } from "./lib/world.mjs";
 import { createWriter } from "./lib/writer.mjs";
 import { defineRoutes } from "./lib/routes.mjs";
-import { buildExpected, prettyJson } from "./lib/expected.mjs";
+import { buildExpected, prettyJson, verifyWorld } from "./lib/expected.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SAMPLE_DATA = path.resolve(here, "..");
@@ -49,14 +49,30 @@ export function parseArgs(argv) {
 
 export function generate({ params, out }) {
   const outputRoot = out ? path.resolve(out) : SAMPLE_DATA;
+  // Everything that can throw (the world, its consistency checks, the expected figures, the mappings) happens BEFORE the
+  // committed stub is touched: the stub is built in a staging directory and swapped in only when the whole run succeeded.
   const world = buildWorld(params);
-  const writer = createWriter(path.join(outputRoot, "gitlab-stub"));
-  defineRoutes(writer, world);
-  const expected = buildExpected(world, { mappingCount: writer.count() });
-  const expectedPath = path.join(outputRoot, "gitlab", "expected.json");
-  mkdirSync(path.dirname(expectedPath), { recursive: true });
-  writeFileSync(expectedPath, `${prettyJson(expected)}\n`);
-  return { world, expected, mappingCount: writer.count(), outputRoot };
+  verifyWorld(world);
+  const expected = buildExpected(world, { mappingCount: 0 });
+  const stubDir = path.join(outputRoot, "gitlab-stub");
+  const staging = `${stubDir}.staging`;
+  mkdirSync(outputRoot, { recursive: true });
+  let mappingCount;
+  try {
+    const writer = createWriter(staging);
+    defineRoutes(writer, world);
+    mappingCount = writer.count();
+    expected.generator.mappingCount = mappingCount;
+    const text = `${prettyJson(expected)}\n`;
+    rmSync(stubDir, { recursive: true, force: true });
+    renameSync(staging, stubDir);
+    const expectedPath = path.join(outputRoot, "gitlab", "expected.json");
+    mkdirSync(path.dirname(expectedPath), { recursive: true });
+    writeFileSync(expectedPath, text);
+  } finally {
+    rmSync(staging, { recursive: true, force: true });
+  }
+  return { world, expected, mappingCount, outputRoot };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

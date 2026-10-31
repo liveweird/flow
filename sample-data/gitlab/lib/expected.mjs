@@ -66,7 +66,6 @@ const countBy = (list, key) => list.reduce((acc, x) => ({ ...acc, [key(x)]: (acc
 const sortedObj = (o) => Object.fromEntries(Object.entries(o).sort(([a], [b]) => (a < b ? -1 : 1)));
 
 export function buildExpected(world, { mappingCount }) {
-  verifyWorld(world);
   const { users, projects, repos, mrs, heads } = world;
   const byId = new Map(projects.map((p) => [p.id, p]));
   const scopeIds = (scope) => projects.filter((p) => p.scope === scope && !p.day2Only).map((p) => p.id);
@@ -97,7 +96,7 @@ export function buildExpected(world, { mappingCount }) {
       };
     }
     if (p.scope === "in") {
-      outOfOrder += walk.filter((c, i) => c.parents.length && repo.commits.get(c.parents[0]).committedMs > c.committedMs && i >= 0).length;
+      outOfOrder += walk.filter((c) => c.parents.length && repo.commits.get(c.parents[0]).committedMs > c.committedMs).length;
       rebased += walk.filter((c) => c.committedMs - c.authoredMs > 86_400_000).length;
       const acc = { raw: { files: 0, additions: 0, deletions: 0 }, counted: { files: 0, additions: 0, deletions: 0 }, countedUncapped: { files: 0, additions: 0, deletions: 0 }, filesCapped: 0 };
       for (const c of nonMerge) {
@@ -160,12 +159,16 @@ export function buildExpected(world, { mappingCount }) {
     special.tooLarge = {
       projectId: tl.projectId, sha: tl.sha, path: tooLargeFile.newPath, trueAdditions: tooLargeFile.additions, trueDeletions: tooLargeFile.deletions, commitStats: tl.commit.stats,
       otherFiles: others.map(fileRec), otherFilesRaw: totals(others), otherFilesCounted: totals(others.filter((f) => !isExcluded(f.newPath))),
-      fallbackByDesignFormula: {
+      fallbackByDesign: {
+        additions: tl.commit.stats.additions - sum(others, (f) => f.additions),
+        deletions: tl.commit.stats.deletions - sum(others, (f) => f.deletions),
+        note: "commit stats minus the OTHER files' RAW lines (gitlab-integration.md 'Path exclusions'); equals the true lines of the too_large file",
+      },
+      fallbackSubtractingCountedOthersSuperseded: {
         additions: tl.commit.stats.additions - sum(others.filter((f) => !isExcluded(f.newPath)), (f) => f.additions),
         deletions: tl.commit.stats.deletions - sum(others.filter((f) => !isExcluded(f.newPath)), (f) => f.deletions),
-        note: "commit stats minus the OTHER files' COUNTED lines (gitlab-integration.md 'Path exclusions'): also absorbs the excluded files' lines",
+        note: "superseded: stats minus the other files' COUNTED lines also absorbs the excluded files' lines; kept for comparison only",
       },
-      fallbackMinusRawOthers: { additions: tl.commit.stats.additions - sum(others, (f) => f.additions), deletions: tl.commit.stats.deletions - sum(others, (f) => f.deletions), note: "equals the true lines of the too_large file" },
     };
   }
   const col = findSpecial("collapsed");

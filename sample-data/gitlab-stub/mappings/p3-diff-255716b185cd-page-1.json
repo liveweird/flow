@@ -6,6 +6,16 @@
     "queryParameters": {
       "per_page": {
         "equalTo": "100"
+      },
+      "page": {
+        "or": [
+          {
+            "absent": true
+          },
+          {
+            "equalTo": "1"
+          }
+        ]
       }
     }
   },

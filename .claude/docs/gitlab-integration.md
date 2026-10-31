@@ -158,7 +158,7 @@ permission list.
 ## Stub (as built, PR 5)
 
 `sample-data/gitlab/generate.mjs` (zero dependencies, seeded, byte-identical; `--users/--projects/--months/--out`) writes
-`sample-data/gitlab-stub/{mappings,__files}` (727 mappings, ~9 MiB) and `sample-data/gitlab/expected.json`. It is served by the
+`sample-data/gitlab-stub/{mappings,__files}` (1,196 mappings, ~11 MiB) and `sample-data/gitlab/expected.json`. It is served by the
 compose `gitlab-stub` (WireMock, `127.0.0.1:8095`, read-only mount, nothing points the app at it until PR 6) and the in-JVM
 `GitLabStubServer` (`server/src/test/kotlin/`, `JiraStubServer`'s twin); `GitLabStubServerTest` pins the contract over plain HTTP and
 `node --test sample-data/gitlab/generate.test.mjs` (in `scripts/gates.sh e2e` and the CI `e2e-static` job) guards the generator.
@@ -181,10 +181,11 @@ Shapes the real-instance smoke run (PR 12) must confirm, because the stub models
 server may answer `[]`); `X-Total` on every list; commit dates printed with the committer's own offset (`+02:00`, `+00:00` for
 UTC); the legacy `/approvals` object; reviewer `state` values; the `Link` header carrying route params (`id`, `sha`).
 
-**A note for the COMMIT FILES design.** The `too_large` fallback ("the commit's `stats` minus its other files' counted lines") also
-absorbs the lines of the commit's *excluded* files (a lock file changed beside the too-large file is not "counted"), so it
-over-attributes; `expected.json` `special.tooLarge` records both that figure and the true one (commit `stats` minus the other
-files' *raw* lines). The stub's too-large commit changes a lock file on purpose, so PR 7 sees the difference.
+**The `too_large` fallback.** The design formula is the commit's `stats` minus the RAW lines of its other files (see "Path exclusions"),
+so a lock file changed beside the too-large file is not credited to it. The stub's too-large commit changes a lock file on purpose;
+`expected.json` `special.tooLarge.fallbackByDesign` is the design figure (the true lines of the file) and
+`fallbackSubtractingCountedOthersSuperseded` the earlier "minus the other files' *counted* lines" figure, which over-attributes the
+excluded files' lines and is kept only for comparison.
 
 `SyncedGitLabFixture` (one SYNC per fork, warmed in `@BeforeClass` like the Jira fixtures) lands with the COMMITS PR (7), when a
 sync exists to run.

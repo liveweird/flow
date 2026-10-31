@@ -4,7 +4,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { PER_PAGE, SCENARIO } from "./constants.mjs";
 
-export const PRIORITY = { unauthorized: 1, page: 5, normal: 6, notFound: 9, generic: 20 };
+export const PRIORITY = { unauthorized: 1, page: 5, normal: 6, beyond: 8, notFound: 9, generic: 20 };
 
 // Static rate-limit headers (the Flow connector pauses near zero; this instance is never near it).
 const RATE_LIMIT = {
@@ -84,11 +84,27 @@ export function createWriter(stubDir) {
         "X-Total": String(d.items.length), "X-Total-Pages": String(d.items.length === 0 ? 0 : pages), Link: rels.join(", "),
       };
       writeBody(`${name}${suffix}`, items, true);
-      const query = { ...queryOf(d.query), ...(page > 1 ? { page: equalTo(page) } : {}) };
+      // Page 1 answers `page` absent or 1 only: any other page number is the past-the-end catch-all below.
+      const pageMatch = page > 1 ? equalTo(page) : { or: [{ absent: true }, equalTo(1)] };
+      const query = { ...queryOf(d.query), page: pageMatch };
       const common = { query, priority: page > 1 ? PRIORITY.page : PRIORITY.normal, state, bodyFile: `${name}${suffix}`, respHeaders, templated: true, bodyPatterns: undefined };
       mapping({ name: `${name}${suffix}`, urlPath: d.urlPath, urlPathPattern: d.urlPathPattern, ...common });
       (d.extraPaths ?? []).forEach((p, i) => mapping({ name: `${name}-alt${i + 1}${suffix}`, urlPathPattern: p, ...common }));
     }
+    // Any other page number is past the end: `[]` with the usual headers (X-Page echoes the request, X-Next-Page empty).
+    if (!names.has("empty-page-body")) {
+      names.add("empty-page-body");
+      writeBody("empty-page", "[]", false);
+    }
+    const beyond = {
+      query: { ...queryOf(d.query), page: { matches: "\\d+" } }, priority: PRIORITY.beyond, state, bodyFile: "empty-page", templated: true,
+      respHeaders: {
+        "X-Next-Page": "", "X-Page": "{{request.query.page}}", "X-Per-Page": String(perPage), "X-Prev-Page": "", "X-Total": String(d.items.length),
+        "X-Total-Pages": String(d.items.length === 0 ? 0 : pages), Link: `<${link(1)}>; rel="first", <${link(pages)}>; rel="last"`,
+      },
+    };
+    mapping({ name: `${name}-beyond`, urlPath: d.urlPath, urlPathPattern: d.urlPathPattern, ...beyond });
+    (d.extraPaths ?? []).forEach((p, i) => mapping({ name: `${name}-alt${i + 1}-beyond`, urlPathPattern: p, ...beyond }));
   }
 
   const write = (name, d, state) => (d.type === "paged" ? paged(name, d, state) : single(name, d, state));

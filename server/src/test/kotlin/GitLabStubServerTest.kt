@@ -3,6 +3,7 @@ package ch.nokillswit
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -60,6 +61,21 @@ class GitLabStubServerTest {
         path.fold(this as JsonElement) { node, key -> node.jsonObject.getValue(key) }
     private fun enc(s: String) = URLEncoder.encode(s, Charsets.UTF_8)
 
+    // The ids, branches and paths below all come from expected.json, never from literals in the tests.
+    private val projectList: JsonArray by lazy { expected.at("projects", "list").jsonArray }
+    private val inScopeIds: List<Int> by lazy { expected.at("projects", "inScopeIds").jsonArray.map { it.jsonPrimitive.int } }
+    private fun projectRow(id: Int): JsonElement = projectList.first { it.str("id").toInt() == id }
+    private fun branchOf(id: Int) = projectRow(id).str("defaultBranch")
+    private fun groupOf(id: Int) = projectRow(id).str("groupId").toInt()
+
+    /** The first in-scope project off `master` with merge commits, and the in-scope project whose default branch is `master`. */
+    private val mergeProject: Int by lazy {
+        inScopeIds.first { branchOf(it) != "master" && projectCommits(it).str("merges").toInt() > 0 }
+    }
+    private val masterProject: Int by lazy { inScopeIds.first { branchOf(it) == "master" } }
+    private val mainBranch: String get() = branchOf(mergeProject)
+    private val subgroup: JsonElement by lazy { expected.at("groups").jsonArray.first { it.jsonObject.getValue("parentId") !is JsonNull } }
+
     private fun projectCommits(id: Int) = expected.at("commits", "perProject", id.toString())
     private fun total(id: Int) = projectCommits(id).str("total").toInt()
 
@@ -112,52 +128,57 @@ class GitLabStubServerTest {
 
     @Test
     fun `groups resolve by id and by url-encoded full path, and group projects exclude archived ones in id order`() {
-        val byId = call("/api/v4/groups/8").obj()
-        assertEquals("platform/tooling", byId.str("full_path"))
-        assertEquals("platform/tooling", call("/api/v4/groups/${enc("platform/tooling")}").obj().str("full_path"))
+        val byId = call("/api/v4/groups/${subgroup.str("id")}").obj()
+        assertEquals(subgroup.str("fullPath"), byId.str("full_path"))
+        assertEquals(subgroup.str("fullPath"), call("/api/v4/groups/${enc(subgroup.str("fullPath"))}").obj().str("full_path"))
         assertEquals(404, call("/api/v4/groups/999").status)
         assertEquals("""{"message":"404 Group Not Found"}""", call("/api/v4/groups/999").body)
 
-        val live = call("/api/v4/groups/9/projects?include_subgroups=true&archived=false&per_page=100&page=1")
-        val liveIds = live.array().map { it.str("id").toInt() }
         val archivedIds = expected.at("projects", "archivedIds").jsonArray.map { it.jsonPrimitive.int }
+        val archivedGroup = groupOf(archivedIds.first())
+        val live = call(groupProjects(archivedGroup) + "&page=1")
+        val liveIds = live.array().map { it.str("id").toInt() }
         assertTrue(liveIds.none { it in archivedIds }, "archived projects are excluded with archived=false")
         assertEquals(liveIds.sorted(), liveIds)
-        assertEquals(liveIds, expected.at("projects", "startedGroupProjects", "9", "live").jsonArray.map { it.jsonPrimitive.int })
+        val expectedLive = expected.at("projects", "startedGroupProjects", archivedGroup.toString(), "live")
+        assertEquals(liveIds, expectedLive.jsonArray.map { it.jsonPrimitive.int })
         // include_subgroups: the parent group lists the subgroup's project too.
-        assertTrue(call("/api/v4/groups/7/projects?include_subgroups=true&archived=false&per_page=100").array().any { it.str("id") == "2" })
+        val inSubgroup = projectList.first {
+            it.str("groupId") == subgroup.str("id") && it.str("scope") == "in" && it.str("day2Only") == "false"
+        }
+        assertTrue(call(groupProjects(subgroup.str("parentId").toInt())).array().any { it.str("id") == inSubgroup.str("id") })
     }
 
     @Test
     fun `the commit list carries the offset pagination headers, absolute Link urls and stats`() {
-        val reply = call(commitsPath(1, "main"))
+        val reply = call(commitsPath(mergeProject, mainBranch))
         assertEquals(200, reply.status)
-        assertEquals(total(1), reply.array().size)
+        assertEquals(total(mergeProject), reply.array().size)
         assertEquals("1", reply.header("X-Page"))
         assertEquals("100", reply.header("X-Per-Page"))
-        assertEquals(total(1).toString(), reply.header("X-Total"))
+        assertEquals(total(mergeProject).toString(), reply.header("X-Total"))
         assertEquals("1", reply.header("X-Total-Pages"))
         assertEquals("", reply.header("X-Next-Page"))
         assertEquals("", reply.header("X-Prev-Page"))
-        assertTrue(reply.header("Link")!!.contains("<$base/api/v4/projects/1/repository/commits?"), reply.header("Link"))
+        assertTrue(reply.header("Link")!!.contains("<$base/api/v4/projects/$mergeProject/repository/commits?"), reply.header("Link"))
         assertTrue(reply.array().first().jsonObject.containsKey("stats"))
         assertTrue(reply.array().any { it.jsonObject.getValue("parent_ids").jsonArray.size == 2 }, "merge commits carry two parents")
         // The master default branch of the ledger project, and a page size the connector never uses.
-        assertEquals(total(4), call(commitsPath(4, "master")).array().size)
-        assertEquals(404, call("/api/v4/projects/1/repository/commits?ref_name=main&with_stats=true&per_page=50").status)
+        assertEquals(total(masterProject), call(commitsPath(masterProject, branchOf(masterProject))).array().size)
+        assertEquals(404, call("/api/v4/projects/$mergeProject/repository/commits?ref_name=$mainBranch&with_stats=true&per_page=50").status)
     }
 
     @Test
     fun `a stored head gives the range form and a merge base that is the head itself`() {
-        val head = expected.at("storedHeads", "1")
+        val head = expected.at("storedHeads", mergeProject.toString())
         val sha = head.str("storedSha")
-        val range = call(commitsPath(1, "$sha..main"))
+        val range = call(commitsPath(mergeProject, "$sha..$mainBranch"))
         assertEquals(head.str("commitsAfterStoredHead").toInt(), range.array().size)
         assertEquals(range.array().size.toString(), range.header("X-Total"))
-        val base = call("/api/v4/projects/1/repository/merge_base?refs[]=$sha&refs[]=main")
+        val base = call("/api/v4/projects/$mergeProject/repository/merge_base?refs[]=$sha&refs[]=$mainBranch")
         assertEquals(sha, base.obj().str("id"))
         // At the tip of the started history there is nothing new: an empty page that still carries the headers.
-        val tip = call(commitsPath(1, "${head.str("startedTipSha")}..main"))
+        val tip = call(commitsPath(mergeProject, "${head.str("startedTipSha")}..$mainBranch"))
         assertEquals("[]", tip.body)
         assertEquals("0", tip.header("X-Total"))
     }
@@ -186,6 +207,53 @@ class GitLabStubServerTest {
         for (key in fileKeys) assertTrue(first.containsKey(key), key)
     }
 
+    private fun Reply.link(rel: String): String? =
+        header("Link")?.let { Regex("""<([^>]+)>; rel="$rel"""").find(it)?.groupValues?.get(1) }
+
+    private fun pageOf(url: String): Int = Regex("""[?&]page=(\d+)""").find(url)!!.groupValues[1].toInt()
+
+    @Test
+    fun `following rel next walks the pages and page 2 links back with prev, first and last`() {
+        val many = expected.at("special", "manyFiles")
+        val pages = many.str("diffPages").toInt()
+        val diff = "/api/v4/projects/${many.str("projectId")}/repository/commits/${many.str("sha")}/diff?per_page=100"
+        val first = call(diff)
+        assertEquals(null, first.link("prev"))
+        val next = first.link("next")!!
+        assertTrue(next.startsWith(base), "Link urls are absolute: $next")
+        val second = call(next.removePrefix(base))
+        assertEquals(200, second.status)
+        assertEquals("2", second.header("X-Page"))
+        assertEquals(100, second.array().size)
+        assertEquals(1, pageOf(second.link("prev")!!))
+        assertEquals(1, pageOf(second.link("first")!!))
+        assertEquals(pages, pageOf(second.link("last")!!))
+        assertEquals(3, pageOf(second.link("next")!!))
+    }
+
+    @Test
+    fun `a page past the end is an empty list with the usual headers and page 1 is only page absent or 1`() {
+        val commits = commitsPath(mergeProject, mainBranch)
+        for (page in listOf(2, 99, 0)) {
+            val reply = call("$commits&page=$page")
+            assertEquals(200, reply.status, "page $page")
+            assertEquals("[]", reply.body, "page $page")
+            assertEquals(page.toString(), reply.header("X-Page"))
+            assertEquals("", reply.header("X-Next-Page"))
+            assertEquals("100", reply.header("X-Per-Page"))
+            assertEquals(total(mergeProject).toString(), reply.header("X-Total"))
+            assertEquals("1", reply.header("X-Total-Pages"))
+        }
+        assertEquals(total(mergeProject), call("$commits&page=1").array().size)
+        val many = expected.at("special", "manyFiles")
+        val pages = many.str("diffPages").toInt()
+        val diff = "/api/v4/projects/${many.str("projectId")}/repository/commits/${many.str("sha")}/diff?per_page=100"
+        val past = call("$diff&page=${pages + 1}")
+        assertEquals("[]", past.body)
+        assertEquals(many.str("files"), past.header("X-Total"))
+        assertEquals(pages.toString(), past.header("X-Total-Pages"))
+    }
+
     @Test
     fun `the too_large file has an empty diff and a collapsed one is flagged`() {
         val tooLarge = expected.at("special", "tooLarge")
@@ -209,8 +277,9 @@ class GitLabStubServerTest {
         assertEquals(busy.str("notes").toInt(), first.array().size + second.array().size)
         assertEquals(200, call("$path/approvals").status)
         assertTrue(call("$path/reviewers").array().all { it.jsonObject.containsKey("state") })
-        val group = call(groupMergeRequests(7, "&updated_after=2020-01-01T00:00:00Z"))
-        assertEquals(expected.at("mergeRequests", "groupListPages", "7", "total").jsonPrimitive.content, group.header("X-Total"))
+        val group = call(groupMergeRequests(groupOf(mergeProject), "&updated_after=2020-01-01T00:00:00Z"))
+        val listed = expected.at("mergeRequests", "groupListPages", groupOf(mergeProject).toString(), "total").jsonPrimitive.content
+        assertEquals(listed, group.header("X-Total"))
     }
 
     @Test
@@ -234,12 +303,13 @@ class GitLabStubServerTest {
     fun `404 bodies carry the GitLab shapes`() {
         assertEquals("""{"message":"404 Project Not Found"}""", call("/api/v4/projects/9999").body)
         assertEquals("""{"message":"404 Project Not Found"}""", call(commitsPath(9999, "main")).body)
-        val notes = "/api/v4/projects/1/merge_requests/9999/notes?sort=asc&order_by=created_at&per_page=100"
+        val notes = "/api/v4/projects/$mergeProject/merge_requests/9999/notes?sort=asc&order_by=created_at&per_page=100"
         assertEquals("""{"message":"404 Not found"}""", call(notes).body)
-        val diff = "/api/v4/projects/1/repository/commits/${"0".repeat(40)}/diff?per_page=100"
+        val diff = "/api/v4/projects/$mergeProject/repository/commits/${"0".repeat(40)}/diff?per_page=100"
         assertEquals("""{"message":"404 Commit Not Found"}""", call(diff).body)
         assertEquals("""{"message":"404 User Not Found"}""", call("/api/v4/users/9999/emails").body)
-        assertEquals("""{"message":"404 Branch Not Found"}""", call("/api/v4/projects/1/repository/branches/no-such-branch").body)
+        val branch = "/api/v4/projects/$mergeProject/repository/branches/no-such-branch"
+        assertEquals("""{"message":"404 Branch Not Found"}""", call(branch).body)
         // The day-2-only project does not exist at day zero.
         val newId = expected.at("projects", "day2NewIds").jsonArray.first().jsonPrimitive.content
         assertEquals(404, call("/api/v4/projects/$newId").status)
@@ -262,32 +332,37 @@ class GitLabStubServerTest {
         try {
             // force-push: the head moved, and merge_base with the old head is an older commit
             val push = day2.getValue("forcePush").jsonObject
-            val list = call(commitsPath(1, "main"))
+            val pushProject = push.str("projectId").toInt()
+            val list = call(commitsPath(pushProject, branchOf(pushProject)))
             assertEquals(push.str("newTip"), list.array().first().str("id"))
             assertTrue(list.array().none { it.str("id") == push.str("oldTip") })
-            val base = call("/api/v4/projects/1/repository/merge_base?refs[]=${push.str("oldTip")}&refs[]=main")
+            val refs = "refs[]=${push.str("oldTip")}&refs[]=${branchOf(pushProject)}"
+            val base = call("/api/v4/projects/$pushProject/repository/merge_base?$refs")
             assertEquals(push.str("divergenceSha"), base.obj().str("id"))
             // the default branch rename
-            assertEquals("main", call("/api/v4/projects/4").obj().str("default_branch"))
-            assertEquals(404, call("/api/v4/projects/4/repository/branches/master").status)
-            assertEquals(200, call("/api/v4/projects/4/repository/branches/main").status)
+            val rename = day2.getValue("renamedDefaultBranch").jsonObject
+            val renamed = rename.str("projectId")
+            assertEquals(rename.str("to"), call("/api/v4/projects/$renamed").obj().str("default_branch"))
+            assertEquals(404, call("/api/v4/projects/$renamed/repository/branches/${rename.str("from")}").status)
+            assertEquals(200, call("/api/v4/projects/$renamed/repository/branches/${rename.str("to")}").status)
             // a deleted merge request is gone from the lists and 404 on its endpoints
             val gone = day2.getValue("deletedMergeRequest").jsonObject
             assertEquals(404, call("/api/v4/projects/${gone.str("projectId")}/merge_requests/${gone.str("iid")}/approvals").status)
-            val groupList = call(groupMergeRequests(9))
+            val groupList = call(groupMergeRequests(groupOf(gone.str("projectId").toInt())))
             assertTrue(groupList.array().none { it.str("iid") == gone.str("iid") && it.str("project_id") == gone.str("projectId") })
             // the moved project leaves the in-scope groups but still answers by id, now in the new namespace
             val moved = day2.getValue("movedProject").jsonObject
-            val inPlatform = call(groupProjects(7)).array().map { it.str("id") }
-            assertTrue(moved.str("projectId") !in inPlatform)
+            val oldGroup = moved.getValue("goneFromGroupProjects").jsonArray.first().jsonPrimitive.int
+            val inOldGroup = call(groupProjects(oldGroup)).array().map { it.str("id") }
+            assertTrue(moved.str("projectId") !in inOldGroup)
             assertEquals(moved.str("newFullPath"), call("/api/v4/projects/${moved.str("projectId")}").obj().str("path_with_namespace"))
             // the new project appears
             val created = day2.getValue("newProject").jsonObject
             assertEquals(200, call("/api/v4/projects/${created.str("id")}").status)
-            assertTrue(inPlatform.contains(created.str("id")))
+            assertTrue(inOldGroup.contains(created.str("id")))
         } finally {
             GitLabStubServer.resetScenarios()
         }
-        assertEquals("master", call("/api/v4/projects/4").obj().str("default_branch"))
+        assertEquals(branchOf(masterProject), call("/api/v4/projects/$masterProject").obj().str("default_branch"))
     }
 }

@@ -150,7 +150,7 @@ test("the stub references only bodies that exist and one scenario", () => {
     const files = new Set(readdirSync(path.join(dir, "gitlab-stub", "__files")));
     const names = readdirSync(mappings);
     assert.equal(names.length, mappingCount);
-    assert.ok(names.length < 1000, "kept on the order of the Jira stub");
+    assert.ok(names.length < 1500, "kept on the order of the Jira stub (801 mapping/body pairs)");
     for (const n of names) {
       const m = JSON.parse(readFileSync(path.join(mappings, n), "utf8"));
       assert.ok(files.has(m.response.bodyFileName), `${n} -> ${m.response.bodyFileName}`);

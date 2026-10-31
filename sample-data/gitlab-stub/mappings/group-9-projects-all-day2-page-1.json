@@ -12,6 +12,16 @@
       },
       "archived": {
         "absent": true
+      },
+      "page": {
+        "or": [
+          {
+            "absent": true
+          },
+          {
+            "equalTo": "1"
+          }
+        ]
       }
     }
   },

@@ -5,7 +5,7 @@
     "day2Time": "2026-09-02T00:00:00.000Z",
     "host": "gitlab.flow-sample.example",
     "params": {"users":6,"projects":4,"months":6},
-    "mappingCount": 727,
+    "mappingCount": 1196,
     "gitlabVersion": "19.3.1",
     "commitWindow": {"from":"2026-03-05T00:00:00.000Z","to":"2026-08-31T23:00:00.000Z"}
   },
@@ -5691,12 +5691,16 @@
       "otherFiles": [{"path":"package-lock.json","additions":59,"deletions":66,"generated":true},{"path":"src/data/README.md","additions":10,"deletions":9}],
       "otherFilesRaw": {"files":2,"additions":69,"deletions":75},
       "otherFilesCounted": {"files":1,"additions":10,"deletions":9},
-      "fallbackByDesignFormula": {
+      "fallbackByDesign": {
+        "additions": 5200,
+        "deletions": 140,
+        "note": "commit stats minus the OTHER files' RAW lines (gitlab-integration.md 'Path exclusions'); equals the true lines of the too_large file"
+      },
+      "fallbackSubtractingCountedOthersSuperseded": {
         "additions": 5259,
         "deletions": 206,
-        "note": "commit stats minus the OTHER files' COUNTED lines (gitlab-integration.md 'Path exclusions'): also absorbs the excluded files' lines"
-      },
-      "fallbackMinusRawOthers": {"additions":5200,"deletions":140,"note":"equals the true lines of the too_large file"}
+        "note": "superseded: stats minus the other files' COUNTED lines also absorbs the excluded files' lines; kept for comparison only"
+      }
     },
     "collapsed": {
       "projectId": 1,

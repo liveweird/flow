@@ -108,6 +108,9 @@ export function buildWorld(params = DEFAULT_PARAMS) {
   dayNotes.sort((a, b) => a.at - b.at);
   stamp(dayNotes);
   world.heads = computeHeads(world);
+  // The ONE merge request whose GraphQL `diffStatsSummary` is null (with an `errors` entry): the first merged MR of project 1.
+  const gap = mrs.filter((m) => m.projectId === 1 && !m.day2Only).sort((a, b) => a.iid - b.iid).find((m) => m.state === "merged");
+  world.nullGapMr = gap ? { projectId: gap.projectId, iid: gap.iid } : null;
   return world;
 }
 
