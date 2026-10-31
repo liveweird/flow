@@ -225,7 +225,7 @@ The compose stack routes **every** Jira call to that bundled stub, so a real `*.
 connection would silently talk to the stub. To connect a real tenant, start the stack with the
 reroute turned off: `JIRA_STUB_BASE_URL= docker compose up` (an explicitly empty value, not unset). The same holds for GitLab:
 the stack points `GITLAB_STUB_BASE_URL` at the bundled `gitlab-stub`, which turns the GitLab data-source kind on with `http://gitlab-stub:8080` as the
-only accepted base URL; `GITLAB_STUB_BASE_URL= docker compose up` turns that off. For a real instance, list its host in `GITLAB_ALLOWED_HOSTS` (and, on a private address, its range in `GITLAB_ALLOWED_CIDRS`); compose forwards both, while an internal CA (`GITLAB_CA_BUNDLE`) needs a volume mount for the PEM file.
+only accepted base URL; `GITLAB_STUB_BASE_URL= docker compose up` turns that off. For a real instance, list its host in `GITLAB_ALLOWED_HOSTS` (and, on a private address, its range in `GITLAB_ALLOWED_CIDRS`); compose forwards both, while an internal CA (`GITLAB_CA_BUNDLE`) needs a volume mount for the PEM file. The GitLab bot user is an admin with a `read_api`-only token; the checklist for a first real instance (what to run, what figures to share back) is in `.claude/docs/gitlab-integration.md`, "Real-instance smoke run".
 
 ## Configuration (environment variables)
 

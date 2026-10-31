@@ -14,7 +14,7 @@ where work waits, not who is busy.
 
 **Roadmap:** v0.1.0 foundation, v0.2.0 Jira ingestion, v0.3.0 the domain model, metrics and reports, v0.4.0 the Deep dive (report 17), and
 **1.x (current, 1.38.0) — this codebase**: twenty reports on nineteen pages; **Home** (`/`) overviews up to three teams in one request (`GET /api/v1/reports/home?teamId=…`), 90 days against the 90 before,
-all drillable; reports read per team or domain (never the whole unit), one Jira site per data source; GitLab in progress. Next: `BACKLOG.md`. The per-version scope:
+all drillable; reports read per team or domain (never the whole unit), one Jira site per data source; GitLab 1.34–1.38. Next: `BACKLOG.md`. The per-version scope:
 `.claude/docs/product.md`.
 
 Brand: blue (the `flow` colour tuple in `web/src/theme.ts`, `primaryShade: { light: 8, dark: 9 }`); the logo is "Rolling" — a
