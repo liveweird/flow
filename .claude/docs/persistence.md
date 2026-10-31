@@ -1436,6 +1436,32 @@ description or note body, and no key holds an email (decision 10).
   `(mr_id, seq)` key), `code_merge_requests`, `code_commits` (batches by key), then clears `code_identities` and `code_projects` outright. The telemetry size
   estimate picks the tables up by their `connection_id` column. Purely additive: an old pod never reads them. `MigrationChecksumTest` pins it.
 
+### Code identity links (V45)
+
+`V45__code_identity_links.sql` (`identities/CodeIdentityLinkStore.kt`; design `gitlab-integration.md` "Identity") adds `public.code_identity_links`: an ADMIN's
+decision about ONE GitLab identity of ONE instance. PK `(source_host, identity_key)`: `identity_key` is the code layer's `u<id>` / `e<hash>` key
+(`norm.code_identities`, V44) and `source_host` the instance's authority - the lowercase host, plus `:port` when the base URL names one
+(`sourceHostOf`, taken from the data source's canonical base URL). `decision` is `LINKED` / `IGNORED` / `BOT` (`CodeIdentityDecision`) and
+`jira_account_id` (`VARCHAR(100)`, `norm.people.account_id`'s width) is non-null **exactly when LINKED**; `decided_by_user_id` (`REFERENCES users(id)`, no
+`ON DELETE` rule: users are only ever soft-deleted, and an admin's departure must not unlink people) and `decided_at` (epoch-millis `BIGINT`) say who and
+when. Both are enforced by the SQL, whatever writes the row: `ck_code_identity_links_decision` (the closed vocabulary) and
+`ck_code_identity_links_account` (`(decision = 'LINKED') = (jira_account_id IS NOT NULL)`: a LINKED row without an account, or an IGNORED / BOT row that
+still names one, is impossible). `idx_code_identity_links_account` (partial, `WHERE jira_account_id IS NOT NULL`) serves the resolver's `keysByAccount`.
+There is no foreign key to `jira_account_id` (`norm.people` is per connection and rebuilt) - the route checks the account is known when it writes.
+
+- **Host-keyed, no connection column, undated.** `norm.code_identities` is rebuilt wholesale per PROCESS run and drained by PURGE, and a data source can be
+  deleted and created again for the same instance; a link points at the HOST, never at a row or a connection, so it **survives PURGE, a data-source
+  delete and a re-created source** and applies again as soon as the identity rows are back. No purge step is registered (`JobHandlerRegistry` untouched).
+  A decision whose identity never returns is a harmless orphan an ADMIN removes with `DELETE`. Proposals (an address matching a Jira person) are
+  computed at read time and never stored; only decisions are rows, and only a LINKED decision attributes anything.
+- **Readers and writers.** `identities/` only: `CodeIdentityLinkStore` is the single place that touches the table (`Links` is a query-only Exposed
+  definition; `decided_by_user_id` is a plain `long` column there because `identities/` never imports `flowusers/`). The routes' service and
+  `IdentityResolver` (the one entry point for the later reports) are its callers; nothing in `ingest/`, `norm/`, `jira/`, `gitlab/` references it. A row lock
+  on a link is a plain `FOR UPDATE`: nothing references this table, so no long transaction holds key-share locks on it ("Row locks vs. FK locks").
+- **Hard delete** (an exception listed in "Soft delete (convention)"): the deletable action is "this decision was wrong"; the audit trail carries who
+  decided and who removed what.
+- Purely additive: an old pod never reads it. `MigrationChecksumTest` pins it.
+
 ### Telemetry (V36)
 
 `ops.telemetry_processes` and `ops.telemetry_samples` (V36; `telemetry/TelemetryStore.kt`, `.claude/docs/observability.md` "Telemetry")
@@ -1458,6 +1484,7 @@ stays. The tests own the schema: `TelemetryStoreTest`/`TelemetrySamplerTest` emp
 `users` and `teams` are **soft-deleted** — rows are flagged, never physically removed; every
 business entity follows the same convention. Only join/token tables (today: `revoked_tokens`, a
 pure token registry, `password_reset_tokens` (V35, expiring single-use credentials, not history), `user_disabled_features`, a pure flag join whose PUT is a wholesale replace,
+`code_identity_links` (V45, "Code identity links (V45)": an admin's decision about one GitLab identity, undated and host-keyed; the deletable action is "this decision was wrong", the audit trail carries the removal - the `team_membership` justification below),
 `metrics.public_holidays` (V25, "Public holidays (V25)") and `metrics.team_membership` (V15, D1) — a pure DATED
 join: the deletable action is "this interval was entered by mistake", not "this person left" (which
 is already modeled by closing the interval — `validTo`), and a soft-delete flag would need a
