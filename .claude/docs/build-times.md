@@ -2161,6 +2161,22 @@ the time. `local-times.mjs slow-tests` reproduces this table for any run.
    - **Why.** The weights file had no row for the two new classes, so the balancer placed them blind and one fork ran 17 s longer than the other; the class times themselves moved by ~5 s (the sum's other ±10 s is run-to-run noise: it went DOWN to 9m07s on the third run).
    - **Verdict.** No budget changed. `server/test-weights.tsv` refreshed in this PR. Lesson for a PR that adds test classes: refresh the weights from its own full run BEFORE reading the gate time as a regression.
 
+57. **The GitLab code layer (PROCESS + PROFILE on every SYNC) adds ~14 s of class time and ~16 s to the gate; two 6m+ runs were a loaded machine - MEASURED 2026-10-31 (`feat/gitlab-code-layer`, PR 10).**
+   Question: the first two gate runs on the PR 10 branch took 6m08s and 6m36s, over the 6-min alarm. Is the code layer that expensive?
+   - **World.** `scripts/gates.sh all` twice and `scripts/gates.sh server` once on the branch, two forks; `slow-tests --forks 2` and a per-class join against master's `server/test-weights.tsv` after each; `uptime` and `ps` beside them.
+   - **Result.**
+
+     | run | load average | classes PR 10 does not touch, vs their weights | GitLab + code classes | sum of class times | span | `server-build` |
+     |---|---|---|---|---|---|---|
+     | WHY 56 (PR 9, refreshed weights) | - | - | 26.4 s | 9m07s | 4m36s | 4m54s |
+     | PR 10, run 1 | ~17 (an unrelated `rustc` build at ~700 % CPU, a Playwright session) | 672 s vs 532 s (x1.26) | 45.3 s | 11m18s | 5m46s | 6m08s |
+     | PR 10, run 2 | 11-15 (the same build) | 697 s vs 507 s (x1.38) | 54.0 s | 12m31s | 6m20s | 6m36s |
+     | PR 10, run 3 (the build finished) | 6-8 | 544 s vs 507 s (x1.07) | **40.8 s** | 9m45s | 4m55s | **5m10s** |
+
+     On the quiet run the GitLab and code classes cost +14.4 s over PR 9: `GitLabConnectorTest` 8.1 -> 12.4 s and `GitLabCommitsStreamTest` 3.3 -> 7.2 s (every SYNC they drive now ends with PROCESS and PROFILE), the new `GitLabProcessStreamTest` 5.5 s, `GitLabPurgeTest`, `GitLabRawPayloadWhitelistTest`, `GitLabProfileTest`, `GitLabNormalizerTest`, `GitLabProcessFailureTest` and `CodeNormalizationTest` ~2 s together. `SyncedGitLabFixture`'s one-time SYNC (now with PROCESS and PROFILE): 1.1-1.9 s. The fork balance held (excess 2.3 s, 0.8 %).
+   - **Why the first two runs looked like a regression.** Classes PR 10 does not touch (`MetricsDerivationTest` 42 -> 67 s, `ReportDrillSprintScopeTest` 23 -> 45 s) slowed by the same factor as the GitLab ones: the machine was shared with a large unrelated build. Join the untouched classes against the weights before reading a gate time; a factor well above 1.1 on them is load, not code.
+   - **Verdict.** No budget changed (the alarm is 6 min; the quiet gate is 5m10s). `server/test-weights.tsv` refreshed from the quiet run. The lever, if the GitLab classes keep growing in PR 11: `GitLabConnectorTest`'s whole-stub SYNC cases and `GitLabCommitsStreamTest` pay a full PROCESS + PROFILE per SYNC; the cases whose subject is the fetch could read a `SyncedGitLabFixture` clone, or run with a connector built without the local streams.
+
 ## Review cadence
 
 - Run `node scripts/timings/ci-times.mjs --branch master` at every milestone / PR, and in every

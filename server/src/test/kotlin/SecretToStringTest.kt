@@ -106,6 +106,7 @@ class SecretToStringTest {
         assertMasked(stored.toString(), "https://example.atlassian.net")
         val storedGitLab = StoredGitLabConnection(
             baseUrl = "https://gitlab.example.test", token = secret, groupPaths = listOf("acme/platform"), backfillFrom = "2024-01-01",
+            pathExclusions = emptyList(),
         )
         assertMasked(storedGitLab.toString(), "https://gitlab.example.test")
     }

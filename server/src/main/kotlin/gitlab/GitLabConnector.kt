@@ -1,6 +1,7 @@
 package ch.nokillswit.gitlab
 
 import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.infra.validation.PathGlob
 import ch.nokillswit.ingest.ConnectionTarget
 import ch.nokillswit.ingest.ConnectionTestResult
 import ch.nokillswit.ingest.Connector
@@ -10,25 +11,32 @@ import ch.nokillswit.ingest.JobRefusedException
 import ch.nokillswit.ingest.ProbeRun
 import ch.nokillswit.ingest.PurgeStep
 import ch.nokillswit.ingest.Stream
+import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.ingest.TOKEN_INACTIVE
 import ch.nokillswit.ingest.TOKEN_SCOPE_TOO_BROAD
 import ch.nokillswit.ingest.backfillFromEpochMillis
+import ch.nokillswit.norm.purgeAll
 
 private const val NOT_ADMIN = "NOT_ADMIN"
 private const val READ_API = "read_api"
 
 /**
  * The GitLab connector (`gitlab-integration.md`): Test connection, and the SYNC job's six streams, in this order: PROJECTS, USERS,
- * COMMITS, MERGE REQUESTS (the listings), then COMMIT FILES and MR DETAILS (the budgeted backlogs).
+ * COMMITS, MERGE REQUESTS (the listings), then COMMIT FILES and MR DETAILS (the budgeted backlogs), then `code_process` (the local
+ * PROCESS into `norm.code_*`, V44) and `code_profile` (the data profile's `gitlab` section). No GitLab-calling stream may follow them:
+ * [GITLAB_LOCAL_STREAMS] are deadline-exempt and disarm the hard stop.
  *
  * RECONCILE runs three streams, cheap and high-value first so a wall-clock stop lands in the long one: `reconcile_projects` (a
  * `GET /projects/:id` per moved-out project: 404 marks it deleted, `archived` marks it archived), `reconcile_merge_requests` (the
  * group re-list from the floor, the confirmed tombstones of the merge requests it did not show, the stats re-ask and the failed
  * details retries) and `reconcile_commits` (the `since`-less re-list of every synced project and its confirmed tombstones). It
- * reads nothing SYNC's cursors hold and writes only its own. PURGE drains the raw tables; REPROCESS is accepted and does nothing until
- * the norm layer (the plan's PR 10); DERIVE never reaches a connector (`IngestWorker` chains it for kinds that derive metrics only).
+ * reads nothing SYNC's cursors hold and writes only its own, and ends with `code_process` (never the profile), so a tombstone or a
+ * refilled stat is mirrored into the norm layer in the SAME job. REPROCESS re-flags every raw commit and merge request and runs
+ * `code_process` then `code_profile`, under a plain context with no tally and no token probe (a local rebuild works with a revoked
+ * token). PURGE drains the raw tables, then the code layer; DERIVE never reaches a connector (`IngestWorker` chains it for kinds that
+ * derive metrics only).
  */
 class GitLabConnector(
     private val newClient: GitLabClientFactory,
@@ -38,17 +46,24 @@ class GitLabConnector(
 ) : Connector {
     override val kind = DataSourceKind.GITLAB
 
-    /** PURGE's connector-owned step: drains this connection's `raw.gitlab_*` rows in batches. */
+    /**
+     * PURGE's connector-owned steps, in this order (Jira's): the raw tables, then the code layer (`norm.code_*`). Both drain in bounded
+     * batches. `source_connections.profile` is left alone, as for Jira.
+     */
     override val purgeSteps: List<PurgeStep>
-        get() = sync?.let { deps -> listOf(PurgeStep { connectionId -> deps.rawStore.purgeAll(connectionId) }) } ?: emptyList()
+        get() = sync?.let { deps ->
+            listOf(
+                PurgeStep { connectionId -> deps.rawStore.purgeAll(connectionId) },
+                PurgeStep { connectionId -> deps.codeStore.purgeAll(connectionId) },
+            )
+        } ?: emptyList()
 
     override suspend fun run(context: SyncJobRunContext) {
         when (context.claim.kind) {
             SyncJobKind.SYNC -> runSync(context)
             SyncJobKind.PURGE -> purgeSteps.forEach { it.purge(context.claim.connectionId) }
             SyncJobKind.RECONCILE -> runReconcile(context)
-            // A no-op until the norm layer exists (the plan's PR 10).
-            SyncJobKind.REPROCESS -> Unit
+            SyncJobKind.REPROCESS -> runReprocess(context)
             // DERIVE is connector-agnostic and dispatched before a connector's run(); a GitLab connection never has one.
             SyncJobKind.DERIVE -> Unit
         }
@@ -65,7 +80,8 @@ class GitLabConnector(
         val claim = context.claim
         val stored = deps.dataSources.readGitLabForSync(claim.connectionId) ?: return
         val client = newClient(stored.baseUrl, stored.token)
-        ConnectorRun.withTally(context, deps.database, deps.cursors, now, deadlineExemptStreams = emptySet()) { streamContext ->
+        val exclusions = stored.pathExclusions.map(PathGlob::compile)
+        ConnectorRun.withTally(context, deps.database, deps.cursors, now, deadlineExemptStreams = GITLAB_LOCAL_STREAMS) { streamContext ->
             refuseUnlessReadOnly(client)
             val isAdmin = client.currentUser().isAdmin
             val backfill = backfillFromEpochMillis(stored.backfillFrom)
@@ -78,6 +94,9 @@ class GitLabConnector(
                 GitLabMergeRequestsStream(client, deps.rawStore, stored.groupPaths, backfill),
                 GitLabCommitFilesStream(client, deps.rawStore, deps.commitFilesPerRun),
                 GitLabMrDetailsStream(client, deps.rawStore, deps.mrDetailsPerRun),
+                // Local from here on: nothing that calls GitLab may follow.
+                GitLabProcessStream(deps.processStore, deps.codeStore, exclusions),
+                GitLabProfileStream(deps.rawStore, deps.processStore, deps.codeStore, deps.dataSources),
             )
             streams.forEach { stream ->
                 streamContext.currentStreamName = stream.name
@@ -96,7 +115,8 @@ class GitLabConnector(
         val claim = context.claim
         val stored = deps.dataSources.readGitLabForSync(claim.connectionId) ?: return
         val client = newClient(stored.baseUrl, stored.token)
-        ConnectorRun.withTally(context, deps.database, deps.cursors, now, deadlineExemptStreams = emptySet()) { streamContext ->
+        val exclusions = stored.pathExclusions.map(PathGlob::compile)
+        ConnectorRun.withTally(context, deps.database, deps.cursors, now, deadlineExemptStreams = GITLAB_LOCAL_STREAMS) { streamContext ->
             refuseUnlessReadOnly(client)
             val backfill = backfillFromEpochMillis(stored.backfillFrom)
             val streams: List<Stream> = listOf(
@@ -107,12 +127,32 @@ class GitLabConnector(
                     refresh = GitLabMrReconcileRefresh(client, deps.rawStore, claim.requestedOnDemand),
                 ),
                 GitLabCommitsStream(client, deps.rawStore, backfill, reconcile = true),
+                GitLabProcessStream(deps.processStore, deps.codeStore, exclusions),
             )
             streams.forEach { stream ->
                 streamContext.currentStreamName = stream.name
                 stream.run(streamContext)
             }
         }
+    }
+
+    /**
+     * REPROCESS: flags EVERY raw commit and merge request of the connection, then runs `code_process` and `code_profile` - a
+     * version bump, a changed exclusion list to apply now, or a manually requested rebuild; it never touches GitLab (a plain
+     * [StreamContext]: no tally, no token probe, so it works with a revoked token). A deleted source is nothing to do.
+     */
+    private suspend fun runReprocess(context: SyncJobRunContext) {
+        val deps = checkNotNull(sync) { "GitLabConnector.run(REPROCESS) requires GitLabSyncDependencies (configureGitLab)" }
+        val claim = context.claim
+        val stored = deps.dataSources.readGitLabForSync(claim.connectionId) ?: return
+        deps.processStore.markAllNeedsProcessing(claim.connectionId, commitsOnly = false)
+        val streamContext = StreamContext(claim.connectionId, claim.id, deps.database, deps.cursors, context.heartbeat, now)
+        val stream = GitLabProcessStream(deps.processStore, deps.codeStore, stored.pathExclusions.map(PathGlob::compile))
+        streamContext.currentStreamName = stream.name
+        stream.run(streamContext)
+        val profile = GitLabProfileStream(deps.rawStore, deps.processStore, deps.codeStore, deps.dataSources)
+        streamContext.currentStreamName = profile.name
+        profile.run(streamContext)
     }
 
     /** Re-probes the token on EVERY run (SYNC and RECONCILE): a scope beyond reading, or an inactive token, refuses the job. */

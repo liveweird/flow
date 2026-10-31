@@ -129,7 +129,7 @@ describe("DataSourceDetails page: the connection kinds", () => {
     expect(screen.getByText("Raw issues")).toBeInTheDocument();
   });
 
-  test("a GitLab source shows its instance, groups and GitLab counts; the Jira-only pages and Reprocess are not offered, Reconcile now is", async () => {
+  test("a GitLab source shows its instance, groups and GitLab counts; it offers the data profile, Reprocess and Reconcile now, and not the inspector or metrics configuration", async () => {
     serve(mockFetch, GITLAB_CONNECTION, GITLAB_COUNTS);
     renderPage();
 
@@ -163,11 +163,12 @@ describe("DataSourceDetails page: the connection kinds", () => {
 
     expect(screen.getByRole("button", { name: "Sync now" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
-    for (const link of ["Data profile", "Raw issue inspector", "Metrics configuration"]) {
+    expect(screen.getByRole("link", { name: "Data profile" })).toHaveAttribute("href", "/data-sources/1/profile");
+    for (const link of ["Raw issue inspector", "Metrics configuration"]) {
       expect(screen.queryByRole("link", { name: link })).not.toBeInTheDocument();
     }
     expect(screen.getByRole("button", { name: "Reconcile now" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Reprocess" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reprocess" })).toBeInTheDocument();
   });
 
   test("a GitLab source whose store is off in this process shows dashes for its counts", async () => {

@@ -39,7 +39,7 @@ the two never run at the same time, whatever the dispatch order.
 9. Back on the Data sources list, they delete the connection from its row menu.
    - *Expected*: the row is gone.
 
-## Scenario: admin connects the GitLab stub, syncs and reconciles it, and reads back its projects, users, commits and merge requests
+## Scenario: admin connects the GitLab stub, syncs and reconciles it, and reads back its projects, users, commits and merge requests, and opens its data profile
 
 1. The admin signs in, opens **New data source**, fills a unique name and picks **GitLab** in the **Kind** control.
    - *Expected*: the form swaps to the GitLab fields (Base URL, Access token, Group paths, **Excluded paths**); the
@@ -54,9 +54,9 @@ the two never run at the same time, whatever the dispatch order.
    - *Expected*: the modal closes; the new connection appears in the filtered list.
 5. They open the new data source's details page.
    - *Expected*: the connection table names the kind **GitLab**, the groups `platform, apps` and the **Excluded paths**
-     (the defaults, including `package-lock.json`); there is no **Data
-     profile**, **Raw issue inspector** or **Metrics configuration** link and no **Reprocess** button (they are Jira-only;
-     the server answers `409` for them on a GitLab source); **Reconcile now** is offered for both kinds.
+     (the defaults, including `package-lock.json`); there is no **Raw issue
+     inspector** or **Metrics configuration** link (they are Jira-only; the server answers `409` for them on a GitLab
+     source); the **Data profile** link, the **Reprocess** button and **Reconcile now** are offered for both kinds.
 6. They click **Sync now**.
    - *Expected*: eventually (a reload each attempt) a **Sync** job row reads **Succeeded** and the raw-store counts show
      **Projects: 4** and **Users: 8** - the stub's in-scope projects (`sample-data/gitlab/expected.json`
@@ -68,11 +68,19 @@ the two never run at the same time, whatever the dispatch order.
      details under the default per-run budget) and **Merge requests without size statistics: 1**
      (`mergeRequests.nullDiffStatsGap`, the one merge request whose GraphQL answer carries no size), plus
      **Merge requests deleted: 0** and **Merge requests with unreadable details: 0**.
-7. They click **Reconcile now**.
+7. They open **Data profile**, then return to the details page.
+   - *Expected*: the page is `/data-sources/<id>/profile` under the heading **Data profile** (the job's PROFILE stream
+     stored it before the Sync row read Succeeded) and its tables read **Projects: Live 4**
+     (`projects.inScopeIds`), **Commits: Commits (merges excluded) 281** (`commits.inScopeTotals.nonMerge`),
+     **Merge commits 19** and **Awaiting file details 0**, **Merge requests: Merged 34** (`mergeRequests.byState`) and
+     **With size statistics 59 (98.3%)**, **Review events: Review requests 76**
+     (`events.notesByKind.REVIEW_REQUESTED`) and **Reviews 14** (`events.reviewerStates.reviewed`), **Identities:
+     GitLab users 8** (`users.list`) and **Commit emails matching no user 1** (`users.unmatchedAuthors`).
+8. They click **Reconcile now**.
    - *Expected*: eventually (a reload each attempt) a **Reconcile** job row reads **Succeeded**, and the counts are
      unchanged: **Commits: 300**, **Merge requests: 60**, **Merge requests deleted: 0** (the stub is at day zero, so the
      reconcile finds nothing to tombstone, move or refill).
-8. Back on the Data sources list, they delete the connection from its row menu.
+9. Back on the Data sources list, they delete the connection from its row menu.
    - *Expected*: the row is gone.
 
 ## Scenario: admin cannot move a backfill date before the history horizon
@@ -98,6 +106,9 @@ the two never run at the same time, whatever the dispatch order.
 
 ## Not covered here (and why)
 
+- **GitLab counted lines and identity resolution.** The profile figures above are counts only; the per-commit counted lines
+  (after the path exclusions), the identity keys and the review-event mapping are pinned by the server's
+  `GitLabProcessStreamTest`/`CodeNormalizationTest`, and the REPROCESS job by `GitLabConnectorTest`.
 - **GitLab day-2 deltas and the token-scope refusal** (a project moved out of the groups, `TOKEN_SCOPE_TOO_BROAD`,
   `TOKEN_INACTIVE`, `NOT_ADMIN`) - pinned by the server's `GitLabConnectorTest` and the editor's component tests; the journey drives
   the day-zero happy path only. The force-push re-list, the stored-head range walk and the per-file line counts are

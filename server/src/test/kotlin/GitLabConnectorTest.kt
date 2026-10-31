@@ -1,7 +1,6 @@
 package ch.nokillswit
 
 import ch.nokillswit.gitlab.GitLabRawStore
-import ch.nokillswit.gitlab.purgeAll
 import ch.nokillswit.fetch.FetchException
 import ch.nokillswit.ingest.ConnectionTarget
 import ch.nokillswit.ingest.ConnectionTestResult
@@ -46,7 +45,7 @@ class GitLabConnectorTest {
     fun cleanUp() = runBlocking<Unit> {
         overrides.forEach(GitLabStubServer::removeOverride)
         GitLabStubServer.resetScenarios()
-        connections.forEach { store.purgeAll(it) }
+        connections.forEach { GitLabFixtures.purgeAll(it) }
         connections.forEach { dataSources.delete(it) }
     }
 
@@ -294,6 +293,20 @@ class GitLabConnectorTest {
     }
 
     @Test
+    fun `REPROCESS needs no token probe - an inactive token does not stop the local rebuild`() = runBlocking<Unit> {
+        val connId = connection()
+        val connector = GitLabFixtures.connector(dataSources)
+        GitLabFixtures.run(connector, connId, onDemand = true)
+        val digest = GitLabFixtures.codeDigest(connId)
+        override("/personal_access_tokens/self", body = """{"scopes":["read_api"],"active":false}""")
+        assertFailsWith<JobRefusedException> { GitLabFixtures.run(connector, connId) }
+        val progress = mutableListOf<String>()
+        GitLabFixtures.run(connector, connId, SyncJobKind.REPROCESS, progress = progress)
+        assertEquals(300L, lastProgress(progress)["commitsProcessed"])
+        assertEquals(digest, GitLabFixtures.codeDigest(connId))
+    }
+
+    @Test
     fun `a non-admin token syncs the users without asking for secondary emails`() = runBlocking<Unit> {
         val connId = connection()
         override("/user", body = """{"id":2,"is_admin":false}""")
@@ -329,7 +342,7 @@ class GitLabConnectorTest {
     // ------------------------------------------------------------------ the other job kinds
 
     @Test
-    fun `PURGE drains all six tables, REPROCESS is an accepted no-op, and a RECONCILE at day zero changes no row`() = runBlocking<Unit> {
+    fun `PURGE drains the raw tables, REPROCESS rebuilds every norm row, and a RECONCILE at day zero changes no row`() = runBlocking<Unit> {
         val connId = connection()
         val connector = GitLabFixtures.connector(dataSources)
         GitLabFixtures.run(connector, connId, onDemand = true)
@@ -338,10 +351,23 @@ class GitLabConnectorTest {
         assertTrue(store.commitFileRows(connId, 1, expectedSha).isNotEmpty())
         assertEquals(60, store.mergeRequestRows(connId).size)
         assertTrue(store.mrEventRows(connId).isNotEmpty())
+        val code = GitLabFixtures.codeStore()
+        assertEquals(300, code.commitRows(connId).size, "the SYNC ends with PROCESS: every commit has a norm row")
+        assertEquals(60, code.mergeRequestRows(connId).size)
+        assertEquals(0L, GitLabFixtures.processStore().countNeedsProcessing(connId))
+        val digest = GitLabFixtures.codeDigest(connId)
 
         val reconcile = mutableListOf<String>()
         GitLabFixtures.run(connector, connId, SyncJobKind.RECONCILE, progress = reconcile)
-        GitLabFixtures.run(connector, connId, SyncJobKind.REPROCESS)
+        assertEquals(digest, GitLabFixtures.codeDigest(connId), "a RECONCILE at day zero changes no norm row")
+        val reprocess = mutableListOf<String>()
+        GitLabFixtures.run(connector, connId, SyncJobKind.REPROCESS, progress = reprocess)
+        assertEquals(digest, GitLabFixtures.codeDigest(connId), "REPROCESS rebuilds the same norm rows")
+        val reprocessed = lastProgress(reprocess)
+        assertEquals(300L, reprocessed["commitsProcessed"], "every commit is re-flagged and re-processed")
+        assertEquals(60L, reprocessed["mergeRequestsProcessed"])
+        assertEquals(1L, reprocessed["profileComputed"], "and the profile is recomputed")
+        assertEquals(0L, GitLabFixtures.processStore().countNeedsProcessing(connId))
         assertEquals(stored,
             store.projectRows(connId).map { it[GitLabRawStore.Projects.projectId] to it[GitLabRawStore.Projects.changedAt] })
         assertEquals(0L, store.counts(connId).mergeRequestsDeleted)
@@ -356,6 +382,11 @@ class GitLabConnectorTest {
         assertTrue(store.commitFileRows(connId, 1, expectedSha).isEmpty(), "and their files with them")
         assertTrue(store.mergeRequestRows(connId).isEmpty(), "the merge requests are purged")
         assertTrue(store.mrEventRows(connId).isEmpty(), "and their events with them")
+        assertEquals(emptyList(), code.commitRows(connId), "the code layer is purged after the raw tables")
+        assertEquals(emptyList(), code.mergeRequestRows(connId))
+        assertEquals(emptyMap(), code.mrEventRows(connId))
+        assertEquals(emptyList(), code.identityRows(connId))
+        assertEquals(emptyList(), code.projectRows(connId))
     }
 
     companion object {

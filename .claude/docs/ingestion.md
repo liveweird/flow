@@ -547,8 +547,8 @@ here). `cursor` is jsonb text (`infra/db/Jsonb.kt`) with a per-stream shape; `wa
 `last_completed_at` are the stream's own bookkeeping. `SyncCursorsService.put` upserts by
 `(connection_id, stream)` and runs in the SAME transaction as the stream's page write (REFERENCE and
 ISSUES do this as of this commit — see "Streams" below), so a crash never leaves a cursor pointing
-past data that was never committed. **PROCESS is deliberately the one stream with NO `sync_cursors`
-row of its own** — its resumability comes entirely from `raw.jira_issues`' own
+past data that was never committed. **Jira's PROCESS is deliberately the one stream with NO `sync_cursors`
+row of its own** (GitLab's keeps ONE, `code_process`, holding the three fingerprints the norm rows were computed under - a configuration stamp, never a position; "Cursor shapes") — its resumability comes entirely from `raw.jira_issues`' own
 `needs_processing`/`processing_version` columns (see "Normalized layer" below), which already double
 as a durable, queryable "what's left to do" list; a parallel serialized cursor would just be a
 second copy of the same position. **PROFILE has no `sync_cursors` row either, for a different
@@ -575,7 +575,7 @@ the hard stop; `ingest/ConnectorRun.kt`, which also holds `ceilingTripOf`). It f
 a token with a scope outside the read-only allow-list (`JobRefusedException(TOKEN_SCOPE_TOO_BROAD)`) or an inactive one
 (`TOKEN_INACTIVE`) before anything is stored. **Its RECONCILE** re-probes the token the same way, then runs `reconcile_projects` → `reconcile_merge_requests` →
 `reconcile_commits` (moved-out project probes; the group re-list from the floor with confirmed tombstones, the stats re-ask and the failed-read retries; the `since`-less
-commits re-list and its sweep); REPROCESS is an accepted no-op until PR 10. PURGE drains `raw.gitlab_*` (commits, then merge requests - their events cascade - then users and projects).
+commits re-list and its sweep). **PROCESS and PROFILE (PR 10):** SYNC ends with `code_process` then `code_profile` (the code layer, `norm.code_*` V44: local SQL, deadline-exempt `GITLAB_LOCAL_STREAMS`, so no GitLab-calling stream may follow them); RECONCILE ends with `code_process` only (a tombstone or a refilled stat is mirrored in the same job, never PROFILE); **REPROCESS** re-flags every raw commit and merge request then runs `code_process` → `code_profile` under a plain `StreamContext` - no tally and no token probe, so it works with a revoked token. PROCESS reads `FOR NO KEY UPDATE` in pages of 50 (one transaction per page), applies the path exclusions, resolves identities and rebuilds the reference rows wholesale; a failing page is bounded, not fatal: a page whose rows fault (the normalizer throws, a stored value cannot be decoded, or the database refuses a value, SQLSTATE class 22/23) rolls back, keeps its rows flagged, is counted (`commitPagesFailed` / `mergeRequestPagesFailed`) and the pass continues; more than 3 failed pages in a run fails the job, and any other failure (a connection, cancellation, a lost lease) propagates at once (`gitlab-integration.md` "PROCESS / PROFILE"). PURGE drains `raw.gitlab_*` (commits, then merge requests - their events cascade - then users and projects) and then `norm.code_*` in bounded batches; `source_connections.profile` stays.
 
 **Cursor shapes.**
 
@@ -594,6 +594,7 @@ commits re-list and its sweep); REPROCESS is an accepted no-op until PR 10. PURG
   last completed pass; the next listing asks `updated_after = watermark - 15 min`), `sync_cursors.watermark_at` = the smallest watermark and `last_completed_at` the end of the last
   pass. Each page commits with it; a pass saved for another list of groups is dropped (the watermarks stay), the watermark of an unconfigured group is dropped.
   **`mr_details`** has no cursor: the backlog (`raw.gitlab_merge_requests` with `details_synced_at` null or older than `changed_at`, live, of a live project) is its state.
+- **`code_process`** (`gitlab/GitLabProcessStream.kt`'s `CodeProcessCursor`): `{exclusionsSha256, identityMapSha256, usernameMapSha256}` - the sha256 of the EFFECTIVE path-exclusion list, of the address -> user map and of the username -> user map the stored norm rows were computed under. Each run compares them with the current ones: a different exclusion list or address map re-flags every COMMIT, a different username map (it resolves review-request targets) re-flags the merge requests too, and the new fingerprints are stored in the SAME transaction; an absent or undecodable row re-flags everything (and counts no change). A release that changes the default list therefore reaches every untouched source. **`code_profile`** has no cursor (a wholesale recompute, like Jira's PROFILE).
 - **`reference`** (`jira/JiraReferenceStream.kt`'s `ReferenceCursor`): `passStartedAt` (fixed for
   the whole pass, preserved across a resume), `step` (a `JiraEntityKind` — doubles as
   `raw.jira_entities.kind`, in the FIXED order the enum declares: `FIELD`, `STATUS`,
@@ -1288,7 +1289,7 @@ REPROCESS job (`JiraConnector.runReprocess`) does the same thing on demand: it f
 issue `needs_processing` (`JiraRawStore.markAllNeedsProcessing`) then runs PROCESS, never
 touching Jira. `NormalizationPipelineTest`'s "REPROCESS leaves the normalized digest unchanged"
 proves REPROCESS rebuilds byte-for-byte identical `norm.work_item_status_intervals` rows (an MD5
-digest over every issue's ordered intervals) — REPLACE is idempotent, not merely re-run-safe.
+digest over every issue's ordered intervals) — REPLACE is idempotent, not merely re-run-safe. GitLab's REPROCESS (`GitLabConnector.runReprocess`) re-flags every raw commit and merge request and runs `code_process` → `code_profile`; `GitLabProcessStreamTest` pins the same property with an MD5 over every `norm.code_*` row (`GitLabFixtures.codeDigest`): REPROCESS equals the incremental state.
 
 **Job orders.** A SYNC job runs REFERENCE → ISSUES → CHANGELOGS → WORKLOGS → **PROCESS** →
 **PROFILE**; a RECONCILE job runs `reconcile` → **PROCESS** (never PROFILE); a REPROCESS job flags
@@ -1335,7 +1336,7 @@ non-zero only; `gitlab.commitFilesPerRun` is the call budget),
 `mrSkipped` (a merge request of a project that is not a stored row)/`mrGroupsSkipped` (a group with no
 live stored project)/`mrGroupsNotFound` (a group GitLab answered `NOT_FOUND` for), `mrDetails`/`mrEvents`/`mrNotesCapped`/`mrDetailsMissing`/`mrDetailsOversized`/`mrDetailsFailed`/`mrDiffStatsGaps`/`mrGraphqlBreaker` (the GraphQL endpoint was out: no further GraphQL call that run, the stats of the rest are gaps, the stream drains on)/`mrApprovalsUnavailable`/`mrReviewersUnavailable`
 (MR DETAILS: merge requests read, their event rows, the 1,000-note cap, the terminal errors (`NOT_FOUND`, `LIMIT_EXCEEDED`, `FETCH_FAILED`), the GraphQL gaps, a missing `/approvals` or `/reviewers`) and `mrDetailsPending` (the backlog left when the run
-stopped, non-zero only; `gitlab.mrDetailsPerRun` is the call budget, REST and GraphQL). `gitlab-integration.md` "Streams" has each.
+stopped, non-zero only; `gitlab.mrDetailsPerRun` is the call budget, REST and GraphQL). `gitlab-integration.md` "Streams" has each. The code layer's streams add `commitsProcessed`/`mergeRequestsProcessed`/`identities` (PROCESS: rows written), `exclusionsChanged`/`identityMapChanged`/`usernameMapChanged` (1 when that fingerprint re-flagged), `commitPagesFailed`/`mergeRequestPagesFailed` (a tolerated failing page; more than 3 in a run fails the job) and `profileComputed` (PROFILE).
 
 **Counters the connector adds (not a stream's):** `StreamContext(extraProgress = …)` is a `() -> Map<String, Long>` merged into every heartbeat's progress JSON (and
 into `progressSnapshot()`). `JiraConnector` passes the job's `CallTally` (`jiraRateLimited`, `jiraBackoffMs`, `jiraTenantPausedMs`, `jiraNearLimitPauses`; definitions
@@ -1421,13 +1422,13 @@ out of every Jira-only path (V40 + `ingest/`, pinned by `ConnectorSeamTest` and 
   connections only, and an explicit `connectionId` of another kind is the same `400` as an unknown one; the metrics-config routes answer
   `409 data-source-kind-unsupported` (`DataSourceKindUnsupportedException`, type `urn:flow:problem:data-source-kind-unsupported`) after
   the admin guard, and so does the raw-issue inspector (`requireMetricsConnection` / `requireJiraConnection`). The data profile route
-  decodes no settings and serves a GITLAB row's stored (empty) profile: it becomes per-kind with the code layer.
+  decodes no settings and serves the stored profile whatever the kind: a GITLAB row's carries the `gitlab` section (`ingest/GitLabDataProfile.kt`) once PROFILE ran, a never-synced one is the empty default.
 - **The data-source API serves both kinds** (PR 6): `DataSourceResponse` carries `jira` or `gitlab` (the other null) and `list`/`read`/
   `update`/`readForTest` are kind-agnostic (`active()` only, branching on the row's kind); `persistCloudId` and `readForSync` stay
   Jira-only (`readGitLabForSync` is GitLab's). `delete`, the scheduler scans (`dueForSync`/`dueForReconcile`/`dueForPurge`) and
   `connectionHealth` are kind-agnostic on purpose: every kind syncs, reconciles and purges through its own connector. The backfill floor
   (history horizon) applies to GitLab sources too (it is the COMMITS stream's first-run floor, PR 7). The sync-job and status routes are
-  kind-agnostic (a GitLab source accepts REPROCESS, a no-op success until PR 10, and RECONCILE; the SPA offers "Reconcile now" for both kinds and "Reprocess" for Jira only). `uq_source_connections_name_active` spans kinds. With GitLab switched off after sources exist, list/read/delete keep working,
+  kind-agnostic (a GitLab source accepts REPROCESS and RECONCILE; the SPA offers "Reconcile now", "Reprocess" and the data profile for both kinds). `uq_source_connections_name_active` spans kinds. With GitLab switched off after sources exist, list/read/delete keep working,
   a PUT is `400 gitlab-disabled`, the stored Test connection `409 data-source-kind-unsupported`, and scheduled jobs are skipped (above).
 
 ## Data sources
@@ -1435,7 +1436,7 @@ out of every Jira-only path (V40 + `ingest/`, pinned by `ConnectorSeamTest` and 
 `source_connections` (V8, `ingest/DataSourceService.kt`) is the generic connector registry: `kind`
 (`JIRA_CLOUD`, `GITLAB` since V40 - "Connector kinds"), typed common columns (schedule, sync status, `config_revision`) and a
 `settings` jsonb holding the per-kind shape (Jira's: `siteUrl`, `email`, `projectKeys`, `authScheme`,
-`cloudId`; GitLab's: `baseUrl`, `groupPaths`, `pathExclusions?` - null = the built-in defaults, on the wire since PR 7, applied by PROCESS in PR 10) — the GitLab connector reuses this table, its
+`cloudId`; GitLab's: `baseUrl`, `groupPaths`, `pathExclusions?` - null = the built-in defaults, on the wire since PR 7, applied by PROCESS) — the GitLab connector reuses this table, its
 queue and its worker outright. The per-kind half of a write (which block a body carries, the settings it stores, the PUT merge with the
 identity/kind 409s, the ad-hoc test target) is `DataSourceKindWrites.kt`; the GitLab wire and validation is `GitLabDataSource.kt`. The service keeps the
 table, the CRUD and the PUT/scope locking; the rest sits beside it as verbatim moves taking an explicit `database`/`cipher`, the service
@@ -1604,6 +1605,8 @@ already-normalized/already-raw data — it makes no outbound Jira call of its ow
 The custom-field fill rate is counted in Postgres (`JiraRawStore.customFieldFill`, `jsonb_each` over `raw.jira_issues.payload`), so no
 issue payload enters the JVM heap and PROFILE's memory is bounded by the number of distinct field keys, not the project size (the
 first real-site SYNC — 2,105 issues, 59 MB of JSON — OOMed at `-Xmx256m` before this).
+
+**The GitLab section** (`gitlab/GitLabProfile.kt`, `gitlab/GitLabProfileStream.kt` after `code_process`, SYNC and REPROCESS only; the wire shape `DataProfile.gitlab`, `ingest/GitLabDataProfile.kt`) is ~20 database-side aggregates over `norm.code_*` plus two raw counts, counts only - no person, name, address, title or path: `projects` (live / movedOut / deleted / archived of the live), `commits` (live non-merge `count`, `merges`, the commit-time range of all live commits, `filesPending` = the COMMIT FILES backlog, `filesUnavailable`, `filesCapped`, `commitsWithCounts` = both counted figures known), `mergeRequests` (`byState`, `withDiffStats` and its percent, `detailsPending`, `detailsUnreadable`), `events.byKind` (the six kinds, zero-filled, over live merge requests) and `identities` (listed live users, bots, deleted, with an address and its percent, `ghosts`, `emailOnly`, `commitsUnmatched` = live non-merge commits under an `e…` key). The Jira sections stay at their defaults for a GitLab source and `gitlab` is null for a Jira one.
 
 **What each section measures (facts only — interpretation, e.g. which statuses count as "active"
 vs. "waiting", is a Phase 3 concern, see "Facts only — no interpretation" under "Normalized layer"

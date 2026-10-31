@@ -3523,6 +3523,133 @@ export interface components {
             /** Format: double */
             unassignedPercent: number;
         };
+        /** @description The GitLab projects by marker. `live` is neither moved out nor deleted; `archived` counts among the live ones. */
+        GitLabProjectsProfile: {
+            /** Format: int64 */
+            live: number;
+            /** Format: int64 */
+            movedOut: number;
+            /** Format: int64 */
+            deleted: number;
+            /** Format: int64 */
+            archived: number;
+        };
+        /** @description The live commits. `count` is non-merge commits; the commit-time range covers all live commits. */
+        GitLabCommitsProfile: {
+            /** Format: int64 */
+            count: number;
+            /** Format: int64 */
+            merges: number;
+            /**
+             * Format: int64
+             * @description Epoch millis; null when there is no live commit.
+             */
+            earliestCommittedAt?: number | null;
+            /**
+             * Format: int64
+             * @description Epoch millis; null when there is no live commit.
+             */
+            latestCommittedAt?: number | null;
+            /**
+             * Format: int64
+             * @description Commits whose diff has not been read yet (the COMMIT FILES backlog).
+             */
+            filesPending: number;
+            /**
+             * Format: int64
+             * @description Live commits whose diff ended in a terminal error.
+             */
+            filesUnavailable: number;
+            /**
+             * Format: int64
+             * @description Non-merge commits with more files than were stored (the first 1,000).
+             */
+            filesCapped: number;
+            /**
+             * Format: int64
+             * @description Non-merge commits whose counted lines (after the path exclusions) are known.
+             */
+            commitsWithCounts: number;
+        };
+        /** @description The live merge requests. */
+        GitLabMergeRequestsProfile: {
+            /** @description Keyed by GitLab's merge request state (`opened`, `merged`, `closed`, `locked`). */
+            byState: {
+                [key: string]: number;
+            };
+            /**
+             * Format: int64
+             * @description Merge requests whose diff stats are not a gap.
+             */
+            withDiffStats: number;
+            /**
+             * Format: double
+             * @description One decimal.
+             */
+            withDiffStatsPercent: number;
+            /**
+             * Format: int64
+             * @description Merge requests whose details (events, stats) are stale.
+             */
+            detailsPending: number;
+            /**
+             * Format: int64
+             * @description Merge requests whose details read ended in a terminal error.
+             */
+            detailsUnreadable: number;
+        };
+        /** @description The review events of the live merge requests. */
+        GitLabEventsProfile: {
+            /** @description Keyed by event kind (`COMMENT`, `DIFF_COMMENT`, `APPROVAL`, `REVIEW_REQUESTED`, `REVIEWED`, `CHANGES_REQUESTED`); every kind is present. */
+            byKind: {
+                [key: string]: number;
+            };
+        };
+        /** @description Counts of the people the code layer names. No name, address or key. */
+        GitLabIdentitiesProfile: {
+            /**
+             * Format: int64
+             * @description Listed, live GitLab users (bots included).
+             */
+            users: number;
+            /** Format: int64 */
+            bots: number;
+            /** Format: int64 */
+            usersDeleted: number;
+            /**
+             * Format: int64
+             * @description Live users with at least one known address.
+             */
+            usersWithEmail: number;
+            /**
+             * Format: double
+             * @description Share of `users`, one decimal.
+             */
+            usersWithEmailPercent: number;
+            /**
+             * Format: int64
+             * @description User ids the facts name that the users listing never returned.
+             */
+            ghosts: number;
+            /**
+             * Format: int64
+             * @description Commit author addresses matching no GitLab user.
+             */
+            emailOnly: number;
+            /**
+             * Format: int64
+             * @description Live non-merge commits authored by those addresses.
+             */
+            commitsUnmatched: number;
+        };
+        /** @description The GitLab section of the data profile - facts about the stored code layer, counts only. */
+        GitLabDataProfile: {
+            projects: components["schemas"]["GitLabProjectsProfile"];
+            commits: components["schemas"]["GitLabCommitsProfile"];
+            mergeRequests: components["schemas"]["GitLabMergeRequestsProfile"];
+            events: components["schemas"]["GitLabEventsProfile"];
+            identities: components["schemas"]["GitLabIdentitiesProfile"];
+        };
         DataProfile: {
             /**
              * Format: int64
@@ -3555,6 +3682,8 @@ export interface components {
             schemeEpicFieldIds?: string[] | null;
             /** @description The `schemeFieldIds` union restricted to the issue types at hierarchy level 0 or below (sub-tasks count with tasks; a type of unknown level counts as a task type); null under the same rule as `schemeFieldIds`. */
             schemeTaskFieldIds?: string[] | null;
+            /** @description Present for a GITLAB data source once its PROFILE ran; null for a Jira source and before the first PROFILE. */
+            gitlab?: components["schemas"]["GitLabDataProfile"] | null;
         };
         MetricsStatusStage: {
             statusId: string;

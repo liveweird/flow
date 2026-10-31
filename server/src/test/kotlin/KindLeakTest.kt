@@ -279,10 +279,13 @@ class KindLeakTest {
         assertEquals(DATA_SOURCE_KIND_UNSUPPORTED, inspected.body<ProblemDetail>().type)
         assertEquals(HttpStatusCode.NotFound, admin.get("/api/v1/data-sources/987654321/raw-issues/ENG-1").status)
 
-        // The profile is per-kind later (its GitLab shape arrives with the code layer); today it is the stored-and-never-computed answer.
+        // The profile is per-kind (a GitLab source carries the `gitlab` section once PROFILE ran); a never-synced one is the
+        // stored-and-never-computed answer for both kinds.
         val profile = admin.get("/api/v1/data-sources/$gitlabId/profile")
         assertEquals(HttpStatusCode.OK, profile.status)
-        assertNull(profile.body<DataProfile>().computedAt)
+        val body = profile.body<DataProfile>()
+        assertNull(body.computedAt)
+        assertNull(body.gitlab)
     }
 
     @Test

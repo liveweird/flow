@@ -80,6 +80,8 @@ data class StoredGitLabConnection(
     val groupPaths: List<String>,
     /** ISO date (`YYYY-MM-DD`) - the COMMITS stream's first-run floor (a later release); stored now so the shape is stable. */
     val backfillFrom: String,
+    /** The EFFECTIVE path exclusions (`effectivePathExclusions`): the stored list, or the defaults when the source never set one. */
+    val pathExclusions: List<String>,
 ) {
     override fun toString(): String =
         "StoredGitLabConnection(baseUrl=$baseUrl, token=${maskedSecret(token)}, groupPaths=$groupPaths, backfillFrom=$backfillFrom)"

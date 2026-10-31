@@ -6,7 +6,6 @@ import ch.nokillswit.gitlab.GitLabRawStore
 import ch.nokillswit.gitlab.GitLabRawStore.CommitFiles
 import ch.nokillswit.gitlab.GitLabRawStore.Commits
 import ch.nokillswit.gitlab.GitLabRawStore.Projects
-import ch.nokillswit.gitlab.purgeAll
 import ch.nokillswit.ingest.backfillFromEpochMillis
 import ch.nokillswit.ingest.defaultBackfillFrom
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
@@ -60,7 +59,7 @@ class GitLabCommitsStreamTest {
     fun cleanUp() = runBlocking<Unit> {
         overrides.forEach(GitLabStubServer::removeOverride)
         GitLabStubServer.resetScenarios()
-        connections.forEach { store.purgeAll(it) }
+        connections.forEach { GitLabFixtures.purgeAll(it) }
         connections.forEach { GitLabFixtures.dataSources().delete(it) }
     }
 
@@ -250,7 +249,10 @@ class GitLabCommitsStreamTest {
         val removed = push.at("removedShas").jsonArray.map { it.str() }.toSet()
         val mine = rows.commitsOf(1)
         assertEquals(removed, mine.filter { it[Commits.deletedAt] != null }.map { it[Commits.sha] }.toSet())
-        assertTrue(mine.filter { it[Commits.sha] in removed }.all { it[Commits.needsProcessing] })
+        // The tombstones were flagged for PROCESS, and the same SYNC job ended with it: the norm rows mirror them; nothing stays flagged.
+        val mirrored = GitLabFixtures.codeStore().commitRows(connId, 1).filter { it.sha in removed }
+        assertEquals(removed, mirrored.filter { it.deletedAt != null }.map { it.sha }.toSet())
+        assertTrue(mine.filter { it[Commits.sha] in removed }.none { it[Commits.needsProcessing] })
         val added = (push.at("newShas").jsonArray + push.at("rewrittenShas").jsonArray).map { it.str() }.toSet()
         val known = before.commitsOf(1).map { it[Commits.sha] }.toSet()
         assertEquals(added, mine.map { it[Commits.sha] }.toSet() - known)

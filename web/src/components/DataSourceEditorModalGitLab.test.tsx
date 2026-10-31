@@ -131,7 +131,7 @@ describe("DataSourceEditorModal", () => {
       await pickGitLab(user, modal);
 
       expect(within(modal).getByRole("combobox", { name: "Excluded paths" })).toBeInTheDocument();
-      expect(within(modal).getByText(/Applied when commits are processed/)).toBeInTheDocument();
+      expect(within(modal).getByText(/applied at the next sync, or at once with Reprocess/)).toBeInTheDocument();
       expect(within(modal).getByText("package-lock.json")).toBeInTheDocument();
       expect(within(modal).getByText("*.min.js")).toBeInTheDocument();
       const reset = within(modal).getByRole("button", { name: "Reset to defaults" });

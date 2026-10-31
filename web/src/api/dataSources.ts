@@ -29,6 +29,7 @@ export type SyncCursorSummary = SyncStatusResponse["cursors"][number];
 export type SyncCounts = SyncStatusResponse["counts"];
 export type RawIssueInspection = paths["/api/v1/data-sources/{id}/raw-issues/{issueKey}"]["get"]["responses"]["200"]["content"]["application/json"];
 export type DataProfile = paths["/api/v1/data-sources/{id}/profile"]["get"]["responses"]["200"]["content"]["application/json"];
+export type GitLabDataProfile = NonNullable<DataProfile["gitlab"]>;
 export type ProjectProfile = NonNullable<DataProfile["projects"]>[number];
 export type WorkflowProfile = NonNullable<DataProfile["workflows"]>[number];
 export type BoardProfile = NonNullable<DataProfile["boards"]>[number];

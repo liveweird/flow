@@ -109,6 +109,7 @@ internal fun ResultRow.toStoredGitLabConnection(cipher: FieldCipher): StoredGitL
         token = cipher.decrypt(this[Connections.secret]),
         groupPaths = settings.groupPaths,
         backfillFrom = this[Connections.backfillFrom],
+        pathExclusions = effectivePathExclusions(settings.pathExclusions),
     )
 }
 

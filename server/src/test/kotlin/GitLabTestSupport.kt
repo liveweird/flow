@@ -2,11 +2,13 @@ package ch.nokillswit
 
 import ch.nokillswit.fetch.OutboundPermits
 import ch.nokillswit.gitlab.GitLabConnector
+import ch.nokillswit.gitlab.GitLabRawProcessStore
 import ch.nokillswit.gitlab.GitLabRawStore
 import ch.nokillswit.gitlab.GitLabSettings
 import ch.nokillswit.gitlab.GitLabSyncDependencies
 import ch.nokillswit.gitlab.HttpGitLabClient
 import ch.nokillswit.gitlab.createGitLabHttp
+import ch.nokillswit.gitlab.purgeAll
 import ch.nokillswit.infra.crypto.DEV_DATA_ENCRYPTION_KEY
 import ch.nokillswit.infra.crypto.FieldCipher
 import ch.nokillswit.infra.outbound.SelfManagedHosts
@@ -23,6 +25,8 @@ import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.ingest.DataSourceKind
 import ch.nokillswit.ingest.defaultBackfillFrom
+import ch.nokillswit.norm.CodeActivityStore
+import ch.nokillswit.norm.purgeAll as purgeAllCode
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
@@ -44,6 +48,39 @@ object GitLabFixtures {
     }
 
     fun rawStore() = GitLabRawStore(sharedDatabaseForTests())
+
+    fun processStore() = GitLabRawProcessStore(sharedDatabaseForTests())
+
+    fun codeStore() = CodeActivityStore(sharedDatabaseForTests())
+
+    /** Drains one connection's raw GitLab rows AND its `norm.code_*` rows: the cleanup of a test whose connector run produced both. */
+    suspend fun purgeAll(connId: UInt) {
+        rawStore().purgeAll(connId)
+        codeStore().purgeAllCode(connId)
+    }
+
+    /**
+     * An MD5 over every `norm.code_*` row of [connId] in primary-key order, `processed_at` and the connection id excluded: two PROCESS runs
+     * that wrote the same facts have the same digest (the REPROCESS = incremental state check; a red digest is a real bug).
+     */
+    fun codeDigest(connId: UInt): String {
+        val tables = listOf(
+            CodeActivityStore.CodeProjects, CodeActivityStore.CodeIdentities, CodeActivityStore.CodeCommits,
+            CodeActivityStore.CodeMergeRequests, CodeActivityStore.CodeMrEvents,
+        )
+        return PostgresTestSupport.connect().use { conn ->
+            conn.createStatement().use { st ->
+                tables.joinToString("|") { table ->
+                    val data = table.columns.filter { it.name != "connection_id" && it.name != "processed_at" }
+                    val row = data.joinToString(" || '~' || ") { "coalesce(\"${it.name}\"::text, '<null>')" }
+                    val order = table.primaryKey!!.columns.joinToString(", ") { "\"${it.name}\"" }
+                    val aggregate = "string_agg($row, E'\\n' ORDER BY $order)"
+                    val query = "SELECT md5(coalesce($aggregate, '')) FROM ${table.tableName} WHERE connection_id = $connId"
+                    st.executeQuery(query).use { rs -> rs.next(); rs.getString(1) }
+                }
+            }
+        }
+    }
 
     /** A GitLab connection on the stub with a token the stub accepts (any non-empty one). DISABLED by default: no worker re-syncs it. */
     suspend fun createConnection(
@@ -97,6 +134,8 @@ object GitLabFixtures {
             sync = GitLabSyncDependencies(
                 dataSources = dataSources,
                 rawStore = rawStore(),
+                processStore = processStore(),
+                codeStore = codeStore(),
                 cursors = SyncCursorsService(sharedDatabaseForTests()),
                 database = sharedDatabaseForTests(),
                 usersRefreshMillis = usersRefreshHours * 3_600_000L,

@@ -346,17 +346,15 @@ export default function DataSourceDetails() {
             >
               {t("dataSources.details.reconcileNow")}
             </Button>
-            {/* REPROCESS is a no-op success for a GitLab source until PR 10 (`gitlab-integration.md`): not offered. */}
-            {jiraKind && (
-              <Button
-                variant="default"
-                leftSection={<IconRecycle size={16} />}
-                disabled={requestingKind !== null}
-                onClick={() => setReprocessConfirmOpen(true)}
-              >
-                {t("dataSources.details.reprocess")}
-              </Button>
-            )}
+            {/* REPROCESS rebuilds every normalized row of either kind; a GitLab reprocess also applies a changed exclusion list at once. */}
+            <Button
+              variant="default"
+              leftSection={<IconRecycle size={16} />}
+              disabled={requestingKind !== null}
+              onClick={() => setReprocessConfirmOpen(true)}
+            >
+              {t("dataSources.details.reprocess")}
+            </Button>
             <Button variant="default" leftSection={<IconPencil size={16} />} onClick={() => setEditing(true)}>
               {t("common.action.edit")}
             </Button>
@@ -373,8 +371,8 @@ export default function DataSourceDetails() {
             )}
           </>
         }
-        // The data profile, raw-issue inspector and metrics configuration read Jira's issue store: a GitLab source has none (409 server-side).
-        toolbar={jiraKind ? (
+        // The data profile is offered for both kinds. The raw-issue inspector and metrics configuration read Jira's issue store: 409 for GitLab.
+        toolbar={(
           <Group gap="sm">
             <Button
               component={RouterLink}
@@ -385,26 +383,30 @@ export default function DataSourceDetails() {
             >
               {t("dataSources.profile.title")}
             </Button>
-            <Button
-              component={RouterLink}
-              to={dataSourceInspectPath(id)}
-              variant="subtle"
-              size="xs"
-              leftSection={<IconFileSearch size={14} />}
-            >
-              {t("dataSources.inspect.title")}
-            </Button>
-            <Button
-              component={RouterLink}
-              to={dataSourceMetricsConfigPath(id)}
-              variant="subtle"
-              size="xs"
-              leftSection={<IconAdjustments size={14} />}
-            >
-              {t("metrics.config.title")}
-            </Button>
+            {jiraKind && (
+              <>
+                <Button
+                  component={RouterLink}
+                  to={dataSourceInspectPath(id)}
+                  variant="subtle"
+                  size="xs"
+                  leftSection={<IconFileSearch size={14} />}
+                >
+                  {t("dataSources.inspect.title")}
+                </Button>
+                <Button
+                  component={RouterLink}
+                  to={dataSourceMetricsConfigPath(id)}
+                  variant="subtle"
+                  size="xs"
+                  leftSection={<IconAdjustments size={14} />}
+                >
+                  {t("metrics.config.title")}
+                </Button>
+              </>
+            )}
           </Group>
-        ) : undefined}
+        )}
       />
 
       {actionError && (
@@ -520,7 +522,7 @@ export default function DataSourceDetails() {
       )}
 
       <ConfirmActionModal
-        opened={jiraKind && reprocessConfirmOpen}
+        opened={reprocessConfirmOpen}
         onClose={() => setReprocessConfirmOpen(false)}
         title={t("dataSources.details.reprocessTitle")}
         message={t("dataSources.details.reprocessBody")}

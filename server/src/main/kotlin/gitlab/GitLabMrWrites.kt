@@ -255,9 +255,10 @@ internal class GitLabMrWrites(private val database: R2dbcDatabase) {
 
     /**
      * Un-stamps up to [limit] LIVE merge requests of live projects whose `details_error` is in [errors], the stalest stamp first (ties:
-     * `mr_id`): `details_synced_at` and `details_error` become null, so the next SYNC's MR DETAILS reads them again (they re-enter its
-     * backlog). The UPDATE repeats the SELECT's predicate (live, the error set, a live project), so a row tombstoned, re-stamped or
-     * moved out between the two is left alone; no lock is held across them. Returns how many.
+     * `mr_id`): `details_synced_at` and `details_error` become null and PROCESS is flagged (their norm `details_state` becomes
+     * `PENDING`), so the next SYNC's MR DETAILS reads them again (they re-enter its backlog). The UPDATE repeats the SELECT's predicate
+     * (live, the error set, a live project), so a row tombstoned, re-stamped or moved out between the two is left alone; no lock is held
+     * across them. Returns how many.
      */
     suspend fun retryMrDetails(connectionId: UInt, errors: Collection<String>, limit: Int): Int {
         if (errors.isEmpty() || limit <= 0) return 0
@@ -274,6 +275,8 @@ internal class GitLabMrWrites(private val database: R2dbcDatabase) {
             MergeRequests.update({ unread and (MergeRequests.mrId inList ids) }) {
                 it[detailsSyncedAt] = null
                 it[detailsError] = null
+                // Un-stamped details are PENDING: the next PROCESS (RECONCILE's own, in the same job) must write that, not leave READ.
+                it[needsProcessing] = true
             }
         }
     }

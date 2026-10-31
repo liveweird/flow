@@ -98,7 +98,7 @@
     "groupPaths": "Ścieżki grup",
     "groupPathsHint": "Pełne ścieżki grup (np. platform, platform/tooling); podgrupy są uwzględniane, zarchiwizowane projekty nie",
     "pathExclusions": "Wykluczone ścieżki",
-    "pathExclusionsHint": "Wzorce glob plików pomijanych w liczbie linii (np. *.min.js, **/vendor/**); nazwa bez / pasuje na każdej głębokości. Stosowane przy przetwarzaniu commitów — zliczenia pojawią się w kolejnej wersji.",
+    "pathExclusionsHint": "Wzorce glob plików pomijanych w liczbie linii (np. *.min.js, **/vendor/**); nazwa bez / pasuje na każdej głębokości. Zmiana jest stosowana przy następnej synchronizacji albo od razu przez „Przetwórz ponownie”.",
     "pathExclusionsReset": "Przywróć domyślne",
     "backfillFrom": "Uzupełnij dane od",
     "backfillFromHint": "Data ISO (RRRR-MM-DD) — zostaw puste, aby pobrać 24 miesiące wstecz (wyczyszczenie pola później przywraca tę wartość). Wcześniejsza data jednorazowo wczyta ponownie cały zakres przy następnej synchronizacji; późniejsza zachowa dane już pobrane, ale nie będą one już weryfikowane.",
@@ -220,7 +220,7 @@
     "reconcileNow": "Uzgodnij teraz",
     "reprocess": "Przetwórz ponownie",
     "reprocessTitle": "Przetworzyć ponownie to źródło danych?",
-    "reprocessBody": "Odbudowuje warstwę znormalizowaną z surowego magazynu dla każdego zgłoszenia. Może to potrwać chwilę i nigdy nie wywołuje Jiry.",
+    "reprocessBody": "Odbudowuje warstwę znormalizowaną z surowego magazynu dla każdego elementu. Może to potrwać chwilę i nigdy nie wywołuje źródła.",
     "cancel": "Anuluj zadanie",
     "cancelConflict": "To zadanie już się zakończyło — nie ma czego anulować.",
     "actionDisabled": "To źródło danych jest wyłączone — najpierw je włącz."
@@ -304,6 +304,59 @@
     "people": {
       "activeAssignees": "Aktywni/wne przypisani/ne",
       "unassignedPercent": "Nieprzypisane"
+    },
+    "gitlab": {
+      "section": {
+        "projects": "Projekty",
+        "commits": "Commity",
+        "mergeRequests": "Merge requesty",
+        "events": "Zdarzenia przeglądu",
+        "identities": "Tożsamości"
+      },
+      "projects": {
+        "live": "Aktywne",
+        "movedOut": "Przeniesione poza zakres",
+        "deleted": "Usunięte",
+        "archived": "Zarchiwizowane"
+      },
+      "commits": {
+        "count": "Commity (bez merge'ów)",
+        "merges": "Commity merge",
+        "withCounts": "Commity z policzonymi liniami",
+        "earliest": "Najstarszy commit",
+        "latest": "Najnowszy commit",
+        "filesPending": "Oczekujące na szczegóły plików",
+        "filesUnavailable": "Szczegóły plików niedostępne",
+        "filesCapped": "Ucięte na 1000 plikach"
+      },
+      "mergeRequests": {
+        "withDiffStats": "Ze statystykami rozmiaru",
+        "detailsPending": "Oczekujące na szczegóły",
+        "detailsUnreadable": "Szczegóły nieczytelne"
+      },
+      "state": {
+        "merged": "Scalone",
+        "opened": "Otwarte",
+        "closed": "Zamknięte",
+        "locked": "Zablokowane"
+      },
+      "event": {
+        "COMMENT": "Komentarze",
+        "DIFF_COMMENT": "Komentarze do zmian",
+        "APPROVAL": "Zatwierdzenia",
+        "REVIEW_REQUESTED": "Prośby o przegląd",
+        "REVIEWED": "Przeglądy",
+        "CHANGES_REQUESTED": "Prośby o zmiany"
+      },
+      "identities": {
+        "users": "Użytkownicy GitLab",
+        "bots": "Boty",
+        "usersDeleted": "Usunięci użytkownicy",
+        "ghosts": "Użytkownicy spoza listy",
+        "emailOnly": "Adresy e-mail commitów bez użytkownika",
+        "usersWithEmail": "Użytkownicy z widocznym adresem e-mail",
+        "commitsUnmatched": "Commity z niedopasowanego adresu e-mail"
+      }
     }
   },
   "inspect": {
