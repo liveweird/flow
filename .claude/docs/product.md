@@ -26,7 +26,7 @@ Read on demand when you need the version history or the sibling repositories Flo
   and the target-vs-actual share with its weekly cumulative trend in 1.14); 1.9 Commitments and Throughput split by epic per sprint and 1.10
   Throughput's Actual cost beside Delivered; 1.4.3 a capacity day belongs to one sprint of a team; 1.6 one Jira site for every data source, no project
   in two data sources; 1.7 reports are read for a team or a domain, never the whole unit (team-required filters; Deep dive asks for a domain first);
-  1.8 "Users" became "Flow users"; 1.15 sign-in changes take effect on the next request and 1.16 the password reset is a confirmed link; 1.17 the ADMIN **telemetry panel** (Flow's own memory, storage, sync, DERIVE, request and JVM figures with 90-day trends; `web-features.md` "Telemetry panel"); plus the container memory / AppCDS work (`build-times.md`). Next: the real-Jira first sync, then `BACKLOG.md`.
+  1.8 "Users" became "Flow users"; 1.15 sign-in changes take effect on the next request and 1.16 the password reset is a confirmed link; 1.17 the ADMIN **telemetry panel** (Flow's own memory, storage, sync, DERIVE, request and JVM figures with 90-day trends; `web-features.md` "Telemetry panel"); plus the container memory / AppCDS work (`build-times.md`); 1.34-1.38 the self-managed GitLab connector (data sources; commits with per-file line counts and path exclusions; merge requests, notes as action codes, approvals and reviewer states; RECONCILE; the normalized code layer `norm.code_*` and the data profile's `gitlab` section; admin-confirmed identity links; `gitlab-integration.md`). Next: the real-Jira first sync, then `BACKLOG.md`.
 
 **Donors** (moved from `CLAUDE.md` "Donors").
 

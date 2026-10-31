@@ -5,8 +5,8 @@ one GraphQL query), stored raw in `raw.gitlab_*`, processed into the connector-a
 the Jira people through admin-confirmed identity links. The queue, worker, cursors and PROCESS/PROFILE mechanics it plugs
 into are in `.claude/docs/ingestion.md`; the Jira connector it sits beside is `.claude/docs/jira-integration.md`.
 
-**Status: being built (1.34.0 → 1.38.0; 1.34.0 landed: data sources, PROJECTS and USERS).** Until a section's PR lands, the section is the design that PR implements; when it
-lands, the section is rewritten as the as-built reference (file names, tests). The PR sequence is at the end. Reports over
+**Status: as built, 1.34.0-1.38.0** (PR 12 closed the sequence with the scaled-world figures, `build-times.md` WHY 59, and the real-instance checklist, "Real-instance smoke run").
+Each section is the as-built reference (file names, tests); the PR sequence is at the end. Reports over
 `norm.code_*` are a separate, later plan: nothing here derives metrics.
 
 ## What is tracked, per person
@@ -134,7 +134,7 @@ guard gains an operator-only allowance. `configureGitLab` builds the client the 
   (a run at ~20 calls/s lasts a few minutes, well inside `ingest.maxJobMinutes`); reaching it ends the run normally with `commitFilesPending` and the next
   run continues. `gitlab.mrDetailsPerRun` (`GITLAB_MR_DETAILS_PER_RUN`, 10..100000, default 3000) is the same for the MR DETAILS backlog, counting REST and
   GraphQL calls (about three per merge request: ~950 merge requests per run); reaching it ends the run normally with `mrDetailsPending`. A GitLab job holds
-  ONE permit at a time, so the backlogs are sequential (a fetch-ahead is a PR 12 question). **The one POST:** the diff stats are a read-only GraphQL query
+  ONE permit at a time, so the backlogs are sequential (a fetch-ahead is queued in `BACKLOG.md`; "Performance at scale"). **The one POST:** the diff stats are a read-only GraphQL query
   (`POST <origin>/api/graphql`, a fixed query with the project path and at most 50 iids as variables) through the same guard, permit, retries and ceilings as
   every REST call - the guard is per request and method-agnostic, so nothing in `infra/outbound/` changed.
 - **The client** (`gitlab/GitLabHttp.kt`, `GitLabClient.kt`, `GitLabModels.kt`): `GITLAB_SOURCE = FetchSource("GitLab", "gitlab.maxResponseBytes",
@@ -284,7 +284,7 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
   (an archived one, an older server ignoring `non_archived`) is skipped and counted (`mrSkipped`, one WARN per run naming at most 20 ids); any stored
   project, moved out included, qualifies. **Nothing here tombstones:** a merge request an incremental listing omits is no evidence it is gone;
   `deleted_at` is RECONCILE's, on a positive check only. Ceiling: `GitLabCeilings.mergeRequests` (1,000 pages / 100,000 items per group per run;
-  `LIMIT_EXCEEDED` before the page's transaction, the cursor resumes). Stated assumptions, on the PR 12 smoke list: `updated_after` is inclusive, filters by
+  `LIMIT_EXCEEDED` before the page's transaction, the cursor resumes). Stated assumptions (unconfirmed until the real-instance smoke run, item 5): `updated_after` is inclusive, filters by
   `updated_at` and is unaffected by deletions; `non_archived` defaults to true. A merge request in a project created after PROJECTS ran but listed before
   the next PROJECTS pass is skipped (`mrSkipped`); the project's later arrival re-lists the group from the floor (above). Progress:
   `pages`, `mergeRequests` (inserted), `mergeRequestsChanged`, `mrSkipped`, `mrGroupsSkipped`, `mrGroupsNotFound`.
@@ -342,7 +342,7 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
      other synced project gets a RELIST under a FRESH epoch (so the candidates earlier kept UNCONFIRMED are asked again) with NO `since` on the wire: GitLab's `since` cuts a
      skew-dated commit AND its parents, so only a walk from the tip lists them. Rows older than the floor are passed through, never stored, and the listing ends after a page entirely
      older than the floor minus `RECONCILE_COMMITS_SLACK_MILLIS` (14 days). The sweep is the unchanged `CommitsSweep`. The fresh epoch lives in the walk's cursor and the walk raises no `relist_requested`: a branch or project answering `NOT_FOUND` (the renamed default branch), a project-scoped failure, or a cut run leaves the row exactly as it was and the next SYNC is a plain CHECK that follows it; only a sweep that defers candidates writes the request and its epoch, for SYNC's `continueRelist`. The cap `MAX_SWEEP_CONFIRMATIONS` is per project, so a run's real bound is projects x about 103 `merge_base` calls. A project whose FULL walk listed nothing has no head and is never reconciled.
-  Daily cost at scale (~200 projects, 60k in-window commits, 20k merge requests): ~1,000-1,100 calls, 1-2 minutes at 10-20 calls/s, far inside `ingest.maxJobMinutes`. Progress keys:
+  Daily cost, measured (200 projects, 15k commits and 3k merge requests on the stub, `build-times.md` WHY 59): 234 listing pages, about 236 calls, 3.8-4.6 s (about 16 ms a call). Derived to 60k commits / 20k merge requests: about 720 calls and about 12 s, far inside `ingest.maxJobMinutes`; a real instance's per-call latency scales it (720 calls at 100 ms is about 72 s), and a sweep with candidates adds up to about 103 `merge_base` calls per project. Progress keys:
   `projectsDeleted`, `projectsArchived`, `projectsProbed`, `projectProbesFailed`, `mrReconcileCandidates`, `mrReconcileKept`, `mrReconcileUnconfirmed`, `mrReconcileDeferred`, `mergeRequestsDeleted`,
   `mrStatsRefilled`, `mrGraphqlBreaker`, `mrDetailsRetried`, plus the listings' own (`pages`, `commits`, `commitsRelisted`, `commitsTombstoned`, `commitsSweep*`, `commitsProjectsSkipped`,
   `mergeRequestsChanged`, `mrSkipped`, `mrGroupsSkipped`, `mrGroupsNotFound`). The two new outbound GETs go through the same guarded client as every call.
@@ -445,6 +445,67 @@ the stored files (U2). MR line counts (GraphQL totals) are not exclusion-aware.
   `CodeIdentityRoutesTest` (the 403-first matrix, 404 / 409 on all four operations, the alignment oracle against `expected.json`: nine identities = 7 proposed
   (6 linked proposals and the bot) + 2 unmapped, the PUT / DELETE / confirm semantics and audits, per-instance orphans, a re-created source, the worker role).
 
+## Real-instance smoke run (the user's checklist)
+
+The first run against the real self-managed instance. **Share only figures, headers and shapes, never names or hosts** (item 8). `<host>`, `<pid>`, `<iid>`,
+`<id>` below are placeholders for the user's own values (`gitlab.example.internal` in the examples). Each item gives what to run and what to share back; the
+main session turns every mismatch into a `[new]` BACKLOG item or a fix. The design the items test is in the sections above; the scaled-world figures to compare
+against are in "Performance at scale" and `build-times.md` WHY 59.
+
+1. **Operator setup (the compose stack on OrbStack).**
+   - Turn both stubs off and allow the host: `JIRA_STUB_BASE_URL= GITLAB_STUB_BASE_URL= GITLAB_ALLOWED_HOSTS=<host[:port]> docker compose up -d --build app` (an
+     explicitly EMPTY stub value, not unset), then stop both stub containers. `GITLAB_ALLOWED_CIDRS=<range>` only when `dig +short <host>` answers a private address
+     (the refused ranges: README "Configuration").
+   - An internal CA: `openssl s_client -connect <host>:443 -servername <host> </dev/null 2>/dev/null | openssl x509 -noout -issuer`. If the issuer is not a public CA,
+     set `GITLAB_CA_BUNDLE=/etc/flow/gitlab-ca.pem` and mount the PEM read-only through a compose override (no skip-TLS switch exists).
+   - A malformed host, CIDR or CA refuses startup: `docker logs flow-app`. Check `GET /api/v1/data-sources/kinds` lists GITLAB enabled with the origin. On
+     Kubernetes later: an egress NetworkPolicy rule for the private range.
+2. **The bot user and its token.**
+   - A dedicated user (for example `flow-sync`), **Admin** (so `/users/:id/emails` and `email` are visible; with Admin Mode on, the token also needs `admin_mode`), and
+     a personal access token with **exactly `read_api`** (any other scope is `TOKEN_SCOPE_TOO_BROAD`), an expiry per policy.
+   - Verify before Flow sees it: `curl -s -H "PRIVATE-TOKEN: $T" https://<host>/api/v4/personal_access_tokens/self | jq '{scopes,active}'`; `.../api/v4/user | jq .is_admin`;
+     `.../api/v4/users/<own id>/emails` answers 200.
+   - In Flow: Data sources, New, GitLab, base URL `https://<host>`, the full group paths. **Test connection**: every REQUIRED row ok, and the OPTIONAL `user_admin`
+     and `user_emails` rows too (a failure there leaves every human Unmapped). Share: which rows passed.
+3. **One small group first** (2-5 projects, a few hundred commits), the default 24-month `backfillFrom`.
+   - Sync now; follow `GET /api/v1/data-sources/{id}/status` (`currentJob.currentStream`, `progress`) or the page. The first run ends with `commitFilesPending` /
+     `mrDetailsPending` (5,000 / 3,000 calls a run): the next scheduled runs drain them, or press Sync now again.
+   - Watch for `TOKEN_SCOPE_TOO_BROAD`, `commitsProjectsSkipped`, `mrSkipped`, `mrGroupsNotFound`, `mrDiffStatsGaps`, `mrGraphqlBreaker`, `usersEmailsSkipped`, and a FAILED
+     job with `INVALID_RESPONSE` (one malformed merge request fails its listing page: the known risk; share the `error_detail` with every path and title redacted).
+   - Share: the job's wall time, its call volume (the `pages` and per-stream counters), `counts.gitlab`, the `gitlab` section of the data profile. The per-call cost
+     is the figure to compare with WHY 59's ~12 ms (the stub's) - a real instance's latency decides the backfill.
+4. **Compare two or three projects** (counts only).
+   - Commits, on an up-to-date clone: `git fetch origin && git rev-list --count --no-merges --since=<backfillFrom>T00:00:00Z origin/<default>` (and `--merges`) against
+     `docker compose exec postgres psql -U flow -d flow -c "select p.path_with_namespace, count(*) filter (where not c.is_merge) as non_merge, count(*) filter (where c.is_merge) as merges from norm.code_commits c join norm.code_projects p using (connection_id, project_id) where c.connection_id=<id> and c.deleted_at is null group by 1 order by 1"`
+     (both filter by COMMITTER date: GitLab's `since` is git's `--since`). A difference of a few commits is the `since` early-stop caveat: press Reconcile now (the
+     `since`-less walk) and compare again; a gap that stays is a bug (also the residual of RECONCILE's 14-day stop: a commit skewed by more than that and last on a page). Share the two counts and the project's size.
+   - Merge requests: `curl -sI -H "PRIVATE-TOKEN: $T" "https://<host>/api/v4/projects/<pid>/merge_requests?state=all&updated_after=<backfillFrom>T00:00:00Z&per_page=1" | grep -i x-total`
+     against `select state, count(*) from raw.gitlab_merge_requests where connection_id=<id> and project_id=<pid> and deleted_at is null group by 1`. The UI's Open / Merged /
+     Closed tabs count all time, so use them only to spot-check two or three merge requests by iid.
+   - Approvals and reviews, for two or three merged merge requests: the UI's "Approved by" list and thread count against
+     `select kind, count(*) from norm.code_mr_events e join norm.code_merge_requests m using (connection_id, mr_id) where m.connection_id=<id> and m.project_id=<pid> and m.iid=<iid> group by 1`.
+     An approve / unapprove / approve is two APPROVAL events by design. `REVIEWED`'s time is the reviewer entry's `created_at` (when the reviewer was added: approximate): note whether the UI agrees.
+5. **Confirm the API shapes on their version** (one `curl -s -H "PRIVATE-TOKEN: $T"` each; share the shape or header, never ids or paths). The stub models these from knowledge of the API, not from a capture:
+   - `GET /projects/<id>/repository/commits?ref_name=<sha>..<branch>&with_stats=true&per_page=100` answers 200 with `X-Next-Page` present (empty on the last page) and `X-Total`; commit dates print with the committer's own offset (`+02:00`, `+00:00` for UTC); `Link` carries route params (`id`, `sha`; Flow never reads it);
+   - `.../repository/commits?ref_name=<unknown>` answers 404 or `[]` (the stub 404s);
+   - `.../repository/merge_base?refs[]=<sha of a force-pushed-away commit>&refs[]=<branch>` answers 200 with the fork point, not an error;
+   - `.../repository/commits/<big sha>/diff?per_page=100&page=2` pages; a huge or generated file carries `too_large` / `collapsed` / `generated_file`;
+   - `.../merge_requests?updated_after=<a merge request's exact updated_at>` includes that merge request (inclusive); `non_archived` defaults to true (an archived project's merge requests are absent from the group listing); `/groups/<path>` answers the configured path's case;
+   - `.../merge_requests/<iid>/approvals` (the legacy object) and `.../reviewers` (the `state` values seen: `unreviewed` / `reviewed` / `requested_changes` / `approved`; anything else is stored `OTHER_STATE`);
+   - `POST /api/graphql` with the 50-iid `mergeRequests(iids:[String!]) { nodes { iid diffStatsSummary { additions deletions fileCount } } }` query: `iid` as a string and no complexity error; the shape of an `errors[]` entry if one appears;
+   - `curl -sI .../version`: `RateLimit-Remaining` and `RateLimit-Reset` (epoch seconds), or their absence when rate limiting is off;
+   - `GET /users?per_page=1` shows `email` (visible emails) with this token;
+   - RECONCILE's assumptions: `GET /projects/<an id that does not exist>` answers 404 (a deletion mark relies on it); for a project with merge requests switched off, `GET /projects/<id>` answers 200 while `.../merge_requests/<iid>` answers 404 (those merge requests ARE tombstoned, recoverable);
+   - the distinct system-note phrasings over a busy merge request's `/notes`: `jq -r '.[] | select(.system) | .body' | sed 's/@[A-Za-z0-9_.-]*/@user/g' | sort -u`. Everything `GitLabMrNotes.kt` does not match lands as `OTHER_SYSTEM`: share the stripped phrasings;
+   - which review actions bump a merge request's `updated_at`: approve one, then `GET` it. If `updated_at` did not move, approvals are invisible to the incremental listing until RECONCILE re-reads the merge request.
+6. **Identity mapping review.** Data source, Identities. Proposed = humans whose GitLab address equals a Jira address (secondary emails need the admin token); confirm the
+   proposals. Look at Unmapped for people with a different address (link by hand) and for a shared mailbox (never proposed); bots on the Ignored / bots tab. Share: the
+   count per tab, `identities.withEmailPercent`, `ghosts`, `emailOnly`, `commitsUnmatched`.
+7. **The next day.** RECONCILE's job: wall time, `projectsProbed`, `mergeRequestsDeleted` and `commitsTombstoned` (0 unless a deletion is real), and the call volume against WHY 59's
+   (~236 calls and ~4 s at 15k commits / 3k merge requests on the stub); the daily SYNC's `pages` (the incremental cost).
+8. **Share only figures, headers and shapes** - never the host, group or project paths, names, usernames, addresses, titles or `error_detail` texts (they can embed paths).
+   Strip `@names` and ids from anything pasted.
+
 ## Schema (V40–V45)
 
 - **V40** — `source_connections.kind` CHECK widened to `('JIRA_CLOUD','GITLAB')` (V16's constraint-swap pattern).
@@ -483,16 +544,7 @@ commits, rebased and clock-skewed dates, `stats`, lock/vendored/generated/minifi
 notes, approvals and reviewer states. The `gitlab-day2` scenario: a force-push, `master` to `main`, a deleted MR, a project moved
 out, a new project, new commits and MR updates.
 
-Shapes the real-instance smoke run (PR 12) must confirm, because the stub models them from knowledge of the API, not from a capture:
-`too_large`/`collapsed`/`generated_file` on commit diff entries (the stub emits the first two only where they apply); the GraphQL
-`iid` as a string and the shape of a partial-failure `errors` entry; `ref_name=<unknown>` on the commit list (the stub 404s, a real
-server may answer `[]`); `X-Total` on every list; commit dates printed with the committer's own offset (`+02:00`, `+00:00` for
-UTC); the legacy `/approvals` object; reviewer `state` values; the `Link` header carrying route params (`id`, `sha`). **Merge requests (PR 8):**
-`updated_after` inclusive, filtering by `updated_at` and blind to deleted merge requests; `non_archived` defaulting to true on the group listing; WHICH review
-actions bump a merge request's `updated_at` (an action that does not - an approval, a reviewer state change - is invisible to the incremental listing until
-the merge request next changes or RECONCILE re-reads it); `/approvals` (legacy) and `/reviewers` availability and the reviewer `state` values (any other
-value is stored as `OTHER_STATE`); GraphQL `mergeRequests(iids: [String!])` and `diffStatsSummary` on that version, and the shape of an `errors[]` entry; the
-GraphQL query-complexity limit for the 50-iid batch query; the system-note phrasings the action codes match (`GitLabMrNotes.kt`; anything unmatched is `OTHER_SYSTEM`).
+The shapes the stub models from knowledge of the API rather than a capture (diff flags, the GraphQL `iid` and `errors[]`, `ref_name=<unknown>`, `X-Total`, commit-date offsets, the legacy `/approvals` object, reviewer `state`, `updated_after`, `non_archived`, which actions bump `updated_at`, the GraphQL complexity limit, the system-note phrasings) are confirmed one by one by the real-instance smoke run, item 5.
 
 **The `too_large` fallback.** The design formula is the commit's `stats` minus the RAW lines of its other files (see "Path exclusions"),
 so a lock file changed beside the too-large file is not credited to it. The stub's too-large commit changes a lock file on purpose;
@@ -510,6 +562,22 @@ force-pushed project's old commits and its divergence commit are in the stub too
 
 **PR 10 tests.** The fixture's SYNC now ends with PROCESS and PROFILE, so it also carries `norm.code_*` rows, the `code_process` cursor and a stored profile, and its tripwire adds 300 live norm commits, 60 live norm merge requests and no flagged rows. `GitLabProcessStreamTest` pins the code layer against the stub's independent oracle (every commit's counted lines and the identity counts per key; events; the REPROCESS = incremental digest, `GitLabFixtures.codeDigest`; tombstones and refills; the exclusion, address and username fingerprints; poisoned pages; the page lock; progress and heartbeats), `GitLabProfileTest` the profile section (computed and over HTTP), `GitLabPurgeTest` the PURGE drains, `GitLabRawPayloadWhitelistTest` the privacy whitelist of all eleven GitLab tables (exact columns, slim payload keys, no stub description / note body / commit message body / URL stored), `GitLabNormalizerTest` and `CodeNormalizationTest` the pure rules. Every mutating test clones its own connection (`SyncedGitLabFixture.cloneRawData` / `cloneProcessedData`, over `CloneSupport`).
 
+### Performance at scale (PR 12)
+
+Measured on the isolated `flow-perf` stack (`docker-compose.perf.yaml`: the production role split, a `gitlab-stub` override) against `generate.mjs --users 70 --projects 200 --months 26`: **15,077 commits,
+3,015 merge requests, 31,356 raw events, 72 identities**, 48.7k WireMock mappings (ready after about 45 s, 0.5-1.1 GiB). The rig, the per-stream table and the caveats are `build-times.md` WHY 59; the headline figures:
+
+- **A full backfill** (one SYNC, both per-run budgets lifted): **283 s**, about 23.6k calls at **about 12 ms each, the stub's own time included**. COMMIT FILES (157 s, about 14.2k diff calls) and MR DETAILS (115 s, about 9.1k calls) are 96 % of it. PROCESS + PROFILE
+  about 4.7 s; REPROCESS 4.3 s; **RECONCILE 3.8-4.6 s, about 236 calls**.
+- **Latency-bound by design.** A GitLab job holds ONE permit and its calls are sequential, so a backlog stream's wall time is its call count times the per-call latency. A fetch-ahead inside a claimed batch (WORKLOGS' shape, `jira.maxConcurrentRequests` calls in flight) could cut the
+  two backlogs several times over (an estimate, not measured), but adds response trees in flight that the heap fit's one-tree-per-slot assumption does not cover; it is queued, not built (`BACKLOG.md`).
+- **The worker beside a Jira job** (a scale-20 Jira SYNC + DERIVE and a second GitLab SYNC at once, `-Xmx512m`): old generation peak **86 MiB of 448**, container peak 312 of 768 MiB, nothing killed; the Jira SYNC +14 %, the GitLab SYNC +15 %. The GitLab side adds almost nothing to the heap.
+- **Storage:** about 2.7 kB a commit and 9.1 kB a merge request (events included); about 68 MB for this world, about 38 MB compacted.
+- **The identities page** (PR 11's in-memory paging, 72 identities): p50 4-5 ms, p95 4-8 ms in every case.
+- **Derived, not measured, to 60k commits / 20k merge requests:** about 118k calls, about 24 min at 12 ms a call and about 20 min more per extra 10 ms of latency; RECONCILE about 720 calls and 12 s; about 340 MB a source.
+- **Open:** two slow statements, a Jira DERIVE worklog statement (35.8 s for the second of two connections against 477 ms for the first) and the GitLab PROFILE's event count (2.4 s), both with an unconfirmed stale-statistics hypothesis; each is a `[new]` item in `BACKLOG.md`.
+- **The stub ignores `since` and `updated_after`**, so the 24-month floor cut nothing in this run.
+
 ## PR sequence
 
 | # | PR | Version | Review |
@@ -525,7 +593,7 @@ force-pushed project's old commits and its divergence commit are in the stub too
 | 9 | RECONCILE (landed) | 1.36.1 | Opus |
 | 10 | `norm.code_*` + PURGE + profile (V44) (landed) | 1.37.0 | Opus (migration) |
 | 11 | identity mapping (V45, `identities/`) (landed) | 1.38.0 | Opus + authorization |
-| 12 | scaled-world performance run (`build-times.md` WHY) + real-instance smoke checklist | — | — |
+| 12 | scaled-world performance run (`build-times.md` WHY 59) + real-instance smoke checklist (landed) | — | Sonnet |
 
 ## Risks and open points
 
@@ -533,11 +601,12 @@ force-pushed project's old commits and its divergence commit are in the stub too
   page `INVALID_RESPONSE`, which fails the MERGE REQUESTS stream and the streams after it (COMMIT FILES, MR DETAILS) for that run. Deliberate (a silent skip
   would hide a contract change), but a single bad item on a real instance would stall the connection until fixed.
 
-- **First backfill:** ~110k calls (commit files + MR details), spread over several runs by the budgets — about 45 min at
-  ~40 req/s, longer with instance rate limits on.
+- **First backfill:** measured at 15k commits / 3k merge requests: about 23.6k calls (about 14.2k diffs, about 9.1k merge-request reads) in 283 s, about 12 ms a call with the stub's own time, one permit and sequential
+  (`build-times.md` WHY 59). Derived to 60k / 20k: about 118k calls, about 24 min at that cost and about 20 min more per extra 10 ms of per-call latency, spread over about 12 (files) and about 21 (details) runs at the
+  default budgets. Longer with instance rate limits on.
 - **Commit ↔ MR linking:** only merge and squash SHAs are stored for now.
 - **Code layer, open points (PR 10):** MR line counts (GraphQL totals) stay exclusion-blind and `generated_file` is stored raw and not applied. `REVIEWED`'s
-  time is the reviewer entry's `created_at` (approximate) - on the PR 12 smoke list. **A reports plan must count approvals as distinct merge requests per
+  time is the reviewer entry's `created_at` (approximate; the smoke run, item 4, checks it). **A reports plan must count approvals as distinct merge requests per
   person**: an approve / unapprove / approve sequence leaves two NOTE `APPROVAL` events by one actor (kept as history; only the legacy endpoint row is
   de-duplicated against the notes). **Identity rows come from LIVE commits only**: a tombstoned commit under an address no live commit uses has an `e`
   key without an identity row. A user added to GitLab re-flags every merge request (the username map is fingerprinted) and any address change every commit:
@@ -552,11 +621,7 @@ force-pushed project's old commits and its divergence commit are in the stub too
   identity stays Unmapped until an admin links it by hand. The `e<hash>` key in a URL or an audit field is an unsalted sha256 prefix of an address: not an
   address, but confirmable by guessing one. `decided_by_user_id` names an id only (no name lookup). The list pages in memory, bounded by one connection's
   identities (the USERS stream's ceiling): a very large instance would make it slow, not wrong. On a real instance an admin token that cannot see user
-  emails leaves every human Unmapped (the PR 12 smoke list).
+  emails leaves every human Unmapped (the smoke run, item 2).
 - **First-sync ordering:** `since` with out-of-order dates may stop early (see COMMITS, "RELIST and the `since` caveat"); RECONCILE's `since`-less re-list catches up (the 14-day stop is a residual, below).
-- **RECONCILE smoke list** (PR 12): `GET /projects/:id` answers 404 for a project the token cannot see (a deletion mark is then wrong-but-recoverable: PROJECTS resurrects it); the
-  per-merge-request 404 of a project whose merge-request feature is off while the project answers 200 (those ARE tombstoned); `updated_after` at the floor (inclusive or exclusive);
-  an internal or public project with members-only merge requests when the token's user loses membership (the listing drops them and each GET 404s: tombstoned, recoverable); the residual of the 14-day stop (a child skewed by more than that and sitting last on a page); and the daily call figure (~1,000-1,100) against a real instance.
-- **Real-instance confirmation** (the user's smoke run, PR 12): `a..b` ranges, `diffStatsSummary`, commit `/diff` paging, that `since` early-stops
-  the commit list (and does not filter) on the real instance, that the commits listing sends `X-Next-Page`, that `merge_base(<unreachable commit>, <branch>)` answers the fork point rather than an error,
-  `RateLimit-*` headers and visible emails on that version. Only figures are shared back, never names or hosts.
+- **Real-instance confirmation** is one checklist, "Real-instance smoke run" above: setup, the token, a small group, counts against git and the UI, the API shapes (including RECONCILE's assumptions and
+  the residual of its 14-day stop), identity mapping and the next day. Only figures are shared back, never names or hosts.

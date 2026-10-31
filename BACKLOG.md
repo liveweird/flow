@@ -1,6 +1,6 @@
 # Product backlog
 
-Updated 2026-10-08. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
+Updated 2026-10-31. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
 - [README.md](README.md);
 - the [application changelog](web/src/changelog/entries.ts);
 - the topic guides under `.claude/docs/`.
@@ -79,11 +79,40 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     `scripts/gates.sh`.
 - [parked] **Data profile: multi-project boards.** A board whose filter spans several projects shows no observed or
   unmapped statuses, because `BoardRef` carries a single project key. Revisit if real boards span projects.
-- [next] **GitLab integration (self-managed), 1.34.0–1.38.0.** Approved 2026-10-31; design and PR order in
-  `.claude/docs/gitlab-integration.md`.
-  - Per-person commits (files, lines), merge requests and review activity, read from a self-managed GitLab with an
-    admin-issued read-only token; no git mirror, no repository content stored.
-  - D6 (de-Jira the `Connector` seam) is its PR 3. Reports over `norm.code_*` are a separate, later plan.
+- [new] **GitLab backfill fetch-ahead.** Measured 2026-10-31 (`build-times.md` WHY 59): a full backfill of 15k commits and 3k merge
+  requests is 283 s, about 23.6k calls at about 12 ms each (the stub's time included); COMMIT FILES (157 s) and MR DETAILS (115 s) are 96 %
+  of it and are latency-bound, because a GitLab job holds ONE permit and its calls are sequential.
+  - Derived, not measured: at 60k commits / 20k merge requests that is about 118k calls, about 24 min at 12 ms and about 20 min more per
+    extra 10 ms of per-call latency, i.e. the real instance's latency decides it.
+  - The shape: a fetch-ahead inside a claimed batch (WORKLOGS', `jira.maxConcurrentRequests` calls in flight). An estimated several-fold
+    cut on those two streams, not measured.
+  - The caveat: it adds response trees in flight, which the heap fit's one-tree-per-slot assumption
+    (`gitlab-integration.md` "Outbound calls", Memory) does not cover, so it needs the fit extended and a re-measure beside a Jira job
+    (the worker's old generation peaked at 86 of 448 MiB in the pair).
+  - Wait for the real-instance smoke run's per-call cost before deciding: at 12 ms it is minutes, at 100 ms it is hours.
+- [new] **Reports over `norm.code_*`.** The later plan the GitLab work left open (`gitlab-integration.md` "Status"): nothing derives
+  metrics from the code layer yet.
+  - The entry point is `identities/IdentityResolver` (`accountsByKey` / `keysByAccount`, LINKED decisions only); the team at an instant is
+    `metrics/`'s `teamAt`, which `identities/` must not import.
+  - A reports plan must count approvals as distinct merge requests per person (an approve / unapprove / approve leaves two `APPROVAL` events).
+  - Inputs measured 2026-10-31: 15k commits, 3k merge requests and 20.7k events are about 68 MB a source; the identities list answers in
+    4-8 ms at 72 identities.
+- [new] **Jira DERIVE worklog statement: 35.8 s for the second of two connections (needs a reproduction).** Found 2026-10-31
+  (`build-times.md` WHY 59): in a Jira scale-20 pair, the worklog fact statement (`WITH sprint_team ... logged AS`) took 35,795 ms in the
+  second connection's DERIVE against 477 ms in the first connection's, over the same 24k-issue world (the whole DERIVE: 49.8 s against 14.1 s).
+  - Hypothesis, NOT confirmed: stale planner statistics for the second connection's freshly written `norm.*` rows (the DERIVE's own
+    `ANALYZE metrics.*` ran 394 ms after the statement), the shape of the "DERIVE never ANALYZEs what it just filled" cause in `build-times.md`.
+  - It ran while a GitLab SYNC was running on the same Postgres; whether that matters is unknown. It is a pre-existing Jira path, not GitLab.
+  - Next: derive two same-sized connections back to back, with and without a GitLab job beside them; `EXPLAIN (ANALYZE, BUFFERS)` of the
+    statement for the second connection; try `ANALYZE` of the `norm.*` tables before the DERIVE. A fix may be a migration or an `ANALYZE` placement.
+- [new] **GitLab PROFILE event count: 2.4 s for the second GitLab connection (needs a reproduction).** Found 2026-10-31
+  (`build-times.md` WHY 59): in the pair, the `SELECT e.kind, count(*) FROM norm.code_mr_events e JOIN norm.code_merge_requests m ... WHERE
+  e.connection_id = <id> AND m.deleted_at IS NULL GROUP BY e.kind` of the data profile took 2,436 ms; the first GitLab connection's, over
+  the same sizes (20.7k events, 3k merge requests), stayed under the 300 ms logging threshold.
+  - Hypothesis, NOT confirmed: the same stale-statistics shape as above (freshly written rows, no `ANALYZE` yet). It did not reproduce
+    after a `VACUUM FULL`.
+  - Next: reproduce with a second connection's PROFILE straight after its PROCESS, `EXPLAIN (ANALYZE, BUFFERS)`, and see whether the
+    existing index on `norm.code_mr_events` serves the join; a fix could be an `ANALYZE` after PROCESS or a different query shape.
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 
