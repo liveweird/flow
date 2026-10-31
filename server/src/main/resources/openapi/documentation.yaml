@@ -5036,7 +5036,7 @@ components:
         mrDetailsPending: { type: integer, format: int64, minimum: 0, description: "Live merge requests whose notes, approvals, reviewers and diff stats are not read yet, or are older than the merge request's last change." }
         mrDiffStatsMissing: { type: integer, format: int64, minimum: 0, description: "Live merge requests whose details were read but whose diff stats GraphQL did not answer." }
         mergeRequestsDeleted: { type: integer, format: int64, minimum: 0, description: "Merge requests marked deleted by a reconcile (rows and events kept)." }
-        mrDetailsUnread: { type: integer, format: int64, minimum: 0, description: "Live merge requests whose details could not be read: the notes answered 404, a page was over the response ceiling, or the read kept failing (`NOT_FOUND` / `LIMIT_EXCEEDED` / `FETCH_FAILED`)." }
+        mrDetailsUnread: { type: integer, format: int64, minimum: 0, description: "Live merge requests of live projects whose details could not be read: the notes answered 404, a page was over the response ceiling, or the read kept failing (`NOT_FOUND` / `LIMIT_EXCEEDED` / `FETCH_FAILED`)." }
     SyncCounts:
       type: object
       description: >-

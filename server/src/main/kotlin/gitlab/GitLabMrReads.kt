@@ -32,10 +32,11 @@ internal val MR_DETAILS_BACKLOG: Op<Boolean> = MergeRequests.deletedAt.isNull() 
     (MergeRequests.detailsSyncedAt.isNull() or (MergeRequests.detailsSyncedAt less MergeRequests.changedAt)) and liveProjectOfMr()
 
 /** The merge request's project is LIVE (not moved out, not deleted): an `EXISTS` on the project's primary key, [extra] ANDed inside it. */
-internal fun liveProjectOfMr(extra: Op<Boolean> = Op.TRUE): Op<Boolean> = exists(
+internal fun liveProjectOfMr(extra: Op<Boolean>? = null): Op<Boolean> = exists(
     Projects.selectAll().where {
-        (Projects.connectionId eq MergeRequests.connectionId) and (Projects.projectId eq MergeRequests.projectId) and
-            Projects.movedOutAt.isNull() and Projects.deletedAt.isNull() and extra
+        val live = (Projects.connectionId eq MergeRequests.connectionId) and (Projects.projectId eq MergeRequests.projectId) and
+            Projects.movedOutAt.isNull() and Projects.deletedAt.isNull()
+        if (extra == null) live else live and extra
     },
 )
 
@@ -44,7 +45,7 @@ internal fun liveProjectOfMr(extra: Op<Boolean> = Op.TRUE): Op<Boolean> = exists
  * changed row is pending instead, and a pending row's stats are not yet asked again. The status figure `mrDiffStatsMissing` and
  * RECONCILE's stats re-ask ([GitLabMrReads.gappedMergeRequests]) are this one predicate.
  */
-private val DIFF_STATS_GAP: Op<Boolean> = MergeRequests.deletedAt.isNull() and MergeRequests.detailsSyncedAt.isNotNull() and
+internal val DIFF_STATS_GAP: Op<Boolean> = MergeRequests.deletedAt.isNull() and MergeRequests.detailsSyncedAt.isNotNull() and
     (MergeRequests.detailsSyncedAt greaterEq MergeRequests.changedAt) and MergeRequests.detailsError.isNull() and
     MergeRequests.additions.isNull()
 
@@ -67,7 +68,8 @@ internal class GitLabMrReads(private val database: R2dbcDatabase) {
 
     /**
      * The seven figures as database-side `count(*)`s: no row is loaded. `mrDiffStatsMissing` counts the gaps of settled rows only
-     * ([DIFF_STATS_GAP]); `mergeRequestsDeleted` the tombstoned rows and `mrDetailsUnread` the LIVE rows carrying any `details_error`.
+     * ([DIFF_STATS_GAP]); `mergeRequestsDeleted` the tombstoned rows and `mrDetailsUnread` the LIVE rows of LIVE projects carrying any
+     * `details_error` (what a reconcile can clear; the `FILES_BACKLOG` shape).
      */
     suspend fun mrCounts(connectionId: UInt): MrCounts = suspendTransaction(database) {
         suspend fun mrs(extra: Op<Boolean>) =
@@ -80,7 +82,7 @@ internal class GitLabMrReads(private val database: R2dbcDatabase) {
             mrDetailsPending = mrs(MR_DETAILS_BACKLOG),
             mrDiffStatsMissing = mrs(DIFF_STATS_GAP),
             mergeRequestsDeleted = mrs(MergeRequests.deletedAt.isNotNull()),
-            mrDetailsUnread = mrs(live and MergeRequests.detailsError.isNotNull()),
+            mrDetailsUnread = mrs(live and MergeRequests.detailsError.isNotNull() and liveProjectOfMr()),
         )
     }
 

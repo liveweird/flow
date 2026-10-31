@@ -3263,7 +3263,7 @@ export interface components {
             mergeRequestsDeleted: number;
             /**
              * Format: int64
-             * @description Live merge requests whose details could not be read: the notes answered 404, a page was over the response ceiling, or the read kept failing (`NOT_FOUND` / `LIMIT_EXCEEDED` / `FETCH_FAILED`).
+             * @description Live merge requests of live projects whose details could not be read: the notes answered 404, a page was over the response ceiling, or the read kept failing (`NOT_FOUND` / `LIMIT_EXCEEDED` / `FETCH_FAILED`).
              */
             mrDetailsUnread: number;
         };

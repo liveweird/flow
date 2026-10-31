@@ -231,8 +231,10 @@ internal class GitLabMrWrites(private val database: R2dbcDatabase) {
     }
 
     /**
-     * Fills the diff stats of the project's LIVE merge requests by iid and flags PROCESS: one UPDATE per row (at most a GraphQL page, 50).
-     * The details stamp, the error and the events are untouched - a stats gap is not a details failure. Returns the rows filled.
+     * Fills the diff stats of the project's LIVE merge requests by iid and flags PROCESS: one UPDATE per row (at most a GraphQL page, 50),
+     * guarded on `additions IS NULL` (the gap's own column), so only a gap is filled: a repeat is a no-op, a row that gained stats in the
+     * meantime is never overwritten, and the count means "rows filled". The details stamp, the error and the events are untouched - a
+     * stats gap is not a details failure.
      */
     suspend fun writeMrDiffStats(connectionId: UInt, projectId: Long, statsByIid: Map<Long, GitLabDiffStats>): Int {
         if (statsByIid.isEmpty()) return 0
@@ -240,7 +242,7 @@ internal class GitLabMrWrites(private val database: R2dbcDatabase) {
             statsByIid.entries.sortedBy { it.key }.sumOf { (iid, stats) ->
                 MergeRequests.update({
                     (MergeRequests.connectionId eq connectionId) and (MergeRequests.projectId eq projectId) and
-                        (MergeRequests.iid eq iid) and MergeRequests.deletedAt.isNull()
+                        (MergeRequests.iid eq iid) and MergeRequests.deletedAt.isNull() and MergeRequests.additions.isNull()
                 }) {
                     it[additions] = stats.additions
                     it[deletions] = stats.deletions
@@ -254,22 +256,22 @@ internal class GitLabMrWrites(private val database: R2dbcDatabase) {
     /**
      * Un-stamps up to [limit] LIVE merge requests of live projects whose `details_error` is in [errors], the stalest stamp first (ties:
      * `mr_id`): `details_synced_at` and `details_error` become null, so the next SYNC's MR DETAILS reads them again (they re-enter its
-     * backlog). One transaction, so the rows selected are the rows un-stamped. Returns how many.
+     * backlog). The UPDATE repeats the SELECT's predicate (live, the error set, a live project), so a row tombstoned, re-stamped or
+     * moved out between the two is left alone; no lock is held across them. Returns how many.
      */
     suspend fun retryMrDetails(connectionId: UInt, errors: Collection<String>, limit: Int): Int {
         if (errors.isEmpty() || limit <= 0) return 0
         return suspendTransaction(database) {
+            val unread = (MergeRequests.connectionId eq connectionId) and MergeRequests.deletedAt.isNull() and
+                (MergeRequests.detailsError inList errors.toList()) and liveProjectOfMr()
             val ids = MergeRequests.select(MergeRequests.mrId)
-                .where {
-                    (MergeRequests.connectionId eq connectionId) and MergeRequests.deletedAt.isNull() and
-                        (MergeRequests.detailsError inList errors.toList()) and liveProjectOfMr()
-                }
+                .where { unread }
                 .orderBy(MergeRequests.detailsSyncedAt to SortOrder.ASC, MergeRequests.mrId to SortOrder.ASC)
                 .limit(limit)
                 .toList()
                 .map { it[MergeRequests.mrId] }
             if (ids.isEmpty()) return@suspendTransaction 0
-            MergeRequests.update({ (MergeRequests.connectionId eq connectionId) and (MergeRequests.mrId inList ids) }) {
+            MergeRequests.update({ unread and (MergeRequests.mrId inList ids) }) {
                 it[detailsSyncedAt] = null
                 it[detailsError] = null
             }

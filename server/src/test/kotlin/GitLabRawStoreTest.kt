@@ -123,6 +123,8 @@ class GitLabRawStoreTest {
         assertEquals(listOf(1L), store.movedOutProjects(connId, limit = 1))
         val hash = store.projectRows(connId).first { it[GitLabRawStore.Projects.projectId] == 1L }[GitLabRawStore.Projects.sha256]
 
+        assertFalse(store.markProjectDeleted(connId, 3, now = 7_000), "a live project is never marked: only a moved-out one is probed")
+        assertNull(store.projectRows(connId).first { it[GitLabRawStore.Projects.projectId] == 3L }[GitLabRawStore.Projects.deletedAt])
         assertTrue(store.markProjectDeleted(connId, 1, now = 7_000))
         assertFalse(store.markProjectDeleted(connId, 1, now = 8_000), "guarded on deleted_at IS NULL: a repeated pass is a no-op")
         assertFalse(store.markProjectDeleted(connId, 99, now = 8_000))
@@ -153,6 +155,7 @@ class GitLabRawStoreTest {
         assertTrue(store.markProjectArchived(connId, 1))
         assertFalse(store.markProjectArchived(connId, 1), "guarded on archived = false: a repeated pass is a no-op")
         assertFalse(store.markProjectArchived(connId, 99))
+        assertFalse(store.markProjectArchived(connId, 2), "a live project is not marked")
         val after = store.projectRows(connId).first { it[GitLabRawStore.Projects.projectId] == 1L }
         assertTrue(after[GitLabRawStore.Projects.archived])
         assertEquals(6_000L, after[GitLabRawStore.Projects.movedOutAt], "still moved out: the mark must not resurrect or delete")
@@ -162,6 +165,27 @@ class GitLabRawStoreTest {
         assertEquals(before[GitLabRawStore.Projects.changedAt], after[GitLabRawStore.Projects.changedAt])
         assertEquals(before[GitLabRawStore.Projects.lastSeenAt], after[GitLabRawStore.Projects.lastSeenAt])
         assertFalse(store.projectRows(connId).first { it[GitLabRawStore.Projects.projectId] == 2L }[GitLabRawStore.Projects.archived])
+    }
+
+    @Test
+    fun `the RECONCILE project marks and probes never cross connections`() = runBlocking<Unit> {
+        val connId = connection()
+        val other = connection()
+        for (c in listOf(connId, other)) {
+            store.upsertProjects(c, listOf(project(1), project(2)), now = 1_000)
+            store.upsertProjects(c, listOf(project(2)), now = 5_000)
+            assertEquals(1, store.markProjectsMovedOutNotSeenSince(c, passStartedAt = 5_000, now = 6_000))
+        }
+        fun row(c: UInt) = runBlocking { store.projectRows(c).first { it[GitLabRawStore.Projects.projectId] == 1L } }
+
+        assertTrue(store.markProjectDeleted(connId, 1, now = 7_000))
+        assertNull(row(other)[GitLabRawStore.Projects.deletedAt], "A's deletion mark did not reach B's project with the same id")
+        assertEquals(listOf(1L), store.movedOutProjects(other, limit = 10), "B's moved-out project is still B's to probe")
+        assertTrue(store.movedOutProjects(connId, limit = 10).isEmpty(), "A's only moved-out project is deleted")
+
+        assertTrue(store.markProjectArchived(other, 1))
+        assertFalse(row(connId)[GitLabRawStore.Projects.archived], "B's archival mark did not reach A")
+        assertNull(row(other)[GitLabRawStore.Projects.deletedAt])
     }
 
     @Test
