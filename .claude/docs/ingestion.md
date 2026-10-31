@@ -1369,10 +1369,10 @@ source of truth:
   (worklogs excludes tombstoned rows — "live" worklogs), `entitiesByKind` (per `JiraEntityKind`,
   `raw.jira_entities` grouped by `kind`), `needsProcessing` (the PROCESS backlog RECONCILE and the
   CHANGELOGS/WORKLOGS streams all flag into). For a GITLAB connection these Jira integers are 0 and
-  **`counts.gitlab`** (`GitLabSyncCounts`, read from `GitLabRawStore`, V41/V42) carries `projects` (live), `projectsMovedOut`,
+  **`counts.gitlab`** (`GitLabSyncCounts`, read from `GitLabRawStore`, V41-V43) carries `projects` (live), `projectsMovedOut`,
   `projectsDeleted`, `users` (live), `usersDeleted` and the commits: `commits` (live, merges included), `commitsMerge` (live, `parent_count > 1`),
-  `commitsDeleted` (tombstoned) and `commitFilesPending` (the COMMIT FILES backlog: diff unread, not a merge, not tombstoned). All are database-side
-  `count(*)`s (`GitLabRawReads.counts`); it is null when this process has no GitLab store (GitLab off here).
+  `commitsDeleted` (tombstoned) and `commitFilesPending` (the COMMIT FILES backlog: diff unread, not a merge, not tombstoned) and the merge requests (V43): `mergeRequests` (live), `mergeRequestsMerged` (live, `state = 'merged'`), `mrEvents` (every stored note, approval and reviewer-state row), `mrDetailsPending` (the MR DETAILS backlog, the stream's own predicate: live, of a live project, details unread or older than the last change) and `mrDiffStatsMissing` (settled without error, GraphQL gave no stats). All are database-side
+  `count(*)`s (`GitLabRawReads.counts`, `GitLabMrReads.mrCounts`); it is null when this process has no GitLab store (GitLab off here).
 - **`lastJobs`** — the most recently REQUESTED job of each `SyncJobKind`, keyed by name
   (`SyncJobsService.lastJobsByKind`) — terminal or not, and a kind never requested is simply absent
   from the map (not present with a null value).

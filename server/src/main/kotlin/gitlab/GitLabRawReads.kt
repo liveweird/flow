@@ -21,8 +21,8 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 /** The GitLab raw store's reads: the status counts (`ingest/SyncStatusRoutes.kt`), the users freshness, and the rows tests inspect. */
 internal class GitLabRawReads(private val database: R2dbcDatabase) {
 
-    /** The nine figures as database-side `count(*)`s: no row is loaded. */
-    suspend fun counts(connectionId: UInt): GitLabSyncCounts = suspendTransaction(database) {
+    /** The nine commit-side figures as database-side `count(*)`s (no row is loaded), joined with the five merge-request [mr] ones. */
+    suspend fun counts(connectionId: UInt, mr: MrCounts): GitLabSyncCounts = suspendTransaction(database) {
         suspend fun projects(extra: Op<Boolean>) = Projects.selectAll().where { (Projects.connectionId eq connectionId) and extra }.count()
         suspend fun users(extra: Op<Boolean>) = Users.selectAll().where { (Users.connectionId eq connectionId) and extra }.count()
         suspend fun commits(extra: Op<Boolean>) = Commits.selectAll().where { (Commits.connectionId eq connectionId) and extra }.count()
@@ -36,6 +36,11 @@ internal class GitLabRawReads(private val database: R2dbcDatabase) {
             commitsMerge = commits(Commits.deletedAt.isNull() and (Commits.parentCount greater 1.toShort())),
             commitsDeleted = commits(Commits.deletedAt.isNotNull()),
             commitFilesPending = commits(FILES_BACKLOG),
+            mergeRequests = mr.mergeRequests,
+            mergeRequestsMerged = mr.mergeRequestsMerged,
+            mrEvents = mr.mrEvents,
+            mrDetailsPending = mr.mrDetailsPending,
+            mrDiffStatsMissing = mr.mrDiffStatsMissing,
         )
     }
 

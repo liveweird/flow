@@ -380,8 +380,8 @@ place:
 
 The "is this team there and active" check every one of those reads runs is ONE function, `teams/TeamActive.kt` `Teams.requireActive(teamId) { failure }` (the caller picks
 the status: `Teams.requireActiveOrNotFound` for a path team, a `400` for the reports' `teamId` filter); the row-locking twin is `lockActiveForWrite`.
-- `ingest/SyncStatusRoutes.kt` (the ADMIN status view) READS `gitlab/GitLabRawStore.counts(connectionId)` (V41/V42: row COUNTS of `raw.gitlab_projects` /
-  `raw.gitlab_users` / `raw.gitlab_commits` by their markers - live, merge, tombstoned, files pending - and, once the status DTO carries them (PR 8, A5; the store already counts them, `mrCounts`), the merge-request counts: live, merged, events, details pending, diff stats missing - never a payload, a commit's title, author or path, or a merge request's title, branch or username) for a GITLAB connection, through the store published as `GitLabRawStoreKey` (absent when GitLab is off
+- `ingest/SyncStatusRoutes.kt` (the ADMIN status view) READS `gitlab/GitLabRawStore.counts(connectionId)` (V41-V43: row COUNTS of `raw.gitlab_projects` /
+  `raw.gitlab_users` / `raw.gitlab_commits` by their markers - live, merge, tombstoned, files pending - and the merge-request counts (`mrCounts` over `raw.gitlab_merge_requests` / `raw.gitlab_mr_events`): live, merged, events, details pending (the stream's own backlog predicate), diff stats missing - never a payload, a commit's title, author or path, or a merge request's title, branch or username) for a GITLAB connection, through the store published as `GitLabRawStoreKey` (absent when GitLab is off
   in the process: `counts.gitlab` is then null). `gitlab/GitLabConnector` WRITES only `raw.gitlab_*` and its two `sync_cursors` streams, and READS the
   connection through `DataSourceService.readGitLabForSync` (the decrypted token, for the connector alone).
 

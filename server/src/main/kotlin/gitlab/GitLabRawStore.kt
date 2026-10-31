@@ -214,7 +214,7 @@ class GitLabRawStore(database: R2dbcDatabase) {
     suspend fun markUsersDeletedNotSeenSince(connectionId: UInt, passStartedAt: Long, now: Long): Int =
         writes.markUsersDeletedNotSeenSince(connectionId, passStartedAt, now)
 
-    suspend fun counts(connectionId: UInt): GitLabSyncCounts = reads.counts(connectionId)
+    suspend fun counts(connectionId: UInt): GitLabSyncCounts = reads.counts(connectionId, mrReads.mrCounts(connectionId))
 
     /** The `last_seen_at` of the OLDEST live user row, or null when there is none: the users-freshness read. */
     suspend fun oldestLiveUserSeenAt(connectionId: UInt): Long? = reads.oldestLiveUserSeenAt(connectionId)

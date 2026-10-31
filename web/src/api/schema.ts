@@ -3231,6 +3231,31 @@ export interface components {
              * @description Live non-merge commits whose per-file diff has not been read yet.
              */
             commitFilesPending: number;
+            /**
+             * Format: int64
+             * @description Live merge requests of the configured groups' projects.
+             */
+            mergeRequests: number;
+            /**
+             * Format: int64
+             * @description Live merge requests in the merged state, a subset of `mergeRequests`.
+             */
+            mergeRequestsMerged: number;
+            /**
+             * Format: int64
+             * @description Stored review events: notes as action codes, approvals and reviewer states.
+             */
+            mrEvents: number;
+            /**
+             * Format: int64
+             * @description Live merge requests whose notes, approvals, reviewers and diff stats are not read yet, or are older than the merge request's last change.
+             */
+            mrDetailsPending: number;
+            /**
+             * Format: int64
+             * @description Live merge requests whose details were read but whose diff stats GraphQL did not answer.
+             */
+            mrDiffStatsMissing: number;
         };
         /** @description Raw-layer row counts. For a `GITLAB` connection the Jira integers are 0 and `gitlab` carries its counts (null when this process has no GitLab store, i.e. the kind is off here). */
         SyncCounts: {

@@ -5019,7 +5019,7 @@ components:
         lastCompletedAt: { type: integer, format: int64, nullable: true, description: Epoch millis }
     GitLabSyncCounts:
       type: object
-      required: [projects, projectsMovedOut, projectsDeleted, users, usersDeleted, commits, commitsMerge, commitsDeleted, commitFilesPending]
+      required: [projects, projectsMovedOut, projectsDeleted, users, usersDeleted, commits, commitsMerge, commitsDeleted, commitFilesPending, mergeRequests, mergeRequestsMerged, mrEvents, mrDetailsPending, mrDiffStatsMissing]
       properties:
         projects: { type: integer, format: int64, minimum: 0, description: Live projects of the configured groups. }
         projectsMovedOut: { type: integer, format: int64, minimum: 0, description: Projects no longer listed under any configured group (rows kept). }
@@ -5030,6 +5030,11 @@ components:
         commitsMerge: { type: integer, format: int64, minimum: 0, description: "Live merge commits (two or more parents), a subset of `commits`." }
         commitsDeleted: { type: integer, format: int64, minimum: 0, description: Commits tombstoned because they left the default branch (rows kept). }
         commitFilesPending: { type: integer, format: int64, minimum: 0, description: Live non-merge commits whose per-file diff has not been read yet. }
+        mergeRequests: { type: integer, format: int64, minimum: 0, description: "Live merge requests of the configured groups' projects." }
+        mergeRequestsMerged: { type: integer, format: int64, minimum: 0, description: "Live merge requests in the merged state, a subset of `mergeRequests`." }
+        mrEvents: { type: integer, format: int64, minimum: 0, description: "Stored review events: notes as action codes, approvals and reviewer states." }
+        mrDetailsPending: { type: integer, format: int64, minimum: 0, description: "Live merge requests whose notes, approvals, reviewers and diff stats are not read yet, or are older than the merge request's last change." }
+        mrDiffStatsMissing: { type: integer, format: int64, minimum: 0, description: "Live merge requests whose details were read but whose diff stats GraphQL did not answer." }
     SyncCounts:
       type: object
       description: >-

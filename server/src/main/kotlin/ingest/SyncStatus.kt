@@ -51,7 +51,10 @@ data class SyncCounts(
 /**
  * Raw-layer row counts of one GitLab connection (V41, V42): live projects, projects moved out of scope or deleted, live users and
  * deleted users, and the commits - live ([commits], merges included), the live merges among them ([commitsMerge], `parent_count > 1`),
- * the tombstoned ([commitsDeleted]) and the COMMIT FILES backlog ([commitFilesPending]: diff unread, not a merge, not tombstoned).
+ * the tombstoned ([commitsDeleted]) and the COMMIT FILES backlog ([commitFilesPending]: diff unread, not a merge, not tombstoned), and
+ * (V43) the live merge requests ([mergeRequests]), the merged ones among them ([mergeRequestsMerged]), the stored review events
+ * ([mrEvents]), the MR DETAILS backlog ([mrDetailsPending]) and the settled merge requests whose diff stats GraphQL did not answer
+ * ([mrDiffStatsMissing]). Counts only: never a title, a branch or a username.
  */
 @Serializable
 data class GitLabSyncCounts(
@@ -64,4 +67,9 @@ data class GitLabSyncCounts(
     val commitsMerge: Long,
     val commitsDeleted: Long,
     val commitFilesPending: Long,
+    val mergeRequests: Long,
+    val mergeRequestsMerged: Long,
+    val mrEvents: Long,
+    val mrDetailsPending: Long,
+    val mrDiffStatsMissing: Long,
 )

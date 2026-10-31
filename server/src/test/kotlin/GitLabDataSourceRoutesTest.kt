@@ -3,6 +3,11 @@ package ch.nokillswit
 import ch.nokillswit.flowusers.FlowUserRole
 import ch.nokillswit.gitlab.CommitFilesOutcome
 import ch.nokillswit.gitlab.CommitFilesResult
+import ch.nokillswit.gitlab.GitLabDiffStats
+import ch.nokillswit.gitlab.MrDetailsOutcome
+import ch.nokillswit.gitlab.MrEventSource
+import ch.nokillswit.gitlab.RawGitLabMergeRequest
+import ch.nokillswit.gitlab.RawGitLabMrEvent
 import ch.nokillswit.gitlab.RawGitLabCommit
 import ch.nokillswit.gitlab.RawGitLabCommitFile
 import ch.nokillswit.gitlab.purgeAll
@@ -432,6 +437,16 @@ class GitLabDataSourceRoutesTest {
                 store.tombstoneCommits(created.id, 1, listOf(commitSha(3)), now = 6_000)
                 val files = CommitFilesResult(listOf(RawGitLabCommitFile("a.go", null, 1, 0, false, false, false, false)), false)
                 store.flushCommitFiles(created.id, listOf(CommitFilesOutcome(1, commitSha(4), files, null)), now = 7_000)
+                // Three merge requests: 1 merged and read with stats and two events, 2 opened and read with a GraphQL gap, 3 never read.
+                store.upsertMergeRequests(
+                    created.id, listOf(rawMr(1, "merged"), rawMr(2, "opened"), rawMr(3, "opened")), now = 8_000,
+                )
+                val events = listOf(
+                    RawGitLabMrEvent(MrEventSource.NOTE, 11, 5, 9_000, system = true, noteType = null, action = "MERGED"),
+                    RawGitLabMrEvent(MrEventSource.APPROVAL, 5, 5, null, system = false, noteType = null, action = "APPROVAL"),
+                )
+                store.settleMrDetails(created.id, 1_001, events, now = 20_000, MrDetailsOutcome(stats = GitLabDiffStats(7, 3, 2)))
+                store.settleMrDetails(created.id, 1_002, emptyList(), now = 20_000, MrDetailsOutcome())
             }
             val status = admin.get("/api/v1/data-sources/${created.id}/status")
             assertEquals(HttpStatusCode.OK, status.status)
@@ -448,6 +463,11 @@ class GitLabDataSourceRoutesTest {
             assertEquals(1L, counts.commitsMerge)
             assertEquals(1L, counts.commitsDeleted)
             assertEquals(1L, counts.commitFilesPending, "the backlog excludes the merge, the tombstone and the read commit")
+            assertEquals(3L, counts.mergeRequests)
+            assertEquals(1L, counts.mergeRequestsMerged)
+            assertEquals(2L, counts.mrEvents, "the notes, approvals and reviewer states stored")
+            assertEquals(1L, counts.mrDetailsPending, "only the merge request never read")
+            assertEquals(1L, counts.mrDiffStatsMissing, "the read merge request whose stats are a gap")
             assertEquals(0L, body.counts.rawIssues)
 
             val queued = admin.postJson("/api/v1/data-sources/${created.id}/sync-jobs", buildJsonObject { put("kind",
@@ -506,4 +526,11 @@ private fun commitSha(n: Int) = n.toString(16).padStart(40, '0')
 
 private fun rawCommit(n: Int, parents: Int) = RawGitLabCommit(
     commitSha(n), "Commit $n", "Author", "a@x.test", n * 1_000L - 10, n * 1_000L, parents, additions = 1, deletions = 1,
+)
+
+private fun rawMr(n: Long, state: String) = RawGitLabMergeRequest(
+    mrId = 1_000 + n, projectId = 1, iid = n, state = state, draft = false, authorId = 5, mergeUserId = null, createdAt = 100,
+    updatedAt = 200 + n, mergedAt = null, closedAt = null, sourceBranch = "feature/$n", targetBranch = "main", title = "Merge request $n",
+    headSha = null, mergeCommitSha = null, squashCommitSha = null, reviewerIds = emptyList(), assigneeIds = emptyList(), userNotesCount = 0,
+    payload = buildJsonObject { put("id", 1_000 + n) },
 )
