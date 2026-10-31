@@ -1,11 +1,11 @@
 package ch.nokillswit
 
+import ch.nokillswit.fetch.FetchException
 import ch.nokillswit.infra.outbound.BlockedHostException
 import ch.nokillswit.infra.outbound.GuardedDns
 import ch.nokillswit.infra.outbound.isAllowedJiraHost
-import ch.nokillswit.jira.JiraFetchException
-import ch.nokillswit.jira.JiraHttp
 import ch.nokillswit.jira.buildGuardedJiraHttpClient
+import ch.nokillswit.jira.createJiraHttp
 import ch.nokillswit.jira.skipsProjectFields
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.get
@@ -228,8 +228,8 @@ class OutboundGuardTest {
         )
         // [MED-1] mutation-check: revert BlockedHostException to a bare RuntimeException and this
         // becomes UPSTREAM_UNAVAILABLE after 3 resolver calls (~2-6s of real backoff) instead.
-        val jiraHttp = JiraHttp(httpClient, maxRetries = 2, maxResponseBytes = 1_000_000, maxConcurrentRequests = 4)
-        val error = assertFailsWith<JiraFetchException> { jiraHttp.request(HttpMethod.Get, "$stubUrl/_edge/tenant_info") }
+        val jiraHttp = createJiraHttp(httpClient, maxRetries = 2, maxResponseBytes = 1_000_000, maxConcurrentRequests = 4)
+        val error = assertFailsWith<FetchException> { jiraHttp.request(HttpMethod.Get, "$stubUrl/_edge/tenant_info") }
         assertEquals("BLOCKED_HOST", error.code)
         assertEquals(1, resolveCalls, "BLOCKED_HOST must not be retried")
     }
@@ -247,7 +247,7 @@ class OutboundGuardTest {
             addressAllowed = { _, _ -> true },
             requestTimeoutSeconds = 5,
         )
-        val jiraHttp = JiraHttp(httpClient, maxRetries = 2, maxResponseBytes = 1_000_000, maxConcurrentRequests = 4, sleeper = {})
+        val jiraHttp = createJiraHttp(httpClient, maxRetries = 2, maxResponseBytes = 1_000_000, maxConcurrentRequests = 4, sleeper = {})
         val result = jiraHttp.request(HttpMethod.Get, "$stubUrl/_edge/tenant_info")
         assertTrue(result.toString().contains("cloudId"), "expected the real tenant_info stub body: $result")
         assertEquals(2, resolveCalls, "the failed lookup, then the retry's re-resolution")
@@ -263,12 +263,12 @@ class OutboundGuardTest {
             resolver = { host -> resolveCalls++; throw UnknownHostException(host) },
             requestTimeoutSeconds = 5,
         )
-        val jiraHttp = JiraHttp(
+        val jiraHttp = createJiraHttp(
             httpClient, maxRetries = 2, maxResponseBytes = 1_000_000, maxConcurrentRequests = 4,
             sleeper = { sleeps += it },
         )
         withAuditCapture { audit ->
-            val error = assertFailsWith<JiraFetchException> {
+            val error = assertFailsWith<FetchException> {
                 jiraHttp.request(HttpMethod.Get, "https://$downHost/_edge/tenant_info")
             }
             assertEquals("UPSTREAM_UNAVAILABLE", error.code)
@@ -288,8 +288,8 @@ class OutboundGuardTest {
             resolver = { resolveCalls++; listOf(InetAddress.getByName("203.0.113.10")) },
             requestTimeoutSeconds = 5,
         )
-        val jiraHttp = JiraHttp(httpClient, maxRetries = 2, maxResponseBytes = 1_000_000, maxConcurrentRequests = 4)
-        val error = assertFailsWith<JiraFetchException> { jiraHttp.request(HttpMethod.Get, "https://evil.example.com/probe") }
+        val jiraHttp = createJiraHttp(httpClient, maxRetries = 2, maxResponseBytes = 1_000_000, maxConcurrentRequests = 4)
+        val error = assertFailsWith<FetchException> { jiraHttp.request(HttpMethod.Get, "https://evil.example.com/probe") }
         assertEquals("BLOCKED_HOST", error.code)
         assertEquals(0, resolveCalls, "an already-disallowed host must never reach the resolver")
     }
@@ -309,8 +309,8 @@ class OutboundGuardTest {
                 addressAllowed = { _, _ -> true },
                 requestTimeoutSeconds = 5,
             )
-            val jiraHttp = JiraHttp(httpClient, maxRetries = 0, maxResponseBytes = 1_000_000, maxConcurrentRequests = 4)
-            val error = assertFailsWith<JiraFetchException> { jiraHttp.request(HttpMethod.Get, "$stubUrl$redirectPath") }
+            val jiraHttp = createJiraHttp(httpClient, maxRetries = 0, maxResponseBytes = 1_000_000, maxConcurrentRequests = 4)
+            val error = assertFailsWith<FetchException> { jiraHttp.request(HttpMethod.Get, "$stubUrl$redirectPath") }
             assertEquals("REDIRECT", error.code)
         } finally {
             JiraStubServer.removeOverride(override)
@@ -330,7 +330,7 @@ class OutboundGuardTest {
             val httpClient = buildGuardedJiraHttpClient(
                 allowedHost = { true }, addressAllowed = { _, _ -> true }, requestTimeoutSeconds = 5,
             )
-            val jiraHttp = JiraHttp(httpClient, maxRetries = 0, maxResponseBytes = 1_000_000, maxConcurrentRequests = 4)
+            val jiraHttp = createJiraHttp(httpClient, maxRetries = 0, maxResponseBytes = 1_000_000, maxConcurrentRequests = 4)
             val result = jiraHttp.request(HttpMethod.Get, "$stubUrl/_edge/tenant_info")
             assertTrue(result.toString().contains("cloudId"), "expected the real tenant_info stub body: $result")
         } finally {
@@ -368,8 +368,8 @@ class OutboundGuardTest {
                 requestTimeoutSeconds = 5,
                 eventListener = listener,
             )
-            val jiraHttp = JiraHttp(httpClient, maxRetries = 2, maxResponseBytes = 1_000_000, maxConcurrentRequests = 4, sleeper = {})
-            assertFailsWith<JiraFetchException> { jiraHttp.request(HttpMethod.Get, "$stubUrl$failPath") }
+            val jiraHttp = createJiraHttp(httpClient, maxRetries = 2, maxResponseBytes = 1_000_000, maxConcurrentRequests = 4, sleeper = {})
+            assertFailsWith<FetchException> { jiraHttp.request(HttpMethod.Get, "$stubUrl$failPath") }
             assertTrue(listener.acquired.get() >= 3, "the initial attempt plus 2 retries: ${listener.acquired.get()}")
             assertEquals(
                 listener.acquired.get(),

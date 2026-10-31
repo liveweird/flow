@@ -1,5 +1,9 @@
 package ch.nokillswit.jira
 
+import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.fetch.PageTokenGuard
+import ch.nokillswit.fetch.RunBudget
+import ch.nokillswit.fetch.RunCeiling
 import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
@@ -11,7 +15,7 @@ private data class OneByOne(val skipped: Int, val refused: Int, val changed: Boo
 private val log = LoggerFactory.getLogger(JiraIssuesStream::class.java)
 
 /**
- * A restart bound for [JiraFetchException]'s `CURSOR_EXPIRED` — a real Jira token never expires
+ * A restart bound for [FetchException]'s `CURSOR_EXPIRED` — a real Jira token never expires
  * again immediately after a fresh query; this only guards against a pathological/misbehaving
  * upstream.
  */
@@ -113,8 +117,8 @@ class JiraIssuesStream internal constructor(
         if (movedOut > 0) context.markChanged()
         var state = loadOrStart(context)
         val ask = PageAsk(pageSize)
-        val budget = RunBudget(SEARCH_JQL_ENDPOINT, runCeiling, "issues")
-        val tokens = PageTokenGuard(SEARCH_JQL_ENDPOINT, state.nextPageToken)
+        val budget = RunBudget(JIRA_SOURCE, SEARCH_JQL_ENDPOINT, runCeiling, "issues")
+        val tokens = PageTokenGuard(JIRA_SOURCE, SEARCH_JQL_ENDPOINT, state.nextPageToken)
         while (true) {
             budget.nextPage()
             val (current, page) = nextPage(context, ask, state)
@@ -237,7 +241,7 @@ class JiraIssuesStream internal constructor(
                 val page = client.searchJql(state.jql, ISSUE_SEARCH_FIELDS, state.nextPageToken, ask.size)
                 ask.halvedJustNow = false
                 return state to page
-            } catch (failure: JiraFetchException) {
+            } catch (failure: FetchException) {
                 state = recover(context, ask, state, failure)
             }
         }
@@ -249,7 +253,7 @@ class JiraIssuesStream internal constructor(
      * the last completed watermark ([freshRun]); one right after a halving is not an upstream fault (halvings are
      * bounded on their own, log2(pageSize) <= 9), so it does not use up the [MAX_CURSOR_RESTARTS] budget.
      */
-    private fun recover(context: StreamContext, ask: PageAsk, state: IssuesCursor, failure: JiraFetchException): IssuesCursor = when {
+    private fun recover(context: StreamContext, ask: PageAsk, state: IssuesCursor, failure: FetchException): IssuesCursor = when {
         failure.code == "LIMIT_EXCEEDED" && ask.size > 1 -> {
             log.warn("ISSUES page over the response cap, data source {}: size {} -> {}", context.connectionId, ask.size, ask.size / 2)
             ask.size /= 2

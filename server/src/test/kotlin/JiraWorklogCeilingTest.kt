@@ -1,21 +1,23 @@
 package ch.nokillswit
 
+import ch.nokillswit.fetch.AnswerCeiling
+import ch.nokillswit.fetch.BoundedAnswer
+import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.fetch.PageCeiling
+import ch.nokillswit.fetch.SourceHttp
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.StreamContext
-import ch.nokillswit.jira.AnswerCeiling
-import ch.nokillswit.jira.BoundedAnswer
 import ch.nokillswit.jira.FEED_CLOCK_SKEW_MILLIS
 import ch.nokillswit.jira.HttpJiraClient
-import ch.nokillswit.jira.JiraFetchException
-import ch.nokillswit.jira.JiraHttp
+import ch.nokillswit.jira.JIRA_SOURCE
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraStoredCeilings
 import ch.nokillswit.jira.JiraWorklogIdsPage
 import ch.nokillswit.jira.JiraWorklogStream
-import ch.nokillswit.jira.PageCeiling
 import ch.nokillswit.jira.RawIssueInput
 import ch.nokillswit.jira.WORKLOG_INSERT_GROUP_ROWS
 import ch.nokillswit.jira.WorklogCeilings
+import ch.nokillswit.jira.createJiraHttp
 import ch.nokillswit.jira.insertGroups
 import ch.nokillswit.infra.db.maxRowsPerStatement
 import ch.nokillswit.jira.WorklogsCursor
@@ -68,7 +70,7 @@ private const val NO_SKIP_BUDGET_ISSUES = 12
  * The WORKLOGS stream's answer ceilings (`.claude/docs/jira-integration.md` "Worklog answer ceilings"): a compromised or buggy
  * Jira host that never stops paging, packs a giant answer, or sends a `until` that cannot be true must end in a typed failure
  * (or a skipped issue), never in unbounded growth, a silenced feed, or a cursor past what was stored. The real [HttpJiraClient],
- * [JiraHttp] and raw store run over a Ktor `MockEngine` that plays the host; the figures of [WorklogCeilings] are small so each
+ * [SourceHttp] and raw store run over a Ktor `MockEngine` that plays the host; the figures of [WorklogCeilings] are small so each
  * attack is cheap. Every test owns its connection.
  */
 class JiraWorklogCeilingTest {
@@ -176,7 +178,7 @@ class JiraWorklogCeilingTest {
                 }
                 respond(body, HttpStatusCode.OK, JSON_HEADERS)
             }
-            val http = JiraHttp(
+            val http = createJiraHttp(
                 HttpClient(engine) { expectSuccess = false; followRedirects = false },
                 maxRetries = 0, maxResponseBytes = 32L * MIB, maxConcurrentRequests = WINDOW, sleeper = {},
             )
@@ -253,7 +255,7 @@ class JiraWorklogCeilingTest {
             val connId = connection()
             seedIssues(connId, *LongArray(NO_SKIP_BUDGET_ISSUES) { it + 1L })
             val host = Host().apply { perIssue = { id, startAt -> endless(id, startAt) } }
-            val failure = assertFailsWith<JiraFetchException> { run(connId, host, small()) }
+            val failure = assertFailsWith<FetchException> { run(connId, host, small()) }
             assertEquals("LIMIT_EXCEEDED", failure.code)
             assertTrue("answer ceiling" in failure.message.orEmpty(), failure.message)
             assertTrue("WORKLOGS skipped 11 of 11 issues" in failure.message.orEmpty(), failure.message)
@@ -286,7 +288,7 @@ class JiraWorklogCeilingTest {
             val connId = connection()
             seedIssues(connId, 7, synced = true)
             val host = Host().apply { updated = { since -> feed(since = since, until = since + 1_000, lastPage = false) } }
-            val failure = assertFailsWith<JiraFetchException> { run(connId, host, small()) }
+            val failure = assertFailsWith<FetchException> { run(connId, host, small()) }
             assertEquals("LIMIT_EXCEEDED", failure.code)
             assertTrue("more than $PAGES feed pages in one run" in failure.message.orEmpty(), failure.message)
             assertEquals(PAGES, host.updatedSinces.size, "never a call past the ceiling")
@@ -299,7 +301,7 @@ class JiraWorklogCeilingTest {
         val connId = connection()
         seedIssues(connId, 7, synced = true)
         val host = Host().apply { updated = { since -> feed(since = since, until = since, lastPage = false) } }
-        val failure = assertFailsWith<JiraFetchException> { run(connId, host, small()) }
+        val failure = assertFailsWith<FetchException> { run(connId, host, small()) }
         assertEquals("INVALID_RESPONSE", failure.code)
         assertEquals(1, host.updatedSinces.size)
         assertNull(cursor(connId), "nothing was persisted")
@@ -313,7 +315,7 @@ class JiraWorklogCeilingTest {
             updated = { feed(11, until = FAR_FUTURE) }
             list = { ids -> "[${ids.joinToString(",") { worklog(it, 7) }}]" }
         }
-        val failure = assertFailsWith<JiraFetchException> { run(connId, host, small()) }
+        val failure = assertFailsWith<FetchException> { run(connId, host, small()) }
         assertEquals("INVALID_RESPONSE", failure.code)
         assertTrue("until" in failure.message.orEmpty(), failure.message)
         assertNull(cursor(connId), "no cursor at all, so the next run asks since = its own start again")
@@ -326,7 +328,7 @@ class JiraWorklogCeilingTest {
         val connId = connection()
         seedIssues(connId, 7, synced = true)
         val host = Host().apply { deleted = { feed(until = FAR_FUTURE) } }
-        val failure = assertFailsWith<JiraFetchException> { run(connId, host, small()) }
+        val failure = assertFailsWith<FetchException> { run(connId, host, small()) }
         assertEquals("INVALID_RESPONSE", failure.code)
         assertEquals(WorklogsCursor(updatedSince = NOW, deletedSince = NOW), cursor(connId), "deletedSince did not take the host's value")
     }
@@ -346,7 +348,7 @@ class JiraWorklogCeilingTest {
         val connId = connection()
         seedIssues(connId, 7, synced = true)
         val host = Host().apply { updated = { feed(11, 12, 13, 14) } }
-        val failure = assertFailsWith<JiraFetchException> {
+        val failure = assertFailsWith<FetchException> {
             run(connId, host, small(feedAnswer = AnswerCeiling(8L * MIB, maxItems = 3, maxPages = 10)))
         }
         assertEquals("LIMIT_EXCEEDED", failure.code)
@@ -363,7 +365,7 @@ class JiraWorklogCeilingTest {
             updated = { feed(11, 12) }
             list = { ids -> "[${ids.joinToString(",") { worklog(it, 7, padding = 400) }}]" }
         }
-        val failure = assertFailsWith<JiraFetchException> {
+        val failure = assertFailsWith<FetchException> {
             run(connId, host, small(feedAnswer = AnswerCeiling(maxChars = 600, maxItems = 1_000, maxPages = 10)))
         }
         assertEquals("LIMIT_EXCEEDED", failure.code)
@@ -381,7 +383,7 @@ class JiraWorklogCeilingTest {
             updated = { feed(11, 12) }
             list = { "[${(1L..3L).joinToString(",") { worklog(it, 7) }}]" }
         }
-        val failure = assertFailsWith<JiraFetchException> {
+        val failure = assertFailsWith<FetchException> {
             run(connId, host, small(feedAnswer = AnswerCeiling(8L * MIB, maxItems = 2, maxPages = 10)))
         }
         assertEquals("LIMIT_EXCEEDED", failure.code)
@@ -399,7 +401,7 @@ class JiraWorklogCeilingTest {
             }
             list = { ids -> "[${ids.joinToString(",") { worklog(it, 7) }}]" }
         }
-        assertFailsWith<JiraFetchException> {
+        assertFailsWith<FetchException> {
             run(connId, host, small(feedAnswer = AnswerCeiling(8L * MIB, maxItems = 3, maxPages = 10)))
         }
         assertEquals(1L, store.countWorklogs(connId), "page one is stored")
@@ -468,7 +470,7 @@ class JiraWorklogCeilingTest {
         val connId = connection()
         seedIssues(connId, 7, synced = true)
         val host = Host().apply { deleted = { since -> feed(since = since, until = since + 1_000, lastPage = false) } }
-        val failure = assertFailsWith<JiraFetchException> { run(connId, host, small()) }
+        val failure = assertFailsWith<FetchException> { run(connId, host, small()) }
         assertEquals("LIMIT_EXCEEDED", failure.code)
         assertTrue("more than $PAGES feed pages in one run" in failure.message.orEmpty(), failure.message)
         assertEquals(PAGES, host.deletedSinces.size)
@@ -499,7 +501,7 @@ class JiraWorklogCeilingTest {
             val connId = connection()
             seedIssues(connId, 7, synced = true)
             val host = Host().apply { updated = { feed(11) }; list = { "[$listed]" } }
-            val failure = assertFailsWith<JiraFetchException> { run(connId, host, small()) }
+            val failure = assertFailsWith<FetchException> { run(connId, host, small()) }
             assertEquals("INVALID_RESPONSE", failure.code, listed)
             assertTrue("secret-host-text" !in failure.message.orEmpty(), failure.message)
             assertNull(cursor(connId), "the page did not commit")
@@ -511,7 +513,7 @@ class JiraWorklogCeilingTest {
         val connId = connection()
         seedIssues(connId, 7, synced = true)
         val host = Host().apply { updated = { feed(11) }; list = { """[{"id":"11","issueId":"secret-host-text"}]""" } }
-        val failure = assertFailsWith<JiraFetchException> { run(connId, host, small()) }
+        val failure = assertFailsWith<FetchException> { run(connId, host, small()) }
         assertEquals("INVALID_RESPONSE", failure.code)
         assertTrue("secret-host-text" !in failure.message.orEmpty(), failure.message)
     }
@@ -525,7 +527,7 @@ class JiraWorklogCeilingTest {
                 """{"startAt":0,"maxResults":1,"total":1,"worklogs":[{"id":"x","issueId":"1","updated":"2026-05-20T10:00:00.000+0000"}]}"""
             }
         }
-        val failure = assertFailsWith<JiraFetchException> { run(connId, host, small()) }
+        val failure = assertFailsWith<FetchException> { run(connId, host, small()) }
         assertEquals("INVALID_RESPONSE", failure.code)
         assertNull(worklogsSyncedAt(connId, 1))
     }
@@ -534,28 +536,28 @@ class JiraWorklogCeilingTest {
 
     @Test
     fun `the answer holds up to each ceiling and throws LIMIT_EXCEEDED past it`() {
-        val answer = BoundedAnswer<String>("/e", AnswerCeiling(maxChars = 10, maxItems = 3, maxPages = 2), "things")
+        val answer = BoundedAnswer<String>(JIRA_SOURCE, "/e", AnswerCeiling(maxChars = 10, maxItems = 3, maxPages = 2), "things")
         answer.nextPage()
         answer.nextPage()
-        val pageFailure = assertFailsWith<JiraFetchException> { answer.nextPage() }
+        val pageFailure = assertFailsWith<FetchException> { answer.nextPage() }
         assertEquals("more than 2 pages", pageFailure.message.orEmpty().substringAfter("ceiling: "))
         answer.add("a", 5)
         answer.add("b", 5)
-        val text = assertFailsWith<JiraFetchException> { answer.add("c", 1) }
+        val text = assertFailsWith<FetchException> { answer.add("c", 1) }
         assertEquals("LIMIT_EXCEEDED", text.code)
         assertTrue("more than 10 characters" in text.message.orEmpty(), text.message)
         assertEquals(listOf("a", "b"), answer.items, "the item past the ceiling is not kept")
-        val count = BoundedAnswer<String>("/e", AnswerCeiling(maxChars = 100, maxItems = 1, maxPages = 2), "things")
+        val count = BoundedAnswer<String>(JIRA_SOURCE, "/e", AnswerCeiling(maxChars = 100, maxItems = 1, maxPages = 2), "things")
         count.add("a", 1)
-        assertTrue("more than 1 things" in assertFailsWith<JiraFetchException> { count.add("b", 1) }.message.orEmpty())
+        assertTrue("more than 1 things" in assertFailsWith<FetchException> { count.add("b", 1) }.message.orEmpty())
     }
 
     @Test
     fun `a page ceiling alone counts calls and names what it counts`() {
-        val pages = PageCeiling("/e", 2, "boards")
+        val pages = PageCeiling(JIRA_SOURCE, "/e", 2, "boards")
         pages.next()
         pages.next()
-        val failure = assertFailsWith<JiraFetchException> { pages.next() }
+        val failure = assertFailsWith<FetchException> { pages.next() }
         assertEquals("LIMIT_EXCEEDED", failure.code)
         assertTrue("more than 2 boards" in failure.message.orEmpty(), failure.message)
     }
@@ -568,13 +570,13 @@ class JiraWorklogCeilingTest {
         page(until = NOW, entries = 2).requirePlausible("/e", since = 0, now = NOW, maxEntries = 2)
         page(until = NOW + FEED_CLOCK_SKEW_MILLIS).requirePlausible("/e", since = 0, now = NOW, maxEntries = 2)
         page(until = 5, lastPage = true).requirePlausible("/e", since = NOW, now = NOW, maxEntries = 2) // a last page may be old
-        assertEquals("LIMIT_EXCEEDED", assertFailsWith<JiraFetchException> {
+        assertEquals("LIMIT_EXCEEDED", assertFailsWith<FetchException> {
             page(until = NOW, entries = 3).requirePlausible("/e", 0, NOW, 2)
         }.code)
-        assertEquals("INVALID_RESPONSE", assertFailsWith<JiraFetchException> {
+        assertEquals("INVALID_RESPONSE", assertFailsWith<FetchException> {
             page(until = NOW + FEED_CLOCK_SKEW_MILLIS + 1).requirePlausible("/e", 0, NOW, 2)
         }.code)
-        assertEquals("INVALID_RESPONSE", assertFailsWith<JiraFetchException> {
+        assertEquals("INVALID_RESPONSE", assertFailsWith<FetchException> {
             page(until = NOW, lastPage = false).requirePlausible("/e", NOW, NOW, 2)
         }.code)
     }

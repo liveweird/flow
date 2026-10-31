@@ -296,7 +296,7 @@ jira:
   # document of minimal objects, 4 in flight (maxConcurrentRequests), in a worker of -Xmx512m. So it closes the risk of a legitimate
   # tenant's biggest response. A body is also refused (LIMIT_EXCEEDED, before it is parsed) past a structural node ceiling of
   # maxResponseBytes / 8 tokens (derived from this value, so there is no second knob to raise with it: 1,048,576 at the default) or past
-  # 512 levels of nesting (jira/JiraNodeCeiling.kt), and a body over 1 MiB is parsed under one lock, one big tree at a time. A dense
+  # 512 levels of nesting (fetch/NodeCeiling.kt), and a body over 1 MiB is parsed under one lock, one big tree at a time. A dense
   # hostile document is still ~108 MiB of tree per response at the default (~230-300 MiB before), and an OOM exits the worker
   # (ExitOnOutOfMemoryError): narrowed, not closed (`.claude/docs/jira-integration.md` "Node and depth ceiling", BACKLOG). A boot check
   # (jira/JiraHeapFit.kt) refuses a worker role whose heap cannot hold ingest.workerSlots slots, each the largest of one such tree

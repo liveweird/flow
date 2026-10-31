@@ -86,7 +86,7 @@ fun Application.configureJira() {
     // starts and stops hundreds), like the database pool's own ApplicationStopped disposal.
     attributes.put(JiraHttpClientKey, httpClient)
     monitor.subscribe(ApplicationStopped) { httpClient.close() }
-    val jiraHttp = JiraHttp(
+    val jiraHttp = createJiraHttp(
         httpClient,
         maxRetries,
         maxResponseBytes,

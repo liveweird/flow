@@ -1,7 +1,8 @@
 package ch.nokillswit
 
+import ch.nokillswit.fetch.FetchException
 import ch.nokillswit.ingest.StreamContext
-import ch.nokillswit.jira.JiraFetchException
+import ch.nokillswit.jira.JIRA_SOURCE
 import ch.nokillswit.jira.JiraIssuesStream
 import ch.nokillswit.jira.JiraSearchPage
 import ch.nokillswit.jira.backfillFromEpochMillis
@@ -108,14 +109,14 @@ class JiraBackfillMarkerTest {
     fun `an interrupted first run is still a backfill when it resumes, an interrupted incremental run is not`() = runBlocking {
         val connId = newConnection("backfill-resume")
         val interrupted = { call: Int, _: String? ->
-            if (call == 0) issuePage(1, next = "t1") else throw JiraFetchException("UPSTREAM_UNAVAILABLE", 503)
+            if (call == 0) issuePage(1, next = "t1") else throw FetchException(JIRA_SOURCE, "UPSTREAM_UNAVAILABLE", 503)
         }
-        assertFailsWith<JiraFetchException> { run(connId, script = interrupted) }
+        assertFailsWith<FetchException> { run(connId, script = interrupted) }
         assertEquals(1L, run(connId, script = { _, token -> issuePage(2, next = null).also { assertEquals("t1", token) } }), "resumed")
         assertNull(run(connId))
 
         // Now an incremental run that stops after its first page: its resumption is not a backfill.
-        assertFailsWith<JiraFetchException> { run(connId, script = interrupted) }
+        assertFailsWith<FetchException> { run(connId, script = interrupted) }
         assertNull(run(connId, script = { _, _ -> issuePage(3, next = null) }))
     }
 }

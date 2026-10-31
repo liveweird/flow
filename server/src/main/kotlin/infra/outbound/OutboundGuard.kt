@@ -45,13 +45,13 @@ const val ATLASSIAN_GATEWAY_HOST = "api.atlassian.com"
  * `IOException("canceled due to $e").initCause(e)` — the original exception survives only as a
  * suppressed cause. Ktor's `OkHttpCallback.onFailure` → `mapOkHttpException` never unwraps a cause
  * chain either. A plain-`RuntimeException` [BlockedHostException] therefore arrived at
- * `JiraHttp.request` as that wrapper `IOException`, missing `JiraHttp`'s
+ * `SourceHttp.request` as that wrapper `IOException`, missing `SourceHttp`'s
  * `catch (cause: BlockedHostException)` entirely and falling into the generic `catch (cause:
  * IOException)` retry branch instead — `BLOCKED_HOST` was retried [jira.maxRetries] times (~30s of
  * backoff, 5 `outbound.blocked` audits) before surfacing as `UPSTREAM_UNAVAILABLE`. As an
  * `IOException` subtype, [BlockedHostException] now reaches `Callback.onFailure` as itself (the
  * `try`'s FIRST, `IOException`-only catch clause, not the `Throwable` one), so it reaches
- * `JiraHttp`'s specific catch unchanged and is never retried. Pinned by
+ * `SourceHttp`'s specific catch unchanged and is never retried. Pinned by
  * `OutboundGuardTest`'s production-wiring integration test.
  *
  * Only GUARD rejections are a [BlockedHostException] (host not allow-listed, resolved address in a blocked range). A DNS
@@ -168,7 +168,7 @@ class GuardedDns(
         if (!allowedHost(hostname)) auditBlockedOutbound(schemeFor(hostname), hostname)
         // A resolver failure (an UnknownHostException or an empty answer) is a DNS fault, not a guard rejection: the host
         // is allow-listed and no blocked address was involved, so it is neither audited `outbound.blocked` nor a
-        // [BlockedHostException]. A plain UnknownHostException is an IOException, which `JiraHttp` retries with backoff
+        // [BlockedHostException]. A plain UnknownHostException is an IOException, which `SourceHttp` retries with backoff
         // (and every retry comes back through this method, re-checked).
         val addresses = try {
             resolver(hostname)
@@ -207,7 +207,7 @@ internal object DirectSocketFactory : SocketFactory() {
 
 /**
  * The guarded OkHttp transport (v0.2.0 plan §6): [GuardedDns] above, `Proxy.NO_PROXY` (backstopped
- * by [DirectSocketFactory] — LOW-4), no redirects, no connection-failure retries (`JiraHttp` owns
+ * by [DirectSocketFactory] — LOW-4), no redirects, no connection-failure retries (`SourceHttp` owns
  * the retry/backoff policy explicitly — a silent OkHttp-level retry would double-count against
  * it), `fastFallback(false)` (Toadie precedent: no parallel Happy-Eyeballs connection attempts
  * outside the single already-checked address list), no cookies/proxy-authenticator. [eventListener]

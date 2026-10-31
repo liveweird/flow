@@ -1,13 +1,14 @@
 package ch.nokillswit
 
-import ch.nokillswit.jira.DEPTH_CEILING_TEXT
-import ch.nokillswit.jira.JiraFetchException
-import ch.nokillswit.jira.JiraHttp
-import ch.nokillswit.jira.MAX_RESPONSE_DEPTH
-import ch.nokillswit.jira.NODE_CEILING_TEXT
-import ch.nokillswit.jira.RESPONSE_BYTES_PER_NODE
-import ch.nokillswit.jira.defaultMaxResponseNodes
-import ch.nokillswit.jira.jsonCeilingBreach
+import ch.nokillswit.fetch.DEPTH_CEILING_TEXT
+import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.fetch.MAX_RESPONSE_DEPTH
+import ch.nokillswit.fetch.NODE_CEILING_TEXT
+import ch.nokillswit.fetch.RESPONSE_BYTES_PER_NODE
+import ch.nokillswit.fetch.SourceHttp
+import ch.nokillswit.fetch.defaultMaxResponseNodes
+import ch.nokillswit.fetch.jsonCeilingBreach
+import ch.nokillswit.jira.createJiraHttp
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -34,7 +35,7 @@ private val JSON_HEADERS = headersOf(HttpHeaders.ContentType, "application/json"
 private const val NO_LIMIT = Long.MAX_VALUE
 
 /**
- * The structural ceilings on a Jira response (`JiraNodeCeiling.kt`, `.claude/docs/jira-integration.md` "Node and depth ceiling"):
+ * The structural ceilings on a Jira response (`NodeCeiling.kt`, `.claude/docs/jira-integration.md` "Node and depth ceiling"):
  * the scan counts tokens and nesting outside strings exactly, a dense or deep body is refused with the same `LIMIT_EXCEEDED` an
  * over-cap body is BEFORE it is parsed (so no `StackOverflowError`), the ceiling is derived from `jira.maxResponseBytes`, and every
  * real-shaped stub page that can approach the cap passes at the shipped density.
@@ -89,7 +90,7 @@ class JiraResponseNodeCeilingTest {
         assertEquals(MAX_RESPONSE_DEPTH, Regex("""const MAX_DEPTH = (\d+);""").find(script)?.groupValues?.get(1)?.toInt())
     }
 
-    // --- Through JiraHttp -----------------------------------------------------------------------------------------------
+    // --- Through SourceHttp -----------------------------------------------------------------------------------------------
 
     private class Wire(val requests: MutableList<io.ktor.client.request.HttpRequestData> = CopyOnWriteArrayList())
 
@@ -99,23 +100,23 @@ class JiraResponseNodeCeilingTest {
         wire: Wire = Wire(),
         headers: io.ktor.http.Headers = JSON_HEADERS,
         maxResponseNodes: Long? = null,
-    ): JiraHttp {
+    ): SourceHttp {
         val client = HttpClient(MockEngine { request -> wire.requests += request; respond(body, HttpStatusCode.OK, headers) }) {
             expectSuccess = false
             followRedirects = false
         }
         // The production wiring (`configureJira`) passes only the byte cap; a test passes the nodes only to pin the boundary.
         return if (maxResponseNodes == null) {
-            JiraHttp(client, maxRetries = 0, maxResponseBytes = maxResponseBytes, maxConcurrentRequests = 1, sleeper = {})
+            createJiraHttp(client, maxRetries = 0, maxResponseBytes = maxResponseBytes, maxConcurrentRequests = 1, sleeper = {})
         } else {
-            JiraHttp(
+            createJiraHttp(
                 client, maxRetries = 0, maxResponseBytes = maxResponseBytes, maxConcurrentRequests = 1, sleeper = {},
                 maxResponseNodes = maxResponseNodes,
             )
         }
     }
 
-    private suspend fun JiraHttp.get() = request(HttpMethod.Get, "https://stub.test/rest/api/3/x")
+    private suspend fun SourceHttp.get() = request(HttpMethod.Get, "https://stub.test/rest/api/3/x")
 
     @Test
     fun `a dense body inside the byte cap is refused as LIMIT_EXCEEDED before it is parsed, with constant text`() = runBlocking<Unit> {
@@ -123,7 +124,7 @@ class JiraResponseNodeCeilingTest {
         // had it been parsed it would be INVALID_RESPONSE, so LIMIT_EXCEEDED proves the scan came first.
         val dense = bytes("[" + "{},".repeat(100_000))
         assertTrue(dense.size < 1L * 1024 * 1024)
-        val failure = assertFailsWith<JiraFetchException> { http(1L * 1024 * 1024, dense).get() }
+        val failure = assertFailsWith<FetchException> { http(1L * 1024 * 1024, dense).get() }
         assertEquals("LIMIT_EXCEEDED", failure.code)
         assertEquals(200, failure.status)
         assertEquals("Jira fetch failed: LIMIT_EXCEEDED (200): $NODE_CEILING_TEXT", failure.message)
@@ -132,12 +133,12 @@ class JiraResponseNodeCeilingTest {
     @Test
     fun `a body nested a hundred thousand levels deep is a typed refusal, not a StackOverflowError`() = runBlocking<Unit> {
         val deep = bytes("[".repeat(100_000))
-        val failure = assertFailsWith<JiraFetchException> { http(8L * 1024 * 1024, deep).get() }
+        val failure = assertFailsWith<FetchException> { http(8L * 1024 * 1024, deep).get() }
         assertEquals("LIMIT_EXCEEDED", failure.code)
         assertEquals("Jira fetch failed: LIMIT_EXCEEDED (200): $DEPTH_CEILING_TEXT", failure.message)
         // A well-formed one just past the ceiling is refused too (`CanonicalJsonTest` measured 515 / 1,015 object+array PAIRS, ~1,030 /
         // ~2,030 levels, on a worst-case 1 MiB thread before `toString()` / the parser overflow: 512 levels keeps ~2x margin).
-        val closed = assertFailsWith<JiraFetchException> { http(8L * 1024 * 1024, bytes(nested(MAX_RESPONSE_DEPTH + 1))).get() }
+        val closed = assertFailsWith<FetchException> { http(8L * 1024 * 1024, bytes(nested(MAX_RESPONSE_DEPTH + 1))).get() }
         assertEquals("LIMIT_EXCEEDED", closed.code)
         // At the ceiling it parses, and re-serialises.
         val atCeiling = http(8L * 1024 * 1024, bytes(nested(MAX_RESPONSE_DEPTH))).get()
@@ -146,8 +147,8 @@ class JiraResponseNodeCeilingTest {
 
     @Test
     fun `the same refusal is the one an over-cap body gets, so a stream answers both alike`() = runBlocking<Unit> {
-        val overCap = assertFailsWith<JiraFetchException> { http(1_024, ByteArray(2_000) { 'x'.code.toByte() }).get() }
-        val dense = assertFailsWith<JiraFetchException> { http(1_024, bytes("[" + "0,".repeat(400))).get() }
+        val overCap = assertFailsWith<FetchException> { http(1_024, ByteArray(2_000) { 'x'.code.toByte() }).get() }
+        val dense = assertFailsWith<FetchException> { http(1_024, bytes("[" + "0,".repeat(400))).get() }
         assertEquals(overCap.code, dense.code)
     }
 
@@ -156,18 +157,18 @@ class JiraResponseNodeCeilingTest {
         // [0,0,0,0] = 1 bracket + 3 commas.
         val parsed = http(8_192, bytes("[0,0,0,0]"), maxResponseNodes = 4).get()
         assertEquals(4, (parsed as JsonArray).size)
-        assertFailsWith<JiraFetchException> { http(8_192, bytes("[0,0,0,0]"), maxResponseNodes = 3).get() }
+        assertFailsWith<FetchException> { http(8_192, bytes("[0,0,0,0]"), maxResponseNodes = 3).get() }
     }
 
     @Test
-    fun `a ceiling not passed is derived from the byte cap, as configureJira builds JiraHttp`() = runBlocking<Unit> {
+    fun `a ceiling not passed is derived from the byte cap, as configureJira builds SourceHttp`() = runBlocking<Unit> {
         // 8,192 bytes -> 1,024 tokens: the bracket + 1,023 commas is exactly at it, one comma more is over.
         assertEquals(1_024, (http(8_192, bytes("[" + "0,".repeat(1_023) + "0]")).get() as JsonArray).size)
-        assertFailsWith<JiraFetchException> { http(8_192, bytes("[" + "0,".repeat(1_024) + "0]")).get() }
+        assertFailsWith<FetchException> { http(8_192, bytes("[" + "0,".repeat(1_024) + "0]")).get() }
         // And `configureJira` does not pass its own: no second key, so raising the cap raises the ceiling with it.
         val jiraKt = listOf(File("src/main/kotlin/jira/Jira.kt"), File("server/src/main/kotlin/jira/Jira.kt")).first { it.isFile }
         val source = jiraKt.readText()
-        val construction = Regex("""JiraHttp\(([^)]*)\)""").find(source)?.groupValues?.get(1).orEmpty()
+        val construction = Regex("""createJiraHttp\(([^)]*)\)""").find(source)?.groupValues?.get(1).orEmpty()
         assertTrue("maxResponseBytes" in construction && "maxResponseNodes" !in construction, construction)
         val yaml = checkNotNull(JiraResponseNodeCeilingTest::class.java.getResource("/application.yaml")).readText()
         assertTrue("maxResponseNodes" !in yaml)
@@ -211,7 +212,7 @@ class JiraResponseNodeCeilingTest {
             "",
             "not json",
         ).forEach { body ->
-            val failure = assertFailsWith<JiraFetchException>(body) { http(8L * 1024 * 1024, bytes(body)).get() }
+            val failure = assertFailsWith<FetchException>(body) { http(8L * 1024 * 1024, bytes(body)).get() }
             assertEquals("INVALID_RESPONSE", failure.code, body)
             assertEquals(200, failure.status, body)
         }
@@ -219,10 +220,10 @@ class JiraResponseNodeCeilingTest {
 
     @Test
     fun `the node-ceiling WARN carries the constant ceiling text and numbers only, never the body`() = runBlocking<Unit> {
-        val logs = LogCapture("ch.nokillswit.jira.JiraHttp")
+        val logs = LogCapture("ch.nokillswit.fetch.SourceHttp")
         try {
             val marker = "HOSTSECRET"
-            assertFailsWith<JiraFetchException> { http(1_024, bytes("""["$marker",""" + "0,".repeat(400) + "0]")).get() }
+            assertFailsWith<FetchException> { http(1_024, bytes("""["$marker",""" + "0,".repeat(400) + "0]")).get() }
             val warn = logs.events.single { it.formattedMessage.startsWith("A Jira response was refused") }
             assertEquals(
                 "A Jira response was refused ($NODE_CEILING_TEXT); ceilings: 128 tokens, $MAX_RESPONSE_DEPTH levels",
@@ -249,7 +250,7 @@ class JiraResponseNodeCeilingTest {
         assertTrue(bomb.size < 100_000)
         val wire = Wire()
         val headers = headersOf(HttpHeaders.ContentType to listOf("application/json"), HttpHeaders.ContentEncoding to listOf("gzip"))
-        val failure = assertFailsWith<JiraFetchException> { http(8L * 1024 * 1024, bomb, wire, headers).get() }
+        val failure = assertFailsWith<FetchException> { http(8L * 1024 * 1024, bomb, wire, headers).get() }
         assertEquals("INVALID_RESPONSE", failure.code, "the compressed bytes are what is read and parsed: not JSON")
         assertEquals("identity", wire.requests.single().headers[HttpHeaders.AcceptEncoding])
     }

@@ -1,6 +1,6 @@
-package ch.nokillswit.jira
+package ch.nokillswit.fetch
 
-// The structural ceilings on ONE Jira response (`.claude/docs/jira-integration.md` "Response size cap", "Node and depth ceiling").
+// The structural ceilings on ONE upstream response (`.claude/docs/jira-integration.md` "Response size cap", "Node and depth ceiling").
 // `jira.maxResponseBytes` bounds the WIRE bytes, but a document is held parsed as a `JsonElement` tree, and a document of
 // minimal objects parses to ~30x its size, while a deeply nested one overflows the parser's (and `toString()`'s) stack with a
 // `StackOverflowError` no `catch (Exception)` sees. Both are bounded by one pass over the raw bytes BEFORE they are decoded or

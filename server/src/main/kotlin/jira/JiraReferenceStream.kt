@@ -1,5 +1,8 @@
 package ch.nokillswit.jira
 
+import ch.nokillswit.fetch.BoundedAnswer
+import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.fetch.RunBudget
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
 import kotlinx.serialization.Serializable
@@ -158,7 +161,7 @@ class JiraReferenceStream internal constructor(
         fetch: suspend (Int) -> JiraStartAtPage,
     ) {
         var startAt = resumeStartAt
-        val budget = RunBudget(START_AT_ENDPOINTS.getValue(step), ceilings.startAt, "entities")
+        val budget = RunBudget(JIRA_SOURCE, START_AT_ENDPOINTS.getValue(step), ceilings.startAt, "entities")
         while (true) {
             budget.nextPage()
             val page = fetch(startAt)
@@ -192,7 +195,7 @@ class JiraReferenceStream internal constructor(
         if (resumeStartAt == 0) usersSkipped = false
         var startAt = resumeStartAt
         var firstPageSize: Int? = null
-        val budget = RunBudget(USERS_SEARCH_ENDPOINT, ceilings.users, "users")
+        val budget = RunBudget(JIRA_SOURCE, USERS_SEARCH_ENDPOINT, ceilings.users, "users")
         while (true) {
             budget.nextPage()
             val page = client.usersSearch(startAt)
@@ -243,7 +246,7 @@ class JiraReferenceStream internal constructor(
      * `PROJECT_STATUSES` payload stored earlier in the pass), stores ONE entity: the sorted distinct field ids of the project's
      * field scheme plus its epic/task split ([JiraProjectFields.payload]; the hierarchy levels come from the `ISSUE_TYPE`
      * entities, which the fixed step order stores just before this step). A project whose inputs are missing, whose call
-     * fails with ANY [JiraFetchException] but `BLOCKED_HOST` ([skipsProjectFields]), or that yields no field at all, is
+     * fails with ANY [FetchException] but `BLOCKED_HOST` ([skipsProjectFields]), or that yields no field at all, is
      * SKIPPED with one warn (no query text) and one `projectFieldsSkipped` progress tick: its previous entity is only
      * `touch`ed — kept live through the end-of-pass tombstone sweep — and the pass goes on. Lease loss, cancellation, a
      * blocked host and non-Jira failures (database errors) propagate as in any reference step.
@@ -288,7 +291,7 @@ class JiraReferenceStream internal constructor(
         }
         val scheme = try {
             JiraProjectFields.fetchScheme(client, projectId, workTypeIds, ceilings.projectFields)
-        } catch (failure: JiraFetchException) {
+        } catch (failure: FetchException) {
             if (!skipsProjectFields(failure)) throw failure
             log.warn("PROJECT_FIELDS skipped for project {}: {} (status {})", key, failure.code, failure.status)
             return null
@@ -329,7 +332,7 @@ class JiraReferenceStream internal constructor(
     private suspend fun runSprints(context: StreamContext, passStartedAt: Long, resumeIndex: Int) {
         val scrumBoards = fetchInScopeBoards(context).filter(::isScrumBoard)
         // ONE budget for the whole pass, across boards: a ceiling per board would be multiplied by the number of boards.
-        val budget = RunBudget(BOARD_SPRINTS_ENDPOINT, ceilings.sprints, "sprints")
+        val budget = RunBudget(JIRA_SOURCE, BOARD_SPRINTS_ENDPOINT, ceilings.sprints, "sprints")
         var index = resumeIndex
         while (index < scrumBoards.size) {
             val boardId = boardIdOf(scrumBoards[index])
@@ -363,7 +366,7 @@ class JiraReferenceStream internal constructor(
      * whose cursor stays where it was.
      */
     private suspend fun fetchInScopeBoards(context: StreamContext): List<JsonObject> {
-        val answer = BoundedAnswer<JsonObject>(BOARDS_ENDPOINT, ceilings.boards, "boards")
+        val answer = BoundedAnswer<JsonObject>(JIRA_SOURCE, BOARDS_ENDPOINT, ceilings.boards, "boards")
         var startAt = 0
         while (true) {
             answer.nextPage()

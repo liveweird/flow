@@ -1,11 +1,12 @@
 package ch.nokillswit
 
+import ch.nokillswit.fetch.FetchException
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.jira.HttpJiraClient
 import ch.nokillswit.jira.IssuesCursor
+import ch.nokillswit.jira.JIRA_SOURCE
 import ch.nokillswit.jira.JiraClient
-import ch.nokillswit.jira.JiraFetchException
 import ch.nokillswit.jira.JiraIssuesStream
 import ch.nokillswit.jira.JiraSearchPage
 import ch.nokillswit.jira.backfillFromEpochMillis
@@ -149,7 +150,7 @@ class JiraIssuesPageSizeTest {
             stubPage("t1", 1, oversized),
         )
         try {
-            val failure = assertFailsWith<JiraFetchException> { stream(client).run(context(connId)) }
+            val failure = assertFailsWith<FetchException> { stream(client).run(context(connId)) }
             assertEquals("LIMIT_EXCEEDED", failure.code)
             assertEquals(listOf(8, 8, 4, 2, 1), client.sizes, "halved down to 1, then given up")
             assertEquals(1L, store.countIssues(connId))
@@ -209,8 +210,8 @@ class JiraIssuesPageSizeTest {
     fun `a rejection right after a halving does not use up the CURSOR_EXPIRED restart budget`() = runBlocking {
         val connId = connection()
         val ok = { next: String?, id: Long -> { _: Int -> JiraSearchPage(JsonArray(listOf(issue(id))), next) } }
-        val expired = { _: Int -> throw JiraFetchException("CURSOR_EXPIRED", 410, null) }
-        val oversizedFetch = { _: Int -> throw JiraFetchException("LIMIT_EXCEEDED", 200, null) }
+        val expired = { _: Int -> throw FetchException(JIRA_SOURCE, "CURSOR_EXPIRED", 410, null) }
+        val oversizedFetch = { _: Int -> throw FetchException(JIRA_SOURCE, "LIMIT_EXCEEDED", 200, null) }
         val script = ArrayDeque<(Int) -> JiraSearchPage>()
         // MAX_CURSOR_RESTARTS (5) ordinary restarts: page one answers, the token is rejected.
         repeat(5) { script += ok("t1", 1); script += expired }

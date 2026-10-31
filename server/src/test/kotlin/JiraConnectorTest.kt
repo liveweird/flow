@@ -1,10 +1,11 @@
 package ch.nokillswit
 
+import ch.nokillswit.fetch.FetchException
 import ch.nokillswit.ingest.JiraAuthScheme
+import ch.nokillswit.jira.JIRA_SOURCE
 import ch.nokillswit.jira.JiraClient
 import ch.nokillswit.jira.JiraChangelogPage
 import ch.nokillswit.jira.JiraConnector
-import ch.nokillswit.jira.JiraFetchException
 import ch.nokillswit.jira.JiraSearchPage
 import ch.nokillswit.jira.JiraStartAtPage
 import ch.nokillswit.jira.JiraWorklogIdsPage
@@ -194,7 +195,7 @@ class JiraConnectorTest {
 
         val denied: JiraClient = object : JiraClient by client {
             override suspend fun fieldsSearch(startAt: Int, maxResults: Int): JiraStartAtPage =
-                throw JiraFetchException("FORBIDDEN_SCOPE", status = 403)
+                throw FetchException(JIRA_SOURCE, "FORBIDDEN_SCOPE", status = 403)
         }
         val result = JiraConnector(newClient = { _, _, _, _ -> denied })
             .testConnection("https://acme.atlassian.net", "svc@example.com", "tok", listOf("FLO"), JiraAuthScheme.BASIC)
