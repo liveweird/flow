@@ -1360,8 +1360,10 @@ source of truth:
   (worklogs excludes tombstoned rows — "live" worklogs), `entitiesByKind` (per `JiraEntityKind`,
   `raw.jira_entities` grouped by `kind`), `needsProcessing` (the PROCESS backlog RECONCILE and the
   CHANGELOGS/WORKLOGS streams all flag into). For a GITLAB connection these Jira integers are 0 and
-  **`counts.gitlab`** (`GitLabSyncCounts`, read from `GitLabRawStore`, V41) carries `projects` (live), `projectsMovedOut`,
-  `projectsDeleted`, `users` (live) and `usersDeleted`; it is null when this process has no GitLab store (GitLab off here).
+  **`counts.gitlab`** (`GitLabSyncCounts`, read from `GitLabRawStore`, V41/V42) carries `projects` (live), `projectsMovedOut`,
+  `projectsDeleted`, `users` (live), `usersDeleted` and the commits: `commits` (live, merges included), `commitsMerge` (live, `parent_count > 1`),
+  `commitsDeleted` (tombstoned) and `commitFilesPending` (the COMMIT FILES backlog: diff unread, not a merge, not tombstoned). All are database-side
+  `count(*)`s (`GitLabRawReads.counts`); it is null when this process has no GitLab store (GitLab off here).
 - **`lastJobs`** — the most recently REQUESTED job of each `SyncJobKind`, keyed by name
   (`SyncJobsService.lastJobsByKind`) — terminal or not, and a kind never requested is simply absent
   from the map (not present with a null value).

@@ -4995,13 +4995,17 @@ components:
         lastCompletedAt: { type: integer, format: int64, nullable: true, description: Epoch millis }
     GitLabSyncCounts:
       type: object
-      required: [projects, projectsMovedOut, projectsDeleted, users, usersDeleted]
+      required: [projects, projectsMovedOut, projectsDeleted, users, usersDeleted, commits, commitsMerge, commitsDeleted, commitFilesPending]
       properties:
         projects: { type: integer, format: int64, minimum: 0, description: Live projects of the configured groups. }
         projectsMovedOut: { type: integer, format: int64, minimum: 0, description: Projects no longer listed under any configured group (rows kept). }
         projectsDeleted: { type: integer, format: int64, minimum: 0, description: Projects marked deleted by a reconcile. }
         users: { type: integer, format: int64, minimum: 0, description: Live users of the instance. }
         usersDeleted: { type: integer, format: int64, minimum: 0, description: Users no longer listed. }
+        commits: { type: integer, format: int64, minimum: 0, description: Live default-branch commits (merge commits included). }
+        commitsMerge: { type: integer, format: int64, minimum: 0, description: "Live merge commits (two or more parents), a subset of `commits`." }
+        commitsDeleted: { type: integer, format: int64, minimum: 0, description: Commits tombstoned because they left the default branch (rows kept). }
+        commitFilesPending: { type: integer, format: int64, minimum: 0, description: Live non-merge commits whose per-file diff has not been read yet. }
     SyncCounts:
       type: object
       description: >-

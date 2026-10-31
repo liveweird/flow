@@ -1,6 +1,11 @@
 package ch.nokillswit
 
 import ch.nokillswit.flowusers.FlowUserRole
+import ch.nokillswit.gitlab.CommitFilesOutcome
+import ch.nokillswit.gitlab.CommitFilesResult
+import ch.nokillswit.gitlab.RawGitLabCommit
+import ch.nokillswit.gitlab.RawGitLabCommitFile
+import ch.nokillswit.gitlab.purgeAll
 import ch.nokillswit.ingest.ConnectionTestResult
 import ch.nokillswit.ingest.DATA_SOURCE_KIND_UNSUPPORTED
 import ch.nokillswit.ingest.DataSourceKind
@@ -363,6 +368,11 @@ class GitLabDataSourceRoutesTest {
                 store.upsertUsers(created.id, listOf(rawUser(1), rawUser(2), rawUser(3)), now = 1_000)
                 store.markProjectsMovedOutNotSeenSince(created.id, passStartedAt = 2_000, now = 3_000)
                 store.upsertProjects(created.id, listOf(rawProject(1)), now = 4_000)
+                // Four commits: 1 pending, 2 a merge, 3 tombstoned, 4 read (its files stored) - live 3, merges 1, deleted 1, pending 1.
+                store.upsertCommits(created.id, 1, (1..4).map { rawCommit(it, parents = if (it == 2) 2 else 1) }, now = 5_000)
+                store.tombstoneCommits(created.id, 1, listOf(commitSha(3)), now = 6_000)
+                val files = CommitFilesResult(listOf(RawGitLabCommitFile("a.go", null, 1, 0, false, false, false, false)), false)
+                store.flushCommitFiles(created.id, listOf(CommitFilesOutcome(1, commitSha(4), files, null)), now = 7_000)
             }
             val status = admin.get("/api/v1/data-sources/${created.id}/status")
             assertEquals(HttpStatusCode.OK, status.status)
@@ -375,13 +385,17 @@ class GitLabDataSourceRoutesTest {
             assertEquals(0L, counts.projectsDeleted)
             assertEquals(3L, counts.users)
             assertEquals(0L, counts.usersDeleted)
+            assertEquals(3L, counts.commits, "live commits, merges included")
+            assertEquals(1L, counts.commitsMerge)
+            assertEquals(1L, counts.commitsDeleted)
+            assertEquals(1L, counts.commitFilesPending, "the backlog excludes the merge, the tombstone and the read commit")
             assertEquals(0L, body.counts.rawIssues)
 
             val queued = admin.postJson("/api/v1/data-sources/${created.id}/sync-jobs", buildJsonObject { put("kind",
                 JsonPrimitive("SYNC")) })
             assertEquals(HttpStatusCode.Accepted, queued.status, "the job API is kind-agnostic")
         } finally {
-            runBlocking { GitLabFixtures.rawStore().let { with(it) { purgeProjectsBatch(created.id); purgeUsersBatch(created.id) } } }
+            runBlocking { GitLabFixtures.rawStore().purgeAll(created.id) }
         }
     }
 
@@ -427,4 +441,10 @@ private fun rawProject(id: Long) = ch.nokillswit.gitlab.RawGitLabProject(
 
 private fun rawUser(id: Long) = ch.nokillswit.gitlab.RawGitLabUser(
     id, "u$id", "User $id", "active", false, emptyList(), Json.parseToJsonElement("""{"id":$id,"username":"u$id"}"""),
+)
+
+private fun commitSha(n: Int) = n.toString(16).padStart(40, '0')
+
+private fun rawCommit(n: Int, parents: Int) = RawGitLabCommit(
+    commitSha(n), "Commit $n", "Author", "a@x.test", n * 1_000L - 10, n * 1_000L, parents, additions = 1, deletions = 1,
 )

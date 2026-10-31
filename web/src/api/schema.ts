@@ -3205,6 +3205,26 @@ export interface components {
              * @description Users no longer listed.
              */
             usersDeleted: number;
+            /**
+             * Format: int64
+             * @description Live default-branch commits (merge commits included).
+             */
+            commits: number;
+            /**
+             * Format: int64
+             * @description Live merge commits (two or more parents), a subset of `commits`.
+             */
+            commitsMerge: number;
+            /**
+             * Format: int64
+             * @description Commits tombstoned because they left the default branch (rows kept).
+             */
+            commitsDeleted: number;
+            /**
+             * Format: int64
+             * @description Live non-merge commits whose per-file diff has not been read yet.
+             */
+            commitFilesPending: number;
         };
         /** @description Raw-layer row counts. For a `GITLAB` connection the Jira integers are 0 and `gitlab` carries its counts (null when this process has no GitLab store, i.e. the kind is off here). */
         SyncCounts: {
