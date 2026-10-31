@@ -138,6 +138,8 @@ function GitLabCountRows({ counts }: { counts: SyncCounts }) {
       <DetailRow label={t("dataSources.details.count.mrEvents")}>{gitlab?.mrEvents ?? "—"}</DetailRow>
       <DetailRow label={t("dataSources.details.count.mrDetailsPending")}>{gitlab?.mrDetailsPending ?? "—"}</DetailRow>
       <DetailRow label={t("dataSources.details.count.mrDiffStatsMissing")}>{gitlab?.mrDiffStatsMissing ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.mergeRequestsDeleted")}>{gitlab?.mergeRequestsDeleted ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.mrDetailsUnread")}>{gitlab?.mrDetailsUnread ?? "—"}</DetailRow>
     </>
   );
 }
@@ -335,27 +337,25 @@ export default function DataSourceDetails() {
             >
               {t("dataSources.details.syncNow")}
             </Button>
-            {/* RECONCILE and REPROCESS are no-op successes for a GitLab source until its PR 9/10 (`gitlab-integration.md`): not offered. */}
+            <Button
+              variant="default"
+              leftSection={<IconRotateClockwise size={16} />}
+              loading={requestingKind === "RECONCILE"}
+              disabled={requestingKind !== null}
+              onClick={() => void runJob("RECONCILE")}
+            >
+              {t("dataSources.details.reconcileNow")}
+            </Button>
+            {/* REPROCESS is a no-op success for a GitLab source until PR 10 (`gitlab-integration.md`): not offered. */}
             {jiraKind && (
-              <>
-                <Button
-                  variant="default"
-                  leftSection={<IconRotateClockwise size={16} />}
-                  loading={requestingKind === "RECONCILE"}
-                  disabled={requestingKind !== null}
-                  onClick={() => void runJob("RECONCILE")}
-                >
-                  {t("dataSources.details.reconcileNow")}
-                </Button>
-                <Button
-                  variant="default"
-                  leftSection={<IconRecycle size={16} />}
-                  disabled={requestingKind !== null}
-                  onClick={() => setReprocessConfirmOpen(true)}
-                >
-                  {t("dataSources.details.reprocess")}
-                </Button>
-              </>
+              <Button
+                variant="default"
+                leftSection={<IconRecycle size={16} />}
+                disabled={requestingKind !== null}
+                onClick={() => setReprocessConfirmOpen(true)}
+              >
+                {t("dataSources.details.reprocess")}
+              </Button>
             )}
             <Button variant="default" leftSection={<IconPencil size={16} />} onClick={() => setEditing(true)}>
               {t("common.action.edit")}

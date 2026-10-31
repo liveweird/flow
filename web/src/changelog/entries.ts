@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.36.1",
+    date: "2026-10-31",
+    en: `**GitLab: a daily reconcile catches what the incremental syncs cannot.**
+
+- Once a day, and on "Reconcile now" (now offered for GitLab sources too), Flow re-lists every project's default branch and every group's merge requests from the backfill date. A commit or merge request that is no longer listed is confirmed before it is marked deleted - a commit against the branch, a merge request against its project - so a listing hiccup never loses data. The size statistics GitLab did not answer are asked again, and a few merge requests whose details could not be read are read again.
+- A project GitLab no longer answers for is marked deleted; a moved or archived project keeps its data.
+- The data source details show two more counts: merge requests marked deleted and merge requests whose details could not be read.`,
+    pl: `**GitLab: codzienne uzgadnianie wychwytuje to, czego nie widzą synchronizacje przyrostowe.**
+
+- Raz dziennie oraz po „Uzgodnij teraz” (dostępnym teraz także dla źródeł GitLab) Flow ponownie listuje domyślną gałąź każdego projektu i merge requesty każdej grupy od daty początkowej. Commit lub merge request, którego nie ma już na liście, jest potwierdzany, zanim zostanie oznaczony jako usunięty - commit względem gałęzi, merge request względem projektu - więc chwilowy błąd listowania nigdy nie usuwa danych. Statystyki rozmiaru, których GitLab nie podał, są pobierane ponownie, a kilka merge requestów, których szczegółów nie udało się odczytać, jest odczytywanych jeszcze raz.
+- Projekt, o którym GitLab już nie odpowiada, jest oznaczany jako usunięty; przeniesiony lub zarchiwizowany zachowuje dane.
+- Szczegóły źródła danych pokazują dwie nowe liczby: merge requesty oznaczone jako usunięte i merge requesty, których szczegółów nie udało się odczytać.`,
+  },
+  {
     version: "1.36.0",
     date: "2026-10-31",
     en: `**GitLab: merge requests and review activity are read.**

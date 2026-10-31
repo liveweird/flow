@@ -39,7 +39,7 @@ the two never run at the same time, whatever the dispatch order.
 9. Back on the Data sources list, they delete the connection from its row menu.
    - *Expected*: the row is gone.
 
-## Scenario: admin connects the GitLab stub, syncs it, and reads back its projects, users, commits and merge requests
+## Scenario: admin connects the GitLab stub, syncs and reconciles it, and reads back its projects, users, commits and merge requests
 
 1. The admin signs in, opens **New data source**, fills a unique name and picks **GitLab** in the **Kind** control.
    - *Expected*: the form swaps to the GitLab fields (Base URL, Access token, Group paths, **Excluded paths**); the
@@ -56,7 +56,7 @@ the two never run at the same time, whatever the dispatch order.
    - *Expected*: the connection table names the kind **GitLab**, the groups `platform, apps` and the **Excluded paths**
      (the defaults, including `package-lock.json`); there is no **Data
      profile**, **Raw issue inspector** or **Metrics configuration** link and no **Reprocess** button (they are Jira-only;
-     the server answers `409` for them on a GitLab source).
+     the server answers `409` for them on a GitLab source); **Reconcile now** is offered for both kinds.
 6. They click **Sync now**.
    - *Expected*: eventually (a reload each attempt) a **Sync** job row reads **Succeeded** and the raw-store counts show
      **Projects: 4** and **Users: 8** - the stub's in-scope projects (`sample-data/gitlab/expected.json`
@@ -66,8 +66,13 @@ the two never run at the same time, whatever the dispatch order.
      **Merged merge requests: 34** (`mergeRequests.byState.merged`), **MR events: 698** (`events.noteTotal` 582 +
      `approvalsEndpointTotal` 40 + `reviewersTotal` 76), **Merge requests awaiting details: 0** (one sync drains the
      details under the default per-run budget) and **Merge requests without size statistics: 1**
-     (`mergeRequests.nullDiffStatsGap`, the one merge request whose GraphQL answer carries no size).
-7. Back on the Data sources list, they delete the connection from its row menu.
+     (`mergeRequests.nullDiffStatsGap`, the one merge request whose GraphQL answer carries no size), plus
+     **Merge requests deleted: 0** and **Merge requests with unreadable details: 0**.
+7. They click **Reconcile now**.
+   - *Expected*: eventually (a reload each attempt) a **Reconcile** job row reads **Succeeded**, and the counts are
+     unchanged: **Commits: 300**, **Merge requests: 60**, **Merge requests deleted: 0** (the stub is at day zero, so the
+     reconcile finds nothing to tombstone, move or refill).
+8. Back on the Data sources list, they delete the connection from its row menu.
    - *Expected*: the row is gone.
 
 ## Scenario: admin cannot move a backfill date before the history horizon
@@ -96,14 +101,14 @@ the two never run at the same time, whatever the dispatch order.
 - **GitLab day-2 deltas and the token-scope refusal** (a project moved out of the groups, `TOKEN_SCOPE_TOO_BROAD`,
   `TOKEN_INACTIVE`, `NOT_ADMIN`) - pinned by the server's `GitLabConnectorTest` and the editor's component tests; the journey drives
   the day-zero happy path only. The force-push re-list, the stored-head range walk and the per-file line counts are
-  pinned by the server's `GitLabCommitsStreamTest`/`GitLabCommitsWalkTest`; the incremental merge-request listing, the day-2 merge-request updates, the GraphQL gap and the details budget are pinned by the server's `GitLabMrStreamsTest`/`GitLabMrWalkTest`; a deleted merge request is reconciled in a later version.
+  pinned by the server's `GitLabCommitsStreamTest`/`GitLabCommitsWalkTest`; the incremental merge-request listing, the day-2 merge-request updates, the GraphQL gap and the details budget are pinned by the server's `GitLabMrStreamsTest`/`GitLabMrWalkTest`; the day-2 reconcile (a deleted merge request, a force-pushed project, a moved project) is pinned by the server's `GitLabReconcileStreamsTest`/`GitLabReconcileTest`.
 - **Validation and conflicts** (a malformed site URL, a duplicate name, a fixed site URL on
   update, `FORBIDDEN_SCOPE`/`AUTHENTICATION_FAILED` test-connection rows) — pinned by the
   server's `DataSourceRoutesTest`/`DataSourceTestConnectionTest` and the SPA's
   `DataSourceEditorModal.test.tsx`; the journey drives the happy path only.
 - **Sync-job history filtering, cancellation, Reconcile/Reprocess** — pinned by
   `SyncJobRoutesTest` (server) and the details page's own component tests; the journey only
-  drives the one manual "Sync now" every connection needs before anything else is worth reading.
+  drives the one manual "Sync now" every connection needs before anything else is worth reading (the GitLab journey also drives one "Reconcile now" at day zero).
 - **Purge after soft-delete.** Deleting a connection here only disables it — its `raw.*`/`norm.*`
   rows purge asynchronously, `ingest.purgeGraceDays` (default 7) after the delete
   (`.claude/docs/ingestion.md` "Scheduling"). This spec's own delete therefore leaves ~1,200 raw
