@@ -5,8 +5,12 @@ import ch.nokillswit.gitlab.GitLabClient
 import ch.nokillswit.gitlab.GitLabCommitPage
 import ch.nokillswit.gitlab.GitLabCurrentUser
 import ch.nokillswit.gitlab.GitLabDiffPage
+import ch.nokillswit.gitlab.GitLabDiffStatsAnswer
 import ch.nokillswit.gitlab.GitLabGroup
+import ch.nokillswit.gitlab.GitLabMergeRequestPage
+import ch.nokillswit.gitlab.GitLabNotePage
 import ch.nokillswit.gitlab.GitLabPage
+import ch.nokillswit.gitlab.GitLabReviewerSummary
 import ch.nokillswit.gitlab.GitLabTokenInfo
 import ch.nokillswit.gitlab.GitLabUserPage
 
@@ -63,4 +67,14 @@ class FakeClient : GitLabClient {
     override suspend fun users(page: Int): GitLabUserPage = TODO()
 
     override suspend fun userEmails(userId: Long): List<String> = TODO()
+
+    override suspend fun groupMergeRequests(groupId: Long, updatedAfter: String?, page: Int): GitLabMergeRequestPage = TODO()
+
+    override suspend fun mergeRequestNotes(projectId: Long, iid: Long, page: Int): GitLabNotePage = TODO()
+
+    override suspend fun mergeRequestApprovals(projectId: Long, iid: Long): List<Long> = TODO()
+
+    override suspend fun mergeRequestReviewers(projectId: Long, iid: Long): List<GitLabReviewerSummary> = TODO()
+
+    override suspend fun mergeRequestDiffStats(projectFullPath: String, iids: List<Long>): GitLabDiffStatsAnswer = TODO()
 }
