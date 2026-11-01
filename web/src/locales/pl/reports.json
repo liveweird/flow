@@ -1560,6 +1560,112 @@
       "empty": "W żadnym oknie nic nie dostarczono."
     }
   },
+  "codeActivity": {
+    "title": "Aktywność w kodzie",
+    "description": "Gdzie merge requesty zespołu czekają i jak są duże, z podłączonego GitLaba: czas cyklu, czas do pierwszego przeglądu, rozmiar, to, co jest scalane co tydzień, co jest teraz otwarte i jak rozłożona jest praca przeglądowa. Te liczby przepływu mówią, który kierunek jest lepszy; tabela członków obok to tylko kontekst, wolumeny pracy, nigdy ranking. Osoba jest liczona, gdy administrator połączy jej tożsamość w GitLabie z kontem w Jirze.",
+    "noTeams": "Aktywność w kodzie liczymy dla zespołu, a nie ma jeszcze żadnego zespołu. Administrator/ka dodaje zespoły na stronie Zespoły.",
+    "noSources": "Żadne źródło danych GitLab nie jest aktywne.",
+    "noSourcesHint": "Administrator podłącza je w Źródłach danych; jego commity i merge requesty są tu czytane.",
+    "sources": {
+      "synced": "{{name}}: ostatnia synchronizacja {{date}}.",
+      "neverSynced": "{{name}}: jeszcze niezsynchronizowane.",
+      "filesPending": "Commity, których pliki czekają jeszcze na odczyt: {{n}}. Ich liczby linii są na razie nieznane.",
+      "detailsPending": "Merge requesty, których szczegóły czekają jeszcze na odczyt: {{n}}. Na razie są poza liczbami o przeglądach.",
+      "metaHint": "Data wyliczenia i rewizja konfiguracji powyżej dotyczą danych z Jiry (skład zespołu, nazwy i sprinty); świeżość liczb z kodu podana jest tu przy każdym źródle."
+    },
+    "quality": {
+      "title": "Do przypisania lub jeszcze nieznane",
+      "unlinked": "Tożsamości GitLab z aktywnością w tym okresie, których nikt jeszcze nie połączył z osobą: {{n}}. Ich commity ({{commits}}), merge requesty ({{mrs}}) i działania przeglądowe ({{events}}) nie wchodzą do liczb żadnego członka, dopóki administrator nie zdecyduje.",
+      "link": "Otwórz tożsamości źródła {{name}}",
+      "commitsLinesUnknown": "Commity z nieznanymi liniami, pominięte w sumach linii: {{n}}.",
+      "mrsSizeUnknown": "Scalone merge requesty z nieznanym rozmiarem, pominięte w liczbach o rozmiarze: {{n}}.",
+      "mrsDetailsNotRead": "Scalone merge requesty, których szczegółów jeszcze nie odczytano, pominięte w liczbach o przeglądach: {{n}}.",
+      "eventsUndated": "Działania przeglądowe bez daty, w żadnym okresie: {{n}}."
+    },
+    "flow": {
+      "title": "Przepływ merge requestów",
+      "caption": "Merge requesty scalone w okresie, według zespołu autora w dniu scalenia. Niższe jest lepsze dla czasów, rozmiaru i liczb scalonych bez przeglądu.",
+      "merged": "Scalone",
+      "closedUnmerged": "Zamknięte bez scalenia: {{n}}",
+      "withoutReview": "Scalone bez przeglądu",
+      "withoutApproval": "Scalone bez zatwierdzenia",
+      "withoutReviewRule": "Bez komentarza, zatwierdzenia ani przeglądu innej osoby do chwili scalenia. Niższe jest lepsze.",
+      "withoutApprovalRule": "Bez zatwierdzenia przez inną osobę przed scaleniem. Niższe jest lepsze.",
+      "share": "To {{share}} scalonych merge requestów, których szczegóły odczytano.",
+      "noShare": "Żaden scalony merge request nie ma jeszcze odczytanych szczegółów.",
+      "cycleWorking": {
+        "title": "Czas cyklu, dni robocze",
+        "caption": "Od utworzenia do scalenia, w dniach roboczych. Niższe jest lepsze.",
+        "axis": "dni robocze"
+      },
+      "cycleElapsed": {
+        "title": "Czas cyklu, dni kalendarzowe",
+        "caption": "Od utworzenia do scalenia, w dniach kalendarzowych. Niższe jest lepsze.",
+        "axis": "dni kalendarzowe"
+      },
+      "firstReview": {
+        "title": "Czas do pierwszego przeglądu, dni robocze",
+        "caption": "Od utworzenia do pierwszego komentarza, zatwierdzenia lub przeglądu innej osoby. Merge request scalony bez żadnego jest liczony wyżej, nie tu. Niższe jest lepsze.",
+        "axis": "dni robocze"
+      },
+      "sizeLines": {
+        "title": "Rozmiar merge requestu, linie",
+        "caption": "Linie dodane plus usunięte w całym diffie, razem z plikami generowanymi i zewnętrznymi. Niższe jest lepsze.",
+        "axis": "linie"
+      },
+      "sizeFiles": {
+        "title": "Rozmiar merge requestu, pliki",
+        "caption": "Pliki dotknięte diffem. Niższe jest lepsze.",
+        "axis": "pliki"
+      }
+    },
+    "weekly": {
+      "title": "Scalone tygodniowo",
+      "caption": "Merge requesty scalone w każdym tygodniu (tydzień zaczyna się w poniedziałek), razem z tygodniami bez żadnego.",
+      "chartLabel": "Wykres: merge requesty scalone tygodniowo",
+      "series": "Scalone",
+      "yAxis": "Merge requesty",
+      "tableLabel": "Scalone tygodniowo, jako tabela",
+      "week": "Tydzień od",
+      "merged": "Scalone"
+    },
+    "open": {
+      "title": "Otwarte merge requesty teraz",
+      "caption": "Merge requesty otwarte dziś, których autor jest dziś w zespole, niezależnie od wieku. Niższe jest lepsze.",
+      "waiting": "Czekają na przegląd",
+      "drafts": "Wersje robocze",
+      "ageLabel": "Wiek czekających merge requestów",
+      "ageP50": "Wiek, mediana (dni robocze)",
+      "ageP85": "Wiek, p85 (dni robocze)",
+      "ageHidden": "Czeka mniej niż {{min}} merge requestów, więc nie pokazujemy wieku.",
+      "hint": "Wersje robocze liczymy osobno: wersja robocza nie czeka na przegląd, a wiek dotyczy tylko oczekujących."
+    },
+    "review": {
+      "title": "Jak rozłożona jest praca przeglądowa",
+      "caption": "Sygnał wąskiego gardła w pracy przeglądowej zespołu, a nie ocena żadnej osoby.",
+      "reviewers": "Osoby przeglądające na scalony merge request (mediana)",
+      "topShare": "Udział przeglądów w rękach najbardziej zajętej osoby przeglądającej",
+      "basis": "Ze scalonych merge requestów, których szczegóły odczytano: {{n}}.",
+      "withheld": "Liczba pokazana jako kreska jest wstrzymana poniżej {{min}} takich merge requestów."
+    },
+    "members": {
+      "title": "Aktywność według członków",
+      "caption": "Kontekst, nie wydajność: to wolumeny pracy, bez żadnej kolejności zasług, które nic nie mówią o tym, kto radzi sobie lepiej. Rozmiar merge requestu liczy każdą linię jego diffa, a linie commita pomijają pliki generowane i zewnętrzne, więc to dwie różne liczby linii. Członek pojawia się tu dzięki połączeniu przez administratora jego tożsamości w GitLabie z kontem w Jirze.",
+      "unlabelled": "Niepołączone z osobą",
+      "linesUnknown": "niepoliczone commity: {{n}}",
+      "column": {
+        "commits": "Commity",
+        "linesAdded": "Linie dodane",
+        "linesDeleted": "Linie usunięte",
+        "mrsMerged": "Scalone",
+        "mrsOpened": "Otwarte w okresie",
+        "openMrs": "Otwarte teraz",
+        "reviewsGiven": "Przeglądy",
+        "approvalsGiven": "Zatwierdzenia",
+        "comments": "Komentarze"
+      }
+    }
+  },
   "deepDive": {
     "title": "Analiza szczegółowa",
     "description": "Plan, przybliżona wartość wypracowana i koszt w osobodniach dla wybranego zbioru pracy: zadania domeny w wybranych sprintach albo całe epiki. Miesiące rozwijasz w tygodnie i dni, epiki w zadania.",

@@ -21,6 +21,7 @@ export const dataQualityPath = "/reports/data-quality";
 export const costsPath = "/reports/costs";
 export const comparePeoplePath = "/reports/compare-people";
 export const personTrendPath = "/reports/person-trend";
+export const codeActivityPath = "/reports/code-activity";
 /** The Deep dive's own route; its selection params are `utils/deepDiveFilter.ts`'s, never `ReportFilterState`'s. */
 export const deepDiveBasePath = "/reports/deep-dive";
 
@@ -90,6 +91,8 @@ const REPORT_SPECIFIC_PARAMS: Readonly<Record<string, readonly ReportSpecificKey
   [comparePeoplePath]: ["domain", "domainView", "activityType", "workCategory", "tailPercent"],
   // Person trend slices alike but draws no histogram: no long tail, bucket, WIP keying or item kind.
   [personTrendPath]: ["domain", "domainView", "activityType", "workCategory"],
+  // Code activity reads the GitLab code layer, which no Jira slice touches; the long tail is the only control of its own (the histograms).
+  [codeActivityPath]: ["tailPercent"],
 };
 
 /**
@@ -120,7 +123,7 @@ export function pageParamsOf(path: string): ReadonlyArray<{ key: string; value: 
 }
 
 /** The reports whose member control picks several people (repeated `accountId`); every other report keeps the FIRST. */
-const MULTI_ACCOUNT_PATHS: ReadonlySet<string> = new Set([commitmentsPath, throughputPath, cycleTimePath, reportedTimePath, estimateAdjustmentsPath, taskAccuracyPath, taskEstimatesPath, wipPath, comparePeoplePath]);
+const MULTI_ACCOUNT_PATHS: ReadonlySet<string> = new Set([commitmentsPath, throughputPath, cycleTimePath, reportedTimePath, estimateAdjustmentsPath, taskAccuracyPath, taskEstimatesPath, wipPath, comparePeoplePath, codeActivityPath]);
 
 /** The reports with no member control (always the whole team): leaving for one drops the `accountId`s, so the address bar says what the page shows. */
 const NO_MEMBER_PATHS: ReadonlySet<string> = new Set([sprintConsistencyPath, epicAccuracyPath, epicProgressPath, backlogPath]);

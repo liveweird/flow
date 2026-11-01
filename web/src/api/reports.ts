@@ -103,6 +103,9 @@ export type PersonTrendRow = PersonTrendReport["rows"][number];
 export type PersonTrendPoint = PersonTrendRow["points"][number];
 export type PersonTrendMixSeries = PersonTrendReport["workMix"]["activityType"][number];
 
+export type CodeActivityReport = paths["/api/v1/reports/code-activity"]["get"]["responses"]["200"]["content"]["application/json"];
+export type CodeActivityGroup = CodeActivityReport["groups"][number];
+
 export type DeepDiveReport = paths["/api/v1/reports/deep-dive"]["get"]["responses"]["200"]["content"]["application/json"];
 export type DeepDiveTask = DeepDiveReport["tasks"][number];
 export type DeepDiveEpic = DeepDiveReport["epics"][number];
@@ -217,4 +220,9 @@ export async function fetchDeepDiveSprints(query: DeepDiveOptionQuery & { domain
 /** The epic picker's options, optionally narrowed to a domain. */
 export async function fetchDeepDiveEpics(query: DeepDiveOptionQuery & { domain?: string }): Promise<DeepDiveEpicPage> {
   return jsonRequest<DeepDiveEpicPage>(`/api/v1/reports/deep-dive/epics?${optionParams(query)}`);
+}
+
+/** Code activity: a team's merge-request flow and its members' volumes over the active GitLab sources; the shared filter's team, members, period and tail. */
+export async function getCodeActivityReport(filter: ReportFilterState): Promise<CodeActivityReport> {
+  return jsonRequest<CodeActivityReport>(`/api/v1/reports/code-activity?${reportQuery(filter)}`);
 }
