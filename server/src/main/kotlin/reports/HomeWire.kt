@@ -94,6 +94,30 @@ data class HomeQuality(
     val epicsEstimateGap: HomeFigure,
 )
 
+/**
+ * Section 8, one team's Code figures (Report 21's own, `HomeCode.kt`): the merge requests merged in the window, their cycle p50 (working
+ * days), the open ones now ([openCount] waiting, [openDrafts] beside; no trend) with their age p50 and the merged-without-review share
+ * ([HomeFigure.numerator] = the count, [HomeFigure.n] = the merged merge requests whose details were read; the share is hidden under
+ * `minSampleSize`, the count never). [linkedMembers] = the team's people with at least one linked GitLab identity.
+ */
+@Serializable
+data class HomeTeamCode(
+    val linkedMembers: Int,
+    val merged: HomeFigure,
+    val cycleP50: HomeFigure,
+    val openCount: HomeFigure,
+    val openDrafts: Int,
+    val openAgeP50: HomeFigure,
+    val mergedWithoutReview: HomeFigure,
+)
+
+/**
+ * The code layer's side of the overview: the active GitLab [sources] with their freshness (Report 21's `sources[]`; empty = no GitLab
+ * source, the section is absent) and [overBudget] (the code read exceeded `reports.codeMaxRows`: every team's `code` is `null`).
+ */
+@Serializable
+data class HomeCode(val sources: List<CodeActivitySource>, val overBudget: Boolean)
+
 @Serializable
 data class HomeTeam(
     val teamId: UInt,
@@ -106,6 +130,8 @@ data class HomeTeam(
     val wipTasks: HomeWip,
     val throughput: HomeThroughput,
     val quality: HomeQuality,
+    /** `null` = no GitLab source is active, or the code read was over the row budget (see [HomeCode]). */
+    val code: HomeTeamCode?,
 )
 
 /** Work of no ACTIVE team (whichever were picked): done tasks in the window, open tasks in progress, epics in the quality set. */
@@ -128,6 +154,7 @@ data class HomeOverview(
     val freshness: List<HomeFreshness>,
     val teams: List<HomeTeam>,
     val unassigned: HomeUnassigned,
+    val code: HomeCode,
 )
 
 /** The drill views of `GET /api/v1/reports/home/items` -- which set of items one figure of one team lists. */

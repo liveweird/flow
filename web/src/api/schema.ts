@@ -1337,7 +1337,13 @@ export interface paths {
          *     against it (Compare people's rule: sample-gated, a tie within the unit's tolerance reads as none). `unassigned` counts
          *     the work of NO active team (no team, or a soft-deleted one) — computed against every active team, never against the
          *     picked subset. `freshness` is each active connection's last successful ingest and DERIVE. Nothing derived reads as an
-         *     empty overview with a null `meta.derivedAt`.
+         *     empty overview with a null `meta.derivedAt`. The Code section (`code`, 1.44.0) is Report 21's own figures for each team
+         *     over the same two windows (merged merge requests, their cycle p50, the open ones now with their age p50, merged without
+         *     review), read once for all picked teams from the GitLab code layer and attributed through the admin's identity links;
+         *     `code.sources` is Report 21's `sources[]` (empty = no active GitLab source, the section is absent and every team's `code`
+         *     is null) and `code.overBudget` says the read exceeded `reports.codeMaxRows`, in which case the page degrades rather than
+         *     fails (200, every team's `code` null, the Jira sections intact). The ETag also carries Report 21's GitLab stamp lines
+         *     (empty while no GitLab source is active).
          */
         get: operations["getReportHome"];
         put?: never;
@@ -4998,6 +5004,24 @@ export interface components {
             epicsNoDates: components["schemas"]["HomeFigure"];
             epicsEstimateGap: components["schemas"]["HomeFigure"];
         };
+        /** @description One team's Code figures (Report 21's own): the merge requests merged in the window, their cycle p50 in working days, the open ones now (`openCount` waiting for review, `openDrafts` beside, no trend) with their age p50 in working days, and the merged merge requests with no review by another human. `mergedWithoutReview.numerator` is Report 21's count, `n` the merged merge requests whose details were read (the share's denominator); the share (`value`) is hidden under `meta.minSampleSize`, the count never is. */
+        HomeTeamCode: {
+            /** @description The team's people (both windows and now) with at least one linked GitLab identity. */
+            linkedMembers: number;
+            merged: components["schemas"]["HomeFigure"];
+            cycleP50: components["schemas"]["HomeFigure"];
+            openCount: components["schemas"]["HomeFigure"];
+            openDrafts: number;
+            openAgeP50: components["schemas"]["HomeFigure"];
+            mergedWithoutReview: components["schemas"]["HomeFigure"];
+        };
+        /** @description The code layer's side of the overview. */
+        HomeCode: {
+            /** @description The active GitLab sources with their freshness (Report 21's `sources[]`); empty = none, the section is absent. */
+            sources: components["schemas"]["CodeActivitySource"][];
+            /** @description The code read exceeded `reports.codeMaxRows`; every team's `code` is null. */
+            overBudget: boolean;
+        };
         HomeTeam: {
             /** Format: int32 */
             teamId: number;
@@ -5010,6 +5034,8 @@ export interface components {
             wipTasks: components["schemas"]["HomeWip"];
             throughput: components["schemas"]["HomeThroughput"];
             quality: components["schemas"]["HomeQuality"];
+            /** @description Null = no GitLab source is active, or the code read was over the row budget (`HomeOverview.code.overBudget`). */
+            code: components["schemas"]["HomeTeamCode"] | null;
         };
         /** @description Work of no ACTIVE team (no team, or a soft-deleted one), whichever teams the request picked. */
         HomeUnassigned: {
@@ -5027,6 +5053,7 @@ export interface components {
             freshness: components["schemas"]["HomeFreshness"][];
             teams: components["schemas"]["HomeTeam"][];
             unassigned: components["schemas"]["HomeUnassigned"];
+            code: components["schemas"]["HomeCode"];
         };
         /** @description The fourteen sprint figures (MD beside items), live or frozen. */
         SprintFigures: {

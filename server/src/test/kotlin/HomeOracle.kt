@@ -222,3 +222,88 @@ internal fun oracleViewItems(
             population.filter { it.gap(tolerance) }.associate { it.issueId to (it.childSum - it.ownCurrent!!).toDouble() }
     }
 }
+
+// ---- The Code section (`ReportHomeCodeTest`): plain JDBC over `norm.code_*`, the identity links and the memberships ----
+
+/** The Code figures of one team and window as the SQL says (the open ones are "now"; the cycle is in working days). */
+internal class OCode(
+    val merged: Int,
+    val cycleP50: Double?,
+    /** The merged merge requests whose details were read. */
+    val read: Int,
+    val withoutReview: Int,
+    val openWaiting: Int,
+    val openDrafts: Int,
+    val openAgeP50: Double?,
+)
+
+private class OMr(
+    val key: String,
+    val state: String,
+    val draft: Boolean,
+    val createdAt: Long,
+    val mergedAt: Long?,
+    val read: Boolean,
+    val reviewed: Boolean,
+)
+
+/**
+ * The independent derivation behind Home's Code figures of [team] over [window] at [nowMs]: the merge requests of [connIds] whose author
+ * key is LINKED on [host] to an account whose membership covers the anchor (half-open `[valid_from, valid_to)`, written out here) -- a
+ * merged one by `merged_at`, an open one by now. "Reviewed" = an event of the five review kinds, dated up to the merge, by an actor that
+ * is neither the author nor decided BOT or IGNORED. Never `loadCodeRows`, `teamAt` or the report kernels.
+ */
+internal fun oracleCode(
+    connIds: List<UInt>,
+    host: String,
+    team: UInt,
+    window: OWindow,
+    nowMs: Long,
+    zone: ZoneId,
+    min: Int,
+): OCode {
+    val ids = connIds.sqlIds()
+    val account = jdbcRows(
+        "SELECT identity_key, jira_account_id FROM public.code_identity_links WHERE source_host = ? AND decision = 'LINKED'", host,
+    ).associate { it[0] as String to it[1] as String }
+    val memberships = jdbcRows("SELECT account_id, team_id, valid_from, valid_to FROM metrics.team_membership")
+    fun teamAt(key: String, at: Long): Int? = account[key]?.let { who ->
+        memberships.firstOrNull { row ->
+            row[0] == who && (row[2] as Number).toLong() <= at && (row[3] == null || at < (row[3] as Number).toLong())
+        }?.let { (it[1] as Number).toInt() }
+    }
+    val reviewed = jdbcRows(
+        """SELECT DISTINCT e.connection_id, e.mr_id FROM norm.code_mr_events e
+           JOIN norm.code_merge_requests m ON m.connection_id = e.connection_id AND m.mr_id = e.mr_id
+           WHERE m.connection_id IN ($ids) AND m.deleted_at IS NULL AND m.merged_at IS NOT NULL AND e.event_at IS NOT NULL
+             AND e.event_at <= m.merged_at AND e.kind IN ('COMMENT','DIFF_COMMENT','APPROVAL','REVIEWED','CHANGES_REQUESTED')
+             AND e.actor_key IS NOT NULL AND e.actor_key <> m.author_key
+             AND NOT EXISTS (SELECT 1 FROM public.code_identity_links b WHERE b.source_host = ? AND b.identity_key = e.actor_key
+                             AND b.decision IN ('BOT','IGNORED'))""",
+        host,
+    ).map { (it[0] as Number).toInt() to (it[1] as Number).toLong() }.toSet()
+    val mrs = jdbcRows(
+        """SELECT connection_id, mr_id, author_key, state, draft, created_at, merged_at, details_state
+           FROM norm.code_merge_requests WHERE connection_id IN ($ids) AND deleted_at IS NULL AND author_key IS NOT NULL""",
+    ).map {
+        val ref = (it[0] as Number).toInt() to (it[1] as Number).toLong()
+        val mergedAt = (it[6] as Number?)?.toLong()
+        OMr(it[2] as String, it[3] as String, it[4] as Boolean, (it[5] as Number).toLong(), mergedAt, it[7] == "READ", ref in reviewed)
+    }
+    val merged = mrs.filter {
+        it.state == "merged" && it.mergedAt!! >= window.fromMs && it.mergedAt < window.toMs && teamAt(it.key, it.mergedAt) == team.toInt()
+    }
+    val cycles = merged.map { oracleWorkingDays(zone, it.createdAt, it.mergedAt!!) }
+    val read = merged.filter { it.read }
+    val open = mrs.filter { it.state == "opened" && teamAt(it.key, nowMs) == team.toInt() }
+    val waiting = open.filterNot { it.draft }.map { oracleWorkingDays(zone, it.createdAt, nowMs) }
+    return OCode(
+        merged = merged.size,
+        cycleP50 = if (cycles.size < min) null else pct(cycles, 0.5),
+        read = read.size,
+        withoutReview = read.count { !it.reviewed },
+        openWaiting = waiting.size,
+        openDrafts = open.size - waiting.size,
+        openAgeP50 = if (waiting.size < min) null else pct(waiting, 0.5),
+    )
+}

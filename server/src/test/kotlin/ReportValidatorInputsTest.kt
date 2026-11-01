@@ -223,15 +223,18 @@ class ReportValidatorInputsTest {
                     "/api/v1/reports/compare-people/items?$people&segmentAccountId=$accA&view=COMMITS",
                     "/api/v1/reports/person-trend?$period&accountId=$accA",
                     "/api/v1/reports/person-trend/items?$period&accountId=$accA&pointEnd=2026-03-15&view=MRS_MERGED",
+                    // Home's Code section reads the same rows (1.44.0): the overview and its drill carry the stamp lines too.
+                    "/api/v1/reports/home",
+                    "/api/v1/reports/home/items?view=TASK_CYCLE&teamId=$teamId",
                 )
-                // The Jira-only reports read no GitLab row: not one of them may move (Home and the cycle-time report are team reports).
+                // The Jira-only reports read no GitLab row: not one of them may move (the cycle-time report is a team report).
                 val cycle = "/api/v1/reports/cycle-time?teamId=$teamId&$period"
                 // A Jira-view drill of the code-reading reports reads no GitLab row either: its tag stays put on a link write.
                 val jiraDrills = listOf(
                     "/api/v1/reports/compare-people/items?$people&segmentAccountId=$accA&view=DELIVERED",
                     "/api/v1/reports/person-trend/items?$period&accountId=$accA&pointEnd=2026-03-15&view=DELIVERED",
                 )
-                val jiraSide = listOf("/api/v1/reports/filters", "/api/v1/reports/home", cycle) + jiraDrills
+                val jiraSide = listOf("/api/v1/reports/filters", cycle) + jiraDrills
                 val jiraBefore = jiraSide.map { client.etagOf(it) }
                 val j = SyncJobsService.Jobs
                 val c = DataSourceService.Connections

@@ -1944,7 +1944,13 @@ paths:
         against it (Compare people's rule: sample-gated, a tie within the unit's tolerance reads as none). `unassigned` counts
         the work of NO active team (no team, or a soft-deleted one) — computed against every active team, never against the
         picked subset. `freshness` is each active connection's last successful ingest and DERIVE. Nothing derived reads as an
-        empty overview with a null `meta.derivedAt`.
+        empty overview with a null `meta.derivedAt`. The Code section (`code`, 1.44.0) is Report 21's own figures for each team
+        over the same two windows (merged merge requests, their cycle p50, the open ones now with their age p50, merged without
+        review), read once for all picked teams from the GitLab code layer and attributed through the admin's identity links;
+        `code.sources` is Report 21's `sources[]` (empty = no active GitLab source, the section is absent and every team's `code`
+        is null) and `code.overBudget` says the read exceeded `reports.codeMaxRows`, in which case the page degrades rather than
+        fails (200, every team's `code` null, the Jira sections intact). The ETag also carries Report 21's GitLab stamp lines
+        (empty while no GitLab source is active).
       parameters:
         - name: teamId
           in: query
@@ -6929,9 +6935,35 @@ components:
         epicsNoEstimate: { $ref: '#/components/schemas/HomeFigure' }
         epicsNoDates: { $ref: '#/components/schemas/HomeFigure' }
         epicsEstimateGap: { $ref: '#/components/schemas/HomeFigure' }
+    HomeTeamCode:
+      type: object
+      description: >-
+        One team's Code figures (Report 21's own): the merge requests merged in the window, their cycle p50 in working days, the open ones
+        now (`openCount` waiting for review, `openDrafts` beside, no trend) with their age p50 in working days, and the merged merge
+        requests with no review by another human. `mergedWithoutReview.numerator` is Report 21's count, `n` the merged merge requests whose
+        details were read (the share's denominator); the share (`value`) is hidden under `meta.minSampleSize`, the count never is.
+      required: [linkedMembers, merged, cycleP50, openCount, openDrafts, openAgeP50, mergedWithoutReview]
+      properties:
+        linkedMembers: { type: integer, minimum: 0, description: The team's people (both windows and now) with at least one linked GitLab identity. }
+        merged: { $ref: '#/components/schemas/HomeFigure' }
+        cycleP50: { $ref: '#/components/schemas/HomeFigure' }
+        openCount: { $ref: '#/components/schemas/HomeFigure' }
+        openDrafts: { type: integer, minimum: 0 }
+        openAgeP50: { $ref: '#/components/schemas/HomeFigure' }
+        mergedWithoutReview: { $ref: '#/components/schemas/HomeFigure' }
+    HomeCode:
+      type: object
+      description: The code layer's side of the overview.
+      required: [sources, overBudget]
+      properties:
+        sources:
+          type: array
+          items: { $ref: '#/components/schemas/CodeActivitySource' }
+          description: The active GitLab sources with their freshness (Report 21's `sources[]`); empty = none, the section is absent.
+        overBudget: { type: boolean, description: The code read exceeded `reports.codeMaxRows`; every team's `code` is null. }
     HomeTeam:
       type: object
-      required: [teamId, name, lastSprint, granularity, accuracy, wipEpics, wipTasks, throughput, quality]
+      required: [teamId, name, lastSprint, granularity, accuracy, wipEpics, wipTasks, throughput, quality, code]
       properties:
         teamId: { type: integer, format: int32, minimum: 1 }
         name: { type: string }
@@ -6945,6 +6977,10 @@ components:
         wipTasks: { $ref: '#/components/schemas/HomeWip' }
         throughput: { $ref: '#/components/schemas/HomeThroughput' }
         quality: { $ref: '#/components/schemas/HomeQuality' }
+        code:
+          allOf: [{ $ref: '#/components/schemas/HomeTeamCode' }]
+          nullable: true
+          description: Null = no GitLab source is active, or the code read was over the row budget (`HomeOverview.code.overBudget`).
     HomeUnassigned:
       type: object
       description: Work of no ACTIVE team (no team, or a soft-deleted one), whichever teams the request picked.
@@ -6955,7 +6991,7 @@ components:
         epics: { type: integer, minimum: 0 }
     HomeOverview:
       type: object
-      required: [meta, window, previousWindow, timeZone, epicEstimateGapTolerancePercent, freshness, teams, unassigned]
+      required: [meta, window, previousWindow, timeZone, epicEstimateGapTolerancePercent, freshness, teams, unassigned, code]
       properties:
         meta: { $ref: '#/components/schemas/ReportMeta' }
         window: { $ref: '#/components/schemas/HomeWindow' }
@@ -6969,6 +7005,7 @@ components:
           type: array
           items: { $ref: '#/components/schemas/HomeTeam' }
         unassigned: { $ref: '#/components/schemas/HomeUnassigned' }
+        code: { $ref: '#/components/schemas/HomeCode' }
 
     SprintFigures:
       type: object
