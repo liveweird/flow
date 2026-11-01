@@ -22,6 +22,7 @@ export const costsPath = "/reports/costs";
 export const comparePeoplePath = "/reports/compare-people";
 export const personTrendPath = "/reports/person-trend";
 export const codeActivityPath = "/reports/code-activity";
+export const taskCodePath = "/reports/task-code";
 /** The Deep dive's own route; its selection params are `utils/deepDiveFilter.ts`'s, never `ReportFilterState`'s. */
 export const deepDiveBasePath = "/reports/deep-dive";
 
@@ -51,6 +52,12 @@ export const FLOW_TABS: ReadonlyArray<ReportTabDef> = [
   { to: agingWipPath, label: "reports.tabs.agingWip" },
   { to: blockedTimePath, label: "reports.tabs.blockedTime" },
   { to: epicProgressPath, label: "reports.tabs.epicProgress" },
+];
+
+/** The Code group's tabs (Code activity · Tasks and code): the merge requests by their author's team, and the done tasks by the code that merged for them. */
+export const CODE_TABS: ReadonlyArray<ReportTabDef> = [
+  { to: codeActivityPath, label: "reports.tabs.codeActivity" },
+  { to: taskCodePath, label: "reports.tabs.taskCode" },
 ];
 
 /**
@@ -93,6 +100,8 @@ const REPORT_SPECIFIC_PARAMS: Readonly<Record<string, readonly ReportSpecificKey
   [personTrendPath]: ["domain", "domainView", "activityType", "workCategory"],
   // Code activity reads the GitLab code layer, which no Jira slice touches; the long tail is the only control of its own (the histograms).
   [codeActivityPath]: ["tailPercent"],
+  // Tasks and code is Cycle time's population (the done tasks: domain and its view, activity type, work category) joined to the code layer; two distributions, so the long tail.
+  [taskCodePath]: ["domainView", "domain", "activityType", "workCategory", "tailPercent"],
 };
 
 /**
@@ -126,7 +135,7 @@ export function pageParamsOf(path: string): ReadonlyArray<{ key: string; value: 
 const MULTI_ACCOUNT_PATHS: ReadonlySet<string> = new Set([commitmentsPath, throughputPath, cycleTimePath, reportedTimePath, estimateAdjustmentsPath, taskAccuracyPath, taskEstimatesPath, wipPath, comparePeoplePath, codeActivityPath]);
 
 /** The reports with no member control (always the whole team): leaving for one drops the `accountId`s, so the address bar says what the page shows. */
-const NO_MEMBER_PATHS: ReadonlySet<string> = new Set([sprintConsistencyPath, epicAccuracyPath, epicProgressPath, backlogPath]);
+const NO_MEMBER_PATHS: ReadonlySet<string> = new Set([sprintConsistencyPath, epicAccuracyPath, epicProgressPath, backlogPath, taskCodePath]);
 
 /** The report-specific params a report route has a control for — what its own filter normalizer keeps. */
 export function reportSpecificKeep(path: string): ReadonlySet<ReportSpecificKey> {

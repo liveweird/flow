@@ -27,7 +27,9 @@
     "backlog": "Estimated backlog",
     "agingWip": "Aging WIP",
     "blockedTime": "Blocked time",
-    "epicProgress": "Epic progress"
+    "epicProgress": "Epic progress",
+    "codeActivity": "Code activity",
+    "taskCode": "Tasks and code"
   },
   "meta": {
     "derived": "Derived {{date}} · configuration revision {{revision}}",
@@ -1669,6 +1671,50 @@
         "WEEK": "Merged in the week"
       },
       "weekOf": "Week starting {{date}}"
+    }
+  },
+  "taskCode": {
+    "title": "Tasks and code",
+    "description": "How the tasks done in the period line up with the code that delivered them, from the connected GitLab. A merge request belongs to a task when its title or branch names the task's issue key. The page shows how many done tasks have a merged merge request and how many have none, how long it takes from a task's start to the merge of its last merge request, and how often code is merged after the task was already done. The share of tasks without a merge request is context, not a verdict: a task may need no code. Lower is better for the code lead time and for code merged after done.",
+    "noTeams": "Tasks and code are read for one team or one domain, and there is neither yet. An administrator adds teams on the Teams page.",
+    "pickScope": "Pick a team or a domain to read tasks and code for.",
+    "noSources": "No GitLab data source is active.",
+    "noSourcesHint": "Without the code layer no task can be linked to a merge request, so there is nothing to compare, and that says nothing about the tasks. An administrator connects a GitLab source under Data sources.",
+    "sources": {
+      "metaHint": "The derived date and configuration revision above belong to the Jira data (the done tasks); how fresh the merge requests are is said per source here."
+    },
+    "quality": {
+      "title": "What the link between tasks and merge requests leaves out",
+      "neverStarted": "Done tasks that never started, so they have no code lead time: {{n}}.",
+      "onlyUnmergedMrs": "Done tasks whose merge requests are all unmerged (open, closed or locked); they count as without a merged merge request: {{n}}.",
+      "tasksWithAmbiguousKey": "Done tasks with an issue key that names more than one issue (the key was reused, or two Jira sources hold it); that key links no merge request: {{n}}."
+    },
+    "tasks": {
+      "title": "Done tasks and their merge requests",
+      "caption": "Tasks done in the period, by the team credited with them. A task is “with a merge request” when at least one merged merge request names its issue key. No direction is better here: a task may need no code.",
+      "done": "Done tasks",
+      "doneHint": "Tasks, not subtasks.",
+      "withMr": "With a merged merge request",
+      "withMrHint": "At least one merged merge request names the task.",
+      "withoutMr": "Without a merged merge request",
+      "withoutShare": "{{share}} of the done tasks.",
+      "noShare": "No task was done in the period."
+    },
+    "leadTime": {
+      "title": "Code lead time",
+      "caption": "From a task's start to the merge of its last merge request, in working days: the same start as the cycle time. Only started tasks that have a merged merge request are counted. Lower is better.",
+      "panelTitle": "Task start to last merge, working days",
+      "axis": "working days"
+    },
+    "mergedAfter": {
+      "title": "Code merged after the task was done",
+      "caption": "Tasks whose last merge request merged after the task was marked done. Lower is better: code should be merged before the task is closed.",
+      "tile": "Merged after done",
+      "share": "{{share}} of the tasks with a merged merge request. Lower is better.",
+      "noShare": "No done task has a merged merge request. Lower is better.",
+      "lagTitle": "Done to last merge, working days",
+      "lagCaption": "Working days between the task being done and the merge of its last merge request. Lower is better.",
+      "axis": "working days"
     }
   },
   "deepDive": {

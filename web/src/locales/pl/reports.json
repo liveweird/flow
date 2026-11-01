@@ -27,7 +27,9 @@
     "backlog": "Oszacowany backlog",
     "agingWip": "Wiek WIP",
     "blockedTime": "Czas zablokowania",
-    "epicProgress": "Postęp epików"
+    "epicProgress": "Postęp epików",
+    "codeActivity": "Aktywność w kodzie",
+    "taskCode": "Zadania i kod"
   },
   "meta": {
     "derived": "Wyliczono {{date}} · wersja konfiguracji {{revision}}",
@@ -1719,6 +1721,50 @@
         "WEEK": "Scalone w tygodniu"
       },
       "weekOf": "Tydzień od {{date}}"
+    }
+  },
+  "taskCode": {
+    "title": "Zadania i kod",
+    "description": "Jak zadania zakończone w okresie mają się do kodu, który je dostarczył, z podłączonego GitLaba. Merge request należy do zadania, gdy jego tytuł lub gałąź wskazuje klucz zgłoszenia tego zadania. Strona pokazuje, ile zakończonych zadań ma scalony merge request, a ile nie ma żadnego, ile dni roboczych mija od startu zadania do scalenia jego ostatniego merge requestu oraz jak często kod jest scalany już po zakończeniu zadania. Udział zadań bez merge requestu to kontekst, nie ocena: zadanie może nie wymagać kodu. Niższe jest lepsze dla czasu realizacji kodu i dla kodu scalonego po zakończeniu.",
+    "noTeams": "Zadania i kod liczymy dla jednego zespołu lub jednej domeny, a nie ma jeszcze żadnych. Administrator/ka dodaje zespoły na stronie Zespoły.",
+    "pickScope": "Wybierz zespół lub domenę, dla których pokazać zadania i kod.",
+    "noSources": "Żadne źródło danych GitLab nie jest aktywne.",
+    "noSourcesHint": "Bez warstwy kodu żadnego zadania nie da się powiązać z merge requestem, więc nie ma czego porównywać — to nic nie mówi o zadaniach. Administrator/ka podłącza źródło GitLab w Źródłach danych.",
+    "sources": {
+      "metaHint": "Data wyliczenia i rewizja konfiguracji powyżej dotyczą danych z Jiry (zakończone zadania); świeżość merge requestów podana jest tu przy każdym źródle."
+    },
+    "quality": {
+      "title": "Czego powiązanie zadań z merge requestami nie obejmuje",
+      "neverStarted": "Zakończone zadania, które nigdy nie zostały rozpoczęte, więc bez czasu realizacji kodu: {{n}}.",
+      "onlyUnmergedMrs": "Zakończone zadania, których wszystkie merge requesty są niescalone (otwarte, zamknięte lub zablokowane); liczą się jako bez scalonego merge requestu: {{n}}.",
+      "tasksWithAmbiguousKey": "Zakończone zadania z kluczem zgłoszenia, który wskazuje więcej niż jedno zadanie (klucz użyto ponownie albo trzyma go kilka źródeł Jiry); ten klucz nie łączy żadnego merge requestu: {{n}}."
+    },
+    "tasks": {
+      "title": "Zakończone zadania i ich merge requesty",
+      "caption": "Zadania zakończone w okresie, według zespołu, któremu je przypisano. Zadanie jest „z merge requestem”, gdy co najmniej jeden scalony merge request wskazuje jego klucz zgłoszenia. Żaden kierunek nie jest tu lepszy: zadanie może nie wymagać kodu.",
+      "done": "Zakończone zadania",
+      "doneHint": "Zadania, bez podzadań.",
+      "withMr": "Ze scalonym merge requestem",
+      "withMrHint": "Co najmniej jeden scalony merge request wskazuje to zadanie.",
+      "withoutMr": "Bez scalonego merge requestu",
+      "withoutShare": "{{share}} zakończonych zadań.",
+      "noShare": "W okresie nie zakończono żadnego zadania."
+    },
+    "leadTime": {
+      "title": "Czas realizacji kodu",
+      "caption": "Od startu zadania do scalenia jego ostatniego merge requestu, w dniach roboczych: ten sam start co w czasie cyklu. Liczone są tylko rozpoczęte zadania ze scalonym merge requestem. Niższe jest lepsze.",
+      "panelTitle": "Od startu zadania do ostatniego scalenia, dni robocze",
+      "axis": "dni robocze"
+    },
+    "mergedAfter": {
+      "title": "Kod scalony po zakończeniu zadania",
+      "caption": "Zadania, których ostatni merge request scalono po oznaczeniu zadania jako zakończonego. Niższe jest lepsze: kod powinien być scalony, zanim zadanie zostanie zamknięte.",
+      "tile": "Scalone po zakończeniu",
+      "share": "{{share}} zadań ze scalonym merge requestem. Niższe jest lepsze.",
+      "noShare": "Żadne zakończone zadanie nie ma scalonego merge requestu. Niższe jest lepsze.",
+      "lagTitle": "Od zakończenia do ostatniego scalenia, dni robocze",
+      "lagCaption": "Dni robocze między zakończeniem zadania a scaleniem jego ostatniego merge requestu. Niższe jest lepsze.",
+      "axis": "dni robocze"
     }
   },
   "deepDive": {

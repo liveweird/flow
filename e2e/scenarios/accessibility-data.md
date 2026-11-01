@@ -21,7 +21,7 @@ the workers in four groups (the `beforeAll` of step 1 runs once per group and is
 1. Before the block, the admin's API session makes the shared fixture ready: it waits (bounded) for the SYNC job global setup
    enqueued, maps the FLO board to the fixture's team (only if not yet mapped), waits until a DERIVE has
    produced the golden sprint in the team's commitments, and pauses the connection (each step a no-op once another spec did it).
-2. The admin signs in and opens `<page>` — each of the twenty report pages by deep link (the Deep dive with the golden
+2. The admin signs in and opens `<page>` — each of the twenty-one report pages by deep link (the Deep dive with the golden
    sprint of the FLO domain selected, so its matrix is drawn, and once more on its Burn-up view, `view=burnup`, so the
    chart and its legend are drawn), narrowed to this
    connection (`connectionId`) and to the year before the stub's reference date through a week

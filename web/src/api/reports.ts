@@ -106,6 +106,8 @@ export type PersonTrendMixSeries = PersonTrendReport["workMix"]["activityType"][
 export type CodeActivityReport = paths["/api/v1/reports/code-activity"]["get"]["responses"]["200"]["content"]["application/json"];
 export type CodeActivityGroup = CodeActivityReport["groups"][number];
 
+export type TaskCodeReport = paths["/api/v1/reports/task-code"]["get"]["responses"]["200"]["content"]["application/json"];
+
 export type DeepDiveReport = paths["/api/v1/reports/deep-dive"]["get"]["responses"]["200"]["content"]["application/json"];
 export type DeepDiveTask = DeepDiveReport["tasks"][number];
 export type DeepDiveEpic = DeepDiveReport["epics"][number];
@@ -225,4 +227,9 @@ export async function fetchDeepDiveEpics(query: DeepDiveOptionQuery & { domain?:
 /** Code activity: a team's merge-request flow and its members' volumes over the active GitLab sources; the shared filter's team, members, period and tail. */
 export async function getCodeActivityReport(filter: ReportFilterState): Promise<CodeActivityReport> {
   return jsonRequest<CodeActivityReport>(`/api/v1/reports/code-activity?${reportQuery(filter)}`);
+}
+
+/** Tasks and code: the done tasks of a team or domain and the merge requests that name them; the shared filter's scope, period, Jira slices and tail (no member). */
+export async function getTaskCodeReport(filter: ReportFilterState): Promise<TaskCodeReport> {
+  return jsonRequest<TaskCodeReport>(`/api/v1/reports/task-code?${reportQuery(filter)}`);
 }

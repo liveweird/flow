@@ -1,4 +1,4 @@
-# Reports code activity — a team's merge-request flow over GitLab (the non-admin journey)
+# Reports code activity — a team's merge-request flow over GitLab, and Tasks and code (the non-admin journeys)
 
 - **Spec**: [tests/reports-code-activity.spec.ts](../tests/reports-code-activity.spec.ts)
 - **Actors**: the seed administrator (`admin@flow.local`), through the API only, to seed and to read the report as the oracle; one throwaway REGULAR user
@@ -8,7 +8,9 @@
   only by this spec and `code-identities`, cleared at its start and again at its end; one throwaway team (`e2e-code-team-*`) with ONE linked stub person on its
   roster; and the throwaway reader. It reads the shared Jira fixture through `sharedFixtureReady` (that is what puts the stub's 30 Jira people in `norm.people`,
   which a roster membership needs) and never mutates it. It holds the `data-sources` lock (the stub host allows one active GitLab source, so it never runs beside
-  the data-sources spec's GitLab test or `code-identities`), and sweeps leftover `e2e-identities-*`, `e2e-gitlab-*` and `e2e-code-*` sources at its start.
+  the data-sources spec's GitLab test or `code-identities`), and sweeps leftover `e2e-identities-*`, `e2e-gitlab-*` and `e2e-code-*` sources at its start. The
+  second scenario (Tasks and code) owns a GitLab source of its own (`e2e-code-*` again, synced and deleted by that test) and a reader; it writes no identity decision and
+  no team (tasks are linked to merge requests by issue key, read here for a domain of the shared Jira fixture).
 
 ## Scenario: a regular user reads a team's code activity: the member's commits, the merge-request flow and the weekly bars equal the API, the member's commits open as the items behind them with GitLab links, the unlinked identities are told, a clean axe scan, the Unassigned choice of the team control reads the work no team holds (teamId=0, kept on reload, the unlinked identity by its GitLab name without a link), and Home's Code row for the team equals the API's overview and drills to GitLab links
 
@@ -56,6 +58,32 @@
      (`<baseUrl>/<project>/-/merge_requests/<iid>`); Escape closes the dialog and focus returns to the figure.
 10. Whatever the outcome, the test removes the membership, the team, the reader, every decision of the host and the connection.
 
+## Scenario: a regular user reads Tasks and code for a domain: the done tasks with and without a merged merge request, the code lead time and the code merged after done equal the API, the sources and the note are told, the Code group's two tabs are there, and a clean axe scan
+
+1. Through the API, leftover GitLab-stub sources of earlier runs are deleted, the shared Jira fixture is made ready, a GitLab-stub source is created and synced, and a
+   reader is created. The test reads `GET /api/v1/reports/task-code?domain=<domain>&from=2025-09-01&to=2026-09-30` (the whole history of the Jira stub) for every domain
+   in `GET /api/v1/reports/filters` and keeps the answer of the domain with the most done tasks that have a merged merge request (the first on a tie) as the oracle.
+   - *Expected*: the sources list is exactly the spec's own source, there are done tasks, and `withMergeRequest + withoutMergeRequest` equals `done`. Nothing is asserted as
+     "above zero" for the links (the stub's dates are fixed but another Jira source could make a key ambiguous); the oracle is recorded as a test annotation.
+2. The reader signs in and opens `/reports/task-code?domain=<domain>&from=2025-09-01&to=2026-09-30`.
+   - *Expected*: the heading "Tasks and code" and three level-3 cards — "Done tasks and their merge requests", "Code lead time", "Code merged after the task was done"; the
+     address keeps the domain and the period and has no `teamId` (a domain stands in for the team).
+3. They read the Code group's tabs.
+   - *Expected*: the tab list "Reports in this group" has two tabs, "Code activity" and "Tasks and code"; the second is selected, and the first links to `/reports/code-activity`.
+4. They read the counts.
+   - *Expected*: the tiles "Done tasks", "With a merged merge request" and "Without a merged merge request" show the API's three counts; the last ends in "% of the done tasks.";
+     the "Merged after done" tile shows the API's count, "% of the tasks with a merged merge request." when the API has a share and "No done task has a merged merge request."
+     otherwise; the sentence "Lower is better: code should be merged before the task is closed." is shown (the direction is in words).
+5. They read the two distributions ("Task start to last merge, working days", "Done to last merge, working days").
+   - *Expected*: a distribution the API shows has its level-5 title and its histogram table whose counts add up to the API's `n`; one the API withholds has the title and no table, and
+     the withheld note ("at least <minimum> are needed to show percentiles and a histogram") appears once per withheld distribution.
+6. They read the sources and the note.
+   - *Expected*: "<source>: last synced …" is shown; the gray note "What the link between tasks and merge requests leaves out" appears only when one of the API's three quality counts
+     (never started, only unmerged merge requests, an ambiguous key) is above zero, and then each non-zero count is stated with the API's number.
+7. They run an accessibility scan.
+   - *Expected*: an axe scan (WCAG 2.0/2.1 A+AA, `color-contrast` included) reports zero violations.
+8. Whatever the outcome, the test removes the reader and the connection.
+
 ## Not covered here (and why)
 
 - Every card's states (withheld distributions, no review block, the open ages under the minimum sample, no active source, the USER level, the admin links, a failed load):
@@ -63,3 +91,6 @@
   messages): `ReportCodeActivityUnassigned.test.tsx`.
 - The attribution rule, the figures' definitions and the `400` matrix: `ReportCodeActivityTest`, `ReportCodeActivityFixtureTest` and the kernel tests (server).
 - The identity decisions themselves: `code-identities.spec.ts`.
+- Tasks and code's states (no active source, withheld distributions, a period with no done task, the note's three counts, the domain link and the bar's controls, a pasted member, the
+  budget's 400): `ReportTaskCode.test.tsx` (web); the link rule (old keys, ambiguous keys, deleted merge requests, the figures' definitions) and the `400` matrix:
+  `ReportTaskCodeTest`, `ReportTaskCodeFixtureTest` and `TaskCodeKernelsTest` (server). Its drill is not built yet (the plan's next PR).

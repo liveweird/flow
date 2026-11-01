@@ -63,10 +63,12 @@ describe("visibleSections", () => {
       ]);
       // Data quality is a group of one: its leaf is the page, with no tabs to list.
       expect(reports?.items[4].activeFor).toBeUndefined();
-      // …and so are Compare people and Person trend, and the Deep dive, whose selection lives in its own panel and query string.
+      // …and so are Compare people and Person trend, and (last) the Deep dive, whose selection lives in its own panel and query string.
       expect(reports?.items[5].activeFor).toBeUndefined();
       expect(reports?.items[6].activeFor).toBeUndefined();
-      expect(reports?.items[7].activeFor).toBeUndefined();
+      // Code is a group of two: Code activity and Tasks and code, the leaf linking the first and staying highlighted on both.
+      expect(reports?.items[7].activeFor).toEqual(["/reports/code-activity", "/reports/task-code"]);
+      expect(reports?.items[8].activeFor).toBeUndefined();
       expect(reports?.items.some((l) => l.adminOnly)).toBe(false);
     }
   });
@@ -87,6 +89,8 @@ describe("visibleSections", () => {
       "/reports/aging-wip",
       "/reports/blocked-time",
       "/reports/epic-progress",
+      "/reports/code-activity",
+      "/reports/task-code",
     ]);
     // …and Data quality is the sidebar's own leaf, so it has no palette-only twin (it would list twice).
     expect(REPORT_PALETTE_LEAVES.map((l) => l.to)).not.toContain("/reports/data-quality");
@@ -107,6 +111,9 @@ describe("visibleSections", () => {
     expect(sidebar).not.toContain("/reports/aging-wip");
     expect(sidebar).not.toContain("/reports/blocked-time");
     expect(sidebar).not.toContain("/reports/epic-progress");
+    expect(sidebar).not.toContain("/reports/task-code");
+    // Code activity is the Code group's leaf AND its first tab, so it is both in the sidebar and in the palette-only list (the palette keeps the two apart by label).
+    expect(sidebar).toContain("/reports/code-activity");
   });
 
   test("the account leaves never sit in a section", () => {
@@ -143,6 +150,9 @@ describe("activeNavPath", () => {
     expect(activeNavPath("/reports/aging-wip", leaves)).toBe("/reports/wip");
     expect(activeNavPath("/reports/blocked-time", leaves)).toBe("/reports/wip");
     expect(activeNavPath("/reports/epic-progress", leaves)).toBe("/reports/wip");
+    // …and the Code leaf covers both of its tabs.
+    expect(activeNavPath("/reports/code-activity", leaves)).toBe("/reports/code-activity");
+    expect(activeNavPath("/reports/task-code", leaves)).toBe("/reports/code-activity");
     expect(activeNavPath("/reports/data-quality", leaves)).toBe("/reports/data-quality");
     expect(activeNavPath("/reports/costs", leaves)).toBe("/reports/costs");
     expect(activeNavPath("/reports/deep-dive", leaves)).toBe("/reports/deep-dive");

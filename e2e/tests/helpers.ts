@@ -626,6 +626,8 @@ export const REPORT_PAGES: { path: string; heading: string }[] = [
   { path: "/reports/person-trend", heading: "Person trend" },
   // Read per team over the GitLab code layer: with no active GitLab source (the sweep's usual state) the page is its "no GitLab data source" empty state, not an error.
   { path: "/reports/code-activity", heading: "Code activity" },
+  // Likewise read per team or domain over the code layer: with no active GitLab source it is its "no GitLab data source" empty state too.
+  { path: "/reports/task-code", heading: "Tasks and code" },
 ];
 
 /** The people reports (Compare people, Person trend) read people across every team: they are never scoped to a team. */

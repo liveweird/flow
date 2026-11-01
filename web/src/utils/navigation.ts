@@ -23,7 +23,7 @@ import {
 } from "@tabler/icons-react";
 import { capacityPath } from "./capacityLinks";
 import { dataSourcesPath } from "./dataSourceLinks";
-import { codeActivityPath, commitmentsPath, comparePeoplePath, costsPath, dataQualityPath, deepDiveBasePath, DELIVERY_TABS, ESTIMATION_TABS, FLOW_TABS, personTrendPath, taskAccuracyPath, wipPath } from "./reportLinks";
+import { CODE_TABS, codeActivityPath, commitmentsPath, comparePeoplePath, costsPath, dataQualityPath, deepDiveBasePath, DELIVERY_TABS, ESTIMATION_TABS, FLOW_TABS, personTrendPath, taskAccuracyPath, wipPath } from "./reportLinks";
 import { publicHolidaysPath } from "./publicHolidayLinks";
 import { teamsPath } from "./teamLinks";
 import { flowUsersPath } from "./flowUserLinks";
@@ -97,8 +97,14 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
       { to: comparePeoplePath, label: "appShell.nav.reportsCompare", icon: IconScale },
       // Person trend: ONE person's figures over rolling windows, "is this person getting better" (a series, where Compare people is a table), a group of one too.
       { to: personTrendPath, label: "appShell.nav.reportsPersonTrend", icon: IconTimeline },
-      // Code activity: a team's merge-request flow over the GitLab code layer, with the members' volumes as context (A50) - a group of one as well.
-      { to: codeActivityPath, label: "appShell.nav.reportsCodeActivity", icon: IconGitMerge, keywords: ["gitlab", "merge requests", "commits"] },
+      // Code: Code activity (a team's merge-request flow over the GitLab code layer, A50) and Tasks and code (the done tasks against the merge requests that name them, A51) share a tab group.
+      {
+        to: codeActivityPath,
+        label: "appShell.nav.reportsCode",
+        icon: IconGitMerge,
+        activeFor: CODE_TABS.map((tab) => tab.to),
+        keywords: ["gitlab", "merge requests", "commits"],
+      },
       // And the Deep dive: one matrix over a selection the page's own panel makes, so it has no tabs either.
       { to: deepDiveBasePath, label: "appShell.nav.reportsDeepDive", icon: IconZoomScan },
     ],
@@ -125,9 +131,9 @@ export const ACCOUNT_NAV: ReadonlyArray<NavLeaf> = [
 
 /**
  * Palette-only leaves: every report of a nav group is its own route and must be findable by name,
- * but the sidebar carries ONE leaf per group (Delivery, Estimation, Flow). Tabs never appear in a section.
+ * but the sidebar carries ONE leaf per group (Delivery, Estimation, Flow, Code). Tabs never appear in a section.
  */
-export const REPORT_PALETTE_LEAVES: ReadonlyArray<NavLeaf> = [...DELIVERY_TABS, ...ESTIMATION_TABS, ...FLOW_TABS].map((tab) => ({
+export const REPORT_PALETTE_LEAVES: ReadonlyArray<NavLeaf> = [...DELIVERY_TABS, ...ESTIMATION_TABS, ...FLOW_TABS, ...CODE_TABS].map((tab) => ({
   to: tab.to,
   label: tab.label,
   icon: IconChartBar,

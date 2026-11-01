@@ -7,6 +7,8 @@
 // and for "Unassigned" - `teamId=0` - the stub's unmatched author, an undecided identity the confirmed proposals leave out); the oracle for Home's Code section
 // (1.44.0) is `GET /reports/home?teamId=` - its window is the moving 90 days ending today while the stub's dates are fixed, so nothing about it is asserted as
 // "above zero", only equal to the API (and the drill only where the API says there is something to list).
+// Its second test (Tasks and code, report 22, 1.48.0) syncs its own GitLab source too (no identity decisions: tasks are linked to merge requests by issue key, not by
+// person) and reads a domain of the shared Jira fixture; its oracle is `GET /reports/task-code` for the same domain and window.
 import type { APIRequestContext, Page } from "@playwright/test";
 import {
   apiAsAdmin,
@@ -39,6 +41,19 @@ interface CodeActivityBody {
   quality: { unlinkedIdentities: number; commitsLinesUnknown: number; mrsSizeUnknown: number; mrsDetailsNotRead: number; eventsUndated: number };
   groups: { accountId?: string | null; label?: string | null; commits: number; mrsMerged: number }[];
 }
+
+/** The slice of `GET /reports/task-code` the second test reads (`TaskCodeReport`): the figures the page prints. */
+interface TaskCodeBody {
+  meta: { minSampleSize: number };
+  sources: { name: string }[];
+  tasks: { done: number; withMergeRequest: number; withoutMergeRequest: number; withoutShare?: number };
+  codeLeadTimeWorkingDays: { n: number; hidden: boolean };
+  mergedAfterDone: { count: number; share?: number; lagWorkingDays: { n: number; hidden: boolean } };
+  quality: { neverStarted: number; onlyUnmergedMrs: number; tasksWithAmbiguousKey: number };
+}
+
+/** Covers the Jira stub's whole history (`sample-data/jira/expected.json` `connection.backfillFrom` 2025-09-01 to the reference date 2026-09-01), whatever the stack's clock. */
+const TASK_WINDOW = "from=2025-09-01&to=2026-09-30";
 
 /** The slice of `GET /reports/home` this spec reads: the picked team's Code figures and the window the overview is over. */
 interface HomeBody {
@@ -291,6 +306,119 @@ test("a regular user reads a team's code activity: the member's commits, the mer
         await clearGitLabDecisions(dataSourceId).catch(() => undefined);
         await deleteViaApi([`/api/v1/data-sources/${dataSourceId}`]);
       }
+      await api.dispose();
+    }
+  }
+});
+
+/**
+ * One distribution of Tasks and code against the API's: a shown one has its histogram as a table whose counts add up to the API's `n`; a withheld one (under the
+ * minimum sample) has no table. Returns whether it was withheld, so the caller can count the notes.
+ */
+async function expectDistribution(page: Page, title: string, distribution: { n: number; hidden: boolean }): Promise<boolean> {
+  await expect(page.getByRole("heading", { level: 5, name: title, exact: true })).toBeVisible();
+  const table = page.getByRole("table", { name: `Histogram, as a table — ${title}`, exact: true });
+  if (distribution.hidden) {
+    await expect(table).toHaveCount(0);
+    return true;
+  }
+  await expect(table).toBeVisible();
+  const counts = await table.locator("tbody tr").evaluateAll((rows) => rows.map((tr) => Number(tr.querySelector("td:last-child")?.textContent ?? Number.NaN)));
+  expect(counts.reduce((sum, count) => sum + count, 0)).toBe(distribution.n);
+  return false;
+}
+
+test("a regular user reads Tasks and code for a domain: the done tasks with and without a merged merge request, the code lead time and the code merged after done equal the API, the sources and the note are told, the Code group's two tabs are there, and a clean axe scan", async ({ page }) => {
+  // The shared fixture's SYNC and DERIVE (a no-op once another spec prepared it) plus this spec's own GitLab SYNC, each wait bounded.
+  test.setTimeout(900_000);
+  const { api } = await apiAsAdmin();
+  let dataSourceId: number | null = null;
+  let userId: number | null = null;
+  try {
+    await sweepLeftoverGitLabSources();
+    await sharedFixtureReady(api);
+    const source = await syncGitLabStubDataSourceViaApi(api, OWN_PREFIX);
+    dataSourceId = source.id;
+
+    const readerName = uniqueText("e2e-code-reader");
+    const reader = { email: `${readerName.toLowerCase()}@flow.local`, password: "e2e-only-password" };
+    const createdUser = await api.post("/api/v1/flow-users", { data: { name: readerName, email: reader.email, password: reader.password, roles: [] } });
+    expect(createdUser.status(), await createdUser.text()).toBe(201);
+    userId = ((await createdUser.json()) as { id: number }).id;
+
+    // The oracle: the report's own answer for each domain of the Jira fixture over the whole history. The domain with the most done tasks that have a merged merge
+    // request is read (the first one on a tie), so the page meets real links wherever the stub has them; nothing is asserted as "above zero", only equal to the API.
+    const filtersAnswer = await api.get("/api/v1/reports/filters");
+    expect(filtersAnswer.ok(), await filtersAnswer.text()).toBeTruthy();
+    const domains = ((await filtersAnswer.json()) as { domains: { domainKey: string }[] }).domains.map((domain) => domain.domainKey);
+    expect(domains.length, "the Jira fixture has domains").toBeGreaterThan(0);
+    let chosen: { domain: string; report: TaskCodeBody } | undefined;
+    for (const domain of domains) {
+      const answer = await api.get(`/api/v1/reports/task-code?domain=${encodeURIComponent(domain)}&${TASK_WINDOW}`);
+      expect(answer.ok(), await answer.text()).toBeTruthy();
+      const candidate = (await answer.json()) as TaskCodeBody;
+      if (chosen === undefined || candidate.tasks.withMergeRequest > chosen.report.tasks.withMergeRequest) chosen = { domain, report: candidate };
+    }
+    if (chosen === undefined) throw new Error("no domain to read");
+    const { report } = chosen;
+    expect(report.sources.map((entry) => entry.name)).toEqual([source.name]);
+    expect(report.tasks.done, "the domain has done tasks over the whole history").toBeGreaterThan(0);
+    expect(report.tasks.withMergeRequest + report.tasks.withoutMergeRequest).toBe(report.tasks.done);
+    test.info().annotations.push({ type: "oracle", description: `domain ${chosen.domain}: ${report.tasks.done} done, ${report.tasks.withMergeRequest} with a merged merge request` });
+
+    await login(page, reader.email, reader.password);
+    await page.goto(`/reports/task-code?domain=${encodeURIComponent(chosen.domain)}&${TASK_WINDOW}`);
+    await expect(page.getByRole("heading", { level: 2, name: "Tasks and code", exact: true })).toBeVisible();
+    for (const title of ["Done tasks and their merge requests", "Code lead time", "Code merged after the task was done"]) {
+      await expect(page.getByRole("heading", { level: 3, name: title, exact: true })).toBeVisible();
+    }
+    // The address keeps the domain and the period as written (a domain stands in for the team: it is not rewritten to one).
+    expect(new URL(page.url()).searchParams.get("domain")).toBe(chosen.domain);
+    expect(new URL(page.url()).searchParams.has("teamId")).toBe(false);
+
+    // The Code group: two tabs, Tasks and code the selected one, the first linking Code activity.
+    const tabs = page.getByRole("tablist", { name: "Reports in this group" }).getByRole("tab");
+    await expect(tabs).toHaveText(["Code activity", "Tasks and code"]);
+    await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
+    expect((await tabs.nth(0).getAttribute("href")) ?? "").toMatch(/^\/reports\/code-activity(\?|$)/);
+
+    // The three counts equal the API's, and the without share is plain context (a percentage of the done tasks, or the "no task" line when nothing is done).
+    const figure = (name: string, value: number) => expect(page.getByRole("group", { name, exact: true }).getByText(String(value), { exact: true })).toBeVisible();
+    await figure("Done tasks", report.tasks.done);
+    await figure("With a merged merge request", report.tasks.withMergeRequest);
+    await figure("Without a merged merge request", report.tasks.withoutMergeRequest);
+    await expect(page.getByRole("group", { name: "Without a merged merge request", exact: true })).toContainText(/% of the done tasks\./);
+    await figure("Merged after done", report.mergedAfterDone.count);
+    await expect(page.getByRole("group", { name: "Merged after done", exact: true })).toContainText(
+      report.mergedAfterDone.share === undefined ? "No done task has a merged merge request." : "% of the tasks with a merged merge request.",
+    );
+    // The two directions are said in words, not by a colour.
+    await expect(page.getByText(/Lower is better: code should be merged before the task is closed\./)).toBeVisible();
+
+    // The two distributions: shown (their tables add up to the API's n) or withheld under the minimum sample, with the note per withheld one.
+    const withheld = [
+      await expectDistribution(page, "Task start to last merge, working days", report.codeLeadTimeWorkingDays),
+      await expectDistribution(page, "Done to last merge, working days", report.mergedAfterDone.lagWorkingDays),
+    ].filter(Boolean).length;
+    await expect(page.getByText(new RegExp(`at least ${report.meta.minSampleSize} are needed to show percentiles and a histogram`))).toHaveCount(withheld);
+
+    // The sources and the note: the merge requests' freshness is the source's own line; the note lists the API's non-zero counts only, and none when all are zero.
+    await expect(page.getByText(new RegExp(`^${source.name}: last synced`))).toBeVisible();
+    const { quality } = report;
+    const note = page.getByText("What the link between tasks and merge requests leaves out", { exact: true });
+    await expect(note).toHaveCount(quality.neverStarted + quality.onlyUnmergedMrs + quality.tasksWithAmbiguousKey > 0 ? 1 : 0);
+    if (quality.neverStarted > 0) await expect(page.getByText(`Done tasks that never started, so they have no code lead time: ${quality.neverStarted}.`)).toBeVisible();
+    if (quality.onlyUnmergedMrs > 0) await expect(page.getByText(new RegExp(`they count as without a merged merge request: ${quality.onlyUnmergedMrs}\\.$`))).toBeVisible();
+    if (quality.tasksWithAmbiguousKey > 0) await expect(page.getByText(new RegExp(`that key links no merge request: ${quality.tasksWithAmbiguousKey}\\.$`))).toBeVisible();
+
+    // The pointer is parked off the page first: only the settled page is scanned.
+    await page.mouse.move(0, 0);
+    expect(await axeViolations(page)).toEqual([]);
+  } finally {
+    try {
+      if (userId !== null) await deleteViaApi([`/api/v1/flow-users/${userId}`]);
+    } finally {
+      if (dataSourceId !== null) await deleteViaApi([`/api/v1/data-sources/${dataSourceId}`]);
       await api.dispose();
     }
   }
