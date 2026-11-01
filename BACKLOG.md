@@ -103,6 +103,21 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   bypass a merge request link to their task; a later PR with no schema conflict, plus a "commits with no merge request" figure on Report 21.
 - [new] **A scaled measurement of Report 22's reads at plan density.** The 90-day request is measured on the base stub (15 ms in-test); measure the
   four-step read (population, old keys, key resolution, link rows) at 21k merge requests and a whole-domain period, and record it in `build-times.md`.
+- [new] **A domain-wide read from the filter bar.** Cycle time and Tasks and code accept a domain with no team (a `?domain=` link works), but when teams
+  exist the bar always holds a team (`teamRequired`, not clearable) and picking a domain keeps it, so "a domain across the whole unit" is only reachable by
+  link. Make the team clearable on `teamOrDomain` pages once a domain is set, or say so in the bar.
+- [new] **Tasks and code: the tasks with no credit team.** The endpoint accepts `teamId=0` (Code activity's "Unassigned" since 1.43.0), but the page
+  treats 0 as an unknown team and swaps in the default; offer the "Unassigned" choice there too (`ReportControls.teamUnassigned`).
+- [new] **Tasks and code drill: show which merge request made a task late.** The "merged after done" and lead-time lists show ALL of a task's merged merge
+  requests; mark (or list only) the last merge the figure measured. Also sort `<path>!<iid>` keys numerically by iid (`!10` sorts before `!2` today).
+- [new] **A test class leaves a live Jira source behind.** In a full run some class in the fork leaves an active Jira source whose live moved issue names
+  the stub's `FLO-366` (`ReportTaskCodeFixtureTest`'s guard now names the `connection:issue` pairs; it was moved after the other sources are deactivated).
+  Find it (print `source_connections.name` for the moved rows in a failing run) and make it clean up in a `finally`.
+- [new] **The local server gate runs over its 6-minute alarm.** `scripts/gates.sh` server-build medians 6m32s over 152 runs (6m18s-7m10s tonight, under
+  parallel load); investigate WHY (build-times.md, `local-times.mjs slow-tests`) before touching the alarm, and refresh `server/test-weights.tsv` after a
+  quiet full run (the new Report 21/22 classes are hand-weighted).
+- [new] **The `keys:` stamp line invalidates readers that show no keys.** It rides the ONE `codeStamp`, so a Jira source's project-list edit also moves
+  Compare people's, Person trend's (and its peer-cell cache generation) and the Home overview's tags; split the stamp if that churn ever shows.
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 

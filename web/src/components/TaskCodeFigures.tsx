@@ -18,7 +18,7 @@ import ReportTile, { type TileDrill } from "./ReportTile";
  * The three figure groups of Tasks and code (A51), each a card. (1) The done tasks with and without a merged merge request: NEUTRAL, no direction is
  * better (a task may need no code), so the share of tasks without one is context and nothing is coloured. (2) The code lead time, from a task's start to
  * the merge of its last merge request. (3) Code merged after the task was done, its share and the lag. The two time figures say "lower is better" in
- * words in their captions and hints, never by a colour. With a `drill` every count lists the done tasks behind it (the Done total opens nothing) and every histogram bar the tasks in it, each task with the merge requests the figure counted for it.
+ * words in their captions and hints, never by a colour. With a `drill` every count lists the done tasks behind it (the Done total opens nothing) and every histogram bar the tasks in it, each task with the merge requests linked to it.
  */
 export default function TaskCodeFigures({ report, isRefreshing, drill }: { report: TaskCodeReport; isRefreshing: boolean; drill?: TaskCodeDrill }) {
   const { t } = useTranslation();

@@ -183,7 +183,7 @@ export async function getCodeActivityItems(filter: ReportFilterState, target: Hi
 
 /**
  * The done tasks behind one figure of Tasks and code: a histogram bar (`hist`: its `view` and `bucketIndex`) or a count (`taskcode`). The page's own filter travels
- * with it; the report has no person level, so there is no segment. Each task lists the merge requests the figure counted for it (`linkedKeys`, GitLab keys).
+ * with it; the report has no person level, so there is no segment. Each task lists the merge requests linked to it (`linkedKeys`, GitLab keys).
  */
 export async function getTaskCodeItems(filter: ReportFilterState, target: HistDrillTarget | TaskCodeDrillTarget): Promise<ReportDrillItems> {
   const params = new URLSearchParams(reportQuery(filter));

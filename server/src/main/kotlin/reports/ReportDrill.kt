@@ -42,8 +42,8 @@ data class ReportDrillItem(
     /**
      * The OTHER layer's keys the item is linked to, sorted (A51; empty = none), their kind said by [itemKind]: on a `MERGE_REQUEST` item
      * (Report 21's drill, Home's `CODE_*` lists) the Jira issue keys its title or branch names within the known Jira projects; on a `TASK`
-     * item of Report 22's drill the GitLab merge requests (`<project path>!<iid>`) the figure counted for the task. Null for every other
-     * kind and report.
+     * item of Report 22's drill the GitLab merge requests (`<project path>!<iid>`) linked to the task (all its merged ones; the
+     * unmerged ones on TASKS_WITHOUT_MR). Null for every other kind and report.
      */
     val linkedKeys: List<String>? = null,
 )

@@ -9,7 +9,8 @@ import io.ktor.server.plugins.BadRequestException
  * report. Every view runs the report's OWN read ([readTaskCode], shared with `taskCode`) and the report's OWN per-task properties
  * ([TaskMergeRequests.hasMerged], `mergedAfterDone`, `codeLeadWorkingDays`, `mergeLagWorkingDays`) and, for the two histograms, the one
  * bucket rule ([distributionDrillSelection]), so a figure and its items cannot disagree. An item is a TASK (its Jira key and summary);
- * its `linkedKeys` are the merge requests the figure counted for it, `<project path>!<iid>`.
+ * its `linkedKeys` are the merge requests linked to it, `<project path>!<iid>` (all its merged ones, not only the last merge a
+ * figure measured).
  */
 
 /**

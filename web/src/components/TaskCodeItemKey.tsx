@@ -5,7 +5,7 @@ import GitLabKeyLink from "./GitLabKeyLink";
 import JiraKeyLink from "./JiraKeyLink";
 
 /**
- * The key cell of a Tasks and code list: the task's Jira key, then the GitLab merge requests the figure counted for it (`linkedKeys`, each
+ * The key cell of a Tasks and code list: the task's Jira key, then the GitLab merge requests linked to it (`linkedKeys`, each
  * `<project path>!<iid>`), each a `GitLabKeyLink` to the report's sources. Tab order is the reading order, Jira key first. Each key sits in its
  * own `span`, so a merge request that is not a link (two different GitLab hosts, or a project the server could not name) is still one element of
  * its own. A null or empty `linkedKeys` (a task nothing names) adds nothing.
@@ -17,8 +17,9 @@ export default function TaskCodeItemKey({ item, sources }: { item: ReportDrillIt
       <span>
         <JiraKeyLink issueKey={item.issueKey} />
       </span>
-      {linked.map((key) => (
-        <span key={key}>
+      {linked.map((key, index) => (
+        // Position-qualified: two GitLab hosts can hold the same `<path>!<iid>` (a mirror), so the key alone is not unique.
+        <span key={`${index}:${key}`}>
           <GitLabKeyLink issueKey={key} sources={sources} />
         </span>
       ))}

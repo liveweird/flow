@@ -73,7 +73,7 @@ export interface ReportDrillDrawerProps {
    */
   codeSources?: CodeActivityReport["sources"];
   /**
-   * The list is Tasks and code's (tasks): each task's Jira key links to Jira and its `linkedKeys` — the merge requests the figure counted for it —
+   * The list is Tasks and code's (tasks): each task's Jira key links to Jira and its `linkedKeys` — the merge requests linked to it —
    * link to the GitLab of these report sources. The people column stays "Assignee".
    */
   taskSources?: CodeActivityReport["sources"];

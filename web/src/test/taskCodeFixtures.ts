@@ -75,7 +75,7 @@ const DONE_AT = 1_780_000_000_000;
 
 /**
  * The tasks behind a count or a histogram bar: three listed (the cap, as far as the page cares), `count` of them behind the figure. Each task lists the merge
- * requests the figure counted for it as GitLab keys (`linkedKeys`): two, one, and none (a task nothing names).
+ * requests linked to it as GitLab keys (`linkedKeys`): two, one, and none (a task nothing names).
  */
 export function taskCodeItems(count: number, over: Partial<ReportDrillItems> = {}): ReportDrillItems {
   return {
