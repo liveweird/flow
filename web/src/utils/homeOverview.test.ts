@@ -4,7 +4,9 @@ import { HOME, HOME_NOT_DERIVED, previous } from "../test/homeFixtures";
 import {
   drillAnchorOf,
   drillDrawn,
+  hasCodeSection,
   HOME_VIEWS,
+  isCodeView,
   nothingDerived,
   overviewLink,
   sprintBucketItems,
@@ -108,6 +110,26 @@ describe("the drill", () => {
     expect(HOME_VIEWS.WIP_EPICS.count(alpha)).toBe(2);
     expect(HOME_VIEWS.QUALITY_TASKS_NO_ESTIMATE.count(alpha)).toBe(3);
     expect(HOME_VIEWS.TASK_COST.count(gamma)).toBe(2);
+  });
+
+  test("a code view's count is its figure's count: the merged n, the open n, the unreviewed numerator — zero where the team has no code figures", () => {
+    expect(HOME_VIEWS.CODE_MERGED.count(alpha)).toBe(9);
+    expect(HOME_VIEWS.CODE_OPEN.count(alpha)).toBe(3);
+    expect(HOME_VIEWS.CODE_MERGED_WITHOUT_REVIEW.count(alpha)).toBe(2);
+    expect(HOME_VIEWS.CODE_MERGED_WITHOUT_REVIEW.count(beta)).toBe(1);
+    expect(HOME_VIEWS.CODE_MERGED.count({ ...alpha, code: null })).toBe(0);
+    expect(isCodeView("CODE_OPEN")).toBe(true);
+    expect(isCodeView("TASK_COST")).toBe(false);
+  });
+
+  test("the Code section is drawn only while a GitLab source is active, and a code view of a team with no code figures is not drawn", () => {
+    expect(hasCodeSection(HOME)).toBe(true);
+    expect(hasCodeSection(HOME_NOT_DERIVED)).toBe(false);
+    expect(drillAnchorOf({ kind: "home", view: "CODE_OPEN", teamId: 1 })).toBe("home-code");
+    expect(drillDrawn({ kind: "home", view: "CODE_MERGED", teamId: 1 }, HOME)).toBe(true);
+    const overBudget = { ...HOME, code: { ...HOME.code, overBudget: true }, teams: HOME.teams.map((team) => ({ ...team, code: null })) };
+    expect(drillDrawn({ kind: "home", view: "CODE_MERGED", teamId: 1 }, overBudget)).toBe(false);
+    expect(drillDrawn({ kind: "home", view: "TASK_CYCLE", teamId: 1 }, overBudget)).toBe(true);
   });
 
   test("focus returns to the card of the section a bar belongs to", () => {

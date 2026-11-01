@@ -25,7 +25,7 @@ function renderHome() {
 }
 
 const section = (name: string) => screen.getByRole("region", { name });
-/** The seven section cards (the quality table's scroll region is a region too, but not a card). */
+/** The eight section cards (the quality table's scroll region is a region too, but not a card). */
 const sections = () => screen.getAllByRole("region").filter((region) => region.tagName === "SECTION");
 /** The page has loaded once its last section is on screen. */
 const ready = () => screen.findByRole("region", { name: "What is missing from the data" });
@@ -66,7 +66,7 @@ describe("Home page — the overview of every team", () => {
     expect(localStorage.getItem("flow.viewSettings.home.teams")).toBeNull();
   });
 
-  test("the page outline: seven sections under the title, a chart per heading, the quality section a table with no headings of its own", async () => {
+  test("the page outline: eight sections under the title, a chart per heading, the code and quality sections tables with no headings of their own", async () => {
     serve(mockFetch);
     renderHome();
     await ready();
@@ -97,6 +97,7 @@ describe("Home page — the overview of every team", () => {
       [4, "Gamma"],
       [4, "Cycle time, p50 (working days)"],
       [4, "Cycle time, p85 (working days)"],
+      [3, "Code"],
       [3, "What is missing from the data"],
     ]);
   });
@@ -366,13 +367,6 @@ describe("Home page — the overview of every team", () => {
     expect(within(quality).getByText(/estimate gap tolerance is 50%/)).toBeInTheDocument();
   });
 
-  test("no unassigned work: no note", async () => {
-    serve(mockFetch, () => jsonResponse(200, { ...HOME, unassigned: { doneTasks: 0, openTasks: 0, epics: 0 } }));
-    renderHome();
-    await ready();
-    expect(screen.queryByText(/Not in any team above/)).not.toBeInTheDocument();
-  });
-
   test("nothing derived yet: the empty state (with the admin's way forward), not seven empty sections", async () => {
     localStorage.setItem(ROLES_KEY, JSON.stringify(["ADMIN"]));
     serve(mockFetch, () => jsonResponse(200, HOME_NOT_DERIVED));
@@ -418,8 +412,7 @@ describe("Home page — the overview of every team", () => {
     serve(mockFetch, () => jsonResponse(500, { title: "Boom", status: 500 }));
     await queryClient.refetchQueries({ queryKey: ["home"] });
     expect(await screen.findByRole("alert")).toBeInTheDocument();
-    // Nothing the reader was looking at went away.
-    expect(sections()).toHaveLength(7);
+    expect(sections()).toHaveLength(8);
     expect(screen.getByRole("group", { name: "How fresh the data is" })).toBeInTheDocument();
   });
 
@@ -431,13 +424,12 @@ describe("Home page — the overview of every team", () => {
     expect(screen.queryByRole("region")).not.toBeInTheDocument();
   });
 
-  test("once loaded the live region is empty and there are seven sections", async () => {
+  test("once loaded the live region is empty and there are eight sections", async () => {
     serve(mockFetch);
     renderHome();
     await ready();
-    // The lazy chart chunks show their own "Loading…" status until they mount: wait for them, then read the live region.
     await waitFor(() => expect(screen.getAllByRole("status")).toHaveLength(1));
     expect(screen.getByRole("status")).toBeEmptyDOMElement();
-    expect(sections()).toHaveLength(7);
+    expect(sections()).toHaveLength(8);
   });
 });

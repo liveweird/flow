@@ -5,6 +5,7 @@ import Home from "./Home";
 import { jsonResponse } from "../test/http";
 import { chartRenders } from "../test/homeChartsMock";
 import { HOME } from "../test/homeFixtures";
+import { codeMrItems } from "../test/codeActivityFixtures";
 import { FILTERS, histogramItems, SPRINT_ITEMS } from "../test/reportFixtures";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 import { showItems } from "../test/drill";
@@ -103,6 +104,50 @@ describe("Home page — drilling into the items behind a figure", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.getByTestId("where").textContent).toBe("");
     expect(button).toHaveFocus();
+  });
+
+  test("a code count opens the merge requests behind it, each key a GitLab link, compared with the figure; the cycle and age medians open nothing", async () => {
+    serve(mockFetch, () => jsonResponse(200, codeMrItems(9)));
+    const user = userEvent.setup();
+    renderHome();
+    await ready();
+    const code = within(section("Code")).getByRole("table", { name: "Merge requests per team" });
+    const alpha = within(code).getByRole("row", { name: /^Alpha/ });
+    // The two medians are text: their merge requests are the Merged and Open now lists.
+    expect(within(alpha).getAllByRole("button")).toHaveLength(3);
+    const button = within(alpha).getByRole("button", { name: showItems("Alpha", "Merged") });
+    await user.click(button);
+    const drawer = await dialog("Merge requests merged · Alpha");
+    expect(itemsCalls(mockFetch, HOME_ITEMS_PREFIX)).toEqual([`${HOME_ITEMS_PREFIX}view=CODE_MERGED&teamId=1`]);
+    expect(screen.getByTestId("where").textContent).toBe("?drill=home%3ACODE_MERGED%3A1");
+    expect(await within(drawer).findByText("9 items")).toBeInTheDocument();
+    // Alpha merged 9: the list says 9, so no "data changed" note.
+    expect(within(drawer).queryByText("The data changed since the chart was drawn.")).not.toBeInTheDocument();
+    const link = within(drawer).getByRole("link", { name: /grp\/app!12/ });
+    expect(link).toHaveAttribute("href", "https://gitlab.example/grp/app/-/merge_requests/12");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    // A merge request has no Jira link and the columns are the code lists': merged date and the cycle in working days.
+    expect(within(drawer).getByRole("columnheader", { name: "Working days" })).toBeInTheDocument();
+    await user.click(within(drawer).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(button).toHaveFocus();
+  });
+
+  test("the open and the merged-without-review counts ask their own views; a deep link to a code view of a team with no code figures is dropped", async () => {
+    serve(mockFetch, () => jsonResponse(200, codeMrItems(3)));
+    const user = userEvent.setup();
+    renderHome();
+    await ready();
+    const alpha = within(within(section("Code")).getByRole("table", { name: "Merge requests per team" })).getByRole("row", { name: /^Alpha/ });
+    await user.click(within(alpha).getByRole("button", { name: showItems("Alpha", "Open now") }));
+    await dialog("Merge requests open now, waiting for review · Alpha");
+    expect(itemsCalls(mockFetch, HOME_ITEMS_PREFIX)).toEqual([`${HOME_ITEMS_PREFIX}view=CODE_OPEN&teamId=1`]);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await user.click(within(alpha).getByRole("button", { name: showItems("Alpha", "Merged without review") }));
+    await dialog("Merge requests merged without review · Alpha");
+    expect(itemsCalls(mockFetch, HOME_ITEMS_PREFIX).at(-1)).toBe(`${HOME_ITEMS_PREFIX}view=CODE_MERGED_WITHOUT_REVIEW&teamId=1`);
   });
 
   test("a figure of ZERO items is plain text — there is nothing to list", async () => {

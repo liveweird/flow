@@ -102,9 +102,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   512 MiB default, 16-20 full GCs a fork); live Jackson `ObjectNode`/`LinkedHashMap` trees grow, and it is NOT the OpenAPI validator's
   bounded schema cache (`build-times.md` WHY 62). The forks now get 768 MiB, which buys headroom only. Take a heap dump late in a fork
   and find what holds the trees (a static cache, a fixture, an in-JVM stub's journal, ...).
-- [new] **Home: a Code section.** Per picked team, from Report 21's own fetch and value functions (Home defines no figure of its own, so it follows
-  the report): merged merge requests (90 days against the 90 before, higher is better), merge-request cycle p50 (lower), open merge requests now with
-  their age, merged without review (lower); `home/items` views `CODE_*`, `HomeOracle` extended. Decide after the Report 21 page has been in use.
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 

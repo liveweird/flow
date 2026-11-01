@@ -14,6 +14,7 @@ import HomeAccuracySection from "../components/HomeAccuracySection";
 import HomeDrillDrawer from "../components/HomeDrillDrawer";
 import HomeFreshness from "../components/HomeFreshness";
 import HomeGranularitySection from "../components/HomeGranularitySection";
+import HomeCodeSection from "../components/HomeCodeSection";
 import HomeQualitySection from "../components/HomeQualitySection";
 import HomeSprintSection from "../components/HomeSprintSection";
 import HomeTeamPicker from "../components/HomeTeamPicker";
@@ -24,7 +25,7 @@ import { HomeWindowDays } from "../hooks/useHomeWindowDays";
 import { useReportDrill } from "../hooks/useReportDrill";
 import { useStoredState } from "../hooks/useStoredState";
 import { dataSourcesPath, metricsSettingsPath } from "../utils/dataSourceLinks";
-import { drillAnchorOf, nothingDerived, windowDays, type OpenDrill } from "../utils/homeOverview";
+import { drillAnchorOf, hasCodeSection, nothingDerived, windowDays, type OpenDrill } from "../utils/homeOverview";
 import { effectiveHomeTeams, isTeamPick, livePick } from "../utils/homeTeams";
 import { CONTENT_MAX_WIDTH } from "../utils/layout";
 
@@ -161,7 +162,7 @@ export default function Home() {
   );
 }
 
-/** The seven sections, in order (memoised by the page on the overview). */
+/** The sections, in order (memoised by the page on the overview); the Code section only while a GitLab source is active. */
 function Sections({ overview, open, busy }: { overview: HomeOverview; open: OpenDrill; busy: boolean }) {
   const { t } = useTranslation();
   return (
@@ -172,6 +173,7 @@ function Sections({ overview, open, busy }: { overview: HomeOverview; open: Open
       <HomeWipSection overview={overview} open={open} kind="epics" />
       <HomeWipSection overview={overview} open={open} kind="tasks" />
       <HomeThroughputSection overview={overview} open={open} />
+      {hasCodeSection(overview) && <HomeCodeSection overview={overview} open={open} />}
       <HomeQualitySection overview={overview} open={open} />
     </Stack>
   );
