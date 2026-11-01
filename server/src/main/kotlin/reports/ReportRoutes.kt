@@ -1,6 +1,7 @@
 package ch.nokillswit.reports
 
 import ch.nokillswit.authz.caller
+import ch.nokillswit.identities.IdentityResolverKey
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.db.R2dbcDatabaseKey
 import ch.nokillswit.infra.paging.SortField
@@ -9,6 +10,7 @@ import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.infra.paging.optionalUInt
 import ch.nokillswit.infra.paging.parsePaging
 import ch.nokillswit.infra.validation.sanitizeSingleLine
+import ch.nokillswit.ingest.DataSourceServiceKey
 import ch.nokillswit.metrics.MetricsSettingsServiceKey
 import ch.nokillswit.metrics.TeamMembershipServiceKey
 import ch.nokillswit.plugins.RateLimits
@@ -145,6 +147,7 @@ fun Application.configureReportRoutes() {
     )
     val reportService = ReportService(
         database, metricsSettings, teamMembership, statementTimeoutSeconds, peerCells = PeerCellCache(peerCellMaxEntries),
+        codeDeps = CodeActivityDeps(attributes[DataSourceServiceKey], attributes[IdentityResolverKey]),
     )
     attributes.put(ReportServiceKey, reportService)
 
@@ -172,6 +175,7 @@ fun Application.configureReportRoutes() {
                 deepDiveRoutes(reportService)
                 comparePeopleRoutes(reportService, teams)
                 personTrendRoutes(reportService)
+                codeActivityRoutes(reportService)
                 homeRoutes(reportService)
                 drillRoutes(reportService)
             }
@@ -186,7 +190,8 @@ fun Application.configureReportRoutes() {
  * the request's `now`. [prepare] parses every extra parameter (all the `400`s that need no data) and returns the report's [answer]
  * WITHOUT running it; only then is the ETag computed over the request and the data stamp (`ReportValidators.kt`, [clock] = how finely
  * `now` enters it), and the answer runs only when `If-None-Match` does not match. [multipleAccounts] is the per-route opt-in to a
- * repeated `accountId` (the routes passing `multipleAccounts = true`). [scope] is the report's [ReportScopeRule]: a request naming no team,
+ * repeated `accountId` (the routes passing `multipleAccounts = true`). [withCodeStamp] adds Report 21's GitLab stamp lines.
+ * [scope] is the report's [ReportScopeRule]: a request naming no team,
  * domain (or epic) is a `400` from the parser, before the cache validators.
  */
 internal inline fun <reified R : Any> Route.reportGet(
@@ -195,6 +200,7 @@ internal inline fun <reified R : Any> Route.reportGet(
     multipleAccounts: Boolean = false,
     clock: StampClock = StampClock.DAY,
     scope: ReportScopeRule = ReportScopeRule.TEAM_OR_DOMAIN,
+    withCodeStamp: Boolean = false,
     crossinline prepare: (filter: ReportFilter, params: Parameters, nowMs: Long) -> ReportAnswer,
 ) {
     get<R> {
@@ -205,7 +211,8 @@ internal inline fun <reified R : Any> Route.reportGet(
             stamp.calendar, stamp.nowMs, defaultView, stamp.historyHorizon, multipleAccounts, scope = scope,
         )
         val produce = prepare(filter, params, stamp.nowMs)
-        call.respondRevalidated(reportService.etagFor(call, stamp), produce)
+        val extraStamp = if (withCodeStamp) reportService.codeStamp() else emptyList()
+        call.respondRevalidated(reportService.etagFor(call, stamp, extraStamp = extraStamp), produce)
     }
 }
 

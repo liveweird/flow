@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: flow-api
-  version: 1.38.1
+  version: 1.39.0
   description: |
     JWT-authenticated REST API for Flow — a developer-intelligence tool that reads Jira Cloud, stores the raw data
     incrementally and derives flow metrics (cycle and lead time, throughput, WIP, flow efficiency, work-item age),
@@ -3831,6 +3831,68 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/code-activity:
+    get:
+      tags: [reports]
+      operationId: getReportCodeActivity
+      summary: Report 21 — code activity (a team's merge-request flow over the GitLab code layer, with per-member volumes as neutral context)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 21", domain-model A50. Read per team: `teamId` is
+        required (`400` otherwise; `0` is the UNASSIGNED bucket — the work of identities with no decision at all and of linked people
+        with no membership at the anchor); there is no domain slice, so `domain`, `domainView`, `activityType` and `workCategory` are
+        not accepted parameters (ignored like any unknown name). The period is dates (default the trailing 90 days) or the team's
+        sprints (`lastSprints`, `sprintId`); `accountId` repeats 1 to 8 and sets the USER level, where every distribution splits per
+        picked person. `connectionId` names one ACTIVE GITLAB data source (a Jira, deleted or unknown one is `400`); without it every
+        active GitLab source is read. The report is computed at request time from the stored code layer and attributed through the
+        administrators' identity links (A50): a row belongs to the person its identity key is LINKED to and to the team that person's
+        dated membership covers at the row's anchor (a commit by `committed_at`, a merged merge request by `merged_at`, an opened one by
+        `created_at`, an open one by now, an act by `event_at`); an identity an administrator decided BOT or IGNORED is in no figure and in
+        no unlinked count. `meta` is the JIRA star's (the roster, names and sprints come from it): the freshness of the code figures is
+        `sources[]` (`lastSyncAt`, and the commits whose files and the merge requests whose details were still unread at the last data
+        profile). `quality` counts, connection-wide for the period, what no figure can use: `unlinkedIdentities` / `unlinkedCommits` /
+        `unlinkedMergeRequests` / `unlinkedEvents` (undecided identities and their activity), `commitsLinesUnknown`, `mrsSizeUnknown`,
+        `mrsDetailsNotRead`, `eventsUndated`. `flow` is the merge-request FLOW of the team over the period: `merged` and `closedUnmerged`;
+        `cycleWorkingDays` / `cycleElapsedDays` (created to merged); `timeToFirstReviewWorkingDays` (created to the first event of kind
+        COMMENT, DIFF_COMMENT, APPROVAL, REVIEWED or CHANGES_REQUESTED by another human — REVIEWED is approximate — over the merged merge
+        requests whose details were read); `sizeLines` (`additions + deletions`, exclusion-blind GraphQL totals) and `sizeFiles`;
+        `mergedWithoutReview` / `mergedWithoutApproval` (counts and shares against the merged merge requests whose details were read);
+        `weekly` (Monday-started weeks of the configured zone, zero-filled). The figures here may be coloured by a client (lower is better
+        for the cycle, first review, size and merged without review); the response carries no verdict. `open` is the open merge requests
+        now: `count` the non-draft ones, `drafts` counted apart, `age` the waiting ones' age in working days. `review` (absent while no
+        merged merge request has its details read) is the review concentration: reviewers per merged merge request (p50) and the share of
+        the distinct (merge request, reviewer) pairs the busiest reviewer holds. `groups` are the per-member volumes — NEUTRAL context,
+        never a performance verdict: commits (non-merge), counted files and lines (exclusion-aware; commits with an unknown count are left
+        out and counted in `commitsLinesUnknown`), merge requests merged / opened / open now, the p50 of the member's cycle and size,
+        and the distinct merge requests reviewed / approved / with changes requested, the comments (acts) and the review requests
+        received. TEAM level lists every member of the team (zeros kept); `teamId=0` lists the undecided unlinked identities (named by
+        their GitLab display name or username) and the linked people with no membership. Counts are never hidden; the distributions
+        and p50 cells are hidden under `meta.minSampleSize`. 400: a missing or malformed `teamId`, a malformed or conflicting
+        period, more than 8 `accountId`, a bad `tailPercent`, an unknown or inactive team, an unknown or non-GitLab `connectionId`.
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportLastSprints' }
+        - { $ref: '#/components/parameters/ReportSprintId' }
+        - { $ref: '#/components/parameters/ReportTeamIdRequired' }
+        - { $ref: '#/components/parameters/ReportAccountIds' }
+        - { $ref: '#/components/parameters/ReportCodeConnectionId' }
+        - { $ref: '#/components/parameters/ReportTailPercent' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
+      responses:
+        '200':
+          description: The code activity report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CodeActivityReport'
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/reports/reported-time-ratio:
     get:
       tags: [reports]
@@ -4269,6 +4331,14 @@ components:
       required: false
       schema: { type: integer, format: int32, minimum: 0 }
       description: Restricts to one data source's own connection. Defaults to every enabled, active connection.
+    ReportCodeConnectionId:
+      name: connectionId
+      in: query
+      required: false
+      schema: { type: integer, format: int32, minimum: 0 }
+      description: >-
+        Restricts to one ACTIVE GitLab data source (a Jira, deleted or unknown id is `400`). Defaults to every active GitLab data
+        source, a disabled one included.
     ReportTailPercent:
       name: tailPercent
       in: query
@@ -7480,6 +7550,126 @@ components:
           items: { $ref: '#/components/schemas/PersonTrendRow' }
         workMix: { $ref: '#/components/schemas/PersonTrendWorkMix' }
         note: { type: string, description: "Why the WIP rows are empty or partial; absent otherwise." }
+
+    CodeActivityReport:
+      type: object
+      required: [meta, sources, quality, flow, open, groups]
+      properties:
+        meta:
+          allOf: [{ $ref: '#/components/schemas/ReportMeta' }]
+          description: "The JIRA star's (`derivedAt`, `configRevision`): the roster, names and sprints come from it. The code figures' freshness is `sources`."
+        sources:
+          type: array
+          items: { $ref: '#/components/schemas/CodeActivitySource' }
+          description: The GitLab sources read, in connection order; empty while no GitLab source is active.
+        quality: { $ref: '#/components/schemas/CodeActivityQuality' }
+        flow: { $ref: '#/components/schemas/CodeActivityFlow' }
+        open: { $ref: '#/components/schemas/CodeActivityOpen' }
+        review:
+          allOf: [{ $ref: '#/components/schemas/CodeActivityReview' }]
+          description: Absent while no merged merge request has its details read.
+        groups:
+          type: array
+          items: { $ref: '#/components/schemas/CodeActivityGroup' }
+          description: The per-member volumes. NEUTRAL context — no tint, rank or verdict.
+    CodeActivitySource:
+      type: object
+      required: [connectionId, name, baseUrl, commitFilesPending, mrDetailsPending]
+      properties:
+        connectionId: { type: integer, format: int32, minimum: 1 }
+        name: { type: string }
+        baseUrl: { type: string, description: "The organisation's own GitLab origin (D12); the drill links to commits and merge requests build on it." }
+        lastSyncAt: { type: integer, format: int64, description: "Epoch millis of the last successful sync; absent before the first." }
+        commitFilesPending: { type: integer, format: int64, minimum: 0, description: "Commits whose files are still unread, as of the last data profile (their counted lines are unknown meanwhile)." }
+        mrDetailsPending: { type: integer, format: int64, minimum: 0, description: "Merge requests whose details are still unread, as of the last data profile." }
+    CodeActivityQuality:
+      type: object
+      description: What the sources hold that no figure can use, connection-wide for the period.
+      required: [unlinkedIdentities, unlinkedCommits, unlinkedMergeRequests, unlinkedEvents, commitsLinesUnknown, mrsSizeUnknown, mrsDetailsNotRead, eventsUndated]
+      properties:
+        unlinkedIdentities: { type: integer, format: int32, minimum: 0, description: "Identity keys with activity in the period and NO decision at all (the ones that need an administrator); a key decided BOT or IGNORED counts nowhere." }
+        unlinkedCommits: { type: integer, format: int64, minimum: 0, description: "Their non-merge commits committed in the period." }
+        unlinkedMergeRequests: { type: integer, format: int64, minimum: 0, description: "Their merge requests created or merged in the period." }
+        unlinkedEvents: { type: integer, format: int64, minimum: 0, description: "Their dated acts on live merge requests in the period." }
+        commitsLinesUnknown: { type: integer, format: int64, minimum: 0, description: "Non-merge commits of the period with an unknown counted figure (left out of every sum, never zero)." }
+        mrsSizeUnknown: { type: integer, format: int64, minimum: 0, description: "Merge requests merged in the period with an unknown diff total (left out of the size figures, never zero)." }
+        mrsDetailsNotRead: { type: integer, format: int64, minimum: 0, description: "Merge requests merged in the period whose details were not read (left out of the review figures, never 'unreviewed')." }
+        eventsUndated: { type: integer, format: int64, minimum: 0, description: "Events with no time on the merge requests created or merged in the period (in no period)." }
+    CodeActivityShare:
+      type: object
+      required: [count]
+      properties:
+        count: { type: integer, format: int32, minimum: 0 }
+        share: { type: number, format: double, minimum: 0, maximum: 1, description: "The count over the merged merge requests whose details were read; absent when there is none." }
+    CodeActivityWeek:
+      type: object
+      required: [bucketStart, merged]
+      properties:
+        bucketStart: { type: string, format: date, description: "The Monday that starts the week in the configured zone." }
+        merged: { type: integer, format: int32, minimum: 0 }
+    CodeActivityFlow:
+      type: object
+      required: [merged, closedUnmerged, cycleWorkingDays, cycleElapsedDays, timeToFirstReviewWorkingDays, sizeLines, sizeFiles, mergedWithoutReview, mergedWithoutApproval, weekly]
+      properties:
+        merged: { type: integer, format: int32, minimum: 0, description: "Merge requests merged in the period by authors of the team at `merged_at`; the sum of `weekly`." }
+        closedUnmerged: { type: integer, format: int32, minimum: 0, description: "Merge requests closed without merging in the period (the author's team at `closed_at`); in no weekly bar." }
+        cycleWorkingDays: { $ref: '#/components/schemas/Distribution' }
+        cycleElapsedDays: { $ref: '#/components/schemas/Distribution' }
+        timeToFirstReviewWorkingDays: { $ref: '#/components/schemas/Distribution' }
+        sizeLines: { $ref: '#/components/schemas/Distribution' }
+        sizeFiles: { $ref: '#/components/schemas/Distribution' }
+        mergedWithoutReview: { $ref: '#/components/schemas/CodeActivityShare' }
+        mergedWithoutApproval: { $ref: '#/components/schemas/CodeActivityShare' }
+        weekly:
+          type: array
+          items: { $ref: '#/components/schemas/CodeActivityWeek' }
+          description: Every Monday-started week of the period, oldest first, zero-filled.
+    CodeActivityOpenAge:
+      type: object
+      required: [n, hidden]
+      properties:
+        n: { type: integer, format: int32, minimum: 0, description: "The waiting (non-draft) open merge requests." }
+        hidden: { type: boolean, description: "True under `meta.minSampleSize`; the percentiles are then absent." }
+        p50: { type: number, format: double }
+        p85: { type: number, format: double }
+    CodeActivityOpen:
+      type: object
+      description: The open merge requests now, whose author belongs to the team now.
+      required: [count, drafts, age]
+      properties:
+        count: { type: integer, format: int32, minimum: 0, description: "The non-draft open merge requests (a draft is not waiting for review)." }
+        drafts: { type: integer, format: int32, minimum: 0 }
+        age: { $ref: '#/components/schemas/CodeActivityOpenAge' }
+    CodeActivityReview:
+      type: object
+      required: [n]
+      properties:
+        n: { type: integer, format: int32, minimum: 1, description: "The merged merge requests whose details were read." }
+        reviewersPerMergedMrP50: { type: number, format: double, description: "Distinct reviewers per merged merge request, zeros included; absent under `meta.minSampleSize`." }
+        topReviewerShare: { type: number, format: double, minimum: 0, maximum: 1, description: "The share of the distinct (merge request, reviewer) pairs held by the busiest reviewer; absent under `meta.minSampleSize` and with no pair." }
+    CodeActivityGroup:
+      type: object
+      description: One member's volumes over the period — NEUTRAL context.
+      required: [commits, filesChanged, linesAdded, linesDeleted, commitsLinesUnknown, mrsMerged, mrsOpened, openMrs, reviewsGiven, approvalsGiven, changesRequestedGiven, comments, reviewRequestsReceived]
+      properties:
+        teamId: { type: integer, format: int32, minimum: 1, description: "Not sent today: every group sits in the request's team." }
+        accountId: { type: string, description: "The LINKED Jira account; absent for an unlinked identity (`teamId=0` only)." }
+        label: { type: string, description: "The Jira display name (the account id when none is known); for an unlinked identity its GitLab display name or username, absent for a ghost." }
+        commits: { type: integer, format: int32, minimum: 0, description: "Non-merge commits committed in the period." }
+        filesChanged: { type: integer, format: int64, minimum: 0, description: "Counted files (exclusion-aware) of the commits whose counts are known." }
+        linesAdded: { type: integer, format: int64, minimum: 0, description: "Counted additions (exclusion-aware); not a merge request's size, which is exclusion-blind." }
+        linesDeleted: { type: integer, format: int64, minimum: 0 }
+        commitsLinesUnknown: { type: integer, format: int32, minimum: 0, description: "Commits left out of the three sums because a counted figure is unknown." }
+        mrsMerged: { type: integer, format: int32, minimum: 0 }
+        mrsOpened: { type: integer, format: int32, minimum: 0, description: "Merge requests created in the period, later merged or closed included." }
+        openMrs: { type: integer, format: int32, minimum: 0, description: "Open now, drafts included." }
+        mrCycleWorkingDaysP50: { type: number, format: double, description: "Absent under `meta.minSampleSize` merged merge requests." }
+        mrSizeLinesP50: { type: number, format: double, description: "Of the merged merge requests with a known size; absent under `meta.minSampleSize`." }
+        reviewsGiven: { type: integer, format: int32, minimum: 0, description: "Distinct merge requests (not the member's own) with at least one review-kind event." }
+        approvalsGiven: { type: integer, format: int32, minimum: 0, description: "Distinct merge requests approved (approve, unapprove, approve is one)." }
+        changesRequestedGiven: { type: integer, format: int32, minimum: 0, description: "Distinct merge requests with changes requested." }
+        comments: { type: integer, format: int32, minimum: 0, description: "Comment and diff-comment acts, none excluded." }
+        reviewRequestsReceived: { type: integer, format: int32, minimum: 0, description: "Distinct merge requests that named the member as a reviewer." }
 
     CycleTimeReport:
       type: object

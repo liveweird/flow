@@ -7,7 +7,7 @@ into are in `.claude/docs/ingestion.md`; the Jira connector it sits beside is `.
 
 **Status: as built, 1.34.0-1.38.0** (PR 12 closed the sequence with the scaled-world figures, `build-times.md` WHY 59, and the real-instance checklist, "Real-instance smoke run").
 Each section is the as-built reference (file names, tests); the PR sequence is at the end. Nothing here derives metrics. Reports over
-`norm.code_*` are **planned** (agreed 2026-11-01): Report 21 "Code activity" (`reports.md` "Report 21", `domain-model.md` A50, `measures.md` "Report 21") reads the
+`norm.code_*` are **built as an endpoint (1.39.0; the page and the drill are planned)**: Report 21 "Code activity" (`reports.md` "Report 21", `domain-model.md` A50, `measures.md` "Report 21") reads the
 code layer at query time and attributes through the identity links below; it adds no migration, job kind or stream to this connector, and
 `DataSourceKind.derivesMetrics` stays false for GITLAB.
 
@@ -438,9 +438,9 @@ the stored files (U2). MR line counts (GraphQL totals) are not exclusion-aware.
   `jiraAccountIdFrom`, the values actually overwritten) and `code_identity.decision_removed`. Ids, keys, the host and decisions only - never an address, a
   display name or a username.
 - **`identities/IdentityResolver`** (`IdentityResolverKey`, published in EVERY role): `accountsByKey(host, keys)` and `keysByAccount(host, accountIds)`, one
-  `IN` statement each, **LINKED decisions only** - IGNORED, BOT and unconfirmed proposals attribute nothing. It answers Jira account ids, not teams: the team
+  `IN` statement each, **LINKED decisions only** - IGNORED, BOT and unconfirmed proposals attribute nothing; `decidedKeys(host, keys)` answers every stored decision (LINKED, IGNORED or BOT) so Report 21 can tell a BOT or IGNORED actor from an undecided human reviewer. It answers Jira account ids, not teams: the team
   at an instant is the one rule in `metrics/` (`teamAt`), which `identities/` must not import (`identities` imports `infra`, `norm`, `ingest`, `authz`,
-  `audit`, `plugins`; no connector or `norm` package references it: `PackageBoundaryTest`). It is the one entry point for the later reports.
+  `audit`, `plugins`; nothing but `reports/` references it: `PackageBoundaryTest` "only reports references identities"). It is the one entry point for the reports.
 - **Tests:** `CodeIdentityProposalsTest` (the pure kernel: proposal, status, search, sort, page), `CodeIdentityProposalMatchesTest` (the SQL matches),
   `CodeIdentityLinkStoreTest` (the store's outcomes and the CHECKs), `CodeIdentityServiceTest` (direct rows: idempotence, the unknown-account exemption, the
   bulk counts, orphans, and the two insert races pinned with a raw transaction that holds a decision INSERT uncommitted), `IdentityResolverTest`, and

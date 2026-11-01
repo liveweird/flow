@@ -194,7 +194,9 @@ internal fun reportEtag(codeIdentity: String, path: String, query: Parameters, s
 }
 
 /**
- * Computes the ETag of the current request (path + query) over a fresh [dataStamp]. [callerShape] lists the facts about the CALLER the
+ * Computes the ETag of the current request (path + query) over a fresh [dataStamp]. [extraStamp] is a report's OWN stamp lines (only
+ * Report 21's `codeStamp`: the GitLab inputs no Jira report reads, so they must not move a Jira report's tag).
+ * [callerShape] lists the facts about the CALLER the
  * answer is shaped by (today only Compare people's capacity verdict, [CapacityGrant]); every other report passes none, because its
  * content never depends on who asks (D12), so a validator is shared by every caller and a changed verdict can never answer `304`.
  */
@@ -202,9 +204,10 @@ internal suspend fun ReportService.etagFor(
     call: ApplicationCall,
     scope: StampScope,
     callerShape: List<String> = emptyList(),
+    extraStamp: List<String> = emptyList(),
 ): String = reportEtag(
     codeIdentity, call.request.path(), call.request.queryParameters,
-    dataStamp(scope.settings, scope.calendar, scope.clock, scope.nowMs) + callerShape,
+    dataStamp(scope.settings, scope.calendar, scope.clock, scope.nowMs) + callerShape + extraStamp,
 )
 
 /** A report's response, built lazily: it runs only when the validator check did not answer `304` (see [reportGet]). */

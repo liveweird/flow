@@ -454,3 +454,5 @@ database. It deletes `derive_runs` and the fact tables INSIDE one `suspendTransa
 `reportTransaction` joins the outer one), captures the result and throws a sentinel so the whole transaction rolls back; nothing is ever
 committed, and the test asserts afterwards that the world is intact. Use it only for such a "global emptiness" subject; everything else
 mints its own rows and removes them.
+
+**Report 21's worlds (1.39.0).** `CodeActivityWorld.kt` (`withCodeWorld(zone) { }`) writes a hand-built `norm.code_*` world on a DISABLED GitLab connection with a UNIQUE host (so its links meet no other class's), one team with one linked member, unique Jira accounts and the decider, and removes all of it in `finally`; `CodeActivityReadsTest` (zone UTC) and `ReportCodeActivityTest` (the report zone, `ReportService.clock` pinned to day 14) share it. `ReportCodeActivityFixtureTest` clones the processed GitLab fixture into its own connection on the stub host, confirms the proposals over HTTP (the code-identities discipline: the stub host's decisions are emptied at the start and the end) and compares every figure with a plain-JDBC re-derivation.

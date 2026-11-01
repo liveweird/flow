@@ -280,6 +280,8 @@ class ReportValidatorsTest {
                 "$base/person-trend/items",
                 "$base/person-trend/items?accountId=${ids.accountA}&from=2026-01-01&to=2026-03-01&view=DELIVERED&pointEnd=2026-03-01",
             )
+            // No connectionId: that one names a GITLAB source here (the Jira fixture's id would be the unknown-id 400).
+            put("$base/code-activity", "$base/code-activity?teamId=${ids.teamId}&from=2026-01-01&to=2026-03-01")
             put("$base/deep-dive", "$base/deep-dive?epicId=${epic.key}&$scope")
             put("$base/deep-dive/sprints", "$base/deep-dive/sprints?domain=${ids.domainKey}&$scope")
             put("$base/deep-dive/epics", "$base/deep-dive/epics?$scope")
@@ -326,6 +328,7 @@ class ReportValidatorsTest {
     /** The operations whose figures move with `now` inside a day (reports.md "Cache validators"): only they use the 5-minute clock. */
     private val fiveMinuteOperations = setOf(
         "filters", "home", "home/items", "aging-wip", "data-quality", "throughput", "throughput/items", "costs", "costs/items",
+        "code-activity",
     ).map { "/api/v1/reports/$it" }.toSet()
 
     @Test

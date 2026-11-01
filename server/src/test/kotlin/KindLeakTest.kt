@@ -25,6 +25,7 @@ import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.metrics.DataSourceMetricsConfigRequest
 import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.plugins.ProblemDetail
+import ch.nokillswit.reports.CodeActivityReport
 import ch.nokillswit.reports.HomeOverview
 import ch.nokillswit.reports.ReportFilters
 import io.ktor.client.call.body
@@ -246,6 +247,35 @@ class KindLeakTest {
         assertTrue(missing.second.contains("Unknown or inactive connectionId"), missing.second)
         assertEquals(missing, answer(gitlabId))
     }
+
+    @Test
+    fun `the code activity report is the mirror image - it reads GITLAB sources only, and a Jira connectionId is the unknown one`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val user = seededClient("kindleak-code", FlowUserRole.USER)
+            val (gitlabId, jiraId) = runBlocking { gitlab(enabled = true) to jira() }
+            val teamId = runBlocking { TestTeams.seed("kindleak-code-${System.nanoTime()}") }
+            try {
+                val base = "/api/v1/reports/code-activity?teamId=$teamId&from=2026-03-02&to=2026-03-15"
+                val control = user.get("$base&connectionId=$gitlabId")
+                assertEquals(HttpStatusCode.OK, control.status, "the control: a GITLAB source is the code report's scope")
+                assertEquals(listOf(gitlabId), control.body<CodeActivityReport>().sources.map { it.connectionId })
+                val all = user.get(base).body<CodeActivityReport>()
+                assertTrue(all.sources.none { it.connectionId == jiraId }, "a Jira source is never in the code scope")
+                assertTrue(all.sources.any { it.connectionId == gitlabId })
+
+                suspend fun answer(id: UInt): Pair<HttpStatusCode, String> {
+                    val response = user.get("$base&connectionId=$id")
+                    return response.status to response.body<ProblemDetail>().detail!!.replace(id.toString(), "<id>")
+                }
+                val missing = answer(987_654_321u)
+                assertEquals(HttpStatusCode.BadRequest, missing.first)
+                assertTrue(missing.second.contains("Unknown or inactive connectionId"), missing.second)
+                assertEquals(missing, answer(jiraId))
+            } finally {
+                runBlocking { TestTeams.service.delete(teamId) }
+            }
+        }
 
     // ---------------------------------------------------------------- ingest/ and metrics/ routes
 
