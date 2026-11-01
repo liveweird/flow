@@ -36,16 +36,20 @@ const COMMIT_KEY = /^([\w.-]+(?:\/[\w.-]+)*)@([0-9a-f]{4,40})$/;
 
 /**
  * The page of an item key on [base]: `<project path>!<iid>` is `<base>/<path>/-/merge_requests/<iid>` and `<project path>@<sha>` is
- * `<base>/<path>/-/commit/<sha>` (GitLab resolves the abbreviated sha). `undefined` when the base is unknown or the key is not one
- * of the two shapes (a project the server could not name is listed as `project-<id>`, which still matches and opens nothing useful,
- * so a path is only linked when GitLab can have it).
+ * `<base>/<path>/-/commit/<sha>` (GitLab resolves the abbreviated sha). `undefined` when the base is unknown, the key is not one
+ * of the two shapes (a project the server could not name is listed as `#<id>!<iid>`, which matches neither) or the path walks (`..`).
  */
 export function gitlabItemUrl(base: string | undefined, issueKey: string): string | undefined {
   if (base === undefined) return undefined;
   const mergeRequest = MERGE_REQUEST_KEY.exec(issueKey);
-  if (mergeRequest !== null) return `${base}/${encodePath(mergeRequest[1])}/-/merge_requests/${mergeRequest[2]}`;
+  if (mergeRequest !== null) return linkable(mergeRequest[1]) ? `${base}/${encodePath(mergeRequest[1])}/-/merge_requests/${mergeRequest[2]}` : undefined;
   const commit = COMMIT_KEY.exec(issueKey);
-  return commit === null ? undefined : `${base}/${encodePath(commit[1])}/-/commit/${commit[2]}`;
+  return commit !== null && linkable(commit[1]) ? `${base}/${encodePath(commit[1])}/-/commit/${commit[2]}` : undefined;
+}
+
+/** A project path GitLab can have: no `.` or `..` segment (it would walk out of the project's page). */
+function linkable(path: string): boolean {
+  return path.split("/").every((segment) => segment !== "." && segment !== "..");
 }
 
 function encodePath(path: string): string {

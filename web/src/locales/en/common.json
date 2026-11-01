@@ -16,7 +16,7 @@
   },
   "discard": { "title": "Discard changes?", "message": "Your unsaved changes will be lost." },
   "jira": { "opensInJira": "(opens in Jira)", "openKeyInJira": "{{key}} (opens in Jira)" },
-  "gitlab": { "opensInGitLab": "(opens in GitLab)", "openKeyInGitLab": "{{key}} (opens in GitLab)" },
+  "gitlab": { "opensInGitLab": "(opens in GitLab)" },
   "dateFormatHint": "YYYY-MM-DD",
   "field": {
     "email": "Email",

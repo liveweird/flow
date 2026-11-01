@@ -217,7 +217,7 @@ describe("ReportCodeActivity page - the drill to the commits and merge requests 
     expect(within(drawer).getByRole("columnheader", { name: "Working days" })).toBeInTheDocument();
   });
 
-  test("with members picked, a member's cell narrows the picks' list to them (segmentAccountId) and a histogram bar keeps every pick", async () => {
+  test("with members picked, a member's cell narrows the picks' list to them (segmentAccountId)", async () => {
     serve(mockFetch, CODE_ACTIVITY_USERS, () => jsonResponse(200, codeCommitItems()));
     const user = userEvent.setup();
     renderPage("/reports/code-activity?teamId=1&accountId=acc-ann&accountId=acc-bob");

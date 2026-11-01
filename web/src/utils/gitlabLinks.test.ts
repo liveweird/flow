@@ -32,7 +32,13 @@ describe("gitlabItemUrl", () => {
 
   test("each path segment is encoded, and a key that is neither shape has no link", () => {
     expect(gitlabItemUrl(base, "my.group/app_1!3")).toBe("https://git.example.test/gl/my.group/app_1/-/merge_requests/3");
-    for (const key of ["FLO-1", "grp/app!x", "grp/app@XYZ", "grp/<b>!1", "!1", "grp/app!1/../..", "grp app!1"]) {
+    for (const key of ["FLO-1", "grp/app!x", "grp/app@XYZ", "grp/<b>!1", "!1", "grp/app!1/../..", "grp app!1", "#12!3", "#12@3f9a1c2b"]) {
+      expect(gitlabItemUrl(base, key), key).toBeUndefined();
+    }
+  });
+
+  test("a path that walks (a leading or inner `..` or `.` segment) has no link", () => {
+    for (const key of ["../x!1", "grp/../x!1", "./x!1", "grp/./x@3f9a1c2b", "../../etc@abcd"]) {
       expect(gitlabItemUrl(base, key), key).toBeUndefined();
     }
   });

@@ -25,12 +25,12 @@ internal class CodeDrillLabels(
 ) {
     internal class MrLabel(val projectId: Long, val iid: Long, val title: String)
 
-    private fun pathOf(connectionId: UInt, projectId: Long): String = paths[connectionId to projectId] ?: "project-$projectId"
+    private fun pathOf(connectionId: UInt, projectId: Long): String = paths[connectionId to projectId] ?: "#$projectId"
 
     /** `<project path>!<iid>` or `<project path>@<sha12>`. */
     fun issueKey(row: CodeDrillRow): String = when (row.kind) {
         DrillItemKind.COMMIT -> "${pathOf(row.connectionId, row.projectId)}@${row.sha!!.take(CODE_SHA_KEY_LENGTH)}"
-        else -> mergeRequests[row.mrRef]?.let { "${pathOf(row.connectionId, it.projectId)}!${it.iid}" } ?: "mr-${row.mrId}"
+        else -> mergeRequests[row.mrRef]?.let { "${pathOf(row.connectionId, it.projectId)}!${it.iid}" } ?: "#mr-${row.mrId}"
     }
 
     /** The merge request's title, or a commit's first line; null when blank or unknown. */
@@ -71,7 +71,10 @@ private suspend fun fetchCommitTitles(rows: List<CodeDrillRow>): Map<Triple<UInt
     val c = CodeCommits
     val wanted = rows.map { Triple(it.connectionId, it.projectId, it.sha!!) }.toSet()
     return c.select(c.connectionId, c.projectId, c.sha, c.title)
-        .where { (c.connectionId inList wanted.map { it.first }.distinct()) and (c.sha inList wanted.map { it.third }.distinct()) }
+        .where {
+            (c.connectionId inList wanted.map { it.first }.distinct()) and (c.projectId inList wanted.map { it.second }.distinct()) and
+                (c.sha inList wanted.map { it.third }.distinct())
+        }
         .toList().mapNotNull { row ->
             val key = Triple(row[c.connectionId].value, row[c.projectId], row[c.sha])
             if (key in wanted) key to row[c.title] else null

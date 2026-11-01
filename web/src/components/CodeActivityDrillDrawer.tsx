@@ -80,13 +80,14 @@ function FigureDrawer({ report, filters, filter, opened, target, onClose }: Omit
 export default function CodeActivityDrillDrawer({ report, filters, filter, opened, target, onClose, onSegmentChange }: Props) {
   const { t } = useTranslation();
   const { flow, sources } = report;
-  const views: DistributionDrillView[] = [
+  const entries: Omit<DistributionDrillView, "people">[] = [
     { view: "MR_CYCLE_WORKING_DAYS", title: t("reports.codeActivity.flow.cycleWorking.title"), distribution: flow.cycleWorkingDays, format: formatDays, unit: "wd" },
     { view: "MR_CYCLE_ELAPSED_DAYS", title: t("reports.codeActivity.flow.cycleElapsed.title"), distribution: flow.cycleElapsedDays, format: formatDays, unit: "days" },
     { view: "TIME_TO_FIRST_REVIEW", title: t("reports.codeActivity.flow.firstReview.title"), distribution: flow.timeToFirstReviewWorkingDays, format: formatDays, unit: "wd" },
     { view: "MR_SIZE_LINES", title: t("reports.codeActivity.flow.sizeLines.title"), distribution: flow.sizeLines, format: formatOneDecimal, unit: "lines" },
     { view: "MR_SIZE_FILES", title: t("reports.codeActivity.flow.sizeFiles.title"), distribution: flow.sizeFiles, format: formatOneDecimal, unit: "files" },
-  ].map((entry) => ({ ...entry, people: distributionPeople(entry.distribution) }));
+  ]
+  const views: DistributionDrillView[] = entries.map((entry) => ({ ...entry, people: distributionPeople(entry.distribution) }));
   return (
     <>
       <DistributionDrillDrawer

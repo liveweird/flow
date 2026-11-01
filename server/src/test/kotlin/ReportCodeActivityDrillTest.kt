@@ -12,7 +12,12 @@ import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.norm.NormCodeCommit
 import ch.nokillswit.norm.NormCodeProject
 import ch.nokillswit.plugins.ProblemDetail
+import ch.nokillswit.reports.CodeActivityReport
+import ch.nokillswit.reports.DomainView
 import ch.nokillswit.reports.ReportDrillItems
+import ch.nokillswit.reports.ReportFilter
+import ch.nokillswit.reports.ReportLevel
+import ch.nokillswit.reports.ReportPeriod
 import ch.nokillswit.reports.ReportServiceKey
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -24,6 +29,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -60,6 +66,12 @@ class ReportCodeActivityDrillTest {
         application.attributes[ReportServiceKey].clock = { world.now }
     }
 
+    private fun CodeWorld.filterOf(team: UInt, picks: List<String>) = ReportFilter(
+        period = ReportPeriod.DateRange(LocalDate.parse("2026-03-02"), LocalDate.parse("2026-03-15"), window.first, window.second),
+        level = if (picks.isEmpty()) ReportLevel.TEAM else ReportLevel.USER, teamId = team, accountIds = picks,
+        domainView = DomainView.TASK, domain = null, activityType = null, workCategory = null, connectionId = connId,
+    )
+
     private fun CodeWorld.base(team: UInt = teamId, extra: String = "") =
         "teamId=$team&from=2026-03-02&to=2026-03-15&connectionId=$connId$extra"
 
@@ -75,6 +87,12 @@ class ReportCodeActivityDrillTest {
         return response.body()
     }
 
+    private suspend fun HttpClient.report(query: String): CodeActivityReport {
+        val response = get("/api/v1/reports/code-activity?$query")
+        assertEquals(HttpStatusCode.OK, response.status, query)
+        return response.body()
+    }
+
     /** `(issueKey, summary, figure, anchor)` of every listed item. */
     private fun ReportDrillItems.rows(): List<List<Any?>> = items.map { listOf(it.issueKey, it.summary, it.figure, it.anchorAt) }
 
@@ -84,16 +102,29 @@ class ReportCodeActivityDrillTest {
         val client = seededClient("code-drill-reconcile", FlowUserRole.USER)
         inWorld {
             pin(this)
-            val team = CodeDrillReconciler(client, base())
-            team.reconcile("TEAM")
-            assertTrue(team.compared > 40, "compared ${team.compared} figures")
-            val user = CodeDrillReconciler(client, base(extra = "&accountId=$accA&accountId=$accB"))
-            user.reconcile("USER")
-            assertTrue(user.compared > 40, "compared ${user.compared} figures")
+            // Merge requests at the two edges of a week (Sunday 23:59, Monday 00:00 in the report zone) join the world: a drift between the
+            // weekly bars and their drill would move one of them to the wrong week.
+            addWeekEdgeMergeRequests()
+            val service = application.attributes[ReportServiceKey]
+            // Every figure is reconciled in-process from ONE read per filter; the route (labels, wire, the member override) agrees with the
+            // same selection for one request per view.
+            suspend fun reconcile(label: String, team: UInt, picks: List<String>, least: Int) {
+                val query = base(team, picks.joinToString("") { "&accountId=$it" })
+                val inProcess = InProcessCodeDrills(service, filterOf(team, picks), now)
+                val report = client.report(query)
+                assertRouteAgrees(HttpCodeDrills(client, query), inProcess, report)
+                val reconciler = CodeDrillReconciler(inProcess, report)
+                reconciler.reconcile(label)
+                assertTrue(reconciler.compared > least, "$label: compared ${reconciler.compared} figures")
+            }
+            reconcile("TEAM", teamId, emptyList(), 40)
+            reconcile("USER", teamId, listOf(accA, accB), 40)
             // Everything that is nobody's member: Bob (linked, no team), the undecided human and the author-less merge request.
-            val unassigned = CodeDrillReconciler(client, base(team = 0u))
-            unassigned.reconcile("UNASSIGNED")
-            assertTrue(unassigned.compared > 20, "compared ${unassigned.compared} figures")
+            reconcile("UNASSIGNED", 0u, emptyList(), 20)
+            val alice = base(extra = "&accountId=$accA")
+            suspend fun week(start: String) = client.items(alice, "view=WEEK&bucketStart=$start").items.map { it.issueKey }.sorted()
+            assertEquals(listOf("grp/app!1", "grp/app!20"), week("2026-03-02"))
+            assertEquals(listOf("grp/app!2", "grp/app!21"), week("2026-03-09"))
         }
     }
 
@@ -206,7 +237,9 @@ class ReportCodeActivityDrillTest {
             assertEquals(listOf(503, 503, 500, true), listOf(commits.total, commits.bar.count, commits.items.size, commits.truncated))
             // The cut keeps the largest figures first: a1's 12 lines, then the bulk commits' 2 lines each.
             assertEquals("grp/app@a1", commits.items.first().issueKey)
-            CodeDrillReconciler(client, base()).reconcile("TEAM with 501 more commits", members = true)
+            // And the member's cell is the same 503 (the report's own figure).
+            assertEquals(503, client.report(base()).groups.single().commits)
+            assertEquals(503, HttpCodeDrills(client, base()).list("COMMITS", member = accA)?.count)
         }
     }
 
@@ -312,22 +345,52 @@ class ReportCodeActivityDrillTest {
                 ownId.toInt(), fromMs, toMs, *keys.toTypedArray(),
             ).map { it[0] as String }
             assertTrue(mergedKeys.isNotEmpty() && commitKeys.isNotEmpty(), "the stub's window is not empty")
+            val mergedIds = jdbcRows(
+                """SELECT m.mr_id FROM norm.code_merge_requests m
+                   WHERE m.connection_id = ? AND m.deleted_at IS NULL AND m.state = 'merged' AND m.merged_at >= ? AND m.merged_at < ?
+                     AND m.author_key IN $placeholders""",
+                ownId.toInt(), fromMs, toMs, *keys.toTypedArray(),
+            ).map { (it[0] as Number).toLong() }
+            val commitIds = jdbcRows(
+                """SELECT 'c:' || c.connection_id || ':' || c.project_id || ':' || c.sha FROM norm.code_commits c
+                   WHERE c.connection_id = ? AND NOT c.is_merge AND c.deleted_at IS NULL AND c.committed_at >= ? AND c.committed_at < ?
+                     AND c.identity_key IN $placeholders""",
+                ownId.toInt(), fromMs, toMs, *keys.toTypedArray(),
+            ).map { it[0] as String }
 
-            val reconciler = CodeDrillReconciler(user, base)
-            val merged = reconciler.drill(base, "view=MRS_MERGED")
-            assertEquals(mergedKeys.sorted(), merged.items.map { it.issueKey }.sorted(), "the merged merge requests")
-            assertTrue(merged.items.all { it.summary != null && it.accountId in accounts }, "titles and people")
-            val commits = reconciler.drill(base, "view=COMMITS")
-            assertEquals(minOf(commitKeys.size, 500), commits.items.size)
+            // One request per view over HTTP (route, labels, wire) against the same figure selected in-process; then every figure of
+            // the report is reconciled in-process, through the same selection, from ONE read of the code layer per filter.
+            val service = application.attributes[ReportServiceKey]
+            fun filterOf(team: UInt, picks: List<String>) = ReportFilter(
+                period = ReportPeriod.DateRange(LocalDate.parse(from), LocalDate.parse(to), fromMs, toMs),
+                level = if (picks.isEmpty()) ReportLevel.TEAM else ReportLevel.USER, teamId = team, accountIds = picks,
+                domainView = DomainView.TASK, domain = null, activityType = null, workCategory = null, connectionId = ownId,
+                tailPercent = 0,
+            )
+            val over = HttpCodeDrills(user, base)
+            val inProcess = InProcessCodeDrills(service, filterOf(teamId, emptyList()), REFERENCE_TIME)
+            val report = user.report(base)
+            assertRouteAgrees(over, inProcess, report)
+            val merged = assertNotNull(over.list("MRS_MERGED"))
+            assertEquals(mergedKeys.sorted(), merged.ids.sorted(), "the merged merge requests")
+            val commits = assertNotNull(over.list("COMMITS"))
             assertEquals(commitKeys.size, commits.total)
-            assertTrue(commits.items.map { it.issueKey }.all { it in commitKeys.toSet() }, "the listed commits are the SQL's")
+            assertEquals(minOf(commitKeys.size, 500), commits.listed)
+            assertTrue(commits.ids.all { it in commitKeys.toSet() }, "the listed commits are the SQL's")
+            val mergedRows = assertNotNull(inProcess.list("MRS_MERGED")).ids.sorted()
+            assertEquals(mergedIds.map { "mr:$ownId:$it" }.sorted(), mergedRows, "the merged merge requests, by identity")
+            assertEquals(commitIds.sorted(), assertNotNull(inProcess.list("COMMITS")).ids.sorted(), "the commits, by identity")
 
-            // The whole report against its drills, at TEAM level (every member's cells), at USER level (two picks) and for teamId=0.
-            reconciler.reconcile("fixture TEAM")
-            assertTrue(reconciler.compared > 100, "compared ${reconciler.compared} figures")
-            val picks = accounts.take(2).joinToString("") { "&accountId=$it" }
-            CodeDrillReconciler(user, "$base$picks").reconcile("fixture USER", members = true)
-            CodeDrillReconciler(user, "teamId=0&from=$from&to=$to&connectionId=$ownId&tailPercent=0").reconcile("fixture UNASSIGNED")
+            val picks = accounts.take(2)
+            val team = CodeDrillReconciler(inProcess, report)
+            team.reconcile("fixture TEAM")
+            assertTrue(team.compared > 100, "compared ${team.compared} figures")
+            val usersFilter = filterOf(teamId, picks)
+            val pickQuery = base + picks.joinToString("") { "&accountId=$it" }
+            CodeDrillReconciler(InProcessCodeDrills(service, usersFilter, REFERENCE_TIME), user.report(pickQuery)).reconcile("fixture USER")
+            val unassignedQuery = "teamId=0&from=$from&to=$to&connectionId=$ownId&tailPercent=0"
+            CodeDrillReconciler(InProcessCodeDrills(service, filterOf(0u, emptyList()), REFERENCE_TIME), user.report(unassignedQuery))
+                .reconcile("fixture UNASSIGNED")
         } finally {
             membershipIds.forEach { memberships.delete(teamId, it) }
             TestTeams.service.delete(teamId)

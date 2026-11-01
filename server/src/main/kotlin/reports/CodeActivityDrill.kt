@@ -187,7 +187,7 @@ internal suspend fun ReportService.codeActivityItems(
 ): ReportDrillItems = reportTransaction {
     val deps = checkNotNull(codeDeps) { "the code activity report is not configured on this service" }
     val segment = filter.requireSegment(query.segmentAccountId)
-    val read = readCodeActivity(deps, filter, nowMs)
+    val read = readCodeActivity(deps, filter, nowMs, forDrill = true)
     val meta = read.scope.meta
     val data = read.data
     if (data == null) {
