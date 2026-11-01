@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: flow-api
-  version: 1.44.0
+  version: 1.45.0
   description: |
     JWT-authenticated REST API for Flow — a developer-intelligence tool that reads Jira Cloud, stores the raw data
     incrementally and derives flow metrics (cycle and lead time, throughput, WIP, flow efficiency, work-item age),
@@ -5605,7 +5605,7 @@ components:
         commitsWithCounts: { type: integer, format: int64, minimum: 0, description: "Non-merge commits whose counted lines (after the path exclusions) are known." }
     GitLabMergeRequestsProfile:
       type: object
-      required: [byState, withDiffStats, withDiffStatsPercent, detailsPending, detailsUnreadable]
+      required: [byState, withDiffStats, withDiffStatsPercent, detailsPending, detailsUnreadable, withIssueKeyCandidates, issueKeyCandidates]
       description: The live merge requests.
       properties:
         byState:
@@ -5616,6 +5616,8 @@ components:
         withDiffStatsPercent: { type: number, format: double, minimum: 0, maximum: 100, description: "One decimal." }
         detailsPending: { type: integer, format: int64, minimum: 0, description: "Merge requests whose details (events, stats) are stale." }
         detailsUnreadable: { type: integer, format: int64, minimum: 0, description: "Merge requests whose details read ended in a terminal error." }
+        withIssueKeyCandidates: { type: integer, format: int64, minimum: 0, description: "Merge requests whose title or source branch names at least one Jira issue-key CANDIDATE (a KEY-123 token); candidates are not yet matched to a Jira task." }
+        issueKeyCandidates: { type: integer, format: int64, minimum: 0, description: "The distinct (merge request, key) candidate rows of the live merge requests, junk tokens (UTF-8, V2-3) included; not yet matched to a Jira task." }
     GitLabEventsProfile:
       type: object
       required: [byKind]

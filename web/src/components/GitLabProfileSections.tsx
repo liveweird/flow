@@ -99,6 +99,8 @@ export default function GitLabProfileSections({ gitlab }: { gitlab: GitLabDataPr
             ],
             [t("dataSources.profile.gitlab.mergeRequests.detailsPending"), mergeRequests.detailsPending],
             [t("dataSources.profile.gitlab.mergeRequests.detailsUnreadable"), mergeRequests.detailsUnreadable],
+            [t("dataSources.profile.gitlab.mergeRequests.withIssueKeyCandidates"), mergeRequests.withIssueKeyCandidates],
+            [t("dataSources.profile.gitlab.mergeRequests.issueKeyCandidates"), mergeRequests.issueKeyCandidates],
           ]}
         />
       </Section>

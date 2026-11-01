@@ -817,7 +817,7 @@
         ],
         "counted": {"files":5,"additions":17,"deletions":29}
       },
-      "187a15f69100cdc3ac744e4fd1b21c5516261e32": {
+      "538fe28d6198851718d60d2946ae78248368f848": {
         "parents": 2,
         "merge": true,
         "kind": "merge",
@@ -931,7 +931,7 @@
         "files": [{"path":"internal/upstream/batch9.go","additions":13,"deletions":11},{"path":"pkg/httpx/cart_test.go","additions":10,"deletions":8}],
         "counted": {"files":2,"additions":23,"deletions":19}
       },
-      "8172d749933d90bb8c534d71b6e7220fa0242209": {
+      "c0c4685a695ef8f8b911681f8d453f5c2c8cd01d": {
         "parents": 2,
         "merge": true,
         "kind": "merge",
@@ -939,7 +939,7 @@
         "diffPages": 1,
         "files": [{"path":"docs/img/token.png","additions":0,"deletions":0,"binary":true},{"path":"internal/auth/limit55.go","additions":2,"deletions":4}]
       },
-      "7f33b114c1e2d7a60e445e685b55f13c4a1a636c": {
+      "c2e7299e52cf50b8f3eb9afed10b61f99bcf26d6": {
         "parents": 1,
         "merge": false,
         "kind": "squash",
@@ -1221,7 +1221,7 @@
         ],
         "counted": {"files":3,"additions":22,"deletions":11}
       },
-      "f78b86afad31c00dd02a108dca176b98a1f04904": {
+      "4f1a379dbdbd0eaf372d1e1fbea7fc8c81131381": {
         "parents": 2,
         "merge": true,
         "kind": "merge",
@@ -1237,7 +1237,7 @@
           {"path":"internal/upstream/session7_test.go","additions":34,"deletions":0,"new":true}
         ]
       },
-      "f3562b2e3390c916e2e4c5d5d3b8d4cceb2c8f1f": {
+      "504760b31dca1a501c72fe2fc61db2b370dfbf77": {
         "parents": 1,
         "merge": false,
         "kind": "squash",
@@ -3182,7 +3182,7 @@
         "files": [{"path":"src/plugins/limit.ts","additions":0,"deletions":14,"deleted":true},{"path":"src/plugins/session.ts","additions":9,"deletions":6}],
         "counted": {"files":2,"additions":9,"deletions":20}
       },
-      "919f14be50e9b2258e0a8cc1227ca887766f0872": {
+      "470bcd1e4311bdf389acf5d13f88478e4d9651d8": {
         "parents": 1,
         "merge": false,
         "kind": "squash",
@@ -3267,7 +3267,7 @@
         ],
         "counted": {"files":36,"additions":316,"deletions":268}
       },
-      "6234a895c83664ed5b01669bf087ef43df62711a": {
+      "78f4fff111a6e7890e1889befe8107dc55c12d0f": {
         "parents": 1,
         "merge": false,
         "kind": "squash",
@@ -3395,7 +3395,7 @@
         ],
         "counted": {"files":6,"additions":35,"deletions":20}
       },
-      "eb0bffa2003d079c32ac18b2a7f9faf0ed6f5269": {
+      "6d0cc6406ed26a9c4fd4f0a18d3b401f98b63813": {
         "parents": 1,
         "merge": false,
         "kind": "squash",
@@ -4177,7 +4177,7 @@
         "files": [{"path":"src/api/order.tsx","additions":10,"deletions":5},{"path":"src/state/token.tsx","additions":81,"deletions":0,"new":true}],
         "counted": {"files":2,"additions":91,"deletions":5}
       },
-      "d4f3eda9af038776f0831e4b0362fd16878653fb": {
+      "caa989c892d62d49bcfdbd840b17c13a71dca175": {
         "parents": 2,
         "merge": true,
         "kind": "merge",
@@ -4285,7 +4285,7 @@
         "files": [{"path":"src/pages/token5.tsx","additions":56,"deletions":0,"new":true}],
         "counted": {"files":1,"additions":56,"deletions":0}
       },
-      "d1254c716ce0bfd809e30735933afd1b179b220b": {
+      "ecdccd5c3b5752b349ea9779c99289d269023943": {
         "parents": 2,
         "merge": true,
         "kind": "merge",
@@ -4300,7 +4300,7 @@
           {"path":"yarn.lock","additions":82,"deletions":70,"generated":true}
         ]
       },
-      "f228a2e5721b47956e38995febd8c94d038f196e": {
+      "5b4ca6d59ead1b449b251c489ff540586661d401": {
         "parents": 1,
         "merge": false,
         "kind": "squash",
@@ -5811,15 +5811,15 @@
         "id": 41007,
         "state": "merged",
         "draft": false,
-        "title": "fix(auth): expose slow cursor reads after a restart (OPS-47)",
+        "title": "feat(ledger): post the nightly import in order (FLO-120) (PLT-45)",
         "authorId": 2,
         "authorKind": "human",
         "reviewerIds": [4],
         "assigneeIds": [2],
         "mergedById": 4,
         "sha": "f245eb49c1cb913ce2245ff1c2e9e105d2073811",
-        "mergeCommitSha": "f78b86afad31c00dd02a108dca176b98a1f04904",
-        "squashCommitSha": "f3562b2e3390c916e2e4c5d5d3b8d4cceb2c8f1f",
+        "mergeCommitSha": "4f1a379dbdbd0eaf372d1e1fbea7fc8c81131381",
+        "squashCommitSha": "504760b31dca1a501c72fe2fc61db2b370dfbf77",
         "createdAt": "2026-03-26T06:53:46.000Z",
         "updatedAt": "2026-03-30T16:53:46.000Z",
         "mergedAt": "2026-03-30T16:53:46.000Z",
@@ -5861,7 +5861,7 @@
         "id": 41018,
         "state": "closed",
         "draft": false,
-        "title": "fix(import): guard the nightly import under load",
+        "title": "FLO-210: guard the retry budget under load",
         "authorId": 2,
         "authorKind": "human",
         "reviewerIds": [4,5],
@@ -5911,15 +5911,15 @@
         "id": 41020,
         "state": "merged",
         "draft": false,
-        "title": "feat(ledger): split audit log writer (GTM-192)",
+        "title": "fix(cache): drop stale session token after a restart",
         "authorId": 4,
         "authorKind": "human",
         "reviewerIds": [5],
         "assigneeIds": [4],
         "mergedById": 5,
         "sha": "3d3140e43625652dcd21149dd12d0a5644801985",
-        "mergeCommitSha": "8172d749933d90bb8c534d71b6e7220fa0242209",
-        "squashCommitSha": "7f33b114c1e2d7a60e445e685b55f13c4a1a636c",
+        "mergeCommitSha": "c0c4685a695ef8f8b911681f8d453f5c2c8cd01d",
+        "squashCommitSha": "c2e7299e52cf50b8f3eb9afed10b61f99bcf26d6",
         "createdAt": "2026-05-21T09:58:27.000Z",
         "updatedAt": "2026-05-22T08:58:27.000Z",
         "mergedAt": "2026-05-22T08:58:27.000Z",
@@ -5961,14 +5961,14 @@
         "id": 41027,
         "state": "merged",
         "draft": false,
-        "title": "GTM-244: paginate empty upstream list",
+        "title": "FLO-366: rename the pending order state",
         "authorId": 2,
         "authorKind": "human",
         "reviewerIds": [3],
         "assigneeIds": [3],
         "mergedById": 3,
         "sha": "b8f9337a8078317a5a12f33e20c64a80ae4263f5",
-        "mergeCommitSha": "187a15f69100cdc3ac744e4fd1b21c5516261e32",
+        "mergeCommitSha": "538fe28d6198851718d60d2946ae78248368f848",
         "squashCommitSha": null,
         "createdAt": "2026-06-17T21:58:03.000Z",
         "updatedAt": "2026-06-22T16:58:03.000Z",
@@ -6261,7 +6261,7 @@
         "id": 41001,
         "state": "merged",
         "draft": false,
-        "title": "fix(search): inline route table reload under load",
+        "title": "fix(import): handle byte order marks in the catalog feed",
         "authorId": 3,
         "authorKind": "human",
         "reviewerIds": [6],
@@ -6269,7 +6269,7 @@
         "mergedById": 6,
         "sha": "521f284aa560e331f832678efd14e7e8ba409285",
         "mergeCommitSha": null,
-        "squashCommitSha": "eb0bffa2003d079c32ac18b2a7f9faf0ed6f5269",
+        "squashCommitSha": "6d0cc6406ed26a9c4fd4f0a18d3b401f98b63813",
         "createdAt": "2026-03-11T21:34:14.000Z",
         "updatedAt": "2026-03-18T12:34:14.000Z",
         "mergedAt": "2026-03-18T12:34:14.000Z",
@@ -6311,7 +6311,7 @@
         "id": 41013,
         "state": "merged",
         "draft": false,
-        "title": "fix(router): inline pending order state",
+        "title": "chore(api): bump the schema to the second revision",
         "authorId": 3,
         "authorKind": "human",
         "reviewerIds": [6,7],
@@ -6319,7 +6319,7 @@
         "mergedById": 6,
         "sha": "9f3fb5f0d12eba60080b0c4e4cd410f6fb5cd3e9",
         "mergeCommitSha": null,
-        "squashCommitSha": "6234a895c83664ed5b01669bf087ef43df62711a",
+        "squashCommitSha": "78f4fff111a6e7890e1889befe8107dc55c12d0f",
         "createdAt": "2026-04-24T13:55:27.000Z",
         "updatedAt": "2026-04-25T10:55:27.000Z",
         "mergedAt": "2026-04-25T10:55:27.000Z",
@@ -6361,7 +6361,7 @@
         "id": 41017,
         "state": "merged",
         "draft": false,
-        "title": "chore(api): bound empty upstream list",
+        "title": "feat(queue): add the backpressure gauge",
         "authorId": 3,
         "authorKind": "human",
         "reviewerIds": [7],
@@ -6369,7 +6369,7 @@
         "mergedById": 7,
         "sha": "300ab6debc635ebc6df5ac49a28154727d2eda62",
         "mergeCommitSha": null,
-        "squashCommitSha": "919f14be50e9b2258e0a8cc1227ca887766f0872",
+        "squashCommitSha": "470bcd1e4311bdf389acf5d13f88478e4d9651d8",
         "createdAt": "2026-05-05T21:54:06.000Z",
         "updatedAt": "2026-05-06T13:54:06.000Z",
         "mergedAt": "2026-05-06T13:54:06.000Z",
@@ -6611,15 +6611,15 @@
         "id": 41009,
         "state": "merged",
         "draft": false,
-        "title": "PLT-26: expose slow cursor reads under load",
+        "title": "ABC-12: tidy the route table reload",
         "authorId": 6,
         "authorKind": "human",
         "reviewerIds": [2],
         "assigneeIds": [6],
         "mergedById": 2,
         "sha": "5db3b5cd7b23a4dce38f80d06d68b79634ea3e3c",
-        "mergeCommitSha": "d1254c716ce0bfd809e30735933afd1b179b220b",
-        "squashCommitSha": "f228a2e5721b47956e38995febd8c94d038f196e",
+        "mergeCommitSha": "ecdccd5c3b5752b349ea9779c99289d269023943",
+        "squashCommitSha": "5b4ca6d59ead1b449b251c489ff540586661d401",
         "createdAt": "2026-03-31T20:02:29.000Z",
         "updatedAt": "2026-04-02T16:02:29.000Z",
         "mergedAt": "2026-04-02T16:02:29.000Z",
@@ -6661,14 +6661,14 @@
         "id": 41014,
         "state": "merged",
         "draft": false,
-        "title": "fix(ledger): normalize stale session token",
+        "title": "fix(auth): bound the session lookup (SEC-5)",
         "authorId": 2,
         "authorKind": "human",
         "reviewerIds": [6,4],
         "assigneeIds": [6],
         "mergedById": 6,
         "sha": "bfccd282aaea27da1ae5f9a8737fe8bb1bad8a17",
-        "mergeCommitSha": "d4f3eda9af038776f0831e4b0362fd16878653fb",
+        "mergeCommitSha": "caa989c892d62d49bcfdbd840b17c13a71dca175",
         "squashCommitSha": null,
         "createdAt": "2026-04-27T21:39:09.000Z",
         "updatedAt": "2026-04-30T16:39:09.000Z",
@@ -7011,7 +7011,7 @@
         "id": 41005,
         "state": "merged",
         "draft": false,
-        "title": "fix(billing): split tenant quota check",
+        "title": "FLO-900: expose the tenant quota check",
         "authorId": 6,
         "authorKind": "human",
         "reviewerIds": [7],
@@ -7280,7 +7280,40 @@
         "reviewerStates": [{"userId":6,"state":"approved"}],
         "diffStats": {"additions":353,"deletions":302,"fileCount":31}
       }
-    ]
+    ],
+    "issueKeyCandidates": {
+      "note": "Per merge request that names at least one candidate (title and source branch, case-folded; norm.code_mr_issue_keys): the Jira-agnostic token rule, junk included",
+      "mergeRequests": 26,
+      "rows": 28,
+      "list": [
+        {"projectId":1,"iid":2,"keys":[{"key":"FLO-120","inTitle":true,"inBranch":false},{"key":"PLT-45","inTitle":true,"inBranch":false}]},
+        {"projectId":1,"iid":4,"keys":[{"key":"FLO-210","inTitle":true,"inBranch":true}]},
+        {"projectId":1,"iid":6,"keys":[{"key":"PLT-77","inTitle":false,"inBranch":true}]},
+        {"projectId":1,"iid":8,"keys":[{"key":"FLO-366","inTitle":true,"inBranch":false}]},
+        {"projectId":1,"iid":10,"keys":[{"key":"FLO-41","inTitle":true,"inBranch":true}]},
+        {"projectId":1,"iid":18,"keys":[{"key":"FLO-372","inTitle":true,"inBranch":false}]},
+        {"projectId":2,"iid":2,"keys":[{"key":"UTF-8","inTitle":false,"inBranch":true}]},
+        {"projectId":2,"iid":4,"keys":[{"key":"V2-3","inTitle":false,"inBranch":true}]},
+        {"projectId":2,"iid":5,"keys":[{"key":"OPS-120","inTitle":true,"inBranch":false}]},
+        {"projectId":2,"iid":6,"keys":[{"key":"FIX_FLO-8","inTitle":false,"inBranch":true},{"key":"FLO-8","inTitle":false,"inBranch":true}]},
+        {"projectId":2,"iid":7,"keys":[{"key":"GTM-265","inTitle":true,"inBranch":false}]},
+        {"projectId":2,"iid":9,"keys":[{"key":"OPS-112","inTitle":true,"inBranch":true}]},
+        {"projectId":2,"iid":11,"keys":[{"key":"PLT-150","inTitle":true,"inBranch":false}]},
+        {"projectId":2,"iid":14,"keys":[{"key":"OPS-72","inTitle":true,"inBranch":false}]},
+        {"projectId":3,"iid":1,"keys":[{"key":"FLO-105","inTitle":true,"inBranch":false}]},
+        {"projectId":3,"iid":2,"keys":[{"key":"ABC-12","inTitle":true,"inBranch":false}]},
+        {"projectId":3,"iid":3,"keys":[{"key":"FLO-34","inTitle":true,"inBranch":true}]},
+        {"projectId":3,"iid":4,"keys":[{"key":"SEC-5","inTitle":true,"inBranch":false}]},
+        {"projectId":3,"iid":5,"keys":[{"key":"TO-4","inTitle":false,"inBranch":true}]},
+        {"projectId":3,"iid":6,"keys":[{"key":"TO-4","inTitle":false,"inBranch":true}]},
+        {"projectId":3,"iid":9,"keys":[{"key":"FLO-111","inTitle":true,"inBranch":false}]},
+        {"projectId":3,"iid":10,"keys":[{"key":"PLT-55","inTitle":true,"inBranch":false}]},
+        {"projectId":3,"iid":12,"keys":[{"key":"GTM-3","inTitle":true,"inBranch":false}]},
+        {"projectId":4,"iid":2,"keys":[{"key":"FLO-900","inTitle":true,"inBranch":false}]},
+        {"projectId":4,"iid":3,"keys":[{"key":"FLO-5","inTitle":true,"inBranch":false}]},
+        {"projectId":4,"iid":9,"keys":[{"key":"PLT-109","inTitle":true,"inBranch":false}]}
+      ]
+    }
   },
   "events": {
     "notesByKind": {"APPROVAL":40,"CHANGES_REQUESTED":10,"COMMENT":269,"COMMITS_ADDED":47,"DIFF_COMMENT":90,"OTHER_SYSTEM":50,"REVIEW_REQUESTED":76},

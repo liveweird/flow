@@ -4,6 +4,7 @@ import { mrTitle } from "./text.mjs";
 import { branchName, workTime } from "./repo.mjs";
 import { aggregateFiles } from "./tree.mjs";
 import { sha1 } from "./rng.mjs";
+import { applyIssueKeyCases } from "./keycases.mjs";
 
 const COMMENTS = [
   "Looks good overall, one question on the retry path.",
@@ -90,6 +91,7 @@ export function planMrs(rng, o) {
     }
     if (draft) draft.day2Action = "ready";
   }
+  applyIssueKeyCases(plans, project);
   return plans;
 }
 

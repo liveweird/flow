@@ -332,7 +332,9 @@
       "mergeRequests": {
         "withDiffStats": "Ze statystykami rozmiaru",
         "detailsPending": "Oczekujące na szczegóły",
-        "detailsUnreadable": "Szczegóły nieczytelne"
+        "detailsUnreadable": "Szczegóły nieczytelne",
+        "withIssueKeyCandidates": "Z kandydatami na klucz Jira (jeszcze niedopasowanymi do zadań)",
+        "issueKeyCandidates": "Kandydaci na klucz Jira (jeszcze niedopasowani do zadań)"
       },
       "state": {
         "merged": "Scalone",

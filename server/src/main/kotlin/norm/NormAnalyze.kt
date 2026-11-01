@@ -50,7 +50,8 @@ internal val NORM_WORK_ITEM_ANALYZED_TABLES: List<String> =
 /**
  * The tables the GitLab PROFILE's event count joins and aggregates (`norm.code_*`), analyzed after GitLab's PROCESS. Deliberately NOT
  * `code_projects`/`code_identities`: both are rebuilt wholesale per PROCESS, hold hundreds of rows, and are only read by
- * `connection_id`-filtered counts and the identity page's primary-key reads, so a stale estimate costs nothing.
+ * `connection_id`-filtered counts and the identity page's primary-key reads, so a stale estimate costs nothing. Not `code_mr_issue_keys`
+ * either (V46): the PROFILE's candidate count joins it by primary-key prefix only; a report that joins it at scale adds it here.
  */
 internal val NORM_CODE_ANALYZED_TABLES: List<String> =
     listOf("norm.code_commits", "norm.code_merge_requests", "norm.code_mr_events")

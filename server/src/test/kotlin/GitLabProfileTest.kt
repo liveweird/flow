@@ -11,6 +11,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import java.io.File
 import java.time.Instant
 import kotlin.test.AfterTest
@@ -35,10 +36,11 @@ class GitLabProfileTest {
         connections.forEach { GitLabFixtures.dataSources().delete(it) }
     }
 
-    private val generator by lazy {
+    private val expected by lazy {
         val file = listOf(File("sample-data/gitlab/expected.json"), File("../sample-data/gitlab/expected.json")).first { it.isFile }
-        Json.parseToJsonElement(file.readText()).jsonObject.getValue("generator").jsonObject
+        Json.parseToJsonElement(file.readText()).jsonObject
     }
+    private val generator by lazy { expected.getValue("generator").jsonObject }
 
     private fun assertFixtureFigures(gitlab: ch.nokillswit.ingest.GitLabDataProfile) {
         assertEquals(listOf(4L, 0L, 0L, 0L), with(gitlab.projects) { listOf(live, movedOut, deleted, archived) })
@@ -57,6 +59,12 @@ class GitLabProfileTest {
         assertEquals(mapOf("merged" to 34L, "opened" to 16L, "closed" to 8L, "locked" to 2L), mrs.byState)
         assertEquals(listOf(59L, 0L, 0L), listOf(mrs.withDiffStats, mrs.detailsPending, mrs.detailsUnreadable))
         assertEquals(98.3, mrs.withDiffStatsPercent)
+        val keys = expected.getValue("mergeRequests").jsonObject.getValue("issueKeyCandidates").jsonObject
+        assertEquals(
+            keys.getValue("mergeRequests").jsonPrimitive.long to keys.getValue("rows").jsonPrimitive.long,
+            mrs.withIssueKeyCandidates to mrs.issueKeyCandidates,
+            "the issue-key candidate counts equal the stub oracle's",
+        )
         val events = gitlab.events.byKind
         assertEquals(MrEventKind.entries.map { it.name }.toSet(), events.keys)
         assertEquals(
@@ -74,6 +82,24 @@ class GitLabProfileTest {
     fun `the computed section matches the stub fixture's figures`() = runBlocking<Unit> {
         val section = GitLabProfile.compute(fixtureId, GitLabFixtures.rawStore(), GitLabFixtures.processStore(), GitLabFixtures.codeStore())
         assertFixtureFigures(section)
+    }
+
+    @Test
+    fun `a tombstoned merge request leaves the issue-key candidate counts, its rows stay stored`() = runBlocking<Unit> {
+        val own = GitLabFixtures.createConnection().also { connections += it }
+        SyncedGitLabFixture.cloneProcessedData(fixtureId, own)
+        val code = GitLabFixtures.codeStore()
+        val (mrId, keys) = code.mrIssueKeyRows(own).entries.first { it.value.size >= 2 }.toPair()
+        val before = GitLabProfile.compute(own, GitLabFixtures.rawStore(), GitLabFixtures.processStore(), code).mergeRequests
+        PostgresTestSupport.connect().use { conn ->
+            conn.createStatement().use { st ->
+                st.executeUpdate("UPDATE norm.code_merge_requests SET deleted_at = 5000 WHERE connection_id = $own AND mr_id = $mrId")
+            }
+        }
+        val after = GitLabProfile.compute(own, GitLabFixtures.rawStore(), GitLabFixtures.processStore(), code).mergeRequests
+        assertEquals(before.withIssueKeyCandidates - 1, after.withIssueKeyCandidates)
+        assertEquals(before.issueKeyCandidates - keys.size, after.issueKeyCandidates)
+        assertEquals(keys, code.mrIssueKeyRows(own, mrId).getValue(mrId), "the tombstoned merge request keeps its rows")
     }
 
     @Test

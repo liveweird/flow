@@ -22,6 +22,8 @@ import ch.nokillswit.norm.DetailsState
 import ch.nokillswit.norm.IdentityKind
 import ch.nokillswit.norm.MrEventKind
 import ch.nokillswit.norm.NormCodeCommit
+import ch.nokillswit.norm.IssueKeyCandidate
+import ch.nokillswit.norm.extractIssueKeyCandidates
 import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.ingest.SyncCursorsService
 import ch.nokillswit.ingest.failureDetail
@@ -35,6 +37,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -209,6 +212,101 @@ class GitLabProcessStreamTest {
         }
     }
 
+    // ---------------------------------------------------------------------------------------------- issue keys (V46)
+
+    @Test
+    fun `the fixture's issue-key rows equal a re-extraction over the persisted title and source branch`() = runBlocking<Unit> {
+        val mrs = code.mergeRequestRows(fixtureId)
+        val stored = code.mrIssueKeyRows(fixtureId)
+        val expectedKeys = mrs.associate { it.mrId to extractIssueKeyCandidates(it.title, it.sourceBranch) }
+            .filterValues { it.isNotEmpty() }
+        assertEquals(expectedKeys, stored, "one row per (merge request, candidate), flags included")
+        val all = stored.values.flatten()
+        assertTrue(stored.size >= 10, "the stub puts keys into a third of the titles: ${stored.size} merge requests carry some")
+        assertTrue(all.any { it.inTitle && !it.inBranch }, "a key found in the title only")
+        assertTrue(all.any { it.inBranch }, "a key found in the source branch")
+        assertTrue(all.all { it.issueKey == it.issueKey.uppercase() && (it.inTitle || it.inBranch) })
+        val projects = all.map { it.issueKey.substringBefore('-') }.toSet()
+        assertTrue(projects.containsAll(setOf("FLO", "PLT", "GTM", "OPS")), "the stub's four Jira projects are named: $projects")
+    }
+
+    @Test
+    fun `the fixture's issue-key rows equal the stub oracle's independent candidates, edge cases included`() = runBlocking<Unit> {
+        val mrs = code.mergeRequestRows(fixtureId)
+        val idOf = mrs.associate { (it.projectId to it.iid) to it.mrId }
+        val oracle = expected.getValue("mergeRequests").jsonObject.getValue("issueKeyCandidates").jsonObject
+        val wanted = oracle.getValue("list").jsonArray.map { it.jsonObject }.associate { entry ->
+            val mrId = idOf.getValue(entry.getValue("projectId").jsonPrimitive.long to entry.getValue("iid").jsonPrimitive.long)
+            mrId to entry.getValue("keys").jsonArray.map { it.jsonObject }.map {
+                IssueKeyCandidate(
+                    it.getValue("key").jsonPrimitive.content, it.getValue("inTitle").jsonPrimitive.boolean,
+                    it.getValue("inBranch").jsonPrimitive.boolean,
+                )
+            }
+        }
+        val stored = code.mrIssueKeyRows(fixtureId)
+        assertEquals(wanted, stored, "the persisted norm.code_mr_issue_keys rows are the oracle's candidates, flags included")
+        assertEquals(oracle.getValue("mergeRequests").jsonPrimitive.long, stored.size.toLong())
+        assertEquals(oracle.getValue("rows").jsonPrimitive.long, stored.values.sumOf { it.size }.toLong())
+        val keys = stored.values.flatten().map { it.issueKey }.toSet()
+        // The stub's deterministic edge cases (sample-data/README.md "Issue keys"): a moved issue, a key past the Jira stub's range,
+        // an invented project and one the Jira stub does not configure, junk tokens, and an underscore-delimited suffix.
+        val edgeCases = setOf("FLO-366", "FLO-900", "ABC-12", "SEC-5", "UTF-8", "V2-3", "FIX_FLO-8", "FLO-8")
+        assertTrue(keys.containsAll(edgeCases), "edge cases: $keys")
+        assertTrue(stored.values.any { c -> c.size == 2 && c.all { it.inTitle } }, "a merge request naming two keys in its title")
+        assertTrue(stored.values.flatten().any { it.inBranch && !it.inTitle && it.issueKey.startsWith("PLT-") }, "a key in the branch only")
+    }
+
+    @Test
+    fun `a merge request re-claimed under an older version replaces its keys, and a changed title or a tombstone is followed`() =
+        runBlocking<Unit> {
+            val connId = GitLabFixtures.createConnection().also { connections += it }
+            SyncedGitLabFixture.cloneProcessedData(fixtureId, connId)
+            val fixtureKeys = code.mrIssueKeyRows(fixtureId)
+            assertEquals(fixtureKeys, code.mrIssueKeyRows(connId), "the processed clone carries the fixture's keys")
+            val digest = GitLabFixtures.codeDigest(connId)
+            val (staleId, rest) = fixtureKeys.keys.sorted().let { it[0] to it.drop(1) }
+            val (renamedId, tombId) = rest[0] to rest[1]
+
+            // Simulate a row processed by version 1: its key rows missing and a bogus one present, re-claimed through the version.
+            suspendTransaction(sharedDatabaseForTests()) {
+                MergeRequests.update({ (MergeRequests.connectionId eq connId) and (MergeRequests.mrId eq staleId) }) {
+                    it[processingVersion] = CODE_PROCESSING_VERSION - 1
+                }
+                MergeRequests.update({ (MergeRequests.connectionId eq connId) and (MergeRequests.mrId eq renamedId) }) {
+                    it[title] = "ABC-77 renamed, and OPS-5"
+                    it[needsProcessing] = true
+                }
+            }
+            PostgresTestSupport.connect().use { conn ->
+                conn.createStatement().use { st ->
+                    st.executeUpdate("DELETE FROM norm.code_mr_issue_keys WHERE connection_id = $connId AND mr_id = $staleId")
+                    st.executeUpdate(
+                        "INSERT INTO norm.code_mr_issue_keys VALUES ($connId, $renamedId, 'ZZZ-1', true, false)",
+                    )
+                }
+            }
+            assertEquals(listOf(staleId), processStore.mergeRequestsToProcess(connId, CODE_PROCESSING_VERSION, 1))
+            assertEquals(1, raw.tombstoneMergeRequests(connId, listOf(tombId), 5_000L))
+
+            val run = process(connId)
+            assertEquals(3L, run["mergeRequestsProcessed"])
+            val after = code.mrIssueKeyRows(connId)
+            assertEquals(fixtureKeys.getValue(staleId), after.getValue(staleId), "the re-claimed merge request has its keys again")
+            val renamedSource = code.mergeRequestRows(connId).single { it.mrId == renamedId }.sourceBranch
+            assertEquals(
+                extractIssueKeyCandidates("ABC-77 renamed, and OPS-5", renamedSource), after.getValue(renamedId),
+                "REPLACED with the new title's keys: the bogus row is gone",
+            )
+            assertEquals(fixtureKeys.getValue(tombId), after.getValue(tombId), "a tombstoned merge request keeps its keys")
+            assertEquals(5_000L, code.mergeRequestRows(connId).single { it.mrId == tombId }.deletedAt)
+            val untouched = fixtureKeys.keys - renamedId
+            assertEquals(fixtureKeys.filterKeys { it in untouched }, after.filterKeys { it in untouched }, "no other merge request moved")
+            val rewritten = fixtureKeys.getValue(staleId).size + after.getValue(renamedId).size + fixtureKeys.getValue(tombId).size
+            assertEquals(rewritten.toLong(), run["issueKeysStored"], "the counter counts the three merge requests' rows")
+            assertTrue(digest != GitLabFixtures.codeDigest(connId), "the rename and the tombstone are visible in the digest")
+        }
+
     // ---------------------------------------------------------------------------------------------- REPROCESS and flags
 
     @Test
@@ -230,6 +328,7 @@ class GitLabProcessStreamTest {
         assertEquals(300L, again["commitsProcessed"])
         assertEquals(digest, GitLabFixtures.codeDigest(connId), "REPROCESS digest equals the incremental state")
         assertEquals(300, code.commitRows(connId).size)
+        assertEquals(code.mrIssueKeyRows(fixtureId), code.mrIssueKeyRows(connId), "REPROCESS rewrites the same issue keys")
 
         val commit = raw.commitRows(connId).first()
         val mr = raw.mergeRequestRows(connId).first()
@@ -552,7 +651,10 @@ class GitLabProcessStreamTest {
         }
         val first = run()
         assertEquals(
-            mapOf("commitsProcessed" to 300L, "mergeRequestsProcessed" to 60L, "identities" to 9L),
+            mapOf(
+                "commitsProcessed" to 300L, "mergeRequestsProcessed" to 60L, "identities" to 9L,
+                "issueKeysStored" to code.mrIssueKeyRows(fixtureId).values.sumOf { it.size }.toLong(),
+            ),
             first - setOf("normAnalyzed", "normAnalyzeMs", "normAnalyzeReason"),
         )
         // fingerprints + reference rows + 6 commit pages + 2 merge request pages, and one more flushing the closing ANALYZE's progress when

@@ -5,6 +5,7 @@ import ch.nokillswit.norm.CodeActivityStore.CodeCommits
 import ch.nokillswit.norm.CodeActivityStore.CodeIdentities
 import ch.nokillswit.norm.CodeActivityStore.CodeMergeRequests
 import ch.nokillswit.norm.CodeActivityStore.CodeMrEvents
+import ch.nokillswit.norm.CodeActivityStore.CodeMrIssueKeys
 import ch.nokillswit.norm.CodeActivityStore.CodeProjects
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.toList
@@ -72,11 +73,25 @@ internal class CodeActivityReads(private val database: R2dbcDatabase) {
         val byState = CodeMergeRequests.select(CodeMergeRequests.state, perState)
             .where { (CodeMergeRequests.connectionId eq connectionId) and CodeMergeRequests.deletedAt.isNull() }
             .groupBy(CodeMergeRequests.state).toList().associate { it[CodeMergeRequests.state] to it[perState] }
+        // The V46 candidates of the LIVE merge requests (a tombstoned one keeps its rows but is not counted):
+        // the merge requests naming one, and the rows.
+        val keyRows: Flow<Pair<Long, Long>?>? = exec(
+            """
+            SELECT count(DISTINCT k.mr_id)::bigint, count(*)::bigint FROM norm.code_mr_issue_keys k
+            JOIN norm.code_merge_requests m ON m.connection_id = k.connection_id AND m.mr_id = k.mr_id
+            WHERE k.connection_id = $connectionId AND m.deleted_at IS NULL
+            """.trimIndent(),
+            explicitStatementType = StatementType.SELECT,
+        ) { row -> row.get(0, Long::class.javaObjectType)!! to row.get(1, Long::class.javaObjectType)!! }
+        val (withKeys, keyCount) = keyRows?.toList()?.filterNotNull()?.single()
+            ?: error("mergeRequestFigures: the key aggregate returned no row")
         CodeMergeRequestFigures(
             byState = byState,
             withDiffStats = mergeRequests(CodeMergeRequests.additions.isNotNull()),
             detailsPending = mergeRequests(CodeMergeRequests.detailsState eq DetailsState.PENDING.name),
             detailsUnreadable = mergeRequests(CodeMergeRequests.detailsState eq DetailsState.UNREADABLE.name),
+            withIssueKeyCandidates = withKeys,
+            issueKeyCandidates = keyCount,
         )
     }
 
@@ -224,6 +239,16 @@ internal class CodeActivityReads(private val database: R2dbcDatabase) {
             }
     }
 
+    /** The issue-key candidates by merge request id, each list in key order; one merge request's when [mrId] is given. */
+    suspend fun mrIssueKeyRows(connectionId: UInt, mrId: Long?): Map<Long, List<IssueKeyCandidate>> = suspendTransaction(database) {
+        CodeMrIssueKeys.selectAll()
+            .where { (CodeMrIssueKeys.connectionId eq connectionId) and (mrId?.let { CodeMrIssueKeys.mrId eq it } ?: Op.TRUE) }
+            .orderBy(CodeMrIssueKeys.mrId).orderBy(CodeMrIssueKeys.issueKey).toList()
+            .groupBy({ it[CodeMrIssueKeys.mrId] }) {
+                IssueKeyCandidate(it[CodeMrIssueKeys.issueKey], it[CodeMrIssueKeys.inTitle], it[CodeMrIssueKeys.inBranch])
+            }
+    }
+
     private fun commitOf(row: ResultRow) = NormCodeCommit(
         projectId = row[CodeCommits.projectId],
         sha = row[CodeCommits.sha],
@@ -269,5 +294,6 @@ internal class CodeActivityReads(private val database: R2dbcDatabase) {
         detailsState = DetailsState.valueOf(row[CodeMergeRequests.detailsState]),
         deletedAt = row[CodeMergeRequests.deletedAt],
         events = emptyList(),
+        issueKeys = emptyList(),
     )
 }

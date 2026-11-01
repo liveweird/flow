@@ -58,7 +58,8 @@ internal class ProcessNormalizers(
  *     written, and marked processed. A concurrent writer that re-flags a row (a files flush, a tombstone, a changed merge request) waits
  *     for the page and lands after the mark, so its flag is never overwritten. (A files flush INSERTS file rows, which only take
  *     `FOR KEY SHARE` and do not wait; they are invisible until the flush commits, and its UPDATE of the commit row is what waits.) A row a
- *     concurrent PURGE removed is absent and not marked.
+ *     concurrent PURGE removed is absent and not marked. A merge request's page write also REPLACES its issue-key candidates
+ *     (`norm.code_mr_issue_keys`, V46: its title and source branch, `norm/IssueKeys.kt`), tombstones included.
  *
  * **A failing page is bounded, not fatal.** A page whose rows fault (the normalizer throws, or the database refuses a value, SQLSTATE class
  * 22/23) rolls back, keeps its rows flagged, is counted (`commitPagesFailed` / `mergeRequestPagesFailed`), logs ONE WARN (stage and
@@ -74,10 +75,11 @@ internal class ProcessNormalizers(
  *    at one row (build-times WHY 60). A failure or a lock timeout is one WARN, never a failed run. `code_projects` and
  *    `code_identities` are left out: hundreds of rows, rebuilt wholesale, read only by `connection_id`-filtered counts.
  *
- * Progress: `commitsProcessed`, `mergeRequestsProcessed`, `identities` (rows written), `exclusionsChanged` / `identityMapChanged` /
- * `usernameMapChanged` (1 when that fingerprint re-flagged), the failed-page counters, `normAnalyzed` / `normAnalyzeMs` /
- * `normAnalyzeReason` (the closing ANALYZE, present only when it ran). Never calls GitLab, so it is deadline-exempt
- * ([GITLAB_LOCAL_STREAMS]): nothing that calls GitLab may follow it.
+ * Progress: `commitsProcessed`, `mergeRequestsProcessed`, `issueKeysStored` (the `norm.code_mr_issue_keys` rows the committed merge
+ * request pages wrote, candidates included: absent on a run that processed no merge request), `identities` (rows written),
+ * `exclusionsChanged` / `identityMapChanged` / `usernameMapChanged` (1 when that fingerprint re-flagged), the failed-page counters,
+ * `normAnalyzed` / `normAnalyzeMs` / `normAnalyzeReason` (the closing ANALYZE, present only when it ran). Never calls GitLab,
+ * so it is deadline-exempt ([GITLAB_LOCAL_STREAMS]): nothing that calls GitLab may follow it.
  */
 internal class GitLabProcessStream(
     private val processStore: GitLabRawProcessStore,
@@ -173,6 +175,7 @@ internal class GitLabProcessStream(
             if (ids.isEmpty()) break
             after = ids.last()
             var pageRows = 0L
+            var pageKeys = 0L
             val processed = page(context, tally, "merge request page", "mergeRequestPagesFailed", ids.map { it.toString() }) {
                 context.transaction {
                     val now = context.clock()
@@ -182,11 +185,15 @@ internal class GitLabProcessStream(
                     codeStore.replaceMergeRequests(connectionId, normalized, now)
                     processStore.markMergeRequestsProcessed(connectionId, rows.map { it.mrId }, now, CODE_PROCESSING_VERSION)
                     pageRows = normalized.sumOf { 1L + it.events.size }
+                    pageKeys = normalized.sumOf { it.issueKeys.size }.toLong()
                     rows.size
                 }
             }
             // A failed page returns 0 and rolled back: only a committed page counts.
-            if (processed > 0) tally.rowsWritten += pageRows
+            if (processed > 0) {
+                tally.rowsWritten += pageRows
+                context.incrementProgress("issueKeysStored", pageKeys)
+            }
             context.incrementProgress("mergeRequestsProcessed", processed.toLong())
             context.heartbeat(changed = processed > 0)
         }

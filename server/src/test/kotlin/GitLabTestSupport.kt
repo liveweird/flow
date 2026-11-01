@@ -66,7 +66,7 @@ object GitLabFixtures {
     fun codeDigest(connId: UInt): String {
         val tables = listOf(
             CodeActivityStore.CodeProjects, CodeActivityStore.CodeIdentities, CodeActivityStore.CodeCommits,
-            CodeActivityStore.CodeMergeRequests, CodeActivityStore.CodeMrEvents,
+            CodeActivityStore.CodeMergeRequests, CodeActivityStore.CodeMrEvents, CodeActivityStore.CodeMrIssueKeys,
         )
         return PostgresTestSupport.connect().use { conn ->
             conn.createStatement().use { st ->

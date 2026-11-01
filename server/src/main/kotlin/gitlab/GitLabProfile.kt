@@ -43,6 +43,8 @@ internal object GitLabProfile {
                 withDiffStatsPercent = percentOfRounded(mergeRequests.withDiffStats, mergeRequests.byState.values.sum()),
                 detailsPending = mergeRequests.detailsPending,
                 detailsUnreadable = mergeRequests.detailsUnreadable,
+                withIssueKeyCandidates = mergeRequests.withIssueKeyCandidates,
+                issueKeyCandidates = mergeRequests.issueKeyCandidates,
             ),
             events = GitLabEventsProfile(codeStore.eventCounts(connectionId).mapKeys { it.key.name }),
             identities = GitLabIdentitiesProfile(

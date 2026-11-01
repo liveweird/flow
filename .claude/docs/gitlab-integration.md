@@ -31,7 +31,7 @@ code layer at query time and attributes through the identity links below; it add
   connection and again at every SYNC (the job fails closed); an answer missing `scopes` or `active` is `INVALID_RESPONSE`, never a pass, and an
   inactive token is `TOKEN_INACTIVE`.
 - **No git mirror and no repository content.** Flow never clones and stores no code, diffs, commit bodies, MR descriptions
-  or note bodies. Kept: the commit's first line and the MR title (≤255 chars, for the later Jira-key linking), branch names,
+  or note bodies. Kept: the commit's first line and the MR title (≤255 chars, for the Jira-key linking: "Issue keys"), branch names,
   file paths and per-file line counts. System notes become action codes; their bodies are dropped.
 - **Identity = proposed by email, confirmed by an admin.** Unmapped activity is kept and becomes attributable once linked.
 - **The connector does not feed DERIVE.** `DataSourceKind.derivesMetrics` is false for GITLAB; every Jira-only path is
@@ -197,7 +197,7 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
   page's tree is garbage before the first emails call is parsed.
 - **SYNC order and guards** - the job first re-probes `/personal_access_tokens/self` and `/user`: a token with a scope beyond `read_*` fails
   the job `TOKEN_SCOPE_TOO_BROAD`, an inactive one `TOKEN_INACTIVE` (`JobRefusedException`), before anything is stored. REPROCESS re-flags both raw tables and rebuilds the code layer ("PROCESS / PROFILE"); RECONCILE is below;
-  PURGE drains all six raw tables, then the five `norm.code_*` tables. The streams run PROJECTS -> USERS -> COMMITS -> COMMIT FILES. The job runs under the shared `CallTally` (GitLab's throttling lands under the stored `jira*` progress keys).
+  PURGE drains all six raw tables, then the six `norm.code_*` tables (`code_mr_issue_keys` first). The streams run PROJECTS -> USERS -> COMMITS -> COMMIT FILES. The job runs under the shared `CallTally` (GitLab's throttling lands under the stored `jira*` progress keys).
 - **COMMITS** (as built, PR 7; `GitLabCommitsStream.kt` + `GitLabCommitsSweep.kt`, cursor `{passStartedAt, lastCompletedProjectId, walk}`) - per live project in id order
   (`moved_out_at`/`deleted_at` null), the commits of the DEFAULT branch into `raw.gitlab_commits` (no hash, a commit is immutable by SHA; the stored
   whitelist is `title`, author name/email, authored/committed time, parent count and `stats`: never the body, the committer or a diff). What a
@@ -368,8 +368,10 @@ for up to 50 MRs) instead of a paged `/diffs` call per MR. A GraphQL error leave
   map to the same-named kind (targets resolved to `u<id>`, unresolved dropped), a legacy APPROVAL row only when no NOTE approval by the same actor
   exists, a `/reviewers` REVIEWED entry becomes REVIEWED at the entry's `created_at` (when the reviewer was added: approximate), REQUESTED_CHANGES
   becomes CHANGES_REQUESTED unless a note already says so, everything else is no event; ordered by time (nulls last), kind, actor, raw source;
-  only a READ merge request carries events (`details_state` PENDING / UNREADABLE = none). **PROFILE** stores the `gitlab` section of the data
-  profile (`ingestion.md` "Data profile"). **PURGE** drains the raw tables, then the code layer (events, merge requests, commits in batches; identities
+  only a READ merge request carries events (`details_state` PENDING / UNREADABLE = none). **Issue keys** (V46, version 2): a merge request's page write also
+  REPLACES its `norm.code_mr_issue_keys` rows from its title and source branch whatever its details state or tombstone ("Issue keys"); progress
+  `issueKeysStored` (the key rows the committed merge-request pages wrote). **PROFILE** stores the `gitlab` section of the data
+  profile (`ingestion.md` "Data profile"). **PURGE** drains the raw tables, then the code layer (issue keys, events, merge requests, commits in batches; identities
   and projects outright); the profile column stays. Progress keys: `ingestion.md` "Progress counters".
 
 ## Path exclusions
@@ -447,6 +449,34 @@ the stored files (U2). MR line counts (GraphQL totals) are not exclusion-aware.
   `CodeIdentityRoutesTest` (the 403-first matrix, 404 / 409 on all four operations, the alignment oracle against `expected.json`: nine identities = 7 proposed
   (6 linked proposals and the bot) + 2 unmapped, the PUT / DELETE / confirm semantics and audits, per-instance orphans, a re-created source, the worker role).
 
+## Issue keys
+
+The first step of linking merge requests to Jira tasks (the ask: a merge request names the task it implements in its title or branch). **Stored at PROCESS,
+scoped at read time.** `norm/IssueKeys.kt` (`extractIssueKeyCandidates(title, sourceBranch)`, pure, connector-agnostic; `IssueKeysTest`) reads each merge
+request's TITLE and SOURCE branch (the target branch names where code goes, never what it is for; commits are linked through their merge request, never
+by their own title) and `GitLabNormalizer.codeMergeRequest` hands the result to the writer, which stores one `norm.code_mr_issue_keys` row per candidate
+(V46, `persistence.md` "Merge request issue keys (V46)").
+
+- **The token rule.** A project part `[A-Za-z][A-Za-z0-9_]{1,9}`, a hyphen, a number `[1-9][0-9]{0,6}`, bounded on both sides by a non-alphanumeric character
+  or the text's end. So `[FLO-12]`, `FLO-12:`, `(FLO-12)` and `feature/flo-12-fix` name `FLO-12`; `FLO-12a`, `FLO-012` and `2FLO-12` name nothing. Only ASCII
+  letters and digits bind (a non-ASCII neighbour is a boundary). Folded to UPPERCASE (branches are lowercased by tooling), at most 20 characters (the
+  `issue_key` width; the rule's longest key is 18), distinct per merge request, sorted. **The underscore is a boundary:** `flo_12` is no key, `FLO-12_fix`
+  names `FLO-12`, and a key after an underscore is found. A Jira project key may itself contain `_`, so the token keeps its inner underscores AND every
+  underscore-delimited suffix that is a valid project part is a candidate of its own (`fix_FLO-12` stores `FIX_FLO-12` and `FLO-12`; `MY_PROJ-1` stores
+  `MY_PROJ-1` and `PROJ-1`); the read-time scope keeps whichever is a known project.
+- **Every candidate is stored, junk included.** `UTF-8`, `SHA-256`, `RELEASE-2024` and a `v2-3` branch slug are candidates by design: PROCESS has no knowledge of
+  Jira ("facts only, no interpretation"), a newly configured Jira project links retroactively with no re-flag, and the junk is one small row that never reaches a
+  surface. `in_title` / `in_branch` keep where the key was found (a key in both is ONE row with both flags).
+- **Read-time scope (to come, with the reports).** A candidate becomes a link only when its project part is a KNOWN Jira project key (the `projectKeys` of every
+  active Jira source, plus the prefixes of the `issuekey` changes of those sources: the old projects of moved issues) and it resolves to an issue by
+  `norm.work_items.issue_key` or an old key in a `norm.work_item_field_changes` `issuekey` row (`idx_norm_work_items_issue_key`, V46). A key that resolves to
+  several issues across connections is ambiguous and linked to none. Only LIVE merge requests link (`deleted_at IS NULL`); a tombstoned one keeps its rows.
+- **Data profile (1.45.0).** The profile's `mergeRequests` carries `withIssueKeyCandidates` (live merge requests naming at least one candidate) and `issueKeyCandidates` (their distinct rows; a tombstoned merge request keeps its rows but is not counted). They are CANDIDATES, not links - the page labels say "not yet matched to tasks" - and `GitLabProfileTest` pins them to the stub oracle.
+- **The stub.** `sample-data/gitlab/lib/keycases.mjs` hand-writes ten edge cases (two keys, title and branch, lowercase branch only, `FLO-366`, `UTF-8` and `V2-3` junk, an underscore branch, `ABC-12`, `SEC-5`, `FLO-900`); `expected.json` `mergeRequests.issueKeyCandidates` is the oracle, computed by an independent scanner, that `GitLabProcessStreamTest` compares the persisted rows with (`sample-data/README.md` "Issue keys").
+- **Reprocess.** `CODE_PROCESSING_VERSION = 2` re-claims every commit and merge request once; the keys are REPLACED with the merge request on every later
+  PROCESS of it (a renamed title or branch is followed at the next sync). A Jira project KEY RENAME writes no `issuekey` changelog, so an old key stays
+  unresolved until the old prefix is seen in a change.
+
 ## Real-instance smoke run (the user's checklist)
 
 The first run against the real self-managed instance. **Share only figures, headers and shapes, never names or hosts** (item 8). `<host>`, `<pid>`, `<iid>`,
@@ -508,7 +538,7 @@ against are in "Performance at scale" and `build-times.md` WHY 59.
 8. **Share only figures, headers and shapes** - never the host, group or project paths, names, usernames, addresses, titles or `error_detail` texts (they can embed paths).
    Strip `@names` and ids from anything pasted.
 
-## Schema (V40–V45)
+## Schema (V40–V46)
 
 - **V40** — `source_connections.kind` CHECK widened to `('JIRA_CLOUD','GITLAB')` (V16's constraint-swap pattern).
 - **V41** (landed, PR 6; `persistence.md` "The GitLab raw store (V41)") — `raw.gitlab_projects` (`commits_head_sha`, relist flag, seen/moved/deleted markers, slim payload + sha256),
@@ -522,6 +552,8 @@ against are in "Performance at scale" and `build-times.md` WHY 59.
 - **V44** (landed, PR 10; `persistence.md` "The normalized code layer (V44)") — `norm.code_projects`, `code_identities`, `code_commits`, `code_merge_requests`, `code_mr_events` (COMMENT /
   DIFF_COMMENT / APPROVAL / REVIEW_REQUESTED / REVIEWED / CHANGES_REQUESTED); `CodeActivityStore` is the facade, FK-free between norm tables, `_counted` null = unknown.
 - **V45** (landed, PR 11; `persistence.md` "Code identity links (V45)") — `public.code_identity_links`: the admin decisions, keyed `(source_host, identity_key)`, no connection column, hard-deleted.
+- **V46** (landed, linking PR 1; `persistence.md` "Merge request issue keys (V46)") — `norm.code_mr_issue_keys` `(connection_id, mr_id, issue_key, in_title, in_branch)`, FK-free to the merge request,
+  replaced with it and drained first by PURGE ("Issue keys"); plus `idx_norm_work_items_issue_key (connection_id, issue_key)` on `norm.work_items` for the key -> issue resolution.
 
 Each lands with its `MigrationChecksumTest` pin and its `persistence.md` section; new cross-feature reads go on that doc's
 permission list.
@@ -562,7 +594,7 @@ commit files or merge-request details, and it is soft-deleted after the SYNC so 
 that mutates (a second SYNC, the day-2 scenario, a head or budget change) makes its own connection. The sweep's `merge_base(<commit>, <branch>)` answers for the
 force-pushed project's old commits and its divergence commit are in the stub too (`p1-merge-base-candidate-*`). The stub's `RateLimit-*` headers are static (`Remaining: 1990`), so no test run pauses. The day-2-only merge request (project 7) carries id 41060: the generator once left it without an `id`, which the first consumer of the group listing (PR 8's client) rightly refused.
 
-**PR 10 tests.** The fixture's SYNC now ends with PROCESS and PROFILE, so it also carries `norm.code_*` rows, the `code_process` cursor and a stored profile, and its tripwire adds 300 live norm commits, 60 live norm merge requests and no flagged rows. `GitLabProcessStreamTest` pins the code layer against the stub's independent oracle (every commit's counted lines and the identity counts per key; events; the REPROCESS = incremental digest, `GitLabFixtures.codeDigest`; tombstones and refills; the exclusion, address and username fingerprints; poisoned pages; the page lock; progress and heartbeats), `GitLabProfileTest` the profile section (computed and over HTTP), `GitLabPurgeTest` the PURGE drains, `GitLabRawPayloadWhitelistTest` the privacy whitelist of all eleven GitLab tables (exact columns, slim payload keys, no stub description / note body / commit message body / URL stored), `GitLabNormalizerTest` and `CodeNormalizationTest` the pure rules. Every mutating test clones its own connection (`SyncedGitLabFixture.cloneRawData` / `cloneProcessedData`, over `CloneSupport`).
+**PR 10 tests.** The fixture's SYNC now ends with PROCESS and PROFILE, so it also carries `norm.code_*` rows, the `code_process` cursor and a stored profile, and its tripwire adds 300 live norm commits, 60 live norm merge requests and no flagged rows. `GitLabProcessStreamTest` pins the code layer against the stub's independent oracle (every commit's counted lines and the identity counts per key; events; the REPROCESS = incremental digest, `GitLabFixtures.codeDigest`; tombstones and refills; the exclusion, address and username fingerprints; poisoned pages; the page lock; progress and heartbeats), `GitLabProfileTest` the profile section (computed and over HTTP), `GitLabPurgeTest` the PURGE drains, `GitLabRawPayloadWhitelistTest` the privacy whitelist of all twelve GitLab tables (exact columns, slim payload keys, no stub description / note body / commit message body / URL stored), `GitLabNormalizerTest` and `CodeNormalizationTest` the pure rules. Every mutating test clones its own connection (`SyncedGitLabFixture.cloneRawData` / `cloneProcessedData`, over `CloneSupport`).
 
 ### Performance at scale (PR 12)
 
@@ -606,7 +638,9 @@ Measured on the isolated `flow-perf` stack (`docker-compose.perf.yaml`: the prod
 - **First backfill:** measured at 15k commits / 3k merge requests: about 23.6k calls (about 14.2k diffs, about 9.1k merge-request reads) in 283 s, about 12 ms a call with the stub's own time, one permit and sequential
   (`build-times.md` WHY 59). Derived to 60k / 20k: about 118k calls, about 24 min at that cost and about 20 min more per extra 10 ms of per-call latency, spread over about 12 (files) and about 21 (details) runs at the
   default budgets. Longer with instance rate limits on.
-- **Commit ↔ MR linking:** only merge and squash SHAs are stored for now.
+- **Commit ↔ MR linking:** only merge and squash SHAs are stored for now (Jira linking is through the merge request alone: "Issue keys").
+- **Issue keys are candidates, not links (V46):** the junk a strict token rule still admits (`UTF-8`, a `v2-3` slug) is stored, so a surface that read `norm.code_mr_issue_keys` without the
+  read-time scope would show it. A key past the 255-character title cut is lost; a key written without its project (`#12`) is not found.
 - **Code layer, open points (PR 10):** MR line counts (GraphQL totals) stay exclusion-blind and `generated_file` is stored raw and not applied. `REVIEWED`'s
   time is the reviewer entry's `created_at` (approximate; the smoke run, item 4, checks it). **Report 21 counts approvals as distinct merge requests per
   person** (A50, planned): an approve / unapprove / approve sequence leaves two NOTE `APPROVAL` events by one actor (kept as history; only the legacy endpoint row is

@@ -14,6 +14,7 @@ import ch.nokillswit.norm.NormCodeIdentity
 import ch.nokillswit.norm.NormCodeMergeRequest
 import ch.nokillswit.norm.NormCodeMrEvent
 import ch.nokillswit.norm.countLines
+import ch.nokillswit.norm.extractIssueKeyCandidates
 import ch.nokillswit.norm.identityKeyForEmail
 import ch.nokillswit.norm.identityKeyForUser
 import ch.nokillswit.norm.noreplyUserId
@@ -160,6 +161,7 @@ internal fun codeCommit(
  * One merge request (V44 `norm.code_merge_requests`). `details_state` is `UNREADABLE` when `details_error` is set, `PENDING` when the
  * details were never read or are older than the last change, else `READ`; ONLY a `READ` merge request carries events - a stale or
  * unreadable one has an empty set (a report reads the state, never "no events"), so stale raw events never masquerade as current.
+ * The issue-key candidates come from the title and the SOURCE branch alone (`norm/IssueKeys.kt`), whatever the details state.
  */
 internal fun codeMergeRequest(
     raw: RawMergeRequestForProcessing,
@@ -181,6 +183,7 @@ internal fun codeMergeRequest(
         assigneeKeys = keys(raw.assigneeIds), additions = raw.additions, deletions = raw.deletions, fileCount = raw.fileCount,
         notesCapped = raw.notesCapped, detailsState = state, deletedAt = raw.deletedAt,
         events = if (state == DetailsState.READ) mapEvents(events, map) else emptyList(),
+        issueKeys = extractIssueKeyCandidates(raw.title, raw.sourceBranch),
     )
 }
 
