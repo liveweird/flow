@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.42.1",
+    date: "2026-11-01",
+    en: `**Code activity loads a team's review requests faster.**
+
+- The review requests received by a team's members are now picked out by the database before they reach the report, instead of the report reading every review request of the period and discarding the ones for other teams. The figures, the lists behind them and the report's cache are unchanged; a team's report on a large source just answers sooner and uses less memory.
+- It applies to the Code activity page and its lists; nothing to configure.`,
+    pl: `**Aktywność w kodzie szybciej wczytuje prośby o przegląd zespołu.**
+
+- Prośby o przegląd, które otrzymali członkowie zespołu, wybiera teraz baza danych, zanim trafią do raportu, zamiast czytać wszystkie prośby z okresu i odrzucać te dla innych zespołów. Liczby, listy za nimi i pamięć podręczna raportu pozostają bez zmian; raport zespołu na dużym źródle po prostu odpowiada szybciej i zużywa mniej pamięci.
+- Dotyczy strony Aktywność w kodzie i jej list; nic nie trzeba konfigurować.`,
+  },
+  {
     version: "1.42.0",
     date: "2026-11-01",
     en: `**Compare two people's code, and follow a person's merge requests over time.**

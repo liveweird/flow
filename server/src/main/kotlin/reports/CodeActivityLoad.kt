@@ -79,7 +79,7 @@ internal suspend fun loadCodeActivity(
     val commits = fetchCodeCommits(connections, scope, window)
     val mrs = fetchCodeMergeRequests(connections, scope, window)
     val events = fetchCodeActorEvents(connections, scope, window)
-    val requests = fetchCodeReviewRequests(connections, window)
+    val requests = fetchCodeReviewRequests(connections, scope, window)
     val activity = if (request.forDrill) emptyList() else fetchCodeKeyActivity(connections, window)
     val qualityCounts = if (request.forDrill) CodeQualityCounts(0, 0, 0, 0) else fetchCodeQualityCounts(connections, window)
 
