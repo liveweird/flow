@@ -9,6 +9,7 @@ import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.norm.MrEventKind
 import ch.nokillswit.reports.CodeActivityRequest
+import ch.nokillswit.reports.CodeRowBudget
 import ch.nokillswit.reports.CodeMember
 import ch.nokillswit.reports.CodeMrRef
 import ch.nokillswit.reports.ReportService
@@ -169,6 +170,56 @@ class CodeActivityReadsTest {
     }
 
     @Test
+    fun `a read over the row budget is refused, never cut - the exact count passes with the same figures`() = withWorld {
+        val request = CodeActivityRequest(listOf(source), 0u, emptyList(), window, now)
+        // The whole world's rows (the UNASSIGNED bucket reads every key): the budget it charges is the count of rows it loads.
+        val counted = CodeRowBudget()
+        val every = read { codeActivityFigures(loadCodeActivity(resolver, request, calendar, zone, minSample = 1, budget = counted)) }
+        val rows = counted.used.toInt()
+        assertTrue(rows > 3, "the world has rows to refuse: $rows")
+
+        // AT the budget: nothing is refused and the figures are the unbudgeted ones.
+        val atBudget = CodeRowBudget(rows)
+        val same = read { codeActivityFigures(loadCodeActivity(resolver, request, calendar, zone, minSample = 1, budget = atBudget)) }
+        assertEquals(rows.toLong(), atBudget.used)
+        assertEquals(every.flow.mrs.map { it.scoped.row.mrId }, same.flow.mrs.map { it.scoped.row.mrId })
+        assertEquals(every.members.map { it.member to it.commits }, same.members.map { it.member to it.commits })
+        assertEquals(every.members.map { it.mrsMerged }, same.members.map { it.mrsMerged })
+
+        // One row under it: a 400 that names the budget and says what to do, whichever read is the one that crosses it.
+        val under = CodeRowBudget(rows - 1)
+        val refused = assertFailsWith<BadRequestException> {
+            read { loadCodeActivity(resolver, request, calendar, zone, minSample = 1, budget = under) }
+        }
+        assertEquals(
+            "The selection reads more than ${rows - 1} code rows (commits, merge requests and review events) - " +
+                "narrow the period or pick fewer people",
+            refused.message,
+        )
+    }
+
+    @Test
+    fun `a row statement is limited to one row past the budget, so the over-budget read is detected, not loaded whole`() = withWorld {
+        val connections = listOf(connId)
+        val all = read { fetchCodeCommits(connections, null, window) }
+        assertTrue(all.size > 2, "the world has more commits than the budget below")
+        val budget = CodeRowBudget(1)
+        assertFailsWith<BadRequestException> { read { fetchCodeCommits(connections, null, window, budget) } }
+        // LIMIT 2 reached the database: the charge is the limit (maxRows + 1), not the table's row count.
+        assertEquals(2L, budget.used)
+        // Later statements of the same request get the limit of 1 (nothing left), and an empty one costs nothing.
+        assertEquals(1, budget.limit)
+        assertEquals(emptyList(), read { fetchCodeReviewSummaries(emptyList(), CodeRowBudget(1)) })
+        // The grouped summary statements charge too: two merge requests' summaries are three (mr, actor) rows or fewer.
+        val summaries = CodeRowBudget()
+        read { fetchCodeReviewSummaries(listOf(CodeMrRef(connId, 1), CodeMrRef(connId, 2)), summaries) }
+        assertTrue(summaries.used > 0)
+        assertFailsWith<BadRequestException> {
+            read { fetchCodeReviewSummaries(listOf(CodeMrRef(connId, 1), CodeMrRef(connId, 2)), CodeRowBudget(summaries.used.toInt() - 1)) }
+        }
+    }
+
+    @Test
     fun `key activity and the quality counts are connection-wide`() = withWorld {
         read {
             val activity = fetchCodeKeyActivity(listOf(connId), window).associateBy { it.key }
@@ -207,7 +258,7 @@ class CodeActivityReadsTest {
     fun `the read plan for a team attributes by the links and the memberships`() = withWorld {
         val figures = read {
             val request = CodeActivityRequest(listOf(source), teamId, emptyList(), window, now)
-            codeActivityFigures(loadCodeActivity(resolver, request, calendar, zone, minSample = 1))
+            codeActivityFigures(loadCodeActivity(resolver, request, calendar, zone, minSample = 1, budget = CodeRowBudget()))
         }
         val flow = figures.flow
         // Alice's merge requests 1 and 2 merged in the window, 8 closed unmerged; bob (no team) reviewed 1.
@@ -245,7 +296,7 @@ class CodeActivityReadsTest {
     fun `the UNASSIGNED bucket lists the undecided identities and the linked with no membership, never a BOT`() = withWorld {
         val (data, figures) = read {
             val request = CodeActivityRequest(listOf(source), 0u, emptyList(), window, now)
-            val loaded = loadCodeActivity(resolver, request, calendar, zone, minSample = 1)
+            val loaded = loadCodeActivity(resolver, request, calendar, zone, minSample = 1, budget = CodeRowBudget())
             loaded to codeActivityFigures(loaded)
         }
         val members = figures.members.associateBy { it.member }

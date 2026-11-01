@@ -19,6 +19,7 @@ import ch.nokillswit.norm.NormCodeMrEvent
 import ch.nokillswit.norm.NormCodeProject
 import ch.nokillswit.reports.CodeActivityData
 import ch.nokillswit.reports.CodeActivityRequest
+import ch.nokillswit.reports.CodeRowBudget
 import ch.nokillswit.reports.CodeEventRow
 import ch.nokillswit.reports.CodeSource
 import ch.nokillswit.reports.ReportDrillItems
@@ -166,7 +167,7 @@ class CodeActivityRequestScopeTest {
             val (data, figures) = service.reportTransaction {
                 val calendar = WorkingCalendar(zone, setOf(6, 7), emptySet<LocalDate>())
                 val request = CodeActivityRequest(sources, teamId, emptyList(), window, now)
-                val loaded: CodeActivityData = loadCodeActivity(resolver, request, calendar, zone, minSample = 1)
+                val loaded: CodeActivityData = loadCodeActivity(resolver, request, calendar, zone, minSample = 1, budget = CodeRowBudget())
                 loaded to codeActivityFigures(loaded)
             }
             // By hand: the member got requests on merge requests 2 (day 3), 30 and 32; the joiner on 33 on day 9 only. The other source's

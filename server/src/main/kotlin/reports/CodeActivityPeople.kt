@@ -80,7 +80,8 @@ internal class CodePeople(
  * The code populations of [accounts] over [range], read ONCE for all of them across every ACTIVE GitLab source: the keys LINKED to
  * them (one statement per host), their commits (only when [withCommits]), merge requests and dated acts (three statements), and the
  * decisions of the keys those rows name (the merge requests' authors included, for "not the author's own review"). Inside the caller's
- * report transaction. Empty when [deps] is null, no source is active or none of the people has a link.
+ * report transaction. Empty when [deps] is null, no source is active or none of the people has a link. The three row reads share one
+ * [CodeRowBudget] (`deps.maxRows`): a selection over it is a 400 (`CodeActivityBudget.kt`).
  */
 internal suspend fun loadCodePeople(
     deps: CodeActivityDeps?,
@@ -96,9 +97,10 @@ internal suspend fun loadCodePeople(
     val scope = linked.byConnection
     if (scope.isEmpty()) return CodePeople.none(withCommits)
     val connections = sources.map { it.connectionId }
-    val commits = if (withCommits) fetchCodeCommits(connections, scope, range) else emptyList()
-    val mrs = fetchCodeMergeRequests(connections, scope, range)
-    val events = fetchCodeActorEvents(connections, scope, range)
+    val budget = CodeRowBudget(deps.maxRows)
+    val commits = if (withCommits) fetchCodeCommits(connections, scope, range, budget) else emptyList()
+    val mrs = fetchCodeMergeRequests(connections, scope, range, budget)
+    val events = fetchCodeActorEvents(connections, scope, range, budget)
     val seen = connections.associateWith { mutableSetOf<String>() }
     commits.forEach { seen.getValue(it.connectionId) += it.identityKey }
     mrs.forEach { row -> row.authorKey?.let { seen.getValue(row.connectionId) += it } }

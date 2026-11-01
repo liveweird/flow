@@ -54,7 +54,8 @@ private fun keysOf(data: Map<UInt, MutableSet<String>>, connectionId: UInt, vara
 /**
  * Reads everything a request needs. The key scope is the roster's (or the picks') LINKED keys, or none for `teamId=0` (every key of
  * the sources); rows are then attributed by their anchors in the kernels. The review summaries are read for the READ merged merge
- * requests in scope only, after the first attribution pass.
+ * requests in scope only, after the first attribution pass. Every row read is charged to [budget] (one per request, shared by the
+ * four reads and the summaries): a selection over it is a 400, never a cut one (`CodeActivityBudget.kt`).
  */
 internal suspend fun loadCodeActivity(
     resolver: IdentityResolver,
@@ -62,6 +63,7 @@ internal suspend fun loadCodeActivity(
     calendar: WorkingCalendar,
     zone: ZoneId,
     minSample: Int,
+    budget: CodeRowBudget,
 ): CodeActivityData {
     val sources = request.sources
     val connections = sources.map { it.connectionId }
@@ -76,10 +78,10 @@ internal suspend fun loadCodeActivity(
             readTeamRoster(request.teamId, request.nowMs, request.nowMs + 1)
     }
     val scope: CodeKeyScope = if (unassignedAll) null else keysOfAccounts(resolver, sources, roster)
-    val commits = fetchCodeCommits(connections, scope, window)
-    val mrs = fetchCodeMergeRequests(connections, scope, window)
-    val events = fetchCodeActorEvents(connections, scope, window)
-    val requests = fetchCodeReviewRequests(connections, scope, window)
+    val commits = fetchCodeCommits(connections, scope, window, budget)
+    val mrs = fetchCodeMergeRequests(connections, scope, window, budget)
+    val events = fetchCodeActorEvents(connections, scope, window, budget)
+    val requests = fetchCodeReviewRequests(connections, scope, window, budget)
     val activity = if (request.forDrill) emptyList() else fetchCodeKeyActivity(connections, window)
     val qualityCounts = if (request.forDrill) CodeQualityCounts(0, 0, 0, 0) else fetchCodeQualityCounts(connections, window)
 
@@ -95,7 +97,7 @@ internal suspend fun loadCodeActivity(
     val first = CodeKernelContext(selection, CodeAttribution(identities, memberships), window, request.nowMs, calendar, zone, minSample)
 
     val readMrs = first.mergedInScope(mrs).map { it.row }.filter { it.detailsRead }.map { it.ref }
-    val summaries = fetchCodeReviewSummaries(readMrs)
+    val summaries = fetchCodeReviewSummaries(readMrs, budget)
     // The reviewers may be people who did nothing else in the window: their decisions are read after the summaries are known.
     summaries.forEach { keysOf(seen, it.mr.connectionId, it.actorKey) }
     val context = CodeKernelContext(
@@ -151,7 +153,7 @@ internal suspend fun ReportService.readCodeActivity(
     val data = scope.window?.let {
         val request = CodeActivityRequest(sources, teamId, filter.accountIds, it, nowMs, forDrill)
         val zone = WorkingCalendar.zoneOf(scope.settings.timeZone)
-        loadCodeActivity(deps.resolver, request, scope.calendar, zone, scope.settings.minSampleSize)
+        loadCodeActivity(deps.resolver, request, scope.calendar, zone, scope.settings.minSampleSize, CodeRowBudget(deps.maxRows))
     }
     return CodeRead(scope, sources, data)
 }

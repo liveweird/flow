@@ -145,9 +145,12 @@ fun Application.configureReportRoutes() {
     val peerCellMaxEntries = requireConfigInt(
         environment.config, "reports.peerCellCache.maxEntries", min = 0, max = MAX_PEER_CELL_CACHE_MAX_ENTRIES,
     )
+    // The per-request row budget of the code reads (CodeActivityBudget.kt). The floor of 1 is a test seam (a tiny budget makes the 400
+    // reachable with a few rows); the production default is in the tens of thousands.
+    val codeMaxRows = requireConfigInt(environment.config, "reports.codeMaxRows", min = 1, max = MAX_CODE_MAX_ROWS)
     val reportService = ReportService(
         database, metricsSettings, teamMembership, statementTimeoutSeconds, peerCells = PeerCellCache(peerCellMaxEntries),
-        codeDeps = CodeActivityDeps(attributes[DataSourceServiceKey], attributes[IdentityResolverKey]),
+        codeDeps = CodeActivityDeps(attributes[DataSourceServiceKey], attributes[IdentityResolverKey], codeMaxRows),
     )
     attributes.put(ReportServiceKey, reportService)
 

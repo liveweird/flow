@@ -10,7 +10,12 @@ import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.r2dbc.select
 
 /** What Report 21 reads beyond the Jira star: the data sources (the GitLab hosts, the freshness) and the identity resolver. */
-class CodeActivityDeps(val dataSources: DataSourceService, val resolver: IdentityResolver)
+class CodeActivityDeps(
+    val dataSources: DataSourceService,
+    val resolver: IdentityResolver,
+    /** `reports.codeMaxRows`: the per-request row budget of every code read (`CodeActivityBudget.kt`). */
+    val maxRows: Int = DEFAULT_CODE_MAX_ROWS,
+)
 
 private val PROFILE_JSON = Json { ignoreUnknownKeys = true }
 

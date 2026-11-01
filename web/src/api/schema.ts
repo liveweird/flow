@@ -2512,7 +2512,8 @@ export interface paths {
          *     person belonged to, a transfer day counted once), `loggedPerAvailableMd` (logged MD ÷ available MD; target 1.0),
          *     `deliveredMdPerAvailableMd` and `deliveredItemsPerAvailableMd`. For every other caller those keys are ABSENT — all or nothing
          *     for the pair. `wipDays` names the working days the WIP rows were averaged over; `note` says why they are empty or partial.
-         *     400: a malformed parameter (see above), `from` after `to`, a span over 1100 days, an unknown connection (never 404).
+         *     400: a malformed parameter (see above), `from` after `to`, a span over 1100 days, an unknown connection (never 404), and a selection whose
+         *     `CODE` rows read more than `reports.codeMaxRows` GitLab rows (default 100000; the `detail` says to narrow the period or pick fewer people).
          */
         get: operations["getReportComparePeople"];
         put?: never;
@@ -2608,7 +2609,8 @@ export interface paths {
          *     peer at all, for any row; a peer whose cell is hidden or has no value is left out of that row, and with fewer than 3 peers contributing `reference.value` is absent (`reference.peers`
          *     is the number that contributed). The work mix has no reference, and the cue (`trend`) is the person's own first-against-last,
          *     unaffected. Same visibility as the figures (D12). 400: a missing or repeated `accountId`, a
-         *     malformed parameter, `from` after `to`, a span over 1100 days, an unknown connection (never 404).
+         *     malformed parameter, `from` after `to`, a span over 1100 days, an unknown connection (never 404), and a range whose
+         *     `CODE` rows read more than `reports.codeMaxRows` GitLab rows (default 100000; the `detail` says to narrow the period or pick fewer people).
          */
         get: operations["getReportPersonTrend"];
         put?: never;
@@ -2689,7 +2691,10 @@ export interface paths {
          *     received. TEAM level lists every member of the team (zeros kept); `teamId=0` lists the undecided unlinked identities (named by
          *     their GitLab display name or username) and the linked people with no membership. Counts are never hidden; the distributions
          *     and p50 cells are hidden under `meta.minSampleSize`. 400: a missing or malformed `teamId`, a malformed or conflicting
-         *     period, more than 8 `accountId`, a bad `tailPercent`, an unknown or inactive team, an unknown or non-GitLab `connectionId`.
+         *     period, more than 8 `accountId`, a bad `tailPercent`, an unknown or inactive team, an unknown or non-GitLab `connectionId`, and a
+         *     selection that reads more than `reports.codeMaxRows` code rows (commits, merge requests and review events; default 100000, env
+         *     `REPORTS_CODE_MAX_ROWS`) — answered with a `detail` that names the budget and says to narrow the period or pick fewer people,
+         *     never with a silently cut figure.
          */
         get: operations["getReportCodeActivity"];
         put?: never;
@@ -2734,7 +2739,8 @@ export interface paths {
          *     request with that member as the only `accountId`). 400: a missing or unknown `view`, a `bucketIndex` that is not a non-negative
          *     integer, is sent with a non-histogram view or lies outside the histogram, a hidden distribution (fewer than `meta.minSampleSize`
          *     values: no bar exists), a `bucketStart` that is missing for `WEEK`, sent with another view or not a week of the period,
-         *     plus every 400 of the parent. The merge requests and commits link to the GitLab host of `sources[].baseUrl` of the parent.
+         *     plus every 400 of the parent (the code-row budget one included: a selection over `reports.codeMaxRows` is refused, not cut).
+         *     The merge requests and commits link to the GitLab host of `sources[].baseUrl` of the parent.
          */
         get: operations["getReportCodeActivityItems"];
         put?: never;

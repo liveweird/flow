@@ -118,6 +118,25 @@ class ReportCodeActivityTest {
     }
 
     @Test
+    fun `a selection over the code-row budget is a 400 on the report and on its drill, with the same detail`() = testApplication {
+        configureApp("reports.codeMaxRows" to "3")
+        startApplication()
+        val client = seededClient("code-activity-budget", FlowUserRole.USER)
+        inWorld {
+            pin(this)
+            val detail = "The selection reads more than 3 code rows (commits, merge requests and review events) - " +
+                "narrow the period or pick fewer people"
+            // The team's rows (alice's commits, merge requests and acts) are well over 3; a plain USER caller is refused like anyone.
+            assertEquals(detail, client.refused(query()).detail)
+            val drill = client.get("/api/v1/reports/code-activity/items?${query(extra = "&view=COMMITS")}")
+            assertEquals(HttpStatusCode.BadRequest, drill.status)
+            assertEquals(detail, drill.body<ProblemDetail>().detail)
+            // A selection that names no linked key reads no row at all: under the budget, it answers as ever.
+            assertEquals(0, client.code(query(extra = "&accountId=ghost-${System.nanoTime()}")).groups.single().commits)
+        }
+    }
+
+    @Test
     fun `a matching If-None-Match is a 304 with no body, and an anonymous caller is refused`() = testApplication {
         usePostgresTestcontainer()
         val client = seededClient("code-activity-304")

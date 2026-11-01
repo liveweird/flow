@@ -250,6 +250,11 @@ reports:
   # problem, so one pathological selection cannot pin a pooled connection. WHOLE SECONDS (the unit Exposed's
   # per-statement timeout takes), 1..3600.
   statementTimeoutSeconds: "$REPORTS_STATEMENT_TIMEOUT_SECONDS:30"
+  # Per-request ROW budget of the GitLab code reads (reports/CodeActivityBudget.kt): the most commit, merge request and review event
+  # rows one Code activity / Compare people / Person trend request may load into the JVM. A selection over it answers a 400 ("narrow the
+  # period or pick fewer people"), never a silently cut figure. The default (100000) is far above a real selection and bounds the heap one
+  # request can take (build-times.md WHY 61); 1..5000000 (the floor is a test seam, production values are thousands).
+  codeMaxRows: "$REPORTS_CODE_MAX_ROWS:100000"
   peerCellCache:
     # Person trend's peer-cell cache (reports/PersonTrendCache.kt, WHY 49): at most this many cached (account, window) cells per data-stamp
     # generation, per web instance. Entries are fixed-size (~0.4 KiB measured), so the default holds ~8 MiB; a full generation refuses

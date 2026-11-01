@@ -139,6 +139,16 @@ class ReportQueryBudgetTest {
     }
 
     @Test
+    fun `a malformed or out-of-range code row budget refuses startup`() {
+        listOf("0", "abc", "5000001").forEach { bad ->
+            testApplication {
+                configureApp("reports.codeMaxRows" to bad)
+                assertStartupFails("reports.codeMaxRows") { startApplication() }
+            }
+        }
+    }
+
+    @Test
     fun `a malformed or out-of-range budget refuses startup`() {
         listOf("0", "abc", "3601").forEach { bad ->
             testApplication {
