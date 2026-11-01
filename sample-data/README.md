@@ -401,7 +401,7 @@ as a confirmed **secondary** email (`GET /users/4/emails`); id 7 is `deactivated
 - **Commits** (~300 on the default branches of the 4 in-scope projects, over the 6 months before the reference instant; 14 on the archived and 16 on the
   out-of-scope project): a real DAG with merge commits (2 `parent_ids`), squash commits, rebased commits (`authored_date` days before `committed_date`),
   commits committed a few minutes before their parent (so date order differs from `git log` order), `+02:00`-style offsets in commit dates (database
-  timestamps use `...Z`), `stats` on every commit (`with_stats=true`), Jira keys in titles. Files are realistic paths including lock files (`package-lock.json`,
+  timestamps use `...Z`), `stats` on every commit (`with_stats=true`), Jira keys in titles (about a third of the generated ones, from the Jira stub's own project keys). Files are realistic paths including lock files (`package-lock.json`,
   `yarn.lock`, `pnpm-lock.yaml`, `go.sum`, `poetry.lock`, `Cargo.lock`), `*.min.js`/`*.min.css`, `vendor/`, `node_modules/`, `dist/` and `generated/`, new, deleted,
   renamed (pure, `diff: ""`, and with edits) and binary files (`Binary files a/x and b/x differ`). The `diff` text starts at the first `@@` (GitLab sends no
   `---`/`+++` headers), hunk-header counts are exact, and some hunks end with `\ No newline at end of file`. Hand-placed special commits (`expected.json` `special`):
@@ -412,6 +412,15 @@ as a confirmed **secondary** email (`GET /users/4/emails`); id 7 is `deactivated
   `merge_commit_sha` / `squash_commit_sha` (fast-forwarded MRs in project 4 have neither). Each has system notes ("requested review from @x", "added N commits",
   "approved this merge request", "requested changes", "marked this merge request as **draft**" / "**ready**", "merged", "closed"), plain notes, `DiffNote`
   notes with a `position`, approvals, and reviewers with a `state` (`unreviewed`/`reviewed`/`requested_changes`/`approved`). One MR has 128 notes (two pages).
+- **Issue keys** (the merge requests' candidates for linking to Jira tasks, `gitlab-integration.md` "Issue keys"): the generated titles carry `FLO`/`PLT`/`GTM`/`OPS`
+  keys and the branch slug is the lowercased title, so some branches name a key too. On top of that `lib/keycases.mjs` hand-writes ten edge cases onto fixed human, non-draft
+  merge requests of projects 1-4 (no PRNG draw: only those merge requests' text, and the squash commits' shas hashing it, differ from a world without them): **two keys** in
+  one title (`FLO-120`, `PLT-45`); a key in the **title and the branch** (`FLO-210`); a **lowercase branch-only** key (`plt-77`); **`FLO-366`**, the issue the Jira stub moves on day 2; the
+  **junk tokens** `UTF-8` and `V2-3` in branch slugs; an **underscore** branch (`fix_flo-8` names `FIX_FLO-8` and `FLO-8`); an invented out-of-scope **`ABC-12`**; **`SEC-5`**,
+  a project the Jira stub does not configure; and **`FLO-900`**, beyond FLO's 401 issues. `expected.json` `mergeRequests.issueKeyCandidates` (`mergeRequests`, `rows`, and `list`:
+  `{projectId, iid, keys: [{key, inTitle, inBranch}]}` for every merge request naming one, 26 merge requests and 28 rows at the defaults) is computed by an independent hand-written
+  scanner in `lib/expected.mjs` (not the Kotlin regex), cross-checked against a regex in `generate.test.mjs`; the server asserts the persisted `norm.code_mr_issue_keys` rows
+  equal it (`GitLabProcessStreamTest`) and the data profile counts do too (`GitLabProfileTest`).
 - `expected.json` holds: counts per project (commits incl. merges, non-merges), per-file additions/deletions of every commit (`commitFiles`, computed from the
   emitted diff text and cross-checked), per-identity commit counts (`identities`), MRs by state and each MR's figures, events by kind (`events`: notes by kind,
   approvals, reviewer states), bots/admins/Jira matches (`users`), the stored heads (`storedHeads`), the expected counted lines after the default path exclusions

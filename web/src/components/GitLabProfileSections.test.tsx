@@ -23,6 +23,8 @@ const GITLAB: GitLabDataProfile = {
     withDiffStatsPercent: 98.3,
     detailsPending: 0,
     detailsUnreadable: 0,
+    withIssueKeyCandidates: 26,
+    issueKeyCandidates: 28,
   },
   events: { byKind: { COMMENT: 269 } },
   identities: {
@@ -60,6 +62,13 @@ describe("GitLabProfileSections", () => {
     renderWithProviders(<GitLabProfileSections gitlab={GITLAB} />);
     expect(rowLabels("Merge requests").slice(0, 5)).toEqual(["Merged", "Opened", "Closed", "Locked", "weird"]);
     expect(screen.getByText("59 (98.3%)")).toBeInTheDocument();
+  });
+
+  test("counts the issue-key candidates, saying they are not yet matched to Jira tasks", () => {
+    renderWithProviders(<GitLabProfileSections gitlab={GITLAB} />);
+    const mrs = within(screen.getByRole("table", { name: "Merge requests" }));
+    expect(mrs.getByText("With Jira key candidates (not yet matched to tasks)").closest("tr")).toHaveTextContent("26");
+    expect(mrs.getByText("Jira key candidates (not yet matched to tasks)").closest("tr")).toHaveTextContent("28");
   });
 
   test("zero-fills the review event kinds in the fixed order and shows a dash for no commit time", () => {

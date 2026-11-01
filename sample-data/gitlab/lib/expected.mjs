@@ -36,6 +36,59 @@ export function verifyWorld(world) {
   }
 }
 
+// ---- issue-key candidates (gitlab-integration.md "Issue keys") ---------------------------------------------------------------
+// An INDEPENDENT re-implementation of server/src/main/kotlin/norm/IssueKeys.kt: a hand-written scanner, not the Kotlin regex, so a
+// disagreement between the two is a finding in one of them. The rule: a project part [A-Za-z][A-Za-z0-9_]{1,9}, a hyphen, a number
+// [1-9][0-9]{0,6}, the token bounded on both sides by a non-alphanumeric (ASCII) character or the text's end; folded to UPPERCASE; every
+// underscore-delimited suffix of the project part that is itself a valid project part (a letter first, 2-10 characters) is a candidate
+// too; at most 20 characters; distinct per merge request; the title and the SOURCE branch are read, never the target branch.
+const isAlnum = (ch) => ch !== undefined && /^[A-Za-z0-9]$/.test(ch);
+const isWord = (ch) => ch !== undefined && /^[A-Za-z0-9_]$/.test(ch);
+const isLetter = (ch) => ch !== undefined && /^[A-Za-z]$/.test(ch);
+const isDigit = (ch) => ch !== undefined && /^[0-9]$/.test(ch);
+const KEY_MAX_LENGTH = 20;
+
+export function keysIn(text) {
+  const found = new Set();
+  const t = text ?? "";
+  let i = 0;
+  while (i < t.length) {
+    // A token starts at a letter that no letter or digit precedes (an underscore may).
+    if (!isLetter(t[i]) || isAlnum(t[i - 1])) {
+      i++;
+      continue;
+    }
+    let j = i;
+    while (isWord(t[j])) j++;
+    const projectLength = j - i;
+    let k = j + 1;
+    const numberStart = k;
+    while (isDigit(t[k])) k++;
+    const numberLength = k - numberStart;
+    const ok = projectLength >= 2 && projectLength <= 10 && t[j] === "-" && numberLength >= 1 && numberLength <= 7 && t[numberStart] !== "0" && !isAlnum(t[k]);
+    if (!ok) {
+      i++;
+      continue;
+    }
+    const project = t.slice(i, j).toUpperCase();
+    const number = t.slice(numberStart, k);
+    found.add(`${project}-${number}`);
+    for (let u = project.indexOf("_"); u >= 0; u = project.indexOf("_", u + 1)) {
+      const suffix = project.slice(u + 1);
+      if (suffix.length >= 2 && suffix.length <= 10 && /^[A-Z][A-Z0-9_]*$/.test(suffix)) found.add(`${suffix}-${number}`);
+    }
+    i = k;
+  }
+  return found;
+}
+
+/** The candidates of one merge request: `[{key, inTitle, inBranch}]` sorted by key. */
+export function issueKeyCandidates(title, sourceBranch) {
+  const inTitle = keysIn(title);
+  const inBranch = keysIn(sourceBranch);
+  return [...new Set([...inTitle, ...inBranch])].filter((k) => k.length <= KEY_MAX_LENGTH).sort().map((key) => ({ key, inTitle: inTitle.has(key), inBranch: inBranch.has(key) }));
+}
+
 const fileRec = (f) => {
   const r = { path: f.newPath, additions: f.additions, deletions: f.deletions };
   if (f.renamedFile) r.oldPath = f.oldPath;
@@ -198,6 +251,7 @@ export function buildExpected(world, { mappingCount }) {
     diffStats: nullGap && nullGap.projectId === m.projectId && nullGap.iid === m.iid ? null : { additions: sum(m.files, (f) => f.additions), deletions: sum(m.files, (f) => f.deletions), fileCount: m.files.length },
   });
   const started = mrList("Started");
+  const keyed = started.map((m) => ({ projectId: m.projectId, iid: m.iid, keys: issueKeyCandidates(m.title, m.sourceBranch) })).filter((m) => m.keys.length > 0);
   const eventsOf = (list) => {
     const notes = list.flatMap((m) => m.notes);
     return {
@@ -210,6 +264,10 @@ export function buildExpected(world, { mappingCount }) {
     total: started.length, byState: sortedObj(countBy(started, (m) => m.state)), drafts: started.filter((m) => m.draft).length, perProject: sortedObj(countBy(started, (m) => String(m.projectId))),
     mergedOnMain: started.filter((m) => m.state === "merged" && (m.mergeCommitSha || m.squashCommitSha)).length, nullDiffStatsGap: nullGap, groupListPages: {},
     busiestNotes: Math.max(...started.map((m) => m.notes.length)), list: started.map(mrRow),
+    issueKeyCandidates: {
+      note: "Per merge request that names at least one candidate (title and source branch, case-folded; norm.code_mr_issue_keys): the Jira-agnostic token rule, junk included",
+      mergeRequests: keyed.length, rows: sum(keyed, (m) => m.keys.length), list: keyed,
+    },
   };
   for (const g of world.groups) {
     const ids = [g.id, ...world.groups.filter((x) => x.parentId === g.id).map((x) => x.id)];

@@ -22,6 +22,7 @@ import ch.nokillswit.norm.DetailsState
 import ch.nokillswit.norm.IdentityKind
 import ch.nokillswit.norm.MrEventKind
 import ch.nokillswit.norm.NormCodeCommit
+import ch.nokillswit.norm.IssueKeyCandidate
 import ch.nokillswit.norm.extractIssueKeyCandidates
 import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.ingest.SyncCursorsService
@@ -36,6 +37,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -226,6 +228,33 @@ class GitLabProcessStreamTest {
         assertTrue(all.all { it.issueKey == it.issueKey.uppercase() && (it.inTitle || it.inBranch) })
         val projects = all.map { it.issueKey.substringBefore('-') }.toSet()
         assertTrue(projects.containsAll(setOf("FLO", "PLT", "GTM", "OPS")), "the stub's four Jira projects are named: $projects")
+    }
+
+    @Test
+    fun `the fixture's issue-key rows equal the stub oracle's independent candidates, edge cases included`() = runBlocking<Unit> {
+        val mrs = code.mergeRequestRows(fixtureId)
+        val idOf = mrs.associate { (it.projectId to it.iid) to it.mrId }
+        val oracle = expected.getValue("mergeRequests").jsonObject.getValue("issueKeyCandidates").jsonObject
+        val wanted = oracle.getValue("list").jsonArray.map { it.jsonObject }.associate { entry ->
+            val mrId = idOf.getValue(entry.getValue("projectId").jsonPrimitive.long to entry.getValue("iid").jsonPrimitive.long)
+            mrId to entry.getValue("keys").jsonArray.map { it.jsonObject }.map {
+                IssueKeyCandidate(
+                    it.getValue("key").jsonPrimitive.content, it.getValue("inTitle").jsonPrimitive.boolean,
+                    it.getValue("inBranch").jsonPrimitive.boolean,
+                )
+            }
+        }
+        val stored = code.mrIssueKeyRows(fixtureId)
+        assertEquals(wanted, stored, "the persisted norm.code_mr_issue_keys rows are the oracle's candidates, flags included")
+        assertEquals(oracle.getValue("mergeRequests").jsonPrimitive.long, stored.size.toLong())
+        assertEquals(oracle.getValue("rows").jsonPrimitive.long, stored.values.sumOf { it.size }.toLong())
+        val keys = stored.values.flatten().map { it.issueKey }.toSet()
+        // The stub's deterministic edge cases (sample-data/README.md "Issue keys"): a moved issue, a key past the Jira stub's range,
+        // an invented project and one the Jira stub does not configure, junk tokens, and an underscore-delimited suffix.
+        val edgeCases = setOf("FLO-366", "FLO-900", "ABC-12", "SEC-5", "UTF-8", "V2-3", "FIX_FLO-8", "FLO-8")
+        assertTrue(keys.containsAll(edgeCases), "edge cases: $keys")
+        assertTrue(stored.values.any { c -> c.size == 2 && c.all { it.inTitle } }, "a merge request naming two keys in its title")
+        assertTrue(stored.values.flatten().any { it.inBranch && !it.inTitle && it.issueKey.startsWith("PLT-") }, "a key in the branch only")
     }
 
     @Test

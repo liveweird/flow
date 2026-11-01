@@ -332,7 +332,9 @@
       "mergeRequests": {
         "withDiffStats": "With size statistics",
         "detailsPending": "Awaiting details",
-        "detailsUnreadable": "Details unreadable"
+        "detailsUnreadable": "Details unreadable",
+        "withIssueKeyCandidates": "With Jira key candidates (not yet matched to tasks)",
+        "issueKeyCandidates": "Jira key candidates (not yet matched to tasks)"
       },
       "state": {
         "merged": "Merged",

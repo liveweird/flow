@@ -471,6 +471,8 @@ by their own title) and `GitLabNormalizer.codeMergeRequest` hands the result to 
   active Jira source, plus the prefixes of the `issuekey` changes of those sources: the old projects of moved issues) and it resolves to an issue by
   `norm.work_items.issue_key` or an old key in a `norm.work_item_field_changes` `issuekey` row (`idx_norm_work_items_issue_key`, V46). A key that resolves to
   several issues across connections is ambiguous and linked to none. Only LIVE merge requests link (`deleted_at IS NULL`); a tombstoned one keeps its rows.
+- **Data profile (1.45.0).** The profile's `mergeRequests` carries `withIssueKeyCandidates` (live merge requests naming at least one candidate) and `issueKeyCandidates` (their distinct rows; a tombstoned merge request keeps its rows but is not counted). They are CANDIDATES, not links - the page labels say "not yet matched to tasks" - and `GitLabProfileTest` pins them to the stub oracle.
+- **The stub.** `sample-data/gitlab/lib/keycases.mjs` hand-writes ten edge cases (two keys, title and branch, lowercase branch only, `FLO-366`, `UTF-8` and `V2-3` junk, an underscore branch, `ABC-12`, `SEC-5`, `FLO-900`); `expected.json` `mergeRequests.issueKeyCandidates` is the oracle, computed by an independent scanner, that `GitLabProcessStreamTest` compares the persisted rows with (`sample-data/README.md` "Issue keys").
 - **Reprocess.** `CODE_PROCESSING_VERSION = 2` re-claims every commit and merge request once; the keys are REPLACED with the merge request on every later
   PROCESS of it (a renamed title or branch is followed at the next sync). A Jira project KEY RENAME writes no `issuekey` changelog, so an old key stays
   unresolved until the old prefix is seen in a change.

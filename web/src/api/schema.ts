@@ -3817,6 +3817,16 @@ export interface components {
              * @description Merge requests whose details read ended in a terminal error.
              */
             detailsUnreadable: number;
+            /**
+             * Format: int64
+             * @description Merge requests whose title or source branch names at least one Jira issue-key CANDIDATE (a KEY-123 token); candidates are not yet matched to a Jira task.
+             */
+            withIssueKeyCandidates: number;
+            /**
+             * Format: int64
+             * @description The distinct (merge request, key) candidate rows of the live merge requests, junk tokens (UTF-8, V2-3) included; not yet matched to a Jira task.
+             */
+            issueKeyCandidates: number;
         };
         /** @description The review events of the live merge requests. */
         GitLabEventsProfile: {

@@ -33,7 +33,12 @@ data class GitLabCommitsProfile(
     val commitsWithCounts: Long = 0,
 )
 
-/** The live merge requests: [byState] (GitLab's state names), those with diff stats and their share, and the two non-READ states. */
+/**
+ * The live merge requests: [byState] (GitLab's state names), those with diff stats and their share, and the two non-READ states.
+ * The issue-key figures are CANDIDATES (`gitlab-integration.md` "Issue keys"): [withIssueKeyCandidates] merge requests whose title
+ * or source branch names at least one KEY-123 token and [issueKeyCandidates] the distinct (merge request, key) rows - not yet
+ * matched to a Jira task, junk tokens included.
+ */
 @Serializable
 data class GitLabMergeRequestsProfile(
     val byState: Map<String, Long> = emptyMap(),
@@ -41,6 +46,8 @@ data class GitLabMergeRequestsProfile(
     val withDiffStatsPercent: Double = 0.0,
     val detailsPending: Long = 0,
     val detailsUnreadable: Long = 0,
+    val withIssueKeyCandidates: Long = 0,
+    val issueKeyCandidates: Long = 0,
 )
 
 /** The review events of the live merge requests by kind: every kind is present, zero-filled. */

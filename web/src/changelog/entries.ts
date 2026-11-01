@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.45.0",
+    date: "2026-11-01",
+    en: `**The data profile counts merge requests that name a Jira task.**
+
+- The data profile of a GitLab data source now shows how many merge requests mention a Jira issue key (such as \`FLO-123\`) in their title or branch name, and how many such keys were found.
+- These are only candidates: they are not yet matched to Jira tasks, and a few will be look-alikes such as \`UTF-8\`. This is groundwork for linking code to tasks.`,
+    pl: `**Profil danych zlicza merge requesty, które wskazują zadanie z Jiry.**
+
+- Profil danych źródła GitLab pokazuje teraz, ile merge requestów wspomina klucz zadania Jiry (na przykład \`FLO-123\`) w tytule lub nazwie gałęzi oraz ile takich kluczy znaleziono.
+- To tylko kandydaci: nie są jeszcze dopasowani do zadań w Jirze, a część to coś podobnego do klucza, na przykład \`UTF-8\`. To przygotowanie do powiązania kodu z zadaniami.`,
+  },
+  {
     version: "1.44.0",
     date: "2026-11-01",
     en: `**Home shows the code of each team.**

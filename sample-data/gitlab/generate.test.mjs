@@ -10,6 +10,8 @@ import { fileURLToPath } from "node:url";
 import { generate, parseArgs } from "./generate.mjs";
 import { countDiff, hunksConsistent } from "./lib/diff.mjs";
 import { isExcluded } from "./lib/tree.mjs";
+import { issueKeyCandidates } from "./lib/expected.mjs";
+import { KEY_CASES } from "./lib/keycases.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const sampleData = path.resolve(here, "..");
@@ -168,5 +170,63 @@ test("a scaled world builds with the same invariants", () => {
     assert.equal(e.projects.inScopeIds.length, 6);
     assert.ok(e.users.list.filter((u) => u.kind === "human").length === 9);
     assert.ok(e.special.manyFiles.files > 1000);
+  });
+});
+
+test("the issue-key oracle follows the token rule on its boundaries (the cases IssueKeysTest pins on the Kotlin side)", () => {
+  const keys = (title, branch = "") => issueKeyCandidates(title, branch).map((c) => `${c.key}${c.inTitle ? "T" : ""}${c.inBranch ? "B" : ""}`);
+  assert.deepEqual(keys("[FLO-12] (FLO-12): FLO-12, x"), ["FLO-12T"]);
+  assert.deepEqual(keys("", "feature/flo-12-fix"), ["FLO-12B"]);
+  assert.deepEqual(keys("FLO-12 fix", "fix/flo-12-fix"), ["FLO-12TB"]);
+  assert.deepEqual(keys("FLO-12a FLO-012 2FLO-12 FLO-12345678 A-1 TOOLONGKEYX-1"), []);
+  assert.deepEqual(keys("xFLO-12 FLO-12_fix flo_12"), ["FLO-12T", "XFLO-12T"]);
+  assert.deepEqual(keys("fix_FLO-12"), ["FIX_FLO-12T", "FLO-12T"]);
+  assert.deepEqual(keys("MY_PROJ-1 A_B-1"), ["A_B-1T", "MY_PROJ-1T", "PROJ-1T"]);
+  assert.deepEqual(keys("abcdefghijk_FLO-12"), ["FLO-12T"]);
+  assert.deepEqual(keys("UTF-8, SHA-256, v2-3, \u00e9FLO-1"), ["FLO-1T", "SHA-256T", "UTF-8T", "V2-3T"]);
+  assert.deepEqual(keys("ABCDEFGHI_FLO-123456 FLO-1234567"), ["FLO-123456T", "FLO-1234567T"], "a 13-character project part is no token, the key after its underscore is");
+  assert.deepEqual(keys(null, undefined), []);
+});
+
+test("the issue-key oracle equals an independent regex over every merge request, and every edge case is present", () => {
+  inTempDir((dir) => {
+    const { world, expected: e } = generate({ ...defaults(), out: dir });
+    // The Kotlin rule as one regex (norm/IssueKeys.kt), minus the underscore suffixes, which the cases below pin separately.
+    const token = /(?<![A-Za-z0-9])([A-Za-z][A-Za-z0-9_]{1,9})-([1-9][0-9]{0,6})(?![A-Za-z0-9])/g;
+    const viaRegex = (text) => new Set([...text.matchAll(token)].map((m) => `${m[1].toUpperCase()}-${m[2]}`));
+    const oracle = new Map(e.mergeRequests.issueKeyCandidates.list.map((m) => [`${m.projectId}!${m.iid}`, m.keys]));
+    let rows = 0;
+    for (const m of world.mrs.filter((x) => !x.day2Only)) {
+      const wanted = new Set([...viaRegex(m.title), ...viaRegex(m.sourceBranch)]);
+      const got = new Set((oracle.get(`${m.projectId}!${m.iid}`) ?? []).map((c) => c.key));
+      for (const k of wanted) assert.ok(got.has(k), `${m.projectId}!${m.iid} names ${k}`);
+      // The oracle adds only the underscore-delimited suffixes of a regex match (FIX_FLO-8 also names FLO-8).
+      for (const k of got) assert.ok(wanted.has(k) || [...wanted].some((w) => w.endsWith(`_${k}`)), `${m.projectId}!${m.iid} oracle-only ${k}`);
+      rows += got.size;
+    }
+    assert.equal(e.mergeRequests.issueKeyCandidates.rows, rows);
+    assert.equal(e.mergeRequests.issueKeyCandidates.mergeRequests, oracle.size);
+    // The deterministic edge cases: each landed on a merge request whose oracle row is exactly what the case declares.
+    const planned = new Map(world.mrs.filter((m) => m.keyCase).map((m) => [m.keyCase, m]));
+    for (const [projectId, cases] of Object.entries(KEY_CASES)) {
+      for (const c of cases) {
+        const m = planned.get(c.name);
+        assert.ok(m && m.projectId === Number(projectId), `case ${c.name} landed in project ${projectId}`);
+        assert.deepEqual((oracle.get(`${m.projectId}!${m.iid}`) ?? []).map((k) => [k.key, k.inTitle, k.inBranch]), c.wants, c.name);
+        assert.ok(!m.isBot && !m.draft && !m.day2Action, `${c.name} sits on a stable human merge request`);
+      }
+    }
+    assert.equal(planned.size, Object.values(KEY_CASES).flat().length, "every case is distinct");
+    const all = [...oracle.values()].flat().map((k) => k.key);
+    for (const key of ["FLO-366", "FLO-900", "ABC-12", "SEC-5", "UTF-8", "V2-3"]) assert.ok(all.includes(key), key);
+    for (const prefix of ["FLO", "PLT", "GTM", "OPS"]) assert.ok(all.some((k) => k.startsWith(`${prefix}-`)), `${prefix} keys`);
+  });
+});
+
+test("the key edge cases leave every other figure of the world alone (no PRNG draw)", () => {
+  inTempDir((dir) => {
+    const { expected: e } = generate({ ...defaults(), out: dir });
+    assert.equal(e.mergeRequests.total, 60);
+    assert.equal(e.commits.inScopeTotals.total, 300);
   });
 });

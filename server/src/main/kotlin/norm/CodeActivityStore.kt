@@ -332,12 +332,17 @@ data class CodeCommitFigures(
     val commitsWithCounts: Long,
 )
 
-/** The live merge requests: [byState] (GitLab's state names), [withDiffStats] (not a gap) and the two non-READ [DetailsState]s. */
+/**
+ * The live merge requests: [byState] (GitLab's state names), [withDiffStats] (not a gap), the two non-READ [DetailsState]s, and the V46
+ * issue-key CANDIDATES: [withIssueKeyCandidates] (merge requests naming at least one) and [issueKeyCandidates] (the distinct rows).
+ */
 data class CodeMergeRequestFigures(
     val byState: Map<String, Long>,
     val withDiffStats: Long,
     val detailsPending: Long,
     val detailsUnreadable: Long,
+    val withIssueKeyCandidates: Long,
+    val issueKeyCandidates: Long,
 )
 
 /**

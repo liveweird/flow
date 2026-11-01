@@ -72,6 +72,8 @@ const GITLAB_PROFILE = {
       withDiffStatsPercent: 98.3,
       detailsPending: 4,
       detailsUnreadable: 6,
+      withIssueKeyCandidates: 26,
+      issueKeyCandidates: 28,
     },
     events: { byKind: { COMMENT: 269, DIFF_COMMENT: 90, APPROVAL: 0, REVIEW_REQUESTED: 76, REVIEWED: 14, CHANGES_REQUESTED: 0 } },
     identities: {
@@ -215,6 +217,8 @@ describe("DataSourceProfile page", () => {
     expect(cell("Merge requests", "With size statistics")).toHaveTextContent("59 (98.3%)");
     expect(cell("Merge requests", "Awaiting details")).toHaveTextContent("4");
     expect(cell("Merge requests", "Details unreadable")).toHaveTextContent("6");
+    expect(cell("Merge requests", "With Jira key candidates (not yet matched to tasks)")).toHaveTextContent("26");
+    expect(cell("Merge requests", "Jira key candidates (not yet matched to tasks)")).toHaveTextContent("28");
     expect(cell("Review events", "Review requests")).toHaveTextContent("76");
     expect(cell("Review events", "Approvals")).toHaveTextContent("0");
     expect(cell("Identities", "GitLab users")).toHaveTextContent("8");
