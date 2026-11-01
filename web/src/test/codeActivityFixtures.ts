@@ -160,3 +160,24 @@ export const CODE_ACTIVITY_UNASSIGNED: CodeActivityReport = {
     { ...EMPTY_GROUP, commits: 1 },
   ],
 };
+
+/** A source is active and synced, but nothing was merged or closed in the period: no weeks, nothing to measure, the roster still listed. */
+export const CODE_ACTIVITY_QUIET: CodeActivityReport = {
+  ...CODE_ACTIVITY,
+  flow: {
+    ...CODE_ACTIVITY.flow,
+    merged: 0,
+    closedUnmerged: 0,
+    cycleWorkingDays: { n: 0, hidden: true, histogram: [] },
+    cycleElapsedDays: { n: 0, hidden: true, histogram: [] },
+    timeToFirstReviewWorkingDays: { n: 0, hidden: true, histogram: [] },
+    sizeLines: { n: 0, hidden: true, histogram: [] },
+    sizeFiles: { n: 0, hidden: true, histogram: [] },
+    mergedWithoutReview: { count: 0 },
+    mergedWithoutApproval: { count: 0 },
+    weekly: [],
+  },
+  open: { count: 0, drafts: 0, age: { n: 0, hidden: true } },
+  review: { n: 0 },
+  groups: [BOB],
+};

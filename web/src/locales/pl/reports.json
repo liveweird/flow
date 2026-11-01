@@ -1563,14 +1563,14 @@
   "codeActivity": {
     "title": "Aktywność w kodzie",
     "description": "Gdzie merge requesty zespołu czekają i jak są duże, z podłączonego GitLaba: czas cyklu, czas do pierwszego przeglądu, rozmiar, to, co jest scalane co tydzień, co jest teraz otwarte i jak rozłożona jest praca przeglądowa. Te liczby przepływu mówią, który kierunek jest lepszy; tabela członków obok to tylko kontekst, wolumeny pracy, nigdy ranking. Osoba jest liczona, gdy administrator połączy jej tożsamość w GitLabie z kontem w Jirze.",
-    "noTeams": "Nie ma jeszcze żadnych zespołów, więc nie ma czego czytać.",
+    "noTeams": "Aktywność w kodzie liczymy dla zespołu, a nie ma jeszcze żadnego zespołu. Administrator/ka dodaje zespoły na stronie Zespoły.",
     "noSources": "Żadne źródło danych GitLab nie jest aktywne.",
     "noSourcesHint": "Administrator podłącza je w Źródłach danych; jego commity i merge requesty są tu czytane.",
     "sources": {
       "synced": "{{name}}: ostatnia synchronizacja {{date}}.",
       "neverSynced": "{{name}}: jeszcze niezsynchronizowane.",
-      "filesPending": "Pliki {{n}} commitów czekają jeszcze na odczyt, więc ich liczby linii są na razie nieznane.",
-      "detailsPending": "Szczegóły {{n}} merge requestów czekają jeszcze na odczyt, więc na razie są poza liczbami o przeglądach.",
+      "filesPending": "Commity, których pliki czekają jeszcze na odczyt: {{n}}. Ich liczby linii są na razie nieznane.",
+      "detailsPending": "Merge requesty, których szczegóły czekają jeszcze na odczyt: {{n}}. Na razie są poza liczbami o przeglądach.",
       "metaHint": "Data wyliczenia i rewizja konfiguracji powyżej dotyczą danych z Jiry (skład zespołu, nazwy i sprinty); świeżość liczb z kodu podana jest tu przy każdym źródle."
     },
     "quality": {
@@ -1633,18 +1633,18 @@
       "title": "Otwarte merge requesty teraz",
       "caption": "Merge requesty otwarte dziś, których autor jest dziś w zespole, niezależnie od wieku. Niższe jest lepsze.",
       "waiting": "Czekają na przegląd",
-      "drafts": "Szkice",
+      "drafts": "Wersje robocze",
       "ageLabel": "Wiek czekających merge requestów",
       "ageP50": "Wiek, mediana (dni robocze)",
       "ageP85": "Wiek, p85 (dni robocze)",
       "ageHidden": "Czeka mniej niż {{min}} merge requestów, więc nie pokazujemy wieku.",
-      "hint": "Szkice liczone są osobno: szkic nie czeka na przegląd, a wiek dotyczy tylko czekających."
+      "hint": "Wersje robocze liczymy osobno: wersja robocza nie czeka na przegląd, a wiek dotyczy tylko oczekujących."
     },
     "review": {
       "title": "Jak rozłożona jest praca przeglądowa",
       "caption": "Sygnał wąskiego gardła w pracy przeglądowej zespołu, a nie ocena żadnej osoby.",
-      "reviewers": "Recenzenci na scalony merge request (mediana)",
-      "topShare": "Udział przeglądów w rękach najbardziej zajętego recenzenta",
+      "reviewers": "Osoby przeglądające na scalony merge request (mediana)",
+      "topShare": "Udział przeglądów w rękach najbardziej zajętej osoby przeglądającej",
       "basis": "Ze scalonych merge requestów, których szczegóły odczytano: {{n}}.",
       "withheld": "Liczba pokazana jako kreska jest wstrzymana poniżej {{min}} takich merge requestów."
     },

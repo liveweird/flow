@@ -1515,14 +1515,14 @@
   "codeActivity": {
     "title": "Code activity",
     "description": "Where a team's merge requests wait and how big they are, from the connected GitLab: the cycle, the time to first review, the size, what is merged each week, what is open now and how review work is spread. These flow figures say which direction is better; the members' table beside them is context only, the volumes of work, never a ranking. A person is counted once an administrator has linked their GitLab identity to their Jira account.",
-    "noTeams": "There are no teams yet, so there is nothing to read.",
+    "noTeams": "Code activity is read per team and there is no team yet. An administrator adds teams on the Teams page.",
     "noSources": "No GitLab data source is active.",
     "noSourcesHint": "An administrator connects one under Data sources; its commits and merge requests are read here.",
     "sources": {
       "synced": "{{name}}: last synced {{date}}.",
       "neverSynced": "{{name}}: not synced yet.",
-      "filesPending": "Files of {{n}} commits are still to be read, so their lines are unknown for now.",
-      "detailsPending": "Details of {{n}} merge requests are still to be read, so they are left out of the review figures for now.",
+      "filesPending": "Commits whose files are still to be read: {{n}}. Their lines are unknown for now.",
+      "detailsPending": "Merge requests whose details are still to be read: {{n}}. They are left out of the review figures for now.",
       "metaHint": "The derived date and configuration revision above belong to the Jira data (the team roster, names and sprints); how fresh the code figures are is said per source here."
     },
     "quality": {
@@ -1610,7 +1610,7 @@
         "linesAdded": "Lines added",
         "linesDeleted": "Lines deleted",
         "mrsMerged": "Merged",
-        "mrsOpened": "Opened",
+        "mrsOpened": "Opened in period",
         "openMrs": "Open now",
         "reviewsGiven": "Reviews",
         "approvalsGiven": "Approvals",

@@ -29,8 +29,9 @@
    - *Expected*: the person's row shows, under **Commits** and **Merged**, the API's commits and merged-merge-request counts; the neutral caption ("Context, not
      performance: these are volumes of work, in no order of merit…") is shown; no cell of the table is a button (no sort, no ranking).
 5. They read the sources and the note.
-   - *Expected*: the source's line "<name>: last synced …" is shown; when the API reports undecided identities, one gray note "Still to attribute, or not yet known"
-     states their count, and none appears otherwise; a regular user gets no "Open the identities of …" link.
+   - *Expected*: the source's line "<name>: last synced …" is shown; when the API reports undecided identities or any count of rows left out of a figure (lines or size
+     unknown, details not read, undated acts), one gray note "Still to attribute, or not yet known" appears (stating the identities' count when there are any), and none
+     appears otherwise; a regular user gets no "Open the identities of …" link.
 6. They run an accessibility scan.
    - *Expected*: an axe scan (WCAG 2.0/2.1 A+AA, `color-contrast` included) reports zero violations.
 7. Whatever the outcome, the test removes the membership, the team, the reader, every decision of the host and the connection.

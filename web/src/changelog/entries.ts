@@ -26,7 +26,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
 - People appear once an administrator has linked their GitLab identity to their Jira account on the data source's Identities page; the page tells you how many identities are still waiting for that, and what is not read yet.`,
     pl: `**Strona Aktywność w kodzie.**
 
-- Nowa strona w Raportach, **Aktywność w kodzie**, pokazuje, jak merge requesty zespołu płyną przez GitLaba: ile trwają od utworzenia do scalenia, ile czekają na pierwszy przegląd, jak są duże, ile scalono co tydzień, ile scalono bez przeglądu lub zatwierdzenia, ile jest teraz otwartych i jak rozkłada się praca przeglądowa między recenzentów. Wybierz zespół, opcjonalnie do ośmiu osób oraz okres z dat lub sprintów.
+- Nowa strona w Raportach, **Aktywność w kodzie**, pokazuje, jak merge requesty zespołu płyną przez GitLaba: ile trwają od utworzenia do scalenia, ile czekają na pierwszy przegląd, jak są duże, ile scalono co tydzień, ile scalono bez przeglądu lub zatwierdzenia, ile jest teraz otwartych i jak rozkłada się praca przeglądowa między osoby przeglądające. Wybierz zespół, opcjonalnie do ośmiu osób oraz okres z dat lub sprintów.
 - Obok przepływu tabela podaje commity, linie, merge requesty, przeglądy, zatwierdzenia i komentarze poszczególnych osób. To tło, a nie ocena: bez rankingu, bez kolorów i bez kolejności zasług.
 - Osoby pojawiają się, gdy administrator połączy ich tożsamość w GitLabie z kontem w Jirze na stronie Tożsamości źródła danych; strona mówi, ile tożsamości na to czeka i czego jeszcze nie odczytano.`,
   },
@@ -40,7 +40,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
 - There is no page for it yet: the Code activity page comes in the next release.`,
     pl: `**API nadchodzącego raportu Aktywność w kodzie.**
 
-- Nowy punkt końcowy, \`GET /api/v1/reports/code-activity\`, raportuje przepływ merge requestów zespołu na podstawie danych z GitLaba: czas realizacji, czas do pierwszego przeglądu, merge requesty włączone bez przeglądu lub zatwierdzenia, otwarte merge requesty czekające na przegląd, rozmiar, tygodniową liczbę włączonych oraz koncentrację przeglądów. Obok podaje commity, merge requesty i przeglądy poszczególnych osób jako samo tło, a nie ocenę.
+- Nowy punkt końcowy, \`GET /api/v1/reports/code-activity\`, raportuje przepływ merge requestów zespołu na podstawie danych z GitLaba: czas realizacji, czas do pierwszego przeglądu, merge requesty scalone bez przeglądu lub zatwierdzenia, otwarte merge requesty czekające na przegląd, rozmiar, tygodniową liczbę scalonych oraz koncentrację przeglądów. Obok podaje commity, merge requesty i przeglądy poszczególnych osób jako samo tło, a nie ocenę.
 - Kod jest przypisywany przez powiązania tożsamości GitLab potwierdzone przez administratora oraz do zespołu, do którego osoba należała w dniu danego commita, merge requesta lub przeglądu. Tożsamości czekające jeszcze na decyzję są liczone, więc widać, ile pozostaje nieprzypisane; tożsamości oznaczone jako boty lub pomijane nie są liczone nigdzie.
 - Strony dla tego raportu jeszcze nie ma: strona Aktywność w kodzie pojawi się w następnym wydaniu.`,
   },

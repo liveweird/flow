@@ -8,7 +8,7 @@ type ColumnKey = "commits" | "linesAdded" | "linesDeleted" | "mrsMerged" | "mrsO
 
 /**
  * The members' volumes over the period — commits, lines, merge requests, reviews, approvals, comments. **NEUTRAL context (A50)**: the columns
- * carry no tint, icon, rank or cue, the rows keep the server's order (the roster, never sorted by volume) and the caption says these are
+ * carry no tint, icon, rank or cue, the rows keep the server's order (alphabetical by label, `orgGroups`; never sorted by volume) and the caption says these are
  * volumes of work, not performance, and that a merge request's size and a commit's lines are different "lines". A member with nothing in the
  * period stays as a row of zeros, so the roster is visible. `teamId=0` (the work of identities no one has linked) comes with its own labels
  * and no member to narrow to. At the USER level the rows are the picked members, plain text: there is nothing further to narrow to.

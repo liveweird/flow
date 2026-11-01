@@ -30,7 +30,7 @@ const WINDOW = "from=2026-03-01&to=2026-09-30";
 interface CodeActivityBody {
   flow: { merged: number; weekly: { bucketStart: string; merged: number }[] };
   sources: { name: string }[];
-  quality: { unlinkedIdentities: number };
+  quality: { unlinkedIdentities: number; commitsLinesUnknown: number; mrsSizeUnknown: number; mrsDetailsNotRead: number; eventsUndated: number };
   groups: { accountId?: string; label?: string; commits: number; mrsMerged: number }[];
 }
 
@@ -125,7 +125,10 @@ test("a regular user reads a team's code activity: the member's commits, the mer
     await expect(table.getByRole("button")).toHaveCount(0);
 
     // What is not attributed yet is told, to a regular user without a link to the admin's page: the stub's unmapped authors are undecided identities.
-    await expect(page.getByText("Still to attribute, or not yet known", { exact: true })).toHaveCount(report.quality.unlinkedIdentities > 0 ? 1 : 0);
+    // The note is raised by the page's own predicate: undecided identities OR any count of rows left out of a figure.
+    const { quality } = report;
+    const noted = quality.unlinkedIdentities > 0 || quality.commitsLinesUnknown > 0 || quality.mrsSizeUnknown > 0 || quality.mrsDetailsNotRead > 0 || quality.eventsUndated > 0;
+    await expect(page.getByText("Still to attribute, or not yet known", { exact: true })).toHaveCount(noted ? 1 : 0);
     if (report.quality.unlinkedIdentities > 0) {
       await expect(page.getByText(`GitLab identities with activity in this period that no one has linked to a person yet: ${report.quality.unlinkedIdentities}.`)).toBeVisible();
     }

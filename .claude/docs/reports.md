@@ -6,7 +6,7 @@ machinery every report inherits -- the filter parser, `Distribution`, the `meta`
 operational contract (grain, anchor, attribution, estimate snapshot, missing data, pinning test)
 is `.claude/docs/measures.md`; what the numbers mean is `.claude/docs/domain-model.md`.
 
-## Index of the twenty reports and the Home overview (twenty-five endpoints)
+## Index of the twenty-one reports and the Home overview (twenty-six endpoints)
 
 Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit (D12), and -- bar the exempt few -- team- or domain-scoped ("Scope" below).
 
@@ -34,7 +34,7 @@ Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit 
 | 21 | Code activity (**endpoint 1.39.0 and page 1.40.0 built; the drill is planned**, A50: merge-request flow and per-member code activity over the GitLab `norm.code_*` layer, per team) | `/code-activity` (+ the drill `/code-activity/items`; SPA route `/reports/code-activity`) | [Report 21](#report-21----code-activity) |
 | — | Home overview (up to three picked teams, 90 days beside the previous 90; not a numbered report) | `/home` (+ the drill `/home/items`; SPA route `/`) | [Home overview](#home-overview-get-apiv1reportshome) |
 
-The deep dive is three of the twenty-five endpoints: the report itself and the paged option lists its pickers read. Report 21's endpoint (1.39.0) and page (1.40.0) are built without its drill: the counts in this doc are still the pre-Report-21 set (twenty reports, twenty-five endpoints) until the drill lands, when the index counts twenty-one reports and twenty-seven endpoints; the operation counts below already include `/code-activity`.
+The deep dive is three of the twenty-six endpoints: the report itself and the paged option lists its pickers read. Report 21's endpoint (1.39.0) and page (1.40.0) are built without its drill: the index counts twenty-one reports on twenty pages and twenty-six endpoints, and the drill (`/code-activity/items`, the plan's PR 4) makes it twenty-seven.
 
 Report 13 (item counts beside SP, backlog in sprints) is not an endpoint of its own: the item
 counts ride reports 1, 2, 6 and 10, and the backlog in sprints rides `/backlog`. The shared

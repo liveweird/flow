@@ -8,11 +8,13 @@ import {
   CODE_ACTIVITY,
   CODE_ACTIVITY_NO_SOURCES,
   CODE_ACTIVITY_PENDING,
+  CODE_ACTIVITY_QUIET,
   CODE_ACTIVITY_SMALL,
   CODE_ACTIVITY_UNASSIGNED,
   CODE_ACTIVITY_USERS,
 } from "../test/codeActivityFixtures";
 import { FILTERS } from "../test/reportFixtures";
+import { expectNeutralVolumes } from "../test/neutralVolumes";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 // recharts renders nothing under happy-dom (no layout): the histograms and the weekly chart are probes carrying the props the page decides.
@@ -172,7 +174,7 @@ describe("ReportCodeActivity page", () => {
       "Lines added",
       "Lines deleted",
       "Merged",
-      "Opened",
+      "Opened in period",
       "Open now",
       "Reviews",
       "Approvals",
@@ -186,7 +188,8 @@ describe("ReportCodeActivity page", () => {
     // No sort control, no icon, no colour cue anywhere in the table: a column header is plain text and a cell is its number.
     expect(within(table).queryAllByRole("button")).toHaveLength(0);
     expect(table.querySelector("svg")).toBeNull();
-    expect(table.querySelector("[data-variant], [data-color]")).toBeNull();
+    // And not a tint in the DOM either: no cell of a volume column wears a colour or background, bar the dimmed "commits not counted" note.
+    expectNeutralVolumes(table);
     expect(screen.getByText(/Context, not performance: these are volumes of work, in no order of merit/)).toBeInTheDocument();
     // The name is the way into that member's own view.
     expect(within(rows[0]).getByRole("link", { name: "Show Ann Author" }).getAttribute("href")).toContain("accountId=acc-ann");
@@ -207,7 +210,7 @@ describe("ReportCodeActivity page", () => {
     serve(mockFetch, () => jsonResponse(200, CODE_ACTIVITY_PENDING));
     renderPage();
     await screen.findByRole("heading", { level: 3, name: "Activity by member" });
-    expect(screen.getByText(/Stub GitLab: last synced .* Files of 12 commits are still to be read.* Details of 5 merge requests are still to be read/)).toBeInTheDocument();
+    expect(screen.getByText(/Stub GitLab: last synced .* Commits whose files are still to be read: 12\. Their lines are unknown for now\. Merge requests whose details are still to be read: 5\. They are left out of the review figures for now\./)).toBeInTheDocument();
     expect(screen.getByText("Second GitLab: not synced yet.")).toBeInTheDocument();
     expect(screen.getByText(/The derived date and configuration revision above belong to the Jira data/)).toBeInTheDocument();
   });
@@ -254,6 +257,36 @@ describe("ReportCodeActivity page", () => {
     expect(screen.getByText("Fewer than 5 merge requests are waiting, so no ages are shown.")).toBeInTheDocument();
     expect(screen.getByText("Reviewers per merged merge request (median)").nextElementSibling).toHaveTextContent("—");
     expect(screen.getByText(/A figure shown as a dash is withheld under 5 such merge requests\./)).toBeInTheDocument();
+  });
+
+  test("a source is active but nothing was merged or closed in the period: both flow cards say there is no data, no chart is drawn, and the open, review and member cards still render", async () => {
+    serve(mockFetch, () => jsonResponse(200, CODE_ACTIVITY_QUIET));
+    renderPage();
+    expect(await screen.findByRole("heading", { level: 3, name: "Activity by member" })).toBeInTheDocument();
+    expect(screen.getAllByText("No data in this period")).toHaveLength(2);
+    expect(screen.queryByTestId("weekly-chart")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("bar-chart")).not.toBeInTheDocument();
+    expect(headingOutline().filter(([level]) => level <= 3).map(([, text]) => text)).toEqual([
+      "Code activity",
+      "Merge request flow",
+      "Merged per week",
+      "Open merge requests now",
+      "How review work is spread",
+      "Activity by member",
+    ]);
+    expect(screen.getByText("Waiting for review").nextElementSibling).toHaveTextContent("0");
+    expect(screen.getByText("Reviewers per merged merge request (median)").nextElementSibling).toHaveTextContent("—");
+    const rows = within(screen.getByRole("table", { name: "Activity by member" })).getAllByRole("row").slice(1);
+    expect(rows.map((row) => cellsOf(row)[0])).toEqual(["Bob Builder"]);
+    expect(screen.getByText(/Stub GitLab: last synced/)).toBeInTheDocument();
+  });
+
+  test("a single pending commit or merge request reads in the singular-safe form, count after the colon", async () => {
+    const one = { ...CODE_ACTIVITY.sources[0], commitFilesPending: 1, mrDetailsPending: 1 };
+    serve(mockFetch, () => jsonResponse(200, { ...CODE_ACTIVITY, sources: [one] }));
+    renderPage();
+    expect(await screen.findByText(/Commits whose files are still to be read: 1\. Their lines are unknown for now\. Merge requests whose details are still to be read: 1\./)).toBeInTheDocument();
+    expect(screen.queryByText(/1 commits|of 1 /)).not.toBeInTheDocument();
   });
 
   test("no active GitLab source: one empty state in place of the cards", async () => {
@@ -325,7 +358,7 @@ describe("ReportCodeActivity page", () => {
       Promise.resolve(url === "/api/v1/reports/filters" ? jsonResponse(200, { ...FILTERS, teams: [] }) : jsonResponse(404, { title: "Not Found", status: 404 })),
     );
     renderPage();
-    expect(await screen.findByText("There are no teams yet, so there is nothing to read.")).toBeInTheDocument();
+    expect(await screen.findByText("Code activity is read per team and there is no team yet. An administrator adds teams on the Teams page.")).toBeInTheDocument();
     expect(calls(mockFetch)).toEqual([]);
   });
 });
