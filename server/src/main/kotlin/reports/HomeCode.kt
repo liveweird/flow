@@ -92,3 +92,32 @@ internal fun HomeContext.homeTeamCode(read: HomeCodeRead, team: UInt): HomeTeamC
         mergedWithoutReview = trended(HomeMeasure.CODE_WITHOUT_REVIEW, before.withoutReview(minSample), now.withoutReview(minSample)),
     )
 }
+
+/** Report 21's drill view behind a Code figure: the item SET of the figure (the cycle p50 lists the merged ones, the age p50 open). */
+internal fun HomeDrillView.codeView(): CodeDrillView = when (this) {
+    HomeDrillView.CODE_MERGED -> CodeDrillView.MRS_MERGED
+    HomeDrillView.CODE_OPEN -> CodeDrillView.OPEN_MRS_WAITING
+    HomeDrillView.CODE_MERGED_WITHOUT_REVIEW -> CodeDrillView.MERGED_WITHOUT_REVIEW
+    else -> error("$this is no code view")
+}
+
+/**
+ * The merge requests behind one Code figure of [teamId] over the CURRENT window (`GET /home/items`, `CODE_*`): the trimmed plan with the
+ * one team's roster, then Report 21's own `selectCodeDrill` and `codeDrillItems`, so a list is exactly what the figure counted and equals
+ * `GET /code-activity/items` for the same team and window. No source (or no code layer wired): an empty list. Over `reports.codeMaxRows`
+ * it is Report 21's plain 400 (a user action with a clear message; only the overview degrades). No permit, like the overview.
+ */
+internal suspend fun ReportService.homeCodeItems(ctx: HomeContext, teamId: UInt, view: HomeDrillView): ReportDrillItems {
+    val deps = codeDeps
+    val sources = deps?.let { resolveCodeSources(it.dataSources, null) }.orEmpty()
+    if (deps == null || sources.isEmpty()) return drillItems(ctx.meta(), ReportDrillBar(0, null, null, null), emptyList())
+    val window = ctx.windows.current.let { it.fromMs to it.toMs }
+    val roster = readTeamRoster(teamId, window.first, window.second) + readTeamRoster(teamId, ctx.nowMs, ctx.nowMs + 1)
+    val request = CodeRowsRequest(
+        sources, roster, CodeSelection(teamId, null), window, ctx.nowMs, ctx.calendar, ctx.zone, ctx.minSample,
+        CodeRowReads(commits = false, events = false, quality = false),
+    )
+    val data = loadCodeRows(deps.resolver, request, CodeRowBudget(deps.maxRows))
+    val selection = data.context.selectCodeDrill(CodeDrillQuery(view.codeView(), null, null, null), null, DEFAULT_TAIL_PERCENT, data)
+    return codeDrillItems(ctx.meta(), teamId, selection, data.labels)
+}

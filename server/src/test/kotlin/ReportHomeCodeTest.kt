@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.flowusers.FlowUserRole
+import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.identities.CodeIdentityDecision
 import ch.nokillswit.identities.CodeIdentityLinkStore
 import ch.nokillswit.identities.sourceHostOf
@@ -13,6 +14,7 @@ import ch.nokillswit.reports.HomeOverview
 import ch.nokillswit.reports.HomeTeam
 import ch.nokillswit.reports.HomeTeamCode
 import ch.nokillswit.reports.HomeWindow
+import ch.nokillswit.reports.ReportDrillItems
 import ch.nokillswit.reports.ReportServiceKey
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -236,6 +238,54 @@ class ReportHomeCodeTest {
             }
         }
 
+    private suspend fun HttpClient.drill(path: String): ReportDrillItems {
+        val response = get(path)
+        assertEquals(HttpStatusCode.OK, response.status, path)
+        return response.body()
+    }
+
+    @Test
+    fun `every code drill lists what its figure counted, equals Report 21's own drill and an independent SQL listing`() =
+        testApplication {
+            configureApp("gitlab.stubBaseUrl" to GitLabStubServer.start())
+            startApplication()
+            inWorld { user ->
+                val overview = user.home(picked)
+                val now = application.attributes[ReportServiceKey].clock()
+                val views = mapOf(
+                    "CODE_MERGED" to "MRS_MERGED",
+                    "CODE_OPEN" to "OPEN_MRS_WAITING",
+                    "CODE_MERGED_WITHOUT_REVIEW" to "MERGED_WITHOUT_REVIEW",
+                )
+                val listed = views.keys.associateWith { 0 }.toMutableMap()
+                for (team in overview.teams) {
+                    val code = team.code()
+                    val counts = mapOf(
+                        "CODE_MERGED" to code.merged.n,
+                        "CODE_OPEN" to code.openCount.n,
+                        "CODE_MERGED_WITHOUT_REVIEW" to code.mergedWithoutReview.numerator!!,
+                    )
+                    for ((view, reportView) in views) {
+                        val label = "${team.name} $view"
+                        val home = user.drill("/api/v1/reports/home/items?view=$view&teamId=${team.teamId}")
+                        assertEquals(counts.getValue(view), home.bar.count, "$label: bar.count is the figure's count")
+                        assertEquals(home.bar.count, home.total, "$label: total")
+                        assertEquals(home.total, home.items.size, "$label: nothing cut at this size")
+                        assertTrue(!home.truncated && home.items.all { it.itemKind.name == "MERGE_REQUEST" }, label)
+                        val sql = oracleCodeKeys(connIds, host, team.teamId, cur, now, view)
+                        assertEquals(sql.sorted(), home.items.map { it.issueKey }.sorted(), "$label: the SQL listing")
+                        val period = "from=${overview.window.from}&to=${overview.window.to}"
+                        val report = user.drill("/api/v1/reports/code-activity/items?teamId=${team.teamId}&$period&view=$reportView")
+                        assertEquals(report.bar, home.bar, "$label: Report 21's bar")
+                        assertEquals(report.total, home.total, "$label: Report 21's total")
+                        assertEquals(report.items, home.items, "$label: Report 21's items, figure and anchor included")
+                        listed[view] = listed.getValue(view) + home.total
+                    }
+                }
+                listed.forEach { (view, total) -> assertTrue(total > 0, "$view lists something across the arranged teams") }
+            }
+        }
+
     @Test
     fun `a code read over reports codeMaxRows degrades the section, never the page`() = testApplication {
         configureApp("gitlab.stubBaseUrl" to GitLabStubServer.start(), "reports.codeMaxRows" to "3")
@@ -246,6 +296,12 @@ class ReportHomeCodeTest {
             assertTrue(overview.code.sources.isNotEmpty(), "the sources stay listed")
             assertEquals(3, overview.teams.size)
             overview.teams.forEach { assertNull(it.code, "${it.name}: no code section") }
+            // The drill is a user action with a clear message: Report 21's plain 400, not a degraded list.
+            val drill = user.get("/api/v1/reports/home/items?view=CODE_MERGED&teamId=$first")
+            assertEquals(HttpStatusCode.BadRequest, drill.status)
+            val detail = "The selection reads more than 3 code rows (commits, merge requests and review events) - " +
+                "narrow the period or pick fewer people"
+            assertEquals(detail, drill.body<ProblemDetail>().detail)
             // Report 21 itself keeps the plain 400 for the same budget.
             val report = user.get("/api/v1/reports/code-activity?teamId=$first&from=${overview.window.from}&to=${overview.window.to}")
             assertEquals(HttpStatusCode.BadRequest, report.status)

@@ -220,6 +220,8 @@ internal fun oracleViewItems(
             population.filter { it.dimStart == null || it.dimDue == null }.associate { it.issueId to it.ownCurrent?.toDouble() }
         HomeDrillView.QUALITY_EPICS_ESTIMATE_GAP ->
             population.filter { it.gap(tolerance) }.associate { it.issueId to (it.childSum - it.ownCurrent!!).toDouble() }
+        // Code items are merge requests, not issues: `oracleCodeKeys` is their independent listing (ReportHomeCodeTest).
+        HomeDrillView.CODE_MERGED, HomeDrillView.CODE_OPEN, HomeDrillView.CODE_MERGED_WITHOUT_REVIEW -> emptyMap()
     }
 }
 
@@ -245,23 +247,16 @@ private class OMr(
     val mergedAt: Long?,
     val read: Boolean,
     val reviewed: Boolean,
+    /** `<project path>!<iid>`, the key the drills print. */
+    val label: String,
 )
 
-/**
- * The independent derivation behind Home's Code figures of [team] over [window] at [nowMs]: the merge requests of [connIds] whose author
- * key is LINKED on [host] to an account whose membership covers the anchor (half-open `[valid_from, valid_to)`, written out here) -- a
- * merged one by `merged_at`, an open one by now. "Reviewed" = an event of the five review kinds, dated up to the merge, by an actor that
- * is neither the author nor decided BOT or IGNORED. Never `loadCodeRows`, `teamAt` or the report kernels.
- */
-internal fun oracleCode(
-    connIds: List<UInt>,
-    host: String,
-    team: UInt,
-    window: OWindow,
-    nowMs: Long,
-    zone: ZoneId,
-    min: Int,
-): OCode {
+/** The merge requests behind one team's Code figures: the merged ones, those whose details were read, those unreviewed, the open ones. */
+private class OSets(val merged: List<OMr>, val read: List<OMr>, val unreviewed: List<OMr>, val open: List<OMr>) {
+    val waiting get() = open.filterNot { it.draft }
+}
+
+private fun oracleSets(connIds: List<UInt>, host: String, team: UInt, window: OWindow, nowMs: Long): OSets {
     val ids = connIds.sqlIds()
     val account = jdbcRows(
         "SELECT identity_key, jira_account_id FROM public.code_identity_links WHERE source_host = ? AND decision = 'LINKED'", host,
@@ -283,27 +278,70 @@ internal fun oracleCode(
         host,
     ).map { (it[0] as Number).toInt() to (it[1] as Number).toLong() }.toSet()
     val mrs = jdbcRows(
-        """SELECT connection_id, mr_id, author_key, state, draft, created_at, merged_at, details_state
-           FROM norm.code_merge_requests WHERE connection_id IN ($ids) AND deleted_at IS NULL AND author_key IS NOT NULL""",
+        """SELECT m.connection_id, m.mr_id, m.author_key, m.state, m.draft, m.created_at, m.merged_at, m.details_state,
+                  coalesce(p.path_with_namespace, '#' || m.project_id) || '!' || m.iid
+           FROM norm.code_merge_requests m
+           LEFT JOIN norm.code_projects p ON p.connection_id = m.connection_id AND p.project_id = m.project_id
+           WHERE m.connection_id IN ($ids) AND m.deleted_at IS NULL AND m.author_key IS NOT NULL""",
     ).map {
         val ref = (it[0] as Number).toInt() to (it[1] as Number).toLong()
         val mergedAt = (it[6] as Number?)?.toLong()
-        OMr(it[2] as String, it[3] as String, it[4] as Boolean, (it[5] as Number).toLong(), mergedAt, it[7] == "READ", ref in reviewed)
+        OMr(
+            it[2] as String, it[3] as String, it[4] as Boolean, (it[5] as Number).toLong(), mergedAt, it[7] == "READ", ref in reviewed,
+            it[8] as String,
+        )
     }
     val merged = mrs.filter {
         it.state == "merged" && it.mergedAt!! >= window.fromMs && it.mergedAt < window.toMs && teamAt(it.key, it.mergedAt) == team.toInt()
     }
-    val cycles = merged.map { oracleWorkingDays(zone, it.createdAt, it.mergedAt!!) }
     val read = merged.filter { it.read }
-    val open = mrs.filter { it.state == "opened" && teamAt(it.key, nowMs) == team.toInt() }
-    val waiting = open.filterNot { it.draft }.map { oracleWorkingDays(zone, it.createdAt, nowMs) }
+    return OSets(merged, read, read.filter { !it.reviewed }, mrs.filter { it.state == "opened" && teamAt(it.key, nowMs) == team.toInt() })
+}
+
+/**
+ * The independent derivation behind Home's Code figures of [team] over [window] at [nowMs]: the merge requests of [connIds] whose author
+ * key is LINKED on [host] to an account whose membership covers the anchor (half-open `[valid_from, valid_to)`, written out here) -- a
+ * merged one by `merged_at`, an open one by now. "Reviewed" = an event of the five review kinds, dated up to the merge, by an actor that
+ * is neither the author nor decided BOT or IGNORED. Never `loadCodeRows`, `teamAt` or the report kernels.
+ */
+internal fun oracleCode(
+    connIds: List<UInt>,
+    host: String,
+    team: UInt,
+    window: OWindow,
+    nowMs: Long,
+    zone: ZoneId,
+    min: Int,
+): OCode {
+    val sets = oracleSets(connIds, host, team, window, nowMs)
+    val cycles = sets.merged.map { oracleWorkingDays(zone, it.createdAt, it.mergedAt!!) }
+    val waiting = sets.waiting.map { oracleWorkingDays(zone, it.createdAt, nowMs) }
     return OCode(
-        merged = merged.size,
+        merged = sets.merged.size,
         cycleP50 = if (cycles.size < min) null else pct(cycles, 0.5),
-        read = read.size,
-        withoutReview = read.count { !it.reviewed },
+        read = sets.read.size,
+        withoutReview = sets.unreviewed.size,
         openWaiting = waiting.size,
-        openDrafts = open.size - waiting.size,
+        openDrafts = sets.open.size - waiting.size,
         openAgeP50 = if (waiting.size < min) null else pct(waiting, 0.5),
     )
+}
+
+/** The `<project path>!<iid>` keys an independent listing puts behind a Code drill view (`CODE_MERGED`, `CODE_OPEN`, ...). */
+internal fun oracleCodeKeys(
+    connIds: List<UInt>,
+    host: String,
+    team: UInt,
+    window: OWindow,
+    nowMs: Long,
+    view: String,
+): List<String> {
+    val sets = oracleSets(connIds, host, team, window, nowMs)
+    val rows = when (view) {
+        "CODE_MERGED" -> sets.merged
+        "CODE_OPEN" -> sets.waiting
+        "CODE_MERGED_WITHOUT_REVIEW" -> sets.unreviewed
+        else -> error("no code view $view")
+    }
+    return rows.map { it.label }
 }

@@ -771,6 +771,11 @@ value, so `bar.count` is the figure's `n` (a PRED's `numerator`; a count's value
 | `QUALITY_TASKS_NO_ESTIMATE/_UNASSIGNED/_ESTIMATED_LATE` | the done tasks of the finding | the estimate at done | `done_at` |
 | `QUALITY_EPICS_NO_ESTIMATE/_NO_DATES` | the epics of the finding | the own estimate | `done_at` (none while open) |
 | `QUALITY_EPICS_ESTIMATE_GAP` | the epics beyond the tolerance | the signed gap in MD (tasks' sum − own) | `done_at` (none while open) |
+| `CODE_MERGED` (1.44.0) | the merge requests merged in the window (the `merged` count AND the cycle p50's sample) = Report 21's `MRS_MERGED` | the cycle in working days | `merged_at` |
+| `CODE_OPEN` | the open merge requests waiting for review, drafts left out (the `openCount` and the age p50's sample) = `OPEN_MRS_WAITING` | the age in working days | `created_at` |
+| `CODE_MERGED_WITHOUT_REVIEW` | the merged ones with no review by another human (the count, the share's numerator) = `MERGED_WITHOUT_REVIEW` | the cycle in working days | `merged_at` |
+
+The `CODE_*` views (`itemKind` `MERGE_REQUEST`, `issueKey` `<project path>!<iid>`, the SPA builds the GitLab link from the overview's `code.sources[].baseUrl`) run the SAME trimmed plan as the overview for the ONE team over the CURRENT window (`homeCodeItems`, `HomeCode.kt`: the team's roster, `loadCodeRows` without commits, events or quality counts), then Report 21's own `selectCodeDrill` and `codeDrillItems`, so a list equals `GET /code-activity/items` (`MRS_MERGED`, `OPEN_MRS_WAITING`, `MERGED_WITHOUT_REVIEW`) for the same team and window and `bar.count` is the figure's count (the merged count, the open count, the unreviewed count). No active GitLab source (or no code layer): an empty list. **Over `reports.codeMaxRows` the drill is the plain `400`** with Report 21's message (a user action with a clear message; only the overview degrades); no permit.
 
 The sprint bars of the page keep the existing `sprint-consistency/items` drill and the weekly bars `throughput/items`.
 
@@ -778,7 +783,7 @@ The sprint bars of the page keep the existing `sprint-consistency/items` drill a
 
 `HomeWire.kt` (DTOs), `HomeKernels.kt` (windows, figure builders, `HomeMeasure`, `trendOf`/`trendedOf`), `HomeReads.kt` (the drills' one-team done-task read and the outside count, teams, connections, freshness),
 `HomeDoneSql.kt` (the two done-task statements and `rankSql`) and `HomeDoneFigures.kt` (their rows as per-team, per-window figures, `weekStartsMs`, the section builders for granularity, throughput, task PRED and findings),
-`HomeOpenItems.kt` (the WIP figures: counts and rank reads in Postgres, `SparseValues`), `HomeCode.kt` (the Code section: the combined read and Report 21's kernels per team and window, 1.44.0; `ReportHomeCodeTest`), `HomeReport.kt` (`HomeContext`, the per-item values, the sections), `HomeDrill.kt` (the
+`HomeOpenItems.kt` (the WIP figures: counts and rank reads in Postgres, `SparseValues`), `HomeCode.kt` (the Code section: the combined read and Report 21's kernels per team and window, and the `CODE_*` drills, 1.44.0; `ReportHomeCodeTest`), `HomeReport.kt` (`HomeContext`, the per-item values, the sections), `HomeDrill.kt` (the
 `WIP_*` views take the team's oldest 500 from `AgingOpenItems.kt`'s sources), `HomeRoutes.kt`. Tests: `HomeKernelsTest` (no database), `ReportHomeTest` (the derived
 fixture against `HomeOracle.kt`'s independent JDBC re-derivation, the hand-built world of `HomeScenario.kt`), `ReportHomeDrillTest`, `HomeOpenRanksTest` (the sparse list
 against the full one for every size up to 3,000) and `HomeWipPushdownGoldenTest` (the overview's WIP figures and `WIP_TASKS`/`WIP_EPICS` against the old read kept in

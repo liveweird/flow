@@ -56,6 +56,10 @@ class ReportHomeDrillTest {
         HomeDrillView.QUALITY_EPICS_NO_ESTIMATE -> quality.epicsNoEstimate.n
         HomeDrillView.QUALITY_EPICS_NO_DATES -> quality.epicsNoDates.n
         HomeDrillView.QUALITY_EPICS_ESTIMATE_GAP -> quality.epicsEstimateGap.n
+        // The derived fixture has no GitLab source: no code section and an empty list (ReportHomeCodeTest has the figures).
+        HomeDrillView.CODE_MERGED -> code?.merged?.n ?: 0
+        HomeDrillView.CODE_OPEN -> code?.openCount?.n ?: 0
+        HomeDrillView.CODE_MERGED_WITHOUT_REVIEW -> code?.mergedWithoutReview?.numerator ?: 0
     }
 
     /** What the drill labels an issue with: its `norm.work_items` key, an epic's `dim_epic` key over it, else the id (no norm twin). */

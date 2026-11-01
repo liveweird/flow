@@ -50,6 +50,8 @@ internal suspend fun ReportService.homeItems(view: HomeDrillView, teamId: UInt, 
                 drill.taskFindingItems(view)
             HomeDrillView.QUALITY_EPICS_NO_ESTIMATE, HomeDrillView.QUALITY_EPICS_NO_DATES, HomeDrillView.QUALITY_EPICS_ESTIMATE_GAP ->
                 drill.epicFindingItems(view, nowMs)
+            HomeDrillView.CODE_MERGED, HomeDrillView.CODE_OPEN, HomeDrillView.CODE_MERGED_WITHOUT_REVIEW ->
+                homeCodeItems(drill.ctx, teamId, view)
         }
     }
 }
