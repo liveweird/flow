@@ -1308,6 +1308,25 @@ Extra cases, same method: `epic-progress` at EPIC level (`epicId=FLO-10`, wide) 
 
 **Production scale (2026-10-25, `build-times.md` WHY 41):** 64,156 issues in 11 data sources (real projects A, B and C from a restored dev backup plus 8 id-offset copies of A, 24 months of real density), the production role split on `docker-compose.perf.yaml`. DERIVE of one 6.4k-issue data source 8.2-8.9 s, a pair 1.1-1.3x, all 11 queued ~100 s; worker <= 253 MiB of 768. Every TEAM report under 160 ms p95 alone except Backlog with `touchedWithinDays` (899 ms, 3.0 s at 8 concurrent: one statement per data source; since WHY 42 only the team's own data sources are read, 74 ms, 77 ms at 8 concurrent); Home 3 teams 71 ms; the UNIT wide-period reads (no page sends them) `throughput` 1.7 s and `wip` 1.4 s p95. Database 3.0 GB compacted (47 MB per 1,000 issues).
 
+**Code activity (Report 21) and the code rows of Compare people and Person trend (2026-11-01, `build-times.md` WHY 61):** the GitLab stub world of WHY 59 (70 users, 200 projects, 26 months: 15,077 commits, 3,015 merge requests, 20,694 events) beside the scale-20 Jira world, a 7- and a 15-member team of linked people, and a "4x" copy of the same rows at the plan's density (60,305 commits, 21,105 merge requests, 144,858 events, the same 70 people); the production web role (`-Xmx256m`, two cores). Same method as above (20 requests after 2 warm-ups, p50 / p95 / max in ms; "8x" = eight concurrent clients). A 90-day window is 2026-04-02..2026-07-01; "1100 days" is the parser's cap, which the history horizon (24 months) clamps to 22 months of this world.
+
+| Endpoint (15-member team unless noted) | base, 90 d | base, 1100 d | 4x, 90 d | 4x, 1100 d |
+|---|---|---|---|---|
+| `code-activity` TEAM | 31 / 33 / 34 | 116 / 123 / 175 | 102 / 107 / 107 | 668 / 733 / 736 |
+| `code-activity` TEAM, 8x | 68 / 75 / 82 | 376 / 415 / 424 | 253 / 280 / 283 | 2,531 / 2,701 / 2,711 |
+| `code-activity` TEAM, 7 members | 28 / 32 / 32 | 83 / 91 / 94 | 80 / 91 / 109 | 489 / 512 / 519 |
+| `code-activity` USER, 1 pick | 19 / 21 / 21 | 55 / 62 / 67 | 58 / 66 / 95 | 379 / 392 / 418 |
+| `code-activity` USER, 8 picks | 24 / 27 / 27 | 83 / 88 / 97 | 91 / 101 / 113 | 512 / 529 / 547 |
+| `code-activity` `teamId=0` (every key of the source) | 54 / 58 / 61 | 269 / 277 / 282 | 242 / 250 / 252 | 1,865 / 1,922 / 2,034 (4 concurrent: web OOM) |
+| `code-activity` 304 | 4 / 5 / 8 | 6 / 8 / 8 | 6 / 6 / 8 | 5 / 6 / 8 |
+| `code-activity/items` `COMMITS` | 29 / 34 / 35 | 102 / 104 / 106 | 103 / 111 / 120 | 655 / 681 / 690 |
+| `code-activity/items` `MRS_MERGED` | 25 / 27 / 29 | 100 / 104 / 104 | 93 / 100 / 124 | 654 / 700 / 733 |
+| `compare-people` (2 linked members) | 52 / 56 / 57 | 101 / 106 / 107 | 60 / 65 / 66 | 141 / 145 / 145 |
+| `person-trend`, warm (365 d / 1100 d) | 49 / 50 / 52, 47 / 49 / 51 | | 63 / 67 / 86, 66 / 68 / 69 | |
+| `person-trend`, cold (first after a data or links change; 365 d / 1100 d) | 361-392, 373-403 | | 547-581, 637-670 | |
+
+The first request after restarting Postgres and the web role (cold buffers, cold JVM): `code-activity` 15 members 90 d 112 ms (250 at 4x), 1100 d 136 (760). The SQL is a sixth to a fifth of a request: **18 ms of 116 at the base world and 141 of 668 ms at 4x** (the 15-member, 1100-day request), the rest the JVM decoding rows at about 7-9 us a row, so a request grows with the rows it reads. Every statement of a TEAM request is under 19 ms at 60k commits / 21k merge requests / 145k events (the keyless `teamId=0` ones up to 48 ms); `norm.code_merge_requests.merged_at` needs no index (a temporary `(connection_id, merged_at)` index saved 1.2 ms on one statement, the keyed read goes through the author index). **Findings:** the plan target (p95 < 1.5 s) is met by every sequential TEAM and USER case in both worlds; `teamId=0` over the whole history is 1.9 s p95 at 4x and four of them at once exhaust the web role's 256 MiB heap; the review-request read is not keyed by the team (26k rows for a 15-member team at 4x); both are open (WHY 61).
+
 ## Status
 
 The metrics layer is complete for v0.3.0: the configuration, DERIVE, the star and its aggregates,

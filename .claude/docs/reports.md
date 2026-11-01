@@ -2765,8 +2765,7 @@ figure of the table reconciles with its drill (the "Reconciliation is a gate" ru
 ### Cache validators and performance
 
 Both operations are `StampClock.FIVE_MINUTES` (open ages at `now`) and carry the `code:`, `code-ingest:` and `links:` stamp lines ("Cache validators" above). Expected cost: a team over 90 days is a few hundred commits, about a hundred
-merge requests and about seven hundred events (WHY 59's source: 15k commits, 3k merge requests, 21k events); `build-times.md` WHY 61 (planned) measures it on the 70-user rig and decides whether `merged_at` needs an index (V46,
-reserved for that only; the candidates are the three `(connection_id, <time>)` indexes the window scans would use: `norm.code_commits (connection_id, committed_at)`, `norm.code_merge_requests (connection_id, merged_at)` and `norm.code_mr_events (connection_id, event_at)`, decided by that run and not added before). The in-test target `code-activity-90d` is in `build-times.md` "In-test targets".
+merge requests and about seven hundred events (WHY 59's source: 15k commits, 3k merge requests, 21k events); `build-times.md` WHY 61 measured it on the 70-user rig and at the plan's 60k / 21k density: no statement of a team's report is above 19 ms, the reads ride the identity, author and actor indexes, and none of the three `(connection_id, <time>)` candidates (`committed_at`, `merged_at`, `event_at`) saves more than about 1 ms, so **no index was added** (V46 was not used). The time is the JVM decoding rows (about 7-9 us a row). Two open points from that run are in `BACKLOG.md`: the whole-history `teamId=0` read loads every row of the source (four at once exhausted the 256 MiB web role at 4x), and the review-request read is not bounded by the team. The in-test target `code-activity-90d` is in `build-times.md` "In-test targets".
 
 ### Code and tests
 
