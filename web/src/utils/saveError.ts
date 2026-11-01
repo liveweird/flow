@@ -48,7 +48,7 @@ export function isLastAdminConflict(err: unknown): boolean {
 }
 
 /**
- * The two refusals of Report 21's code reads (`reports/CodeActivityBudget.kt`; the Code activity page and its drill, and the `CODE` rows of Compare
+ * The two refusals of Report 21's code reads (`reports/CodeActivityBudget.kt`; the Code activity page and its drill, the Tasks and code page, and the `CODE` rows of Compare
  * people and Person trend), told apart by status AND a phrase of the problem's `detail` that the server's tests pin: a `400` "…narrow the period or
  * pick fewer people" (the per-request row budget) and a `429` "…retry in a moment" (the per-process computation permits). They get a localized
  * sentence of the page's own, never the server's English; any other `400`/`429` keeps the generic mapping below.

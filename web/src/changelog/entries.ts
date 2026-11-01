@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.48.0",
+    date: "2026-11-01",
+    en: `**A new report, Tasks and code, shows how done tasks line up with their merge requests.**
+
+- Reports gains a Code group with two tabs: Code activity and the new Tasks and code. Pick a team (and, if you like, a domain) and a period to see how many done tasks have a merged merge request and how many have none merged, how many working days pass from a task's start to the merge of its last merge request, and how often code is merged after the task was already done.
+- A merge request is matched to a task by the Jira issue key in its title or branch. The share of tasks without a merge request is context, not a verdict, because a task may need no code; a shorter code lead time and less code merged after done are better. Without an active GitLab source the page says there is no code data to compare.`,
+    pl: `**Nowy raport, Zadania i kod, pokazuje, jak zakończone zadania mają się do swoich merge requestów.**
+
+- W Raportach pojawia się grupa Kod z dwiema kartami: Aktywność w kodzie i nowe Zadania i kod. Wybierz zespół (a jeśli chcesz, także domenę) i okres, aby zobaczyć, ile zakończonych zadań ma scalony merge request, a ile nie ma żadnego scalonego, ile dni roboczych mija od startu zadania do scalenia jego ostatniego merge requestu i jak często kod jest scalany już po zakończeniu zadania.
+- Merge request jest dopasowywany do zadania po kluczu zgłoszenia z Jiry w tytule lub gałęzi. Udział zadań bez merge requestu to kontekst, nie ocena, bo zadanie może nie wymagać kodu; lepszy jest krótszy czas realizacji kodu i mniej kodu scalonego po zakończeniu. Bez aktywnego źródła GitLab strona informuje, że nie ma danych o kodzie do porównania.`,
+  },
+  {
     version: "1.47.0",
     date: "2026-11-01",
     en: `**A new report endpoint ties done tasks to their merge requests.**
