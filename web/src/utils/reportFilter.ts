@@ -347,6 +347,12 @@ export interface ReportControls {
    */
   teamRequired?: boolean;
   /**
+   * With `teamRequired` (Code activity only): the team control also offers "Unassigned", `teamId=0` -- the work no team holds (the undecided GitLab
+   * identities and linked people with no team), which the server answers for this report. The choice is kept as written (`requiredTeamId` does not
+   * rewrite it), is not remembered as the shared team, and has no members to pick.
+   */
+  teamUnassigned?: boolean;
+  /**
    * With `teamRequired` + `domainExcludesTeam` (WIP): the report needs exactly ONE of a specific team or a specific domain, never neither
    * (the daily aggregate has no whole-unit view here and no team × domain split). A picked domain stands in for the team — the team
    * control then shows no team and is still not clearable — and clearing the domain falls back to the default team (`requiredTeamId`).
@@ -395,14 +401,16 @@ export function domainStandsForTeam(controls: Pick<ReportControls, "teamOrDomain
  * The team a `teamRequired` report starts on when the URL names none: the team that lists the linked sprint, else the
  * remembered team (when the reference data still lists it), else the first team by name. `undefined` when the
  * filter already has a team the reference data lists, or there is no team at all. A `teamId` the list does not know (a
- * deleted team, or `0` = unassigned, which a team-only report cannot read) counts as ABSENT. `teams` must be the loaded list:
- * called before it loads, every team would look unknown.
+ * deleted team, or `0` = unassigned, which a team-only report cannot read) counts as ABSENT -- except `0` on a report that offers it
+ * (`unassigned`, `ReportControls.teamUnassigned`). `teams` must be the loaded list: called before it loads, every team would look unknown.
  */
 export function requiredTeamId(
   filter: ReportFilterState,
   teams: ReadonlyArray<{ id: number; name: string; sprints: ReadonlyArray<{ sprintId: number }> }>,
   remembered: number | undefined,
+  unassigned = false,
 ): number | undefined {
+  if (unassigned && filter.teamId === 0) return undefined;
   if (filter.teamId !== undefined && teams.some((team) => team.id === filter.teamId)) return undefined;
   const listingSprint =
     filter.sprintId === undefined ? undefined : teams.find((team) => team.sprints.some((s) => s.sprintId === filter.sprintId));

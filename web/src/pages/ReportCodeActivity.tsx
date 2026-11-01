@@ -27,7 +27,8 @@ import { CODE_ACTIVITY_CONTROLS, normalizeCodeActivityFilter } from "../utils/co
  * week, what is open now, how review work is spread) with the members' volumes beside it as context (A50). The flow figures carry a direction
  * in words; the member table is neutral — no tint, icon, rank or default order. A person is in a figure only through the identity link an
  * administrator confirmed, and what is still unlinked, unread or unknown is said in a note, never silently left out. Read per team (never the whole
- * unit), over the period's dates or sprints, for up to eight members.
+ * unit), over the period's dates or sprints, for up to eight members - or for "Unassigned" (`teamId=0`), the work no team holds, which the team control offers
+ * on this page only and whose rows are identities rather than a roster.
  */
 export default function ReportCodeActivity() {
   const { t } = useTranslation();
@@ -78,7 +79,7 @@ export default function ReportCodeActivity() {
                     <CodeFlowSection report={report} isRefreshing={refreshing} drill={codeDrill} />
                     <CodeOpenTile report={report} isRefreshing={refreshing} drill={codeDrill} />
                     {report.review && <CodeReviewTile review={report.review} minSampleSize={report.meta.minSampleSize} isRefreshing={refreshing} />}
-                    <CodeMembersTable report={report} filters={loaded} drill={codeDrill} />
+                    <CodeMembersTable report={report} filters={loaded} drill={codeDrill} unassigned={filter.teamId === 0} />
                     <CodeActivityDrillDrawer
                       report={report}
                       filters={loaded}

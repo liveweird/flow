@@ -1637,6 +1637,7 @@
       "title": "Activity by member",
       "caption": "Context, not performance: these are volumes of work, in no order of merit, and they say nothing about who does better. A merge request's size counts every line of its diff, while a commit's lines leave out generated and vendored files, so the two are different lines. A member appears here through an administrator's link between their GitLab identity and their Jira account.",
       "unlabelled": "Not linked to a person",
+      "unassignedHint": "Unassigned: the work of GitLab identities that no administrator has linked to a person yet (one row each, named as GitLab names it) and of linked people who were in no team when they did it. These names are not links: there is no team to narrow to.",
       "linesUnknown": "commits not counted: {{n}}",
       "column": {
         "commits": "Commits",

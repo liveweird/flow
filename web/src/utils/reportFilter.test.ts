@@ -426,6 +426,15 @@ describe("requiredTeamId", () => {
     expect(requiredTeamId({ teamId: 99 }, [], undefined)).toBeUndefined();
   });
 
+  test("0 = unassigned is kept as written only where the report offers it", () => {
+    expect(requiredTeamId({ teamId: 0 }, teams, 99, true)).toBeUndefined();
+    expect(requiredTeamId({ teamId: 0, sprintId: 21 }, teams, 99, true)).toBeUndefined();
+    expect(requiredTeamId({ teamId: 0 }, teams, 99, false)).toBe(1);
+    // An unknown team is still absent, and a filter with no team still gets one.
+    expect(requiredTeamId({ teamId: 99 }, teams, 3, true)).toBe(3);
+    expect(requiredTeamId({}, teams, undefined, true)).toBe(1);
+  });
+
   test("the team that lists a linked sprint wins, then the remembered team, then the first by name", () => {
     expect(requiredTeamId({ sprintId: 21 }, teams, 3)).toBe(2);
     expect(requiredTeamId({ sprintId: 999 }, teams, 3)).toBe(3);

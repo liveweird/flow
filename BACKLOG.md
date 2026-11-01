@@ -102,12 +102,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   512 MiB default, 16-20 full GCs a fork); live Jackson `ObjectNode`/`LinkedHashMap` trees grow, and it is NOT the OpenAPI validator's
   bounded schema cache (`build-times.md` WHY 62). The forks now get 768 MiB, which buys headroom only. Take a heap dump late in a fork
   and find what holds the trees (a static cache, a fixture, an in-JVM stub's journal, ...).
-- [new] **Code activity: the unattributed work on the page.** The endpoint answers `teamId=0` (the work of undecided GitLab identities
-  and of linked people with no team, A50), but the page cannot ask for it: the shared team control rewrites a team it does not know
-  (`requiredTeamId`). Today the page only counts it in the "still to attribute" note, with a link to the Identities page for admins. Needs
-  an "Unattributed" option in the team control for this page (or a link from the note) and an e2e assertion. Since 1.42.2 a whole-history
-  `teamId=0` request on a large source is a 400 (the code-row budget), so the page must show the response's `detail` ("narrow the period or
-  pick fewer people"), and the 429 of the computation permits ("retry in a moment"), instead of a generic error.
 - [new] **Home: a Code section.** Per picked team, from Report 21's own fetch and value functions (Home defines no figure of its own, so it follows
   the report): merged merge requests (90 days against the 90 before, higher is better), merge-request cycle p50 (lower), open merge requests now with
   their age, merged without review (lower); `home/items` views `CODE_*`, `HomeOracle` extended. Decide after the Report 21 page has been in use.

@@ -1687,6 +1687,7 @@
       "title": "Aktywność według członków",
       "caption": "Kontekst, nie wydajność: to wolumeny pracy, bez żadnej kolejności zasług, które nic nie mówią o tym, kto radzi sobie lepiej. Rozmiar merge requestu liczy każdą linię jego diffa, a linie commita pomijają pliki generowane i zewnętrzne, więc to dwie różne liczby linii. Członek pojawia się tu dzięki połączeniu przez administratora jego tożsamości w GitLabie z kontem w Jirze.",
       "unlabelled": "Niepołączone z osobą",
+      "unassignedHint": "Nieprzypisane: praca tożsamości z GitLaba, których żaden administrator nie połączył jeszcze z osobą (po jednym wierszu na tożsamość, pod nazwą z GitLaba), oraz połączonych osób, które w chwili pracy nie należały do żadnego zespołu. Te nazwy nie są linkami: nie ma zespołu, do którego można zawęzić widok.",
       "linesUnknown": "niepoliczone commity: {{n}}",
       "column": {
         "commits": "Commity",

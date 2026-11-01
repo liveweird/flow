@@ -162,6 +162,20 @@ export const CODE_ACTIVITY_UNASSIGNED: CodeActivityReport = {
   ],
 };
 
+/**
+ * `teamId=0` as the page reads it with an admin's decisions in place: two undecided identities (named by GitLab; no account) and a LINKED person with
+ * no team (an account id, a name). The note counts the two identities still to attribute.
+ */
+export const CODE_ACTIVITY_UNASSIGNED_MIXED: CodeActivityReport = {
+  ...CODE_ACTIVITY,
+  quality: { ...CODE_ACTIVITY.quality, unlinkedIdentities: 2, unlinkedCommits: 6, unlinkedMergeRequests: 1, unlinkedEvents: 3 },
+  groups: [
+    { ...EMPTY_GROUP, accountId: "acc-dee", label: "Dee Drifter", commits: 3, mrsMerged: 2 },
+    { ...EMPTY_GROUP, label: "sample.stranger", commits: 5 },
+    { ...EMPTY_GROUP, label: "sample.visitor", commits: 1 },
+  ],
+};
+
 /** A source is active and synced, but nothing was merged or closed in the period: no weeks, nothing to measure, the roster still listed. */
 export const CODE_ACTIVITY_QUIET: CodeActivityReport = {
   ...CODE_ACTIVITY,

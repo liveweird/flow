@@ -47,8 +47,21 @@ export function isLastAdminConflict(err: unknown): boolean {
     (err.detail?.toLowerCase().includes("administrator") ?? false);
 }
 
+/**
+ * The two refusals of Report 21's code reads (`reports/CodeActivityBudget.kt`; the Code activity page and its drill, and the `CODE` rows of Compare
+ * people and Person trend), told apart by status AND a phrase of the problem's `detail` that the server's tests pin: a `400` "…narrow the period or
+ * pick fewer people" (the per-request row budget) and a `429` "…retry in a moment" (the per-process computation permits). They get a localized
+ * sentence of the page's own, never the server's English; any other `400`/`429` keeps the generic mapping below.
+ */
+const CODE_BUDGET_DETAIL = "narrow the period or pick fewer people";
+const CODE_BUSY_DETAIL = "retry in a moment";
+
+const detailMentions = (err: ApiError, phrase: string): boolean => err.detail?.toLowerCase().includes(phrase) ?? false;
+
 /** The list-load counterpart: status-tagged for ApiErrors, generic otherwise. */
 export function loadErrorMessage(err: unknown, t: TFunction): string {
+  if (err instanceof ApiError && err.status === 400 && detailMentions(err, CODE_BUDGET_DETAIL)) return t("common.error.codeReadTooLarge");
+  if (err instanceof ApiError && err.status === 429 && detailMentions(err, CODE_BUSY_DETAIL)) return t("common.error.serverBusy");
   // 429: the per-user reports bucket (security.md) — say what to do, not just the status.
   if (err instanceof ApiError && err.status === 429) return t("common.error.tooManyRequests");
   if (err instanceof ApiError) return t("common.error.loadFailedStatus", { status: err.status });

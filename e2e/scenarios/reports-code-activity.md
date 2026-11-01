@@ -10,7 +10,7 @@
   which a roster membership needs) and never mutates it. It holds the `data-sources` lock (the stub host allows one active GitLab source, so it never runs beside
   the data-sources spec's GitLab test or `code-identities`), and sweeps leftover `e2e-identities-*`, `e2e-gitlab-*` and `e2e-code-*` sources at its start.
 
-## Scenario: a regular user reads a team's code activity: the member's commits, the merge-request flow and the weekly bars equal the API, the member's commits open as the items behind them with GitLab links, the unlinked identities are told, a clean axe scan
+## Scenario: a regular user reads a team's code activity: the member's commits, the merge-request flow and the weekly bars equal the API, the member's commits open as the items behind them with GitLab links, the unlinked identities are told, a clean axe scan, and the Unassigned choice of the team control reads the work no team holds (teamId=0, kept on reload, the unlinked identity by its GitLab name without a link)
 
 1. Through the API, leftover GitLab-stub sources of earlier runs are deleted, the shared Jira fixture is made ready, a GitLab-stub source (groups `platform` and
    `apps`) is created and synced, every stale decision of the stub host is deleted and **Confirm all proposals** is called (6 Jira people linked, 1 bot). A
@@ -38,11 +38,18 @@
      appears otherwise; a regular user gets no "Open the identities of …" link.
 6. They run an accessibility scan.
    - *Expected*: an axe scan (WCAG 2.0/2.1 A+AA, `color-contrast` included) reports zero violations.
-7. Whatever the outcome, the test removes the membership, the team, the reader, every decision of the host and the connection.
+7. They open the filters and pick **Unassigned**, the last choice of the Team control. The test has read `GET /api/v1/reports/code-activity?teamId=0` over the same window as the oracle: the stub's unmatched author (a
+   personal e-mail the confirmed proposals do not link) is an undecided identity there, a row with a GitLab name, no account and commits above zero.
+   - *Expected*: the URL carries `teamId=0` and keeps `from=2026-03-01&to=2026-09-30` (in whatever order the app writes them); the members' table has exactly one row named as GitLab names that identity, its **Commits** equal the API's, and its name is not a link; the
+     hint "Unassigned: the work of GitLab identities that no administrator has linked to a person yet…" is shown; the "Merged" tile shows the API's `teamId=0` merged count; there is no Member control.
+8. They reload the page.
+   - *Expected*: the URL still says `teamId=0` with the same dates (it is not rewritten to the first team), the same row shows the same commits, and an axe scan reports zero violations.
+9. Whatever the outcome, the test removes the membership, the team, the reader, every decision of the host and the connection.
 
 ## Not covered here (and why)
 
-- Every card's states (withheld distributions, no review block, the open ages under the minimum sample, no active source, the USER level, `teamId=0` rows, the
-  admin links, a failed load): `ReportCodeActivity.test.tsx` and `CodeMembersTable.test.tsx` (web).
+- Every card's states (withheld distributions, no review block, the open ages under the minimum sample, no active source, the USER level, the admin links, a failed load):
+  `ReportCodeActivity.test.tsx` and `CodeMembersTable.test.tsx` (web); the Unassigned bucket's details (linked-but-teamless rows, drill targets, the members of a pasted link, the 400/429
+  messages): `ReportCodeActivityUnassigned.test.tsx`.
 - The attribution rule, the figures' definitions and the `400` matrix: `ReportCodeActivityTest`, `ReportCodeActivityFixtureTest` and the kernel tests (server).
 - The identity decisions themselves: `code-identities.spec.ts`.

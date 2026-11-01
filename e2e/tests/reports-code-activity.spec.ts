@@ -3,7 +3,8 @@
 // synced through the API, a throwaway team with ONE linked stub person on its roster, a throwaway reader, and the identity decisions of the stub host
 // (`gitlab-stub:8080`, `public.code_identity_links`) - written only by this spec and `code-identities` (the same lock, so never together), cleared at its start and
 // its end. It reads the shared Jira fixture through `sharedFixtureReady` (that is what puts the stub's 30 people in `norm.people`, which a roster membership needs)
-// and never mutates it. The oracle for the page is the report's own API answer (the member's commits, the merged count, the weekly bars, the unlinked count).
+// and never mutates it. The oracle for the page is the report's own API answer (the member's commits, the merged count, the weekly bars, the unlinked count,
+// and for "Unassigned" - `teamId=0` - the stub's unmatched author, an undecided identity the confirmed proposals leave out).
 import {
   apiAsAdmin,
   axeViolations,
@@ -11,6 +12,7 @@ import {
   deleteViaApi,
   expect,
   login,
+  openFilters,
   REPORTS_EXCLUSIVE_LOCKS,
   sharedFixtureReady,
   sweepLeftoverGitLabSources,
@@ -31,7 +33,7 @@ interface CodeActivityBody {
   flow: { merged: number; weekly: { bucketStart: string; merged: number }[] };
   sources: { name: string; baseUrl: string }[];
   quality: { unlinkedIdentities: number; commitsLinesUnknown: number; mrsSizeUnknown: number; mrsDetailsNotRead: number; eventsUndated: number };
-  groups: { accountId?: string; label?: string; commits: number; mrsMerged: number }[];
+  groups: { accountId?: string | null; label?: string | null; commits: number; mrsMerged: number }[];
 }
 
 /** A person's Jira account id in the stub (`5f8a1b2c3d4e5f6a7b8c9d<nn>`, `sample-data/jira/expected.json` `users.list[].jiraUserNumber`). */
@@ -43,7 +45,7 @@ const accountOf = (jiraNumber: number) => `5f8a1b2c3d4e5f6a7b8c9d${String(jiraNu
  */
 const LINKED_PEOPLE = [9, 3, 5, 13, 4, 1];
 
-test("a regular user reads a team's code activity: the member's commits, the merge-request flow and the weekly bars equal the API, the member's commits open as the items behind them with GitLab links, the unlinked identities are told, a clean axe scan", async ({ page }) => {
+test("a regular user reads a team's code activity: the member's commits, the merge-request flow and the weekly bars equal the API, the member's commits open as the items behind them with GitLab links, the unlinked identities are told, a clean axe scan, and the Unassigned choice of the team control reads the work no team holds (teamId=0, kept on reload, the unlinked identity by its GitLab name without a link)", async ({ page }) => {
   // The shared fixture's SYNC and DERIVE (a no-op once another spec prepared it) plus this spec's own GitLab SYNC, each wait bounded.
   test.setTimeout(900_000);
   const { api } = await apiAsAdmin();
@@ -154,6 +156,51 @@ test("a regular user reads a team's code activity: the member's commits, the mer
     await expect(page.getByText(new RegExp(`^${source.name}: last synced`))).toBeVisible();
 
     // The pointer is parked off the page first: only the settled page is scanned.
+    await page.mouse.move(0, 0);
+    expect(await axeViolations(page)).toEqual([]);
+
+    // Unassigned: the team control's last choice reads the work no team holds. The oracle is the API's `teamId=0` answer over the same window; the stub's unmatched
+    // author (a personal e-mail the proposals do not link) is an undecided identity there - a row with a GitLab name and no account.
+    const bucketAnswer = await api.get(`/api/v1/reports/code-activity?teamId=0&${WINDOW}`);
+    expect(bucketAnswer.ok(), await bucketAnswer.text()).toBeTruthy();
+    const bucket = (await bucketAnswer.json()) as CodeActivityBody;
+    const stranger = bucket.groups.find((group) => !group.accountId && !!group.label && bucket.groups.filter((other) => other.label === group.label).length === 1);
+    expect(stranger, "the stub's unmatched author is an undecided identity in the Unassigned bucket").toBeDefined();
+    expect(stranger?.commits ?? 0, "the unmatched author committed inside the window").toBeGreaterThan(0);
+
+    // The address names the bucket and keeps the period, in whatever order the app writes the parameters.
+    const expectBucketUrl = () =>
+      expect
+        .poll(() => {
+          const { searchParams } = new URL(page.url());
+          return [searchParams.get("teamId"), searchParams.get("from"), searchParams.get("to"), searchParams.has("lastSprints"), searchParams.has("sprintId")];
+        })
+        .toEqual(["0", "2026-03-01", "2026-09-30", false, false]);
+    await openFilters(page);
+    await page.getByRole("combobox", { name: "Team", exact: true }).click();
+    await page.getByRole("option", { name: "Unassigned", exact: true }).click();
+    await expectBucketUrl();
+    const bucketRow = async () => {
+      const unassignedTable = page.getByRole("table", { name: "Activity by member", exact: true });
+      const row = unassignedTable.getByRole("row").filter({ has: page.getByRole("cell", { name: stranger?.label ?? "", exact: true }) });
+      await expect(row).toHaveCount(1);
+      return { row, headers: await unassignedTable.getByRole("columnheader").allInnerTexts() };
+    };
+    const shown = await bucketRow();
+    const bucketCells = await shown.row.getByRole("cell").allInnerTexts();
+    expect(bucketCells[shown.headers.indexOf("Commits")]).toBe(String(stranger?.commits));
+    // The identity is named as GitLab names it and links nowhere; the hint says what the rows are; the flow cards read the same bucket.
+    await expect(shown.row.getByRole("link")).toHaveCount(0);
+    await expect(page.getByText(/^Unassigned: the work of GitLab identities that no administrator has linked to a person yet/)).toBeVisible();
+    await expect(page.getByRole("group", { name: "Merged", exact: true }).getByText(String(bucket.flow.merged), { exact: true })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Member", exact: true })).toHaveCount(0);
+
+    // A reload keeps the bucket: the address is asked for as written, not rewritten to the first team.
+    await page.reload();
+    await expectBucketUrl();
+    const reloaded = await bucketRow();
+    const reloadedCells = await reloaded.row.getByRole("cell").allInnerTexts();
+    expect(reloadedCells[reloaded.headers.indexOf("Commits")]).toBe(String(stranger?.commits));
     await page.mouse.move(0, 0);
     expect(await axeViolations(page)).toEqual([]);
   } finally {

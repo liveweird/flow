@@ -4,6 +4,9 @@ import { domainStandsForTeam, withFilterKey, withPeriod, type ReportControls, ty
 import ReportFilterMultiSelect from "./ReportFilterMultiSelect";
 import ReportFilterSelect from "./ReportFilterSelect";
 
+/** The team control's value for the unassigned bucket (`teamId=0`). */
+const UNASSIGNED_VALUE = "0";
+
 /**
  * WHOSE work the report reads: team, then (under a picked team) member, the domain and — where the
  * report offers it and there is more than one — the Jira connection. The team is the anchor the
@@ -22,6 +25,9 @@ export default function ReportScopeControls({
 }) {
   const { t } = useTranslation();
   const team = filters.teams.find((candidate) => candidate.id === filter.teamId);
+  const teamOptions = filters.teams.map((candidate) => ({ value: String(candidate.id), label: candidate.name }));
+  // Code activity's "Unassigned" (`teamId=0`) closes the list: it is a bucket beside the teams, not one of them.
+  if (controls.teamUnassigned) teamOptions.push({ value: UNASSIGNED_VALUE, label: t("reports.groups.unassigned") });
   const memberOptions = (team?.members ?? []).map((member) => ({ value: member.accountId, label: member.displayName }));
 
   const changeTeam = (value: string | null) => {
@@ -35,7 +41,7 @@ export default function ReportScopeControls({
       next.teamId = Number(value);
       if (controls.domainExcludesTeam) delete next.domain;
     }
-    // A sprint belongs to one team — it survives only a change to a team that lists it.
+    // A sprint belongs to one team — it survives only a change to a team that lists it. ("Unassigned" lists none, and Code activity's `normalizeCodeActivityFilter` drops a sprint-relative period beside it.)
     const stillListed = filters.teams
       .find((candidate) => String(candidate.id) === value)
       ?.sprints.some((sprint) => sprint.sprintId === filter.sprintId);
@@ -62,7 +68,7 @@ export default function ReportScopeControls({
         <ReportFilterSelect
           label={t("reports.filters.team")}
           placeholder={byDomain ? t(filter.domain === undefined ? "reports.filters.noTeamEpic" : "reports.filters.noTeam") : t("reports.filters.allTeams")}
-          data={filters.teams.map((candidate) => ({ value: String(candidate.id), label: candidate.name }))}
+          data={teamOptions}
           value={filter.teamId === undefined ? null : String(filter.teamId)}
           onChange={changeTeam}
           required={controls.teamRequired && !byDomain}

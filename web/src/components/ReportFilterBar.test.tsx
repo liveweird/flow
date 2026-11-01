@@ -128,6 +128,29 @@ describe("ReportFilterBar", () => {
     expect(params.has("accountId")).toBe(false);
   });
 
+  test("Unassigned closes the team list only for a report that asks for it (Code activity), and picking it drops the member and leaves a dates-only Period control", async () => {
+    const user = userEvent.setup();
+    const { unmount } = await renderOpen(<Harness controls={{ teamRequired: true, multiMember: true }} />, { route: "/reports/commitments?teamId=1" });
+    await user.click(screen.getByRole("combobox", { name: "Team" }));
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual(["Alpha", "Beta", "Gamma"]);
+    unmount();
+
+    await renderOpen(<Harness controls={{ teamRequired: true, teamUnassigned: true, multiMember: true }} />, {
+      route: "/reports/commitments?teamId=1&accountId=acc-ann",
+    });
+    await user.click(screen.getByRole("combobox", { name: "Team" }));
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual(["Alpha", "Beta", "Gamma", "Unassigned"]);
+    await user.click(screen.getByRole("option", { name: "Unassigned" }));
+    expect(search().toString()).toBe("teamId=0");
+    expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Unassigned");
+    // There is no roster to pick from, and no sprint to read a period by: dates only (a team still offers its sprints).
+    expect(screen.queryByRole("combobox", { name: "Member" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("combobox", { name: "Period" }));
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent)).not.toContain("Last 3 sprints");
+    expect(screen.queryByRole("option", { name: "One sprint" })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Last 90 days" })).toBeInTheDocument();
+  });
+
   test("the member select appears with a team and writes accountId; clearing the team clears it", async () => {
     const user = userEvent.setup();
     await renderOpen(<Harness />, { route: "/reports/commitments" });
