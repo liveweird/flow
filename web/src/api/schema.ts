@@ -2640,6 +2640,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/code-activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 21 — code activity (a team's merge-request flow over the GitLab code layer, with per-member volumes as neutral context)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 21", domain-model A50. Read per team: `teamId` is
+         *     required (`400` otherwise; `0` is the UNASSIGNED bucket — the work of identities with no decision at all and of linked people
+         *     with no membership at the anchor); there is no domain slice, so `domain`, `domainView`, `activityType` and `workCategory` are
+         *     not accepted parameters (ignored like any unknown name). The period is dates (default the trailing 90 days) or the team's
+         *     sprints (`lastSprints`, `sprintId`); `accountId` repeats 1 to 8 and sets the USER level, where every distribution splits per
+         *     picked person. `connectionId` names one ACTIVE GITLAB data source (a Jira, deleted or unknown one is `400`); without it every
+         *     active GitLab source is read. The report is computed at request time from the stored code layer and attributed through the
+         *     administrators' identity links (A50): a row belongs to the person its identity key is LINKED to and to the team that person's
+         *     dated membership covers at the row's anchor (a commit by `committed_at`, a merged merge request by `merged_at`, an opened one by
+         *     `created_at`, an open one by now, an act by `event_at`); an identity an administrator decided BOT or IGNORED is in no figure and in
+         *     no unlinked count. `meta` is the JIRA star's (the roster, names and sprints come from it): the freshness of the code figures is
+         *     `sources[]` (`lastSyncAt`, and the commits whose files and the merge requests whose details were still unread at the last data
+         *     profile). `quality` counts, connection-wide for the period, what no figure can use: `unlinkedIdentities` / `unlinkedCommits` /
+         *     `unlinkedMergeRequests` / `unlinkedEvents` (undecided identities and their activity), `commitsLinesUnknown`, `mrsSizeUnknown`,
+         *     `mrsDetailsNotRead`, `eventsUndated`. `flow` is the merge-request FLOW of the team over the period: `merged` and `closedUnmerged`;
+         *     `cycleWorkingDays` / `cycleElapsedDays` (created to merged); `timeToFirstReviewWorkingDays` (created to the first event of kind
+         *     COMMENT, DIFF_COMMENT, APPROVAL, REVIEWED or CHANGES_REQUESTED by another human — REVIEWED is approximate — over the merged merge
+         *     requests whose details were read); `sizeLines` (`additions + deletions`, exclusion-blind GraphQL totals) and `sizeFiles`;
+         *     `mergedWithoutReview` / `mergedWithoutApproval` (counts and shares against the merged merge requests whose details were read);
+         *     `weekly` (Monday-started weeks of the configured zone, zero-filled). The figures here may be coloured by a client (lower is better
+         *     for the cycle, first review, size and merged without review); the response carries no verdict. `open` is the open merge requests
+         *     now: `count` the non-draft ones, `drafts` counted apart, `age` the waiting ones' age in working days. `review` (absent while no
+         *     merged merge request has its details read) is the review concentration: reviewers per merged merge request (p50) and the share of
+         *     the distinct (merge request, reviewer) pairs the busiest reviewer holds. `groups` are the per-member volumes — NEUTRAL context,
+         *     never a performance verdict: commits (non-merge), counted files and lines (exclusion-aware; commits with an unknown count are left
+         *     out and counted in `commitsLinesUnknown`), merge requests merged / opened / open now, the p50 of the member's cycle and size,
+         *     and the distinct merge requests reviewed / approved / with changes requested, the comments (acts) and the review requests
+         *     received. TEAM level lists every member of the team (zeros kept); `teamId=0` lists the undecided unlinked identities (named by
+         *     their GitLab display name or username) and the linked people with no membership. Counts are never hidden; the distributions
+         *     and p50 cells are hidden under `meta.minSampleSize`. 400: a missing or malformed `teamId`, a malformed or conflicting
+         *     period, more than 8 `accountId`, a bad `tailPercent`, an unknown or inactive team, an unknown or non-GitLab `connectionId`.
+         */
+        get: operations["getReportCodeActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/reported-time-ratio": {
         parameters: {
             query?: never;
@@ -5482,6 +5532,245 @@ export interface components {
             /** @description Why the WIP rows are empty or partial; absent otherwise. */
             note?: string;
         };
+        CodeActivityReport: {
+            /** @description The JIRA star's (`derivedAt`, `configRevision`): the roster, names and sprints come from it. The code figures' freshness is `sources`. */
+            meta: components["schemas"]["ReportMeta"];
+            /** @description The GitLab sources read, in connection order; empty while no GitLab source is active. */
+            sources: components["schemas"]["CodeActivitySource"][];
+            quality: components["schemas"]["CodeActivityQuality"];
+            flow: components["schemas"]["CodeActivityFlow"];
+            open: components["schemas"]["CodeActivityOpen"];
+            /** @description Absent while no merged merge request has its details read. */
+            review?: components["schemas"]["CodeActivityReview"];
+            /** @description The per-member volumes. NEUTRAL context — no tint, rank or verdict. */
+            groups: components["schemas"]["CodeActivityGroup"][];
+        };
+        CodeActivitySource: {
+            /** Format: int32 */
+            connectionId: number;
+            name: string;
+            /** @description The organisation's own GitLab origin (D12); the drill links to commits and merge requests build on it. */
+            baseUrl: string;
+            /**
+             * Format: int64
+             * @description Epoch millis of the last successful sync; absent before the first.
+             */
+            lastSyncAt?: number;
+            /**
+             * Format: int64
+             * @description Commits whose files are still unread, as of the last data profile (their counted lines are unknown meanwhile).
+             */
+            commitFilesPending: number;
+            /**
+             * Format: int64
+             * @description Merge requests whose details are still unread, as of the last data profile.
+             */
+            mrDetailsPending: number;
+        };
+        /** @description What the sources hold that no figure can use, connection-wide for the period. */
+        CodeActivityQuality: {
+            /**
+             * Format: int32
+             * @description Identity keys with activity in the period and NO decision at all (the ones that need an administrator); a key decided BOT or IGNORED counts nowhere.
+             */
+            unlinkedIdentities: number;
+            /**
+             * Format: int64
+             * @description Their non-merge commits committed in the period.
+             */
+            unlinkedCommits: number;
+            /**
+             * Format: int64
+             * @description Their merge requests created or merged in the period.
+             */
+            unlinkedMergeRequests: number;
+            /**
+             * Format: int64
+             * @description Their dated acts on live merge requests in the period.
+             */
+            unlinkedEvents: number;
+            /**
+             * Format: int64
+             * @description Non-merge commits of the period with an unknown counted figure (left out of every sum, never zero).
+             */
+            commitsLinesUnknown: number;
+            /**
+             * Format: int64
+             * @description Merge requests merged in the period with an unknown diff total (left out of the size figures, never zero).
+             */
+            mrsSizeUnknown: number;
+            /**
+             * Format: int64
+             * @description Merge requests merged in the period whose details were not read (left out of the review figures, never 'unreviewed').
+             */
+            mrsDetailsNotRead: number;
+            /**
+             * Format: int64
+             * @description Events with no time on the merge requests created or merged in the period (in no period).
+             */
+            eventsUndated: number;
+        };
+        CodeActivityShare: {
+            /** Format: int32 */
+            count: number;
+            /**
+             * Format: double
+             * @description The count over the merged merge requests whose details were read; absent when there is none.
+             */
+            share?: number;
+        };
+        CodeActivityWeek: {
+            /**
+             * Format: date
+             * @description The Monday that starts the week in the configured zone.
+             */
+            bucketStart: string;
+            /** Format: int32 */
+            merged: number;
+        };
+        CodeActivityFlow: {
+            /**
+             * Format: int32
+             * @description Merge requests merged in the period by authors of the team at `merged_at`; the sum of `weekly`.
+             */
+            merged: number;
+            /**
+             * Format: int32
+             * @description Merge requests closed without merging in the period (the author's team at `closed_at`); in no weekly bar.
+             */
+            closedUnmerged: number;
+            cycleWorkingDays: components["schemas"]["Distribution"];
+            cycleElapsedDays: components["schemas"]["Distribution"];
+            timeToFirstReviewWorkingDays: components["schemas"]["Distribution"];
+            sizeLines: components["schemas"]["Distribution"];
+            sizeFiles: components["schemas"]["Distribution"];
+            mergedWithoutReview: components["schemas"]["CodeActivityShare"];
+            mergedWithoutApproval: components["schemas"]["CodeActivityShare"];
+            /** @description Every Monday-started week of the period, oldest first, zero-filled. */
+            weekly: components["schemas"]["CodeActivityWeek"][];
+        };
+        CodeActivityOpenAge: {
+            /**
+             * Format: int32
+             * @description The waiting (non-draft) open merge requests.
+             */
+            n: number;
+            /** @description True under `meta.minSampleSize`; the percentiles are then absent. */
+            hidden: boolean;
+            /** Format: double */
+            p50?: number;
+            /** Format: double */
+            p85?: number;
+        };
+        /** @description The open merge requests now, whose author belongs to the team now. */
+        CodeActivityOpen: {
+            /**
+             * Format: int32
+             * @description The non-draft open merge requests (a draft is not waiting for review).
+             */
+            count: number;
+            /** Format: int32 */
+            drafts: number;
+            age: components["schemas"]["CodeActivityOpenAge"];
+        };
+        CodeActivityReview: {
+            /**
+             * Format: int32
+             * @description The merged merge requests whose details were read.
+             */
+            n: number;
+            /**
+             * Format: double
+             * @description Distinct reviewers per merged merge request, zeros included; absent under `meta.minSampleSize`.
+             */
+            reviewersPerMergedMrP50?: number;
+            /**
+             * Format: double
+             * @description The share of the distinct (merge request, reviewer) pairs held by the busiest reviewer; absent under `meta.minSampleSize` and with no pair.
+             */
+            topReviewerShare?: number;
+        };
+        /** @description One member's volumes over the period — NEUTRAL context. */
+        CodeActivityGroup: {
+            /**
+             * Format: int32
+             * @description Not sent today: every group sits in the request's team.
+             */
+            teamId?: number;
+            /** @description The LINKED Jira account; absent for an unlinked identity (`teamId=0` only). */
+            accountId?: string;
+            /** @description The Jira display name (the account id when none is known); for an unlinked identity its GitLab display name or username, absent for a ghost. */
+            label?: string;
+            /**
+             * Format: int32
+             * @description Non-merge commits committed in the period.
+             */
+            commits: number;
+            /**
+             * Format: int64
+             * @description Counted files (exclusion-aware) of the commits whose counts are known.
+             */
+            filesChanged: number;
+            /**
+             * Format: int64
+             * @description Counted additions (exclusion-aware); not a merge request's size, which is exclusion-blind.
+             */
+            linesAdded: number;
+            /** Format: int64 */
+            linesDeleted: number;
+            /**
+             * Format: int32
+             * @description Commits left out of the three sums because a counted figure is unknown.
+             */
+            commitsLinesUnknown: number;
+            /** Format: int32 */
+            mrsMerged: number;
+            /**
+             * Format: int32
+             * @description Merge requests created in the period, later merged or closed included.
+             */
+            mrsOpened: number;
+            /**
+             * Format: int32
+             * @description Open now, drafts included.
+             */
+            openMrs: number;
+            /**
+             * Format: double
+             * @description Absent under `meta.minSampleSize` merged merge requests.
+             */
+            mrCycleWorkingDaysP50?: number;
+            /**
+             * Format: double
+             * @description Of the merged merge requests with a known size; absent under `meta.minSampleSize`.
+             */
+            mrSizeLinesP50?: number;
+            /**
+             * Format: int32
+             * @description Distinct merge requests (not the member's own) with at least one review-kind event.
+             */
+            reviewsGiven: number;
+            /**
+             * Format: int32
+             * @description Distinct merge requests approved (approve, unapprove, approve is one).
+             */
+            approvalsGiven: number;
+            /**
+             * Format: int32
+             * @description Distinct merge requests with changes requested.
+             */
+            changesRequestedGiven: number;
+            /**
+             * Format: int32
+             * @description Comment and diff-comment acts, none excluded.
+             */
+            comments: number;
+            /**
+             * Format: int32
+             * @description Distinct merge requests that named the member as a reviewer.
+             */
+            reviewRequestsReceived: number;
+        };
         CycleTimeReport: {
             meta: components["schemas"]["ReportMeta"];
             /** @description `cycle_ms` in wall-clock days per DONE level-0 task. */
@@ -7419,6 +7708,8 @@ export interface components {
         ReportWorkCategory: string;
         /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
         ReportConnectionId: number;
+        /** @description Restricts to one ACTIVE GitLab data source (a Jira, deleted or unknown id is `400`). Defaults to every active GitLab data source, a disabled one included. */
+        ReportCodeConnectionId: number;
         /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
         ReportTailPercent: number;
         /** @description The time resolution of a report's bucketed series; weeks start Monday, buckets in the configured zone. */
@@ -11073,6 +11364,53 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReportDrillItems"];
+                };
+            };
+            304: components["responses"]["NotModified"];
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportCodeActivity: {
+        parameters: {
+            query: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description The team (required: this report carries no domain slice, so a request without `teamId` is `400`). Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId: components["parameters"]["ReportTeamIdRequired"];
+                /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountIds"];
+                /** @description Restricts to one ACTIVE GitLab data source (a Jira, deleted or unknown id is `400`). Defaults to every active GitLab data source, a disabled one included. */
+                connectionId?: components["parameters"]["ReportCodeConnectionId"];
+                /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
+                tailPercent?: components["parameters"]["ReportTailPercent"];
+            };
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The code activity report */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodeActivityReport"];
                 };
             };
             304: components["responses"]["NotModified"];

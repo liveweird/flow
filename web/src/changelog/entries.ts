@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.39.0",
+    date: "2026-11-01",
+    en: `**The API for the coming Code activity report.**
+
+- A new endpoint, \`GET /api/v1/reports/code-activity\`, reports a team's merge-request flow over the GitLab data: cycle time, time to first review, merge requests merged without review or approval, open merge requests waiting, size, the weekly merged count and review concentration. Next to them it lists each member's commits, merge requests and reviews as plain context, not a score.
+- Code is attributed through the GitLab identity links an administrator confirmed, and to the team the person belonged to on the day of each commit, merge request or review. Identities still waiting for a decision are counted, so you can see how much is left unattributed; identities marked as bots or ignored count nowhere.
+- There is no page for it yet: the Code activity page comes in the next release.`,
+    pl: `**API nadchodzącego raportu Aktywność w kodzie.**
+
+- Nowy punkt końcowy, \`GET /api/v1/reports/code-activity\`, raportuje przepływ merge requestów zespołu na podstawie danych z GitLaba: czas realizacji, czas do pierwszego przeglądu, merge requesty włączone bez przeglądu lub zatwierdzenia, otwarte merge requesty czekające na przegląd, rozmiar, tygodniową liczbę włączonych oraz koncentrację przeglądów. Obok podaje commity, merge requesty i przeglądy poszczególnych osób jako samo tło, a nie ocenę.
+- Kod jest przypisywany przez powiązania tożsamości GitLab potwierdzone przez administratora oraz do zespołu, do którego osoba należała w dniu danego commita, merge requesta lub przeglądu. Tożsamości czekające jeszcze na decyzję są liczone, więc widać, ile pozostaje nieprzypisane; tożsamości oznaczone jako boty lub pomijane nie są liczone nigdzie.
+- Strony dla tego raportu jeszcze nie ma: strona Aktywność w kodzie pojawi się w następnym wydaniu.`,
+  },
+  {
     version: "1.38.1",
     date: "2026-11-01",
     en: `**A second data source's metrics no longer wait on stale database statistics.**

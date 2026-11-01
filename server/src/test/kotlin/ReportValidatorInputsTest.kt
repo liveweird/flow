@@ -1,6 +1,9 @@
 package ch.nokillswit
 
 import ch.nokillswit.flowusers.FlowUserRole
+import ch.nokillswit.identities.CodeIdentityDecision
+import ch.nokillswit.identities.CodeIdentityLinkStore
+import ch.nokillswit.identities.IdentityLink
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobsService
@@ -26,6 +29,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
+import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -196,6 +200,68 @@ class ReportValidatorInputsTest {
             assertNotNull(deleted)
             suspendTransaction(sharedDatabaseForTests()) { c.update({ c.id eq connectionId }) { it[purgedAt] = 5_000L } }
             assertNotEquals(deleted, client.conditional("/api/v1/reports/filters", "*").headers[HttpHeaders.ETag], "the purge")
+        }
+
+    @Test
+    fun `the code report's validator also carries the GitLab inputs - links, sync activity, the source - and a Jira report's does not`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val client = seededClient("etag-code")
+            val adminId = TestUsers.seed(uniqueEmail("etag-code-admin"), "pw", role = FlowUserRole.ADMIN)
+            val db = sharedDatabaseForTests()
+            val links = CodeIdentityLinkStore(db)
+            val zone = ZoneId.of(DerivedStubFixture.metricsSettings().read().timeZone)
+            withCodeWorld(zone) {
+                application.attributes[ReportServiceKey].clock = { now }
+                val code = "/api/v1/reports/code-activity?teamId=$teamId&from=2026-03-02&to=2026-03-15&connectionId=$connId"
+                val jiraSide = listOf("/api/v1/reports/filters", "/api/v1/reports/home")
+                val jiraBefore = jiraSide.map { client.etagOf(it) }
+                val j = SyncJobsService.Jobs
+                val c = DataSourceService.Connections
+                val tags = mutableListOf(client.etagOf(code))
+                suspend fun moved(what: String) {
+                    val next = client.etagOf(code)
+                    assertNotEquals(tags.last(), next, what)
+                    assertEquals(jiraBefore, jiraSide.map { client.etagOf(it) }, "$what must not move a Jira report's tag")
+                    tags += next
+                }
+                try {
+                    // `links:<host>:<count>:<newest decided_at>`: an insert (count), an overwrite (newest instant) and a delete (count).
+                    links.insertIfAbsent(IdentityLink(source.host, kU, CodeIdentityDecision.IGNORED, null, adminId.toLong(), 1L))
+                    moved("a link written")
+                    links.update(IdentityLink(source.host, kU, CodeIdentityDecision.BOT, null, adminId.toLong(), 7L))
+                    moved("a link overwritten")
+                    links.delete(source.host, kU)
+                    moved("a link removed")
+
+                    // `code-ingest:`: a SYNC (its PROCESS pages) moves with the heartbeat, page by page, and with its end.
+                    val job = SyncJobsService(db, 3).requestJob(connId, SyncJobKind.SYNC, adminId, configRevision = 1L).jobId
+                    moved("a job enqueued")
+                    suspendTransaction(db) { j.update({ j.id eq job }) { it[heartbeatAt] = 1_000L } }
+                    moved("the first committed page")
+                    suspendTransaction(db) { j.update({ j.id eq job }) { it[heartbeatAt] = 2_000L } }
+                    moved("the next page")
+                    suspendTransaction(db) { j.update({ j.id eq job }) { it[finishedAt] = 3_000L; it[status] = "SUCCEEDED" } }
+                    moved("the run's end")
+
+                    // `code:`: what sources[] prints.
+                    suspendTransaction(db) { c.update({ c.id eq connId }) { it[lastSyncSucceededAt] = 4_000L } }
+                    moved("a last successful sync")
+                    suspendTransaction(db) { c.update({ c.id eq connId }) { it[name] = "etag-code-renamed-${System.nanoTime()}" } }
+                    moved("a source rename")
+                    // The negative control for the stamp itself: an unrelated write to the row moves nothing.
+                    suspendTransaction(db) { c.update({ c.id eq connId }) { it[updatedAt] = nowPlus(1) } }
+                    assertEquals(tags.last(), client.etagOf(code), "updated_at is not stamped")
+                } finally {
+                    PostgresTestSupport.connect().use { conn ->
+                        conn.prepareStatement("DELETE FROM sync_jobs WHERE connection_id = ?").use {
+                            it.setInt(1, connId.toInt())
+                            it.executeUpdate()
+                        }
+                    }
+                    TestUsers.softDelete(adminId)
+                }
+            }
         }
 
     private fun nowPlus(extraMs: Long): Long = System.currentTimeMillis() + extraMs

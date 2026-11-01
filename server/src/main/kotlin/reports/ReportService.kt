@@ -55,6 +55,8 @@ class ReportService(
     internal val codeIdentity: String = REPORT_CODE_IDENTITY,
     /** Person trend's peer-cell cache (`PersonTrendCache.kt`): one per `Application`, sized by `reports.peerCellCache.maxEntries`. */
     internal val peerCells: PeerCellCache = PeerCellCache(),
+    /** What Report 21 (Code activity) reads beyond the Jira star; null where nothing serves it (the other reports never need it). */
+    internal val codeDeps: CodeActivityDeps? = null,
 ) {
     /**
      * The clock every report route reads `now` from — the figures' and the ETag stamp's alike. `var` only so a test can pin it

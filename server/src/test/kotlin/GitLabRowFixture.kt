@@ -38,6 +38,26 @@ object GitLabRowFixture {
         }[DataSourceService.Connections.id].value
     }
 
+    /** A disabled `JIRA_CLOUD` row (settings are never decoded for the kind): the "another kind" a GitLab-only path must refuse. */
+    suspend fun insertJira(namePrefix: String): UInt = suspendTransaction(sharedDatabaseForTests()) {
+        val stamp = System.currentTimeMillis()
+        DataSourceService.Connections.insert {
+            it[kind] = DataSourceKind.JIRA_CLOUD.name
+            it[name] = "$namePrefix-${UUID.randomUUID().toString().take(8)}"
+            it[enabled] = false
+            it[secret] = ""
+            it[settings] = MINIMAL_SETTINGS
+            it[syncIntervalMinutes] = 60
+            it[backfillFrom] = "2025-01-01"
+            it[reconcileHourUtc] = 3
+            it[configRevision] = 1
+            it[consecutiveFailures] = 0
+            it[createdAt] = stamp
+            it[updatedAt] = stamp
+            it[markedAsDeleted] = false
+        }[DataSourceService.Connections.id].value
+    }
+
     /** Hard delete (jobs first: the queue's FK), so no GITLAB row outlives its test in the shared table. */
     fun remove(connectionId: UInt) {
         PostgresTestSupport.connect().use { c ->
