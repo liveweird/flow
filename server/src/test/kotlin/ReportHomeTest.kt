@@ -481,11 +481,19 @@ class ReportHomeTest {
         val overview = service().home(DerivedStubFixture.PINNED_NOW, listOf(team))
         assertTrue(overview.code.sources.isEmpty() && !overview.code.overBudget)
         assertTrue(overview.teams.all { it.code == null })
-        // The timing baseline (build-times.md "In-test targets"): the picked team over HTTP, the second request.
+        // The same over HTTP, where the code layer IS wired: no source, no section. A class earlier in the fork may leave a GitLab source
+        // active, so the expectation follows the database (the active GitLab connections), not an assumption about class order.
         val client = seededClient("home-timing", FlowUserRole.USER)
         application.attributes[ReportServiceKey].clock = { DerivedStubFixture.PINNED_NOW }
         val url = "/api/v1/reports/home?teamId=$team"
-        assertEquals(HttpStatusCode.OK, client.get(url).status)
+        val gitlab = jdbcRows("SELECT count(*) FROM source_connections WHERE kind = 'GITLAB' AND marked_as_deleted = false")
+        val active = (gitlab.single()[0] as Number).toInt()
+        val answer = client.get(url)
+        assertEquals(HttpStatusCode.OK, answer.status)
+        val over = answer.body<HomeOverview>()
+        assertEquals(active, over.code.sources.size, "the sources are the active GitLab connections")
+        if (active == 0) assertTrue(over.teams.all { it.code == null }, "no source, no code figures")
+        // The timing baseline (build-times.md "In-test targets"): the picked team over HTTP, the second request.
         val started = System.nanoTime()
         assertEquals(HttpStatusCode.OK, client.get(url).status)
         println("in-test\thome-90d\t${(System.nanoTime() - started) / 1_000_000L}")

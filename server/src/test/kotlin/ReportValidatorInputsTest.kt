@@ -223,9 +223,9 @@ class ReportValidatorInputsTest {
                     "/api/v1/reports/compare-people/items?$people&segmentAccountId=$accA&view=COMMITS",
                     "/api/v1/reports/person-trend?$period&accountId=$accA",
                     "/api/v1/reports/person-trend/items?$period&accountId=$accA&pointEnd=2026-03-15&view=MRS_MERGED",
-                    // Home's Code section reads the same rows (1.44.0): the overview and its drill carry the stamp lines too.
+                    // Home's Code section reads the same rows (1.44.0): the overview and its CODE_* drills carry the stamp lines too.
                     "/api/v1/reports/home",
-                    "/api/v1/reports/home/items?view=TASK_CYCLE&teamId=$teamId",
+                    "/api/v1/reports/home/items?view=CODE_MERGED&teamId=$teamId",
                 )
                 // The Jira-only reports read no GitLab row: not one of them may move (the cycle-time report is a team report).
                 val cycle = "/api/v1/reports/cycle-time?teamId=$teamId&$period"
@@ -233,6 +233,8 @@ class ReportValidatorInputsTest {
                 val jiraDrills = listOf(
                     "/api/v1/reports/compare-people/items?$people&segmentAccountId=$accA&view=DELIVERED",
                     "/api/v1/reports/person-trend/items?$period&accountId=$accA&pointEnd=2026-03-15&view=DELIVERED",
+                    // Home's Jira views read no GitLab row either.
+                    "/api/v1/reports/home/items?view=TASK_CYCLE&teamId=$teamId",
                 )
                 val jiraSide = listOf("/api/v1/reports/filters", cycle) + jiraDrills
                 val jiraBefore = jiraSide.map { client.etagOf(it) }

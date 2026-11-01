@@ -83,7 +83,7 @@ data class HomeThroughput(
     val cycleP85: HomeFigure,
 )
 
-/** Section 7: counts of findings. The task ones are done-in-window (with a trend); the epic ones are Data quality's population (none). */
+/** Section 8 (the last card): counts of findings. The task ones are done-in-window (with a trend); the epic ones are Data quality's. */
 @Serializable
 data class HomeQuality(
     val tasksNoEstimate: HomeFigure,
@@ -95,7 +95,7 @@ data class HomeQuality(
 )
 
 /**
- * Section 8, one team's Code figures (Report 21's own, `HomeCode.kt`): the merge requests merged in the window, their cycle p50 (working
+ * Section 7, one team's Code figures (Report 21's own, `HomeCode.kt`): the merge requests merged in the window, their cycle p50 (working
  * days), the open ones now ([openCount] waiting, [openDrafts] beside; no trend) with their age p50 and the merged-without-review share
  * ([HomeFigure.numerator] = the count, [HomeFigure.n] = the merged merge requests whose details were read; the share is hidden under
  * `minSampleSize`, the count never). [linkedMembers] = the team's people with at least one linked GitLab identity.

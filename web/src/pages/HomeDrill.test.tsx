@@ -4,6 +4,7 @@ import { Route, Routes, useLocation } from "react-router-dom";
 import Home from "./Home";
 import { jsonResponse } from "../test/http";
 import { chartRenders } from "../test/homeChartsMock";
+import type { HomeOverview } from "../api/home";
 import { HOME } from "../test/homeFixtures";
 import { codeMrItems } from "../test/codeActivityFixtures";
 import { FILTERS, histogramItems, SPRINT_ITEMS } from "../test/reportFixtures";
@@ -16,9 +17,9 @@ type FetchMock = ReturnType<typeof vi.fn>;
 
 const HOME_ITEMS_PREFIX = "/api/v1/reports/home/items?";
 
-function serve(mockFetch: FetchMock, homeItems: (url: string) => Response = () => jsonResponse(200, histogramItems(11, 0, null, 5.5))) {
+function serve(mockFetch: FetchMock, homeItems: (url: string) => Response = () => jsonResponse(200, histogramItems(11, 0, null, 5.5)), overview: HomeOverview = HOME) {
   mockFetch.mockImplementation((url: string) => {
-    if (url === "/api/v1/reports/home" || url.startsWith("/api/v1/reports/home?teamId=")) return Promise.resolve(jsonResponse(200, HOME));
+    if (url === "/api/v1/reports/home" || url.startsWith("/api/v1/reports/home?teamId=")) return Promise.resolve(jsonResponse(200, overview));
     if (url === "/api/v1/reports/filters") {
       return Promise.resolve(jsonResponse(200, { ...FILTERS, connections: [{ id: 1, name: "Stub", siteUrl: "https://jira.example" }] }));
     }
@@ -134,7 +135,7 @@ describe("Home page — drilling into the items behind a figure", () => {
     expect(button).toHaveFocus();
   });
 
-  test("the open and the merged-without-review counts ask their own views; a deep link to a code view of a team with no code figures is dropped", async () => {
+  test("the open and the merged-without-review counts ask their own views", async () => {
     serve(mockFetch, () => jsonResponse(200, codeMrItems(3)));
     const user = userEvent.setup();
     renderHome();
@@ -359,6 +360,18 @@ describe("Home page — drilling into the items behind a figure", () => {
     renderHome(`/?drill=${drill}`);
     await dialog(name);
     expect(itemsCalls(mockFetch, HOME_ITEMS_PREFIX)).toEqual([request]);
+  });
+
+  test.each([
+    ["no GitLab source", { sources: [], overBudget: false }],
+    ["a code read over the row budget", { sources: HOME.code.sources, overBudget: true }],
+  ])("a deep link to a code view while there are no code figures (%s) is dropped, never a drawer that answers a 400", async (_name, code) => {
+    serve(mockFetch, undefined, { ...HOME, code, teams: HOME.teams.map((team) => ({ ...team, code: null })) });
+    renderHome("/?drill=home:CODE_MERGED:1");
+    await ready();
+    await waitFor(() => expect(screen.getByTestId("where").textContent).toBe(""));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(itemsCalls(mockFetch, HOME_ITEMS_PREFIX)).toEqual([]);
   });
 
   test("deep links to a week and a sprint open too", async () => {

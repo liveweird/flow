@@ -1,5 +1,7 @@
 package ch.nokillswit.reports
 
+import org.slf4j.LoggerFactory
+
 /*
  * The Home overview's Code section (`.claude/docs/reports.md` "Home overview" and "Report 21"): per picked team, four figures of Report 21
  * -- merged merge requests, the merge-request cycle p50, the open ones now with their age p50, merged without review -- each computed by
@@ -13,6 +15,8 @@ package ch.nokillswit.reports
  * no actor events and no review requests (`CodeRowReads(false, false, false)`). It takes no `CodeReadPermits` permit (it never reads
  * `teamId=0`); `reports.codeMaxRows` is its heap bound, and over it the section degrades (D1) instead of failing the page.
  */
+
+private val log = LoggerFactory.getLogger("ch.nokillswit.reports.HomeCode")
 
 /** What Home read of the code layer: the [sources] (empty: none active), the listed teams' [rosters], who is [linked] and the [data]. */
 internal class HomeCodeRead(
@@ -48,6 +52,8 @@ internal suspend fun ReportService.readHomeCode(ctx: HomeContext, listed: Collec
     val data = try {
         loadCodeRows(deps.resolver, request, CodeRowBudget(deps.maxRows))
     } catch (_: CodeRowBudgetExceededException) {
+        // Not an audit event (observability.md "Code-read refusals"): one INFO with the budget and the team ids, no names.
+        log.info("Home's code section is over reports.codeMaxRows ({}): teams {} listed without it", deps.maxRows, listed.sorted())
         null
     }
     return HomeCodeRead(sources, freshness, rosters, linked, data, overBudget = data == null)
@@ -91,6 +97,12 @@ internal fun HomeContext.homeTeamCode(read: HomeCodeRead, team: UInt): HomeTeamC
         openAgeP50 = Measured(open.ageP50, open.count, open.ageHidden).toFigure(),
         mergedWithoutReview = trended(HomeMeasure.CODE_WITHOUT_REVIEW, before.withoutReview(minSample), now.withoutReview(minSample)),
     )
+}
+
+/** Whether [this] lists merge requests of the code layer (its tag carries the GitLab stamp lines, a Jira view's does not). */
+internal fun HomeDrillView.isCodeView(): Boolean = when (this) {
+    HomeDrillView.CODE_MERGED, HomeDrillView.CODE_OPEN, HomeDrillView.CODE_MERGED_WITHOUT_REVIEW -> true
+    else -> false
 }
 
 /** Report 21's drill view behind a Code figure: the item SET of the figure (the cycle p50 lists the merged ones, the age p50 open). */

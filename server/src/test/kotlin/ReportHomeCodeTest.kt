@@ -15,7 +15,9 @@ import ch.nokillswit.reports.HomeTeam
 import ch.nokillswit.reports.HomeTeamCode
 import ch.nokillswit.reports.HomeWindow
 import ch.nokillswit.reports.ReportDrillItems
+import ch.nokillswit.reports.ReportService
 import ch.nokillswit.reports.ReportServiceKey
+import ch.nokillswit.reports.home
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -296,6 +298,12 @@ class ReportHomeCodeTest {
             assertTrue(overview.code.sources.isNotEmpty(), "the sources stay listed")
             assertEquals(3, overview.teams.size)
             overview.teams.forEach { assertNull(it.code, "${it.name}: no code section") }
+            // The Jira sections are intact: a within-budget answer differs from this one in the code part alone (a service with no code
+            // layer wired answers the Jira half of the very same overview, at the same pinned clock).
+            val settings = DerivedStubFixture.metricsSettings()
+            val jiraOnly = ReportService(sharedDatabaseForTests(), settings, TeamMembershipService(sharedDatabaseForTests(), settings))
+                .home(NOW, picked)
+            assertEquals(jiraOnly, overview.copy(code = jiraOnly.code), "the Jira half equals a within-budget answer's")
             // The drill is a user action with a clear message: Report 21's plain 400, not a degraded list.
             val drill = user.get("/api/v1/reports/home/items?view=CODE_MERGED&teamId=$first")
             assertEquals(HttpStatusCode.BadRequest, drill.status)

@@ -412,6 +412,7 @@ describe("Home page — the overview of every team", () => {
     serve(mockFetch, () => jsonResponse(500, { title: "Boom", status: 500 }));
     await queryClient.refetchQueries({ queryKey: ["home"] });
     expect(await screen.findByRole("alert")).toBeInTheDocument();
+    // Nothing the reader was looking at went away.
     expect(sections()).toHaveLength(8);
     expect(screen.getByRole("group", { name: "How fresh the data is" })).toBeInTheDocument();
   });
@@ -428,6 +429,7 @@ describe("Home page — the overview of every team", () => {
     serve(mockFetch);
     renderHome();
     await ready();
+    // The lazy chart chunks show their own "Loading…" status until they mount: wait for them, then read the live region.
     await waitFor(() => expect(screen.getAllByRole("status")).toHaveLength(1));
     expect(screen.getByRole("status")).toBeEmptyDOMElement();
     expect(sections()).toHaveLength(8);

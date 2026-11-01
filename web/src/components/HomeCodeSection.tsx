@@ -6,6 +6,7 @@ import type { HomeFigure, HomeOverview, HomeTeam } from "../api/home";
 import { useAdmin } from "../auth";
 import classes from "../theme.module.css";
 import { overviewLink, sectionAnchor, trendOf, windowFilter, type OpenDrill } from "../utils/homeOverview";
+import { dataSourceIdentitiesPath } from "../utils/dataSourceLinks";
 import { codeActivityPath } from "../utils/reportLinks";
 import { formatDays, formatPercent } from "../utils/reportFormat";
 import DrillFigure from "./DrillFigure";
@@ -128,7 +129,7 @@ export default function HomeCodeSection({ overview, open }: { overview: HomeOver
           </Text>
           {admin &&
             overview.code.sources.map((source) => (
-              <Anchor key={source.connectionId} component={RouterLink} to={`/data-sources/${source.connectionId}/identities`} size="sm" display="block">
+              <Anchor key={source.connectionId} component={RouterLink} to={dataSourceIdentitiesPath(source.connectionId)} size="sm" display="block">
                 {t("home.code.linkIdentities", { name: source.name })}
               </Anchor>
             ))}
