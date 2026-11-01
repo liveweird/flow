@@ -1,6 +1,9 @@
 package ch.nokillswit.reports
 
+import ch.nokillswit.authz.TooManyRequestsException
 import io.ktor.server.plugins.BadRequestException
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.r2dbc.Query
 
@@ -9,11 +12,18 @@ import org.jetbrains.exposed.v1.r2dbc.Query
  * commit, merge request and review event rows (the rows the JVM holds and attributes), whatever the level -- the whole team, a USER's
  * picks or the UNASSIGNED bucket's every key. Every row statement is limited to ONE row more than the budget has left, so an
  * over-budget read is DETECTED (the extra row arrives), never silently cut; the charge after the statement then refuses the request
- * with a 400 that tells the caller to narrow it. A request exactly at the budget answers as it always did.
+ * with a 400 that tells the caller to narrow it. A request exactly at the budget answers as it always did. The row budget bounds ONE
+ * request's heap; [CodeReadPermits] bounds how many such requests run at once, so the product is bounded too.
  */
 
 /** The default of `reports.codeMaxRows`: well above any real selection (a 70-developer quarter is far below it), far below a heap. */
 internal const val DEFAULT_CODE_MAX_ROWS = 100_000
+
+/** The default of `reports.codeReadPermits`: Report 21 computations (and drills) that may run at once in one web process. */
+internal const val DEFAULT_CODE_READ_PERMITS = 2
+
+/** The ceiling of `reports.codeReadPermits`. */
+internal const val MAX_CODE_READ_PERMITS = 64
 
 /** The ceiling of `reports.codeMaxRows` (a larger budget is no bound at all for the heap it protects). */
 internal const val MAX_CODE_MAX_ROWS = 5_000_000
@@ -52,4 +62,32 @@ internal suspend fun <T> Query.toBudgetedList(budget: CodeRowBudget, map: (Resul
     limit(budget.limit).collect { rows += map(it) }
     budget.charge(rows.size)
     return rows
+}
+
+/**
+ * The per-process gate of Report 21's computation and its drill (the only reads that can hold [CodeRowBudget]'s worth of rows): at most
+ * `count` run at once; a request waits up to [waitMs] (the statement budget) for a permit, then answers a 429. Taken BEFORE the report
+ * transaction opens, so a waiter holds no pooled connection. Precedent: `ingest/RawIssueInspectorRoutes.kt`'s semaphore.
+ */
+class CodeReadPermits(count: Int, private val waitMs: Long) {
+    private val gate = Semaphore(count)
+
+    /**
+     * Runs [block] holding a permit. The permit is released in `finally`, and a cancellation (a client that left) while waiting takes
+     * none: `acquired` is set in the statement right after `acquire` returns, with no suspension point between, and a cancelled
+     * `acquire` gives its permit back itself.
+     */
+    internal suspend fun <T> withPermit(block: suspend () -> T): T {
+        var acquired = false
+        try {
+            withTimeoutOrNull(waitMs) {
+                gate.acquire()
+                acquired = true
+            }
+            if (!acquired) throw TooManyRequestsException("Too many code activity reports are being computed at once - retry in a moment")
+            return block()
+        } finally {
+            if (acquired) gate.release()
+        }
+    }
 }

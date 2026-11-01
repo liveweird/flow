@@ -15,7 +15,17 @@ class CodeActivityDeps(
     val resolver: IdentityResolver,
     /** `reports.codeMaxRows`: the per-request row budget of every code read (`CodeActivityBudget.kt`). */
     val maxRows: Int = DEFAULT_CODE_MAX_ROWS,
+    /** `reports.codeReadPermits`: how many Report 21 computations and drills run at once (`CodeActivityBudget.kt`). */
+    val permits: CodeReadPermits = CodeReadPermits(DEFAULT_CODE_READ_PERMITS, DEFAULT_REPORT_STATEMENT_TIMEOUT_SECONDS * 1000L),
 )
+
+/**
+ * Runs [block] (a Report 21 read) under the per-process permit gate. Called OUTSIDE `reportTransaction`: the route has no transaction
+ * open at this point (the validators' own are closed), and a request waiting for a permit must hold no pooled connection. A 304 never
+ * gets here (`respondRevalidated` runs the answer only on a cache miss).
+ */
+internal suspend fun <T> ReportService.withCodeReadPermit(block: suspend () -> T): T =
+    checkNotNull(codeDeps) { "the code activity report is not configured on this service" }.permits.withPermit(block)
 
 private val PROFILE_JSON = Json { ignoreUnknownKeys = true }
 
@@ -27,7 +37,10 @@ private val PROFILE_JSON = Json { ignoreUnknownKeys = true }
  * sprint-relative window and `resolvedSprints` over the JIRA star (it is given no `connectionId`: that one names a GitLab source here,
  * and a Jira one is the same `400` as an unknown one).
  */
-internal suspend fun ReportService.codeActivity(filter: ReportFilter, nowMs: Long): CodeActivityReport = reportTransaction {
+internal suspend fun ReportService.codeActivity(filter: ReportFilter, nowMs: Long): CodeActivityReport =
+    withCodeReadPermit { computeCodeActivity(filter, nowMs) }
+
+private suspend fun ReportService.computeCodeActivity(filter: ReportFilter, nowMs: Long): CodeActivityReport = reportTransaction {
     val deps = checkNotNull(codeDeps) { "the code activity report is not configured on this service" }
     val (scope, sources, data) = readCodeActivity(deps, filter, nowMs)
     val picked = pickedAccounts(filter)

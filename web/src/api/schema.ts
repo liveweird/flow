@@ -2694,7 +2694,9 @@ export interface paths {
          *     period, more than 8 `accountId`, a bad `tailPercent`, an unknown or inactive team, an unknown or non-GitLab `connectionId`, and a
          *     selection that reads more than `reports.codeMaxRows` code rows (commits, merge requests and review events; default 100000, env
          *     `REPORTS_CODE_MAX_ROWS`) — answered with a `detail` that names the budget and says to narrow the period or pick fewer people,
-         *     never with a silently cut figure.
+         *     never with a silently cut figure. 429: besides the per-user rate limit, at most `reports.codeReadPermits` (default 2, env
+         *     `REPORTS_CODE_READ_PERMITS`) Code activity computations run at once in a web process; a request waits up to the statement budget
+         *     (`reports.statementTimeoutSeconds`) for a permit and is then refused with a `detail` asking to retry in a moment.
          */
         get: operations["getReportCodeActivity"];
         put?: never;
@@ -2739,8 +2741,8 @@ export interface paths {
          *     request with that member as the only `accountId`). 400: a missing or unknown `view`, a `bucketIndex` that is not a non-negative
          *     integer, is sent with a non-histogram view or lies outside the histogram, a hidden distribution (fewer than `meta.minSampleSize`
          *     values: no bar exists), a `bucketStart` that is missing for `WEEK`, sent with another view or not a week of the period,
-         *     plus every 400 of the parent (the code-row budget one included: a selection over `reports.codeMaxRows` is refused, not cut).
-         *     The merge requests and commits link to the GitLab host of `sources[].baseUrl` of the parent.
+         *     plus every 400 of the parent (the code-row budget one included: a selection over `reports.codeMaxRows` is refused, not cut), and the
+         *     429 of the parent (a computation permit that did not free up within the statement budget). The merge requests and commits link to the GitLab host of `sources[].baseUrl` of the parent.
          */
         get: operations["getReportCodeActivityItems"];
         put?: never;

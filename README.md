@@ -342,6 +342,7 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive (`.claude/
 | `REPORTS_STATEMENT_TIMEOUT_SECONDS` | `30` | Per-statement time budget of every report read (1..3600, whole seconds); a statement over it is cancelled and answers a 500 problem (`.claude/docs/reports.md` "Query budget"). |
 | `REPORTS_PEER_CELL_CACHE_MAX_ENTRIES` | `20000` | Most cached (teammate, window) cells of Person trend's peer-cell cache per data-stamp generation, per web instance (0..50000; about 0.4 KiB each, ~8 MiB at the default; `0` turns the cache off; `.claude/docs/reports.md` "Report 20", Cost). |
 | `REPORTS_CODE_MAX_ROWS` | `100000` | Per-request row budget of the GitLab code reads (Code activity, its drill, Compare people, Person trend; 1..5000000): the most commit, merge request and review event rows one request may load. A selection over it answers a 400 ("narrow the period or pick fewer people"), never a silently cut figure (`.claude/docs/reports.md` "Report 21"). Values below a few thousand are a test seam. |
+| `REPORTS_CODE_READ_PERMITS` | `2` | How many Code activity computations (the report and its drill) one web process runs at once (1..64). A request waits up to `REPORTS_STATEMENT_TIMEOUT_SECONDS` for a permit, then answers a 429; with `REPORTS_CODE_MAX_ROWS` it bounds the heap those reads can take (`.claude/docs/reports.md` "Report 21"). |
 
 ## Useful Gradle tasks
 

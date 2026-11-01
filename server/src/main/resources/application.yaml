@@ -255,6 +255,10 @@ reports:
   # period or pick fewer people"), never a silently cut figure. The default (100000) is far above a real selection and bounds the heap one
   # request can take (build-times.md WHY 61); 1..5000000 (the floor is a test seam, production values are thousands).
   codeMaxRows: "$REPORTS_CODE_MAX_ROWS:100000"
+  # How many Code activity computations (the report and its drill) one web process runs at once (reports/CodeActivityBudget.kt
+  # CodeReadPermits). Together with codeMaxRows it bounds the heap those reads can take (permits x rows); a request waits up to
+  # statementTimeoutSeconds for a permit, then answers a 429. Taken before any pooled connection is. 1..64.
+  codeReadPermits: "$REPORTS_CODE_READ_PERMITS:2"
   peerCellCache:
     # Person trend's peer-cell cache (reports/PersonTrendCache.kt, WHY 49): at most this many cached (account, window) cells per data-stamp
     # generation, per web instance. Entries are fixed-size (~0.4 KiB measured), so the default holds ~8 MiB; a full generation refuses

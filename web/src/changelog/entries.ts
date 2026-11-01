@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.42.2",
+    date: "2026-11-01",
+    en: `**Code activity can no longer exhaust the server's memory.**
+
+- A very wide selection on the Code activity page (a long period for a whole team, or the unassigned work of a large source) is now refused with a clear message — "narrow the period or pick fewer people" — instead of loading every commit, merge request and review event it touches. A selection that fits answers exactly as before; the same limit applies to the lists behind the figures and to the code figures of Compare people and Person trend.
+- When several Code activity reports are being computed at once, the extra ones wait a moment for their turn and, if the server stays busy, ask you to retry shortly.
+- Administrators can tune both limits (\`REPORTS_CODE_MAX_ROWS\`, \`REPORTS_CODE_READ_PERMITS\`); the defaults suit a unit of about seventy developers.`,
+    pl: `**Aktywność w kodzie nie przeciąży już pamięci serwera.**
+
+- Bardzo szeroki wybór na stronie Aktywność w kodzie (długi okres dla całego zespołu albo nieprzypisana praca dużego źródła) jest teraz odrzucany z czytelnym komunikatem — „zawęź okres lub wybierz mniej osób” — zamiast wczytywać każdy commit, merge request i zdarzenie przeglądu, których dotyczy. Wybór, który się mieści, odpowiada dokładnie jak dotąd; ten sam limit obejmuje listy za liczbami oraz liczby z kodu w Porównaniu osób i Trendzie osoby.
+- Gdy naraz liczy się kilka raportów Aktywności w kodzie, kolejne chwilę czekają na swoją kolej, a jeśli serwer pozostaje zajęty, proszą o ponowną próbę za moment.
+- Administratorzy mogą dostroić oba limity (\`REPORTS_CODE_MAX_ROWS\`, \`REPORTS_CODE_READ_PERMITS\`); wartości domyślne pasują do jednostki liczącej około siedemdziesięciu programistów.`,
+  },
+  {
     version: "1.42.1",
     date: "2026-11-01",
     en: `**Code activity loads a team's review requests faster.**
