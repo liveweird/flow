@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.47.0",
+    date: "2026-11-01",
+    en: `**A new report endpoint ties done tasks to their merge requests.**
+
+- The API gains \`GET /api/v1/reports/task-code\` (Tasks and code): for a team or domain it counts the done tasks that have a merged merge request and those that have none, measures the working days from a task's start to its last merge, and counts tasks whose code merged after they were done.
+- Merge requests are matched to tasks by the Jira keys in their title or branch. There is no page for it yet; this release is for API consumers.`,
+    pl: `**Nowy punkt końcowy raportu łączy ukończone zadania z ich merge requestami.**
+
+- API zyskuje \`GET /api/v1/reports/task-code\` (Zadania i kod): dla zespołu lub domeny zlicza ukończone zadania ze scalonym merge requestem i te bez niego, mierzy dni robocze od startu zadania do ostatniego scalenia oraz zlicza zadania, których kod scalono po ich ukończeniu.
+- Merge requesty są dopasowywane do zadań po kluczach Jiry w tytule lub gałęzi. Strony dla tego raportu jeszcze nie ma; to wydanie jest dla użytkowników/użytkowniczek API.`,
+  },
+  {
     version: "1.46.0",
     date: "2026-11-01",
     en: `**Code activity links merge requests to their Jira tasks.**

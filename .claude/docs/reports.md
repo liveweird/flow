@@ -6,7 +6,7 @@ machinery every report inherits -- the filter parser, `Distribution`, the `meta`
 operational contract (grain, anchor, attribution, estimate snapshot, missing data, pinning test)
 is `.claude/docs/measures.md`; what the numbers mean is `.claude/docs/domain-model.md`.
 
-## Index of the twenty-one reports and the Home overview (twenty-six endpoints)
+## Index of the twenty-two reports and the Home overview (twenty-eight endpoints)
 
 Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit (D12), and -- bar the exempt few -- team- or domain-scoped ("Scope" below).
 
@@ -32,9 +32,10 @@ Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit 
 | 19 | Task estimates (the distribution of the DONE tasks' estimates in MD, at done and at start, in fixed 0.5-MD bars) | `/task-estimates` (+ the drill `/task-estimates/items`; SPA route `/reports/task-estimates`) | [Report 19](#report-19----task-estimates) |
 | 20 | Person trend (one person's Compare-people figures over rolling 90-day windows, a point every 14 days, across every team) | `/person-trend` (+ the drill `/person-trend/items`; page `/reports/person-trend`, 1.19.0) | [Report 20](#report-20----person-trend) |
 | 21 | Code activity (**endpoint 1.39.0, page 1.40.0 and drill 1.41.0 built**, A50: merge-request flow and per-member code activity over the GitLab `norm.code_*` layer, per team) | `/code-activity` (+ the drill `/code-activity/items`; SPA route `/reports/code-activity`) | [Report 21](#report-21----code-activity) |
+| 22 | Tasks and code (**endpoint 1.47.0 built; page and drill planned**, A51: the done tasks of a team or domain and the GitLab merge requests that name them by issue key -- code lead time, tasks with and without a merged merge request, code merged after the task was done) | `/task-code` (no drill yet; no SPA route yet) | [Report 22](#report-22----tasks-and-code) |
 | — | Home overview (up to three picked teams, 90 days beside the previous 90; not a numbered report) | `/home` (+ the drill `/home/items`; SPA route `/`) | [Home overview](#home-overview-get-apiv1reportshome) |
 
-The deep dive is three of the twenty-six endpoints: the report itself and the paged option lists its pickers read. Report 21's endpoint (1.39.0), page (1.40.0) and drill (`/code-activity/items`, 1.41.0) are built: the index counts twenty-one reports on twenty pages, and its drill makes the endpoints twenty-seven.
+The deep dive is three of the twenty-six endpoints: the report itself and the paged option lists its pickers read. Report 21's endpoint (1.39.0), page (1.40.0) and drill (`/code-activity/items`, 1.41.0) are built: the index counts twenty-one reports on twenty pages, and its drill makes the endpoints twenty-seven. Report 22's endpoint (1.47.0) makes the reports twenty-two and the endpoints twenty-eight; its page and its drill are not built, so the SPA still has twenty pages.
 
 Report 13 (item counts beside SP, backlog in sprints) is not an endpoint of its own: the item
 counts ride reports 1, 2, 6 and 10, and the backlog in sprints rides `/backlog`. The shared
@@ -63,8 +64,8 @@ pair, decided in the route BEFORE the report read, no `403`, no audit, the keys 
 shared parser (`parseReportFilter`'s `scope` parameter, `ReportScopeRule`, `reports/ReportFilter.kt`), reached by `reportGet`, the one registrar
 of every shared-filter report and drill. Three rules, each with its exact `detail` (pinned by `ReportFilterTest`):
 
-- **`TEAM_OR_DOMAIN`** (22 operations: throughput, task/epic accuracy, task estimates, adjustments, cycle time, reported time, WIP, backlog,
-  aging WIP, blocked time, data quality, Costs and their drills): a `teamId` (`0`, the UNASSIGNED bucket, counts) or a `domain`. Neither:
+- **`TEAM_OR_DOMAIN`** (23 operations: throughput, task/epic accuracy, task estimates, adjustments, cycle time, reported time, WIP, backlog,
+  aging WIP, blocked time, data quality, Costs, tasks and code (1.47.0) and their drills): a `teamId` (`0`, the UNASSIGNED bucket, counts) or a `domain`. Neither:
   `teamId or domain is required: a report is read per team or per domain, never for the whole unit`.
 - **`TEAM_ONLY`** (Commitments, Sprint consistency and its drill `/sprint-consistency/items` -- the reports with no domain slice, where
   `domain` is an ignored unknown name): a `teamId`. Neither: `teamId is required: this report carries no domain slice and is read per team, never for the whole unit`.
@@ -439,7 +440,7 @@ inputs and the capacity verdict.
   - `target:<team>:<category>:<percent>:<updated_at>` of every team's work-category targets -- read at query time by Costs (`CostsCategories.kt`), and
     their PUT (a hard delete + insert of the whole set) bumps NO revision because DERIVE never reads them, so they are stamped here. A cleared set
     leaves no line, which is itself a change.
-  - **The code-reading operations only** (built: `CodeActivityStamp.kt` `codeStamp`, added by `reportGet(withCodeStamp = true)` to the stamp of `code-activity` and `code-activity/items`, since 1.42.0 by the Compare people and Person trend routes to `compare-people`, `compare-people/items`, `person-trend` and `person-trend/items`, and since 1.44.0 by `HomeRoutes.kt` to `home` and `home/items` (Home's Code section; the lines are empty while no GitLab source is active, so a Jira-only install's tag is unchanged); a Jira-only report's tag does NOT move on a GitLab page or a link write, `ReportValidatorInputsTest` pins the seven code readers moving and `filters` and `cycle-time` staying): the lines are `code:<id>:<name>:<host>:<lastSyncSucceededAt>:<backfillFrom>` per active GitLab source, `code-ingest:<id>:<newest job id>:<last heartbeat>:<last finish>` over their SYNC / RECONCILE / REPROCESS / PURGE jobs and `links:<host>:<digest>` per host (the md5 of the host's decisions in key order: key, decision, account, `decided_at` -- not a count and a newest instant, which two different states can share when several pods decide), and (1.46.0, A51) `keys:<id>:<sha256 of the sorted projectKeys>` per active JIRA source (`IssueKeyScope.kt`: the merge-request drills show the Jira keys a merge request names within the known projects, a project-list edit bumps no revision a report stamps, and `connection:` does not carry `projectKeys`; the issue-key changes the known set also reads are the Jira star's own, covered by the Jira `ingest:` and `run:` lines every report already carries). The report reads `norm.code_*` and the identity links LIVE, which no DERIVE stamps. Person trend reads the stamp ONCE in the route (`dataStamp` + `codeStamp`) and hands the same lines to the report as the peer-cell cache's GENERATION, so the cache generation includes the code lines; the Jira-only reports stay without them.
+  - **The code-reading operations only** (built: `CodeActivityStamp.kt` `codeStamp`, added by `reportGet(withCodeStamp = true)` to the stamp of `code-activity` and `code-activity/items`, since 1.42.0 by the Compare people and Person trend routes to `compare-people`, `compare-people/items`, `person-trend` and `person-trend/items`, since 1.47.0 by `taskCodeRoutes` to `task-code`, and since 1.44.0 by `HomeRoutes.kt` to `home` and `home/items` (Home's Code section; the lines are empty while no GitLab source is active, so a Jira-only install's tag is unchanged); a Jira-only report's tag does NOT move on a GitLab page or a link write, `ReportValidatorInputsTest` pins the seven code readers moving and `filters` and `cycle-time` staying): the lines are `code:<id>:<name>:<host>:<lastSyncSucceededAt>:<backfillFrom>` per active GitLab source, `code-ingest:<id>:<newest job id>:<last heartbeat>:<last finish>` over their SYNC / RECONCILE / REPROCESS / PURGE jobs and `links:<host>:<digest>` per host (the md5 of the host's decisions in key order: key, decision, account, `decided_at` -- not a count and a newest instant, which two different states can share when several pods decide), and (1.46.0, A51) `keys:<id>:<sha256 of the sorted projectKeys>` per active JIRA source (`IssueKeyScope.kt`: the merge-request drills show the Jira keys a merge request names within the known projects, a project-list edit bumps no revision a report stamps, and `connection:` does not carry `projectKeys`; the issue-key changes the known set also reads are the Jira star's own, covered by the Jira `ingest:` and `run:` lines every report already carries). The report reads `norm.code_*` and the identity links LIVE, which no DERIVE stamps. Person trend reads the stamp ONCE in the route (`dataStamp` + `codeStamp`) and hands the same lines to the report as the peer-cell cache's GENERATION, so the cache generation includes the code lines; the Jira-only reports stay without them.
     - `code:<id>:<name>:<host>:<last_sync_succeeded_at>:<backfill_from>` of every ACTIVE GITLAB connection -- existence (`400 Unknown or inactive connectionId`), the `sources[]` block (name, `baseUrl`, `lastSyncAt`) and the backfill start; `host` is `sourceHostOf(baseUrl)`, what the links are keyed on.
     - the GitLab connections' `ingest:` lines -- the same grouped query over their SYNC/RECONCILE/REPROCESS/PURGE jobs (today it keeps `derivesMetrics()` rows only, `ReportValidators.kt:144-152`): a PROCESS commits `norm.code_*` page by page and heartbeats after each, and `sources[].commitFilesPending` / `mrDetailsPending` move with it.
     - `links:<host>:<digest>` per host of those connections (`public.code_identity_links`): the md5 of the host's decisions in key order (key, decision, account, `decided_at`), so a PUT, DELETE or confirm-proposals changes it, and nothing bumps a revision for them. Not a count and a newest instant: two different states can share both (`CodeActivityStamp.kt`).
@@ -451,7 +452,7 @@ inputs and the capacity verdict.
   (`asOfDay`, the deep dive's default day, capacity "up to today", Compare people's ages at a day end) move at local midnight -- except for the
   operations whose figures move continuously with `now`, which use `StampClock.FIVE_MINUTES` (`now / 5 min`):
   **aging WIP** (fractional working-day ages at `now`), **Home** and **`home/items`** (the same ages in the WIP figures and the WIP drills),
-  **data quality** (member-days clipped at `now`), **code-activity and its drill** (the open merge requests' ages at `now`), **`/reports/filters`** (the roster "current as of the instant") and, conservatively,
+  **data quality** (member-days clipped at `now`), **code-activity and its drill** (the open merge requests' ages at `now`), **task-code** (a picked OPEN sprint's window ends at `now`, and the merge requests are live), **`/reports/filters`** (the roster "current as of the instant") and, conservatively,
   **throughput, costs and their drills** (a picked OPEN sprint's window ends at `now`, so a worklog dated inside `(then, now]` would be missed by a
   day tag; a write would move the stamp, a future-dated Jira `started` would not). Everything else follows the derived data only.
   `ReportValidatorsTest` pins this set operation by operation (the pinned clock moved by 3 min, 6 min and a day).
@@ -470,6 +471,7 @@ inputs and the capacity verdict.
 | compare-people | day | the same, plus the memberships (`settings:`), the team managers (`team:`), **the caller's verdict** (in the tag) and the code inputs (`code:`, `code-ingest:`, `links:`, `keys:`: the `CODE` rows) |
 | compare-people/items, person-trend (+ `/items`) | day | memberships and the calendar (`settings:`); person-trend's windows also start at the backfill (`connection:`); no capacity, so no verdict; the code inputs (`code:`, `code-ingest:`, `links:`, `keys:`); person-trend also uses the whole stamp, the code lines included, as its peer-cell cache's generation |
 | code-activity (+ `/items`) | 5 min | `team:` (existence, the roster's labels), `settings:` (memberships, calendar, thresholds), `run:`/`ingest:`/`retired:` (the Jira people's names and the roster's sprints); and the code inputs above: `code:`, `code-ingest:`, `links:`, `keys:` |
+| task-code | 5 min | the cycle-time inputs (`team:`/`connection:` existence and labels, `settings:` calendar and thresholds, `run:` for the done tasks, `ingest:` for the live `norm.work_items` keys and the `issuekey` changes it resolves a key by) and the code inputs: `code:`, `code-ingest:` (the merge requests and their stored candidates), `keys:` (the known projects); `links:` rides along as it is ONE stamp, the report reads no link |
 | deep-dive and its two option lists | day | `team:`/`connection:` existence; the `norm.work_items` titles (read live) follow `run:` and `ingest:` |
 
 A change in the `norm` labels (a person's display name, an issue summary) moves the tag with the first page the SYNC commits (`ingest:`) and
@@ -2810,3 +2812,77 @@ stub's clone, proposals confirmed over HTTP, against an independent JDBC re-deri
 **As built (1.39.0).** `review` is absent while no merged merge request has its details read; `groups[].teamId` is never sent (every group sits in the request's team); an unlinked identity is named by its GitLab display name or username and never by its key (an unsalted hash of an address),
 a ghost has no label; `open.age.n` is `open.count`; `sources[].commitFilesPending` / `mrDetailsPending` come from the source's stored data profile (`DataSourceService.readProfile`, written by the PROFILE stream after every sync), `lastSyncAt` from `last_sync_succeeded_at`. `resolveReportScope` is given the filter
 WITHOUT its `connectionId` (it names a GitLab source here); a sprint period with no sprint to resolve reads nothing (empty figures, the sources still listed). A key an admin decided BOT or IGNORED is in no figure and in no unlinked count; its review acts are not "a review by another human".
+
+## Report 22 -- Tasks and code
+
+Status: **the endpoint is built (1.47.0, the plan's PR 3); the page (PR 4) and the drill (PR 5) are planned** (A51, `.claude/docs/domain-model.md`; per-measure rows in `.claude/docs/measures.md` "Report 22"). The first report that joins the two layers: the DONE tasks of a team
+or domain (the Jira star, Report 7's population) and the merge requests of the GitLab code layer that name them by issue key (`norm.code_mr_issue_keys`, V46, `.claude/docs/gitlab-integration.md` "Issue keys"). It answers three task-side questions: how long from a task's start to its code
+merging (D6), which done tasks have no merged merge request, and which tasks merged code after they were done. Reports-layer only: **no migration, no `DERIVE` step, no new job kind**; any signed-in user (D12), read-only, no audit; answers `200`/`304`/`400`/`401`/`429`/`500`
+(the `429` is the per-user rate bucket only: this report takes no computation permit).
+
+### Endpoint and parameters
+
+- `GET /api/v1/reports/task-code?teamId=T | domain=D[&from&to | &lastSprints | &sprintId][&domainView&activityType&workCategory&connectionId&tailPercent]`.
+
+`TEAM_OR_DOMAIN` ("Scope" above; `teamId=0` is the UNASSIGNED credit), the period is dates (default the trailing 90 days) or the team's sprints, by the task's `done_at`; the history horizon (A48) is the shared parser's clamp on that anchor, nothing of its own. There is **no user
+level in this slice**: an `accountId` is a `400` (`accountId is not available: Tasks and code has no user level`), raised in the route's `prepare` with the other structural refusals, before the cache validators (the `EpicProgressTargets` precedent). `connectionId` names one JIRA source
+(`resolveConnectionScope`: a GitLab, deleted or unknown id is the same `400 Unknown or inactive connectionId`); without it every active Jira source is read, and **the issue keys are resolved among the Jira sources the request reads** (below). The GitLab side is always every
+active GitLab source (a disabled one included), live merge requests only.
+
+### Response
+
+```
+TaskCodeReport {
+  meta: ReportMeta,                                 // the Jira star's (tasks, roster, names, sprints); level UNIT or TEAM
+  sources[]{connectionId, name, baseUrl, lastSyncAt?, commitFilesPending, mrDetailsPending},   // Report 21's CodeActivitySource: THE freshness of the merge requests; empty while no GitLab source is active
+  tasks{done, withMergeRequest, withoutMergeRequest, share?},     // share = without / done, NEUTRAL (no verdict)
+  codeLeadTimeWorkingDays: Distribution,            // D6: start -> LAST linked merged merge request, working days; lower is better
+  mergedAfterDone{count, share?, lagWorkingDays: Distribution},   // last merge after done_at; lower is better
+  quality{neverStarted, onlyUnmergedMrs, keysUnresolved, keysAmbiguous}
+}
+```
+
+### The link rule
+
+A merge request belongs to a done task through the issue keys in its title and source branch (the stored, uppercase candidates, A51/D2-D4). Per task the keys are its current key (`fact_task_delivery.issue_key`) and every key of its `issuekey` changes (`from`/`to`, value or text: the OLD
+keys of an issue that moved project). A candidate links to the task when it **names exactly one live issue** among the Jira sources the request reads -- `norm.work_items.issue_key` (current key) or an `issuekey` change text of a live issue, live = `deleted_at` and `moved_out_at` null, the rows
+DERIVE reads -- and that issue is the task. A key that names several issues (the same key in two Jira sources, or a key a project reused) is **ambiguous**: counted, linked to none. A key naming no live issue links to none. Only LIVE merge requests link (`deleted_at IS NULL`), from
+every active GitLab source; a merge request that names two keys of one task counts once, one merge request that names the keys of two tasks links to both, and a merge request of two sources with the same `mr_id` is two merge requests. A candidate of an unknown project (`UTF-8`, `SHA-256`)
+is never a key of any task. Decisions taken with the plan (recorded in A51): the **known projects** of a request are the configured `projectKeys` of the Jira sources it reads plus the project prefixes of their live issues' `issuekey` changes.
+
+### Figures
+
+- **`tasks`.** `done` = Report 7's population (level-0 tasks, `is_subtask = false`, D2; `done_at` in the window; the D5 credit team, `teamId=0` = no credit; `domain` per `domainView`). **"With a merge request" means with at least one linked MERGED merge request** (state `merged` with a
+  `merged_at`); a task whose linked merge requests are open, closed unmerged or `locked` is "without" (it has no merged code) and is counted in `quality.onlyUnmergedMrs`. `share` is `withoutMergeRequest / done`, absent while nothing is done: a neutral context figure, never coloured
+  (a task may legitimately need no code). With no GitLab source active nothing links, so every task is "without": `sources[]` is then empty, and a client must read that as "no code layer", not as a finding.
+- **`codeLeadTimeWorkingDays`** (D6). The task's `started_at` (the cycle-time anchor, so the two are comparable) to the **LAST** linked merged merge request's `merged_at`, in working days of the configured calendar (`WorkingCalendar.workingDaysBetween`, fractional). Population: done tasks that
+  started and have at least one linked merged merge request. A merge before the start is 0 working days (the calendar clamps a non-positive span), never negative. `Distribution`, hidden under `meta.minSampleSize`, `tailPercent` as everywhere. Lower is better (the page's verdict).
+- **`mergedAfterDone`.** `count` = done tasks whose LAST linked merge is after `done_at` (strictly: a merge at the very instant is not after); `share` = `count / tasks.withMergeRequest` (the tasks it can happen to), absent when none; `lagWorkingDays` = working days from `done_at` to that last
+  merge, a `Distribution` (a lag over a weekend can be 0, a real value). Lower is better.
+- **`quality`.** `neverStarted` = done tasks with no `started_at` (no lead time; they still count with/without). `onlyUnmergedMrs` = done tasks with linked merge requests, none merged. `keysUnresolved` and `keysAmbiguous` are **connection-wide, whatever the period or slice**: the DISTINCT
+  candidate keys of a known project named by a live merge request of an active GitLab source that name **no** live issue (a typo, a deleted or moved-out issue, a key of a renamed project) and that name **more than one**. They are counts of keys, not of tasks or merge requests, and they
+  say how much of the merge-request side cannot be joined to Jira. A candidate of an unknown project is in neither.
+
+### Reads and cost
+
+Task -> merge request direction, never a scan of the merge requests: (1) the population from `metrics.fact_task_delivery` (`taskFactSlice`, as `fetchDoneCycleTasks`, plus `issue_key` and `started_at`); (2) the `issuekey` changes of the live issues of the Jira sources in scope
+(`idx_norm_work_item_field_changes_field`; small by nature); (3) the DISTINCT candidate keys of the live merge requests of the GitLab sources (strings, one statement, not charged to the row budget), cut to the known projects, and their live issues by current key (chunked `IN` on
+`idx_norm_work_items_issue_key (connection_id, issue_key)`): this is what decides ambiguity and gives the two key counts; (4) the link rows of ONLY the keys the done tasks have, on `idx_norm_code_mr_issue_keys_key (connection_id, issue_key)` joined to `code_merge_requests` for state,
+`merged_at` and the tombstone. **Only (4) is charged to `CodeRowBudget`** (`reports.codeMaxRows`; over it the same `400` as Report 21, "narrow the period or pick fewer people", never a cut figure); the report takes **no permit** (a bounded, key-driven read, like Compare people's). The
+figures are computed in Kotlin (`TaskCodeKernels.kt`, pure). The in-test target `task-code-90d` is in `build-times.md` "In-test targets".
+
+### Cache validators
+
+`reportGet(withCodeStamp = true)`, `StampClock.FIVE_MINUTES`: the cycle-time inputs plus `code:`, `code-ingest:`, `links:` and `keys:` ("Cache validators"). `ReportValidatorInputsTest` carries the URL among the code readers (a link write, a sync, a rename, a project-list edit move it; a Jira
+report's tag does not move), `ReportValidatorsTest` the operation in the sweep and the five-minute class.
+
+### Code and tests
+
+`reports/TaskCodeWire.kt` (the DTOs), `TaskCodeKernels.kt` (pure: `linkTasks`, `taskCodeFigures`, `keyQuality`, `TaskMergeRequests`), `TaskCodeReads.kt` (the four reads above), `TaskCodeReport.kt` (`ReportService.taskCode`, the read plan and assembly), `TaskCodeRoutes.kt` (the route, registered in `ReportRoutes.kt`).
+Tests: `TaskCodeKernelsTest` (pure: the last merge and the lead time across a weekend, a merge before the start, merged after done and its lag, two merge requests and two keys of one task, unmerged-only, ambiguous and unresolved keys, the empty shares), `ReportTaskCodeTest` on the hand-written
+two-layer `TaskCodeWorld.kt` (direct `fact_task_delivery` / `norm.work_items` / `issuekey` rows beside two GitLab sources' merge requests and stored candidates: an old key of a moved issue, junk and unknown keys, two merge requests, merged after done, unmerged only, a never-started task, a
+deleted merge request, team vs domain vs `teamId=0`, an ambiguous key across two Jira sources, the row-budget `400`, the `400` matrix and the `304`), `ReportTaskCodeFixtureTest` (the derived Jira fixture and an own clone of the processed GitLab stub against an independent JDBC re-derivation; prints
+`in-test<TAB>task-code-90d<TAB><ms>`), plus cases in `ReportValidatorInputsTest`, `ReportValidatorsTest` and `ReportScopeGuardTest`. The names are pinned in `measures.md`.
+
+**What the fixtures overlap on (measured 2026-11-01).** The Jira stub's done tasks end at the derive's pinned 2026-03-05 and the GitLab stub's merge requests are dated after it, so the stub keys hit done tasks but a linked merge request is nearly always merged AFTER the task was done: of the 246 done tasks of
+the whole history, 4 have a merged merge request, 3 only unmerged ones, 3 of the 4 merged after done. The old-key case (`FLO-366 -> SEC-9001`, a move out of scope) is pinned on the hand-written world only, and the fixture test asserts the stub holds no live `issuekey` change so its oracle may ignore moves.
