@@ -160,7 +160,7 @@ internal suspend fun fetchCodeCommits(
     connections: Collection<UInt>,
     scope: CodeKeyScope,
     window: Pair<Long, Long>,
-    budget: CodeRowBudget = CodeRowBudget(),
+    budget: CodeRowBudget,
 ): List<CodeCommitRow> {
     val c = CodeCommits
     val keys = scoped(scope, connections, c.connectionId) { c.identityKey inList it } ?: return emptyList()
@@ -186,7 +186,7 @@ internal suspend fun fetchCodeMergeRequests(
     connections: Collection<UInt>,
     scope: CodeKeyScope,
     window: Pair<Long, Long>,
-    budget: CodeRowBudget = CodeRowBudget(),
+    budget: CodeRowBudget,
 ): List<CodeMrRow> {
     val m = CodeMergeRequests
     val keys = scoped(scope, connections, m.connectionId) { m.authorKey inList it } ?: return emptyList()
@@ -242,7 +242,7 @@ internal suspend fun fetchCodeActorEvents(
     connections: Collection<UInt>,
     scope: CodeKeyScope,
     window: Pair<Long, Long>,
-    budget: CodeRowBudget = CodeRowBudget(),
+    budget: CodeRowBudget,
 ): List<CodeEventRow> =
     fetchCodeEvents(connections, scope, window, { it neq MrEventKind.REVIEW_REQUESTED.name }, { CodeMrEvents.actorKey inList it }, budget)
 
@@ -257,7 +257,7 @@ internal suspend fun fetchCodeReviewRequests(
     connections: Collection<UInt>,
     scope: CodeKeyScope,
     window: Pair<Long, Long>,
-    budget: CodeRowBudget = CodeRowBudget(),
+    budget: CodeRowBudget,
 ): List<CodeEventRow> = fetchCodeEvents(
     connections, scope, window, { it eq MrEventKind.REVIEW_REQUESTED.name }, { namesAnyOf(CodeMrEvents.targetKeys, it) }, budget,
 )
@@ -291,7 +291,7 @@ private fun namesAnyOf(column: Expression<*>, keys: List<String>): Op<Boolean> =
  */
 internal suspend fun fetchCodeReviewSummaries(
     mrs: Collection<CodeMrRef>,
-    budget: CodeRowBudget = CodeRowBudget(),
+    budget: CodeRowBudget,
 ): List<CodeReviewSummary> {
     val e = CodeMrEvents
     val reviewKinds = REVIEW_KINDS.map { it.name }

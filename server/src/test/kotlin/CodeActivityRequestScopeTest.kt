@@ -132,7 +132,7 @@ class CodeActivityRequestScopeTest {
             val other = x.other.connectionId
             val both = listOf(connId, other)
             suspend fun read(scope: Map<UInt, List<String>>?) =
-                service.reportTransaction { fetchCodeReviewRequests(both, scope, window).ids() }
+                service.reportTransaction { fetchCodeReviewRequests(both, scope, window, CodeRowBudget()).ids() }
             // No scope: every dated request of the window on both sources, in (source, merge request, seq) order -- not the undated one,
             // the two outside the window or the tombstoned merge request's. The null-target request (31#4) is read, naming nobody.
             assertEquals(
@@ -175,7 +175,9 @@ class CodeActivityRequestScopeTest {
             val received = figures.members.associate { it.member.accountId to it.reviewRequestsReceived }
             assertEquals(mapOf<String?, Int>(accA to 3, x.accC to 1), received)
             // The pre-filter is invisible to the kernel: the receivers of EVERY request of the window are those of the scoped ones.
-            val every = service.reportTransaction { fetchCodeReviewRequests(sources.map { it.connectionId }, null, window) }
+            val every = service.reportTransaction {
+                fetchCodeReviewRequests(sources.map { it.connectionId }, null, window, CodeRowBudget())
+            }
             val receivers = { events: List<CodeEventRow> ->
                 events.flatMap { event -> data.context.requestReceivers(event).map { it to event.mr } }.toSet()
             }
