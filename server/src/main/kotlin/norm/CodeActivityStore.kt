@@ -304,6 +304,7 @@ data class NormCodeMergeRequest(
     val detailsState: DetailsState,
     val deletedAt: Long?,
     val events: List<NormCodeMrEvent>,
+    /** REPLACES the stored key rows on write: a row read back (`mergeRequestOf` leaves this empty) must never be fed to the writer. */
     val issueKeys: List<IssueKeyCandidate> = emptyList(),
 )
 

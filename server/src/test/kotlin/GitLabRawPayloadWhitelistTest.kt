@@ -21,7 +21,7 @@ import kotlin.test.assertTrue
 private const val PRIVACY_MIN_CHARS = 20
 
 /**
- * The GitLab privacy whitelist (plan decision 9): the stored data is facts about work, never the work itself. Three pins over the ELEVEN
+ * The GitLab privacy whitelist (plan decision 9): the stored data is facts about work, never the work itself. Three pins over the TWELVE
  * GitLab tables (six `raw.gitlab_*`, six `norm.code_*`) of the shared fixture: the exact column names (a new column needs a privacy
  * decision), the keys of every stored slim payload, and the absence of stub text that must never be stored (merge request descriptions,
  * note bodies, commit message bodies, URLs). Read-only.

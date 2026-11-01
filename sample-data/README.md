@@ -413,7 +413,7 @@ as a confirmed **secondary** email (`GET /users/4/emails`); id 7 is `deactivated
   "approved this merge request", "requested changes", "marked this merge request as **draft**" / "**ready**", "merged", "closed"), plain notes, `DiffNote`
   notes with a `position`, approvals, and reviewers with a `state` (`unreviewed`/`reviewed`/`requested_changes`/`approved`). One MR has 128 notes (two pages).
 - **Issue keys** (the merge requests' candidates for linking to Jira tasks, `gitlab-integration.md` "Issue keys"): the generated titles carry `FLO`/`PLT`/`GTM`/`OPS`
-  keys and the branch slug is the lowercased title, so some branches name a key too. On top of that `lib/keycases.mjs` hand-writes ten edge cases onto fixed human, non-draft
+  keys and the branch slug is the lowercased title, so some branches name a key too (and a generated slug can yield junk, e.g. `TO-4`, which the oracle includes). On top of that `lib/keycases.mjs` hand-writes ten edge cases onto fixed human, non-draft
   merge requests of projects 1-4 (no PRNG draw: only those merge requests' text, and the squash commits' shas hashing it, differ from a world without them): **two keys** in
   one title (`FLO-120`, `PLT-45`); a key in the **title and the branch** (`FLO-210`); a **lowercase branch-only** key (`plt-77`); **`FLO-366`**, the issue the Jira stub moves on day 2; the
   **junk tokens** `UTF-8` and `V2-3` in branch slugs; an **underscore** branch (`fix_flo-8` names `FIX_FLO-8` and `FLO-8`); an invented out-of-scope **`ABC-12`**; **`SEC-5`**,
