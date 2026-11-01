@@ -95,13 +95,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     (`gitlab-integration.md` "Outbound calls", Memory) does not cover, so it needs the fit extended and a re-measure beside a Jira job
     (the worker's old generation peaked at 86 of 448 MiB in the pair).
   - Wait for the real-instance smoke run's per-call cost before deciding: at 12 ms it is minutes, at 100 ms it is hours.
-- [next] **Reports over `norm.code_*`: Report 21 "Code activity".** Planned and agreed 2026-11-01; the design is in the docs (PR 1 of 7), not here:
-  `domain-model.md` A50, `reports.md` "Report 21", `measures.md` "Report 21" (rows marked `planned`), `web-features.md` "Code activity".
-  - Query time over `norm.code_*`, attributed by LINKED identity, then account, then team at the row's anchor; the flow figures (merge-request
-    cycle time, time to first review, open merge requests waiting, size, review coverage) carry the cues, the per-member volumes are NEUTRAL context.
-  - PRs: (2) the endpoint, 1.39.0; (3) the page and its e2e, 1.40.0; (4) the drill, 1.41.0; (5) the `CODE` rows in Compare people and Person
-    trend, 1.42.0; (6) the performance run, `build-times.md` WHY 61 (V46 only if it shows a statement over budget); (7) a Home section, 1.43.0, optional,
-    tracked as its own item below.
 - [new] **Jira<->GitLab linking (issue keys in MR titles and branches).** Deliberately left out of Report 21 (A50). It needs a per-source project-key
   seam, a `norm.code_*` column with a `CODE_PROCESSING_VERSION` bump (or a migration), and stub support (`sample-data/gitlab/generate.mjs` embeds no
   keys today). It opens different questions: code lead time per task, tasks without a merge request, a merge request merged after the task is done.
@@ -109,6 +102,14 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   512 MiB default, 16-20 full GCs a fork); live Jackson `ObjectNode`/`LinkedHashMap` trees grow, and it is NOT the OpenAPI validator's
   bounded schema cache (`build-times.md` WHY 62). The forks now get 768 MiB, which buys headroom only. Take a heap dump late in a fork
   and find what holds the trees (a static cache, a fixture, an in-JVM stub's journal, ...).
+- [new] **Code activity: the `teamId=0` read can exhaust the web role's heap.** It reads every commit, merge request and event of the
+  source into the JVM. At the plan's 60k / 21k / 145k density over the whole retained history it is 1.9 s p95, and four such requests at
+  once killed the 256 MiB web role (`OutOfMemoryError`, exit 3); eight at the measured 15k / 3k world survive (`build-times.md` WHY 61).
+  Any signed-in user can ask for it (D12). Bound it (a window cap for `teamId=0`, or aggregate in SQL), or stream it, and give the web
+  role's report calls a heap line in the perf method.
+- [new] **Code activity: bound the review-request read by the team.** It reads every REVIEW_REQUESTED event of the window and tests the
+  targets in the JVM (26,467 rows for a 15-member team at 4x, about 200 ms of a 733 ms request, derived); a `target_keys ?| keys`
+  predicate returns 6,020 rows in 9.4 ms (an EXPLAIN only, WHY 61).
 - [new] **Code activity: the unattributed work on the page.** The endpoint answers `teamId=0` (the work of undecided GitLab identities
   and of linked people with no team, A50), but the page cannot ask for it: the shared team control rewrites a team it does not know
   (`requiredTeamId`). Today the page only counts it in the "still to attribute" note, with a link to the Identities page for admins. Needs
