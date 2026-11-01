@@ -19,7 +19,7 @@ private const val FROM = "2025-03-06"
 private const val TO = "2026-03-05"
 
 /**
- * Report 20 on the DERIVED stub fixture (read-only): the busiest assignee over a year (27 windows, 14 rows each), every point compared
+ * Report 20 on the DERIVED stub fixture (read-only): the busiest assignee over a year (27 windows, every row), every point compared
  * with `GET /compare-people` over its window -- done facts, worklogs AND the WIP read at query time -- so slicing ONE wide fetch is proven
  * to be the per-window fetch on real data; the coverage labels against the fixture's known DERIVE day and backfill start; the cue
  * recomputed from the points; and the `in-test person-trend-365d` timing line (`build-times.md` "In-test targets").
@@ -63,7 +63,7 @@ class ReportPersonTrendFixtureTest {
         assertEquals(FROM, trend.windows.first().end, "364 days: 26 steps back from `to` land on `from`")
         assertEquals(TREND_ROW_KEYS, trend.rows.map { it.key })
         val count = client.assertPersonTrendIsComparePeople(trend, person, other, base)
-        assertEquals(27 * 14, count.cells)
+        assertEquals(27 * TREND_ROW_KEYS.size, count.cells)
         assertTrue(count.mixPoints > 0)
 
         // Not vacuous: real figures in several windows, WIP included.
@@ -167,7 +167,7 @@ class ReportPersonTrendFixtureTest {
                 val sizes = peers.filterNotNull().map { it.size }.toSet()
                 assertEquals(setOf(3, 4), sizes, "the roster changes: three members, then four, then three")
                 val compared = client.assertReferenceIsPeerMedian(trend, person, peers, base)
-                assertEquals(peers.count { it != null } * 14, compared)
+                assertEquals(peers.count { it != null } * TREND_ROW_KEYS.size, compared)
                 val values = trend.rows.flatMap { row -> row.points.mapNotNull { it.reference?.value } }
                 assertTrue(values.size > 20, "not vacuous: real medians over real figures (${values.size})")
                 val points = trend.rows.flatMap { it.points }

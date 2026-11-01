@@ -25,6 +25,8 @@ internal data class CodeMemberFigures(
     val openMrs: Int,
     val mrCycleWorkingDaysP50: Double?,
     val mrSizeLinesP50: Double?,
+    /** The merged merge requests with a known size (the n of [mrSizeLinesP50]; [mrsMerged] is the n of [mrCycleWorkingDaysP50]). */
+    val mrsSized: Int,
     val reviewsGiven: Int,
     val approvalsGiven: Int,
     val changesRequestedGiven: Int,
@@ -157,6 +159,7 @@ private fun MemberAcc.toFigures(member: CodeMember, minSample: Int) = CodeMember
     openMrs = openNow,
     mrCycleWorkingDaysP50 = p50OrNull(cycle, minSample),
     mrSizeLinesP50 = p50OrNull(size, minSample),
+    mrsSized = size.size,
     reviewsGiven = reviewed.size,
     approvalsGiven = approved.size,
     changesRequestedGiven = changes.size,

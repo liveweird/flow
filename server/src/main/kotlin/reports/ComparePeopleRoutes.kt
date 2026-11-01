@@ -26,7 +26,8 @@ class ReportComparePeopleItemsRoute
  * manager of EVERY team either person belonged to during the period, gets the four capacity rows and the `capacity` block; everyone
  * else gets the report without those keys. All or nothing for the pair, checked per request (never cached in a claim), and decided
  * BEFORE the report read so the service computes the capacity only for a caller who may see it. A pair with no team in the period
- * has no manager to ask: only an ADMIN sees capacity then. The verdict is part of the ETag (`CapacityGrant.etagShape`).
+ * has no manager to ask: only an ADMIN sees capacity then. The verdict is part of the ETag (`CapacityGrant.etagShape`). Both operations
+ * also carry Report 21's GitLab stamp lines ([codeStamp]): the `CODE` rows read `norm.code_*` and the identity links live (A50).
  */
 internal fun Route.comparePeopleRoutes(reportService: ReportService, teams: TeamService) {
     get<ReportComparePeopleRoute> {
@@ -42,7 +43,7 @@ internal fun Route.comparePeopleRoutes(reportService: ReportService, teams: Team
         }
         // The one caller-shaped answer: the verdict is part of the validator, so a 304 can never hand capacity rows to a caller who
         // no longer (or never) holds the grant, nor withhold them from one who now does.
-        val etag = reportService.etagFor(call, scope, grant.etagShape())
+        val etag = reportService.etagFor(call, scope, grant.etagShape(), extraStamp = reportService.codeStamp())
         call.respondRevalidated(etag) { reportService.comparePeople(filter, scope.nowMs, grant) }
     }
     // The drill: the items behind one person's cell. The parent's parameters (its own parser, so the same 400s first), then the cell's
@@ -55,7 +56,7 @@ internal fun Route.comparePeopleRoutes(reportService: ReportService, teams: Team
         val view = params.requireEnum<CompareDrillView>("view")
         val bucketIndex = params.optionalString("bucketIndex")?.let { params.requireBucketIndex() }
         val segmentAccountId = params.optionalString("segmentAccountId")
-        call.respondRevalidated(reportService.etagFor(call, scope)) {
+        call.respondRevalidated(reportService.etagFor(call, scope, extraStamp = reportService.codeStamp())) {
             reportService.comparePeopleItems(filter, view, bucketIndex, segmentAccountId, scope.nowMs)
         }
     }

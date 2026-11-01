@@ -63,6 +63,9 @@ describe("TREND_CHARTS", () => {
     expect(TREND_CHARTS[0].keys).toEqual(["cycleWorkingDaysP50", "cycleWorkingDaysP90"]);
     expect(TREND_CHARTS.filter((chart) => chart.keys.length === 2)).toHaveLength(1);
     expect(TREND_CHARTS.map((chart) => chart.id)).toEqual(TREND_CHARTS.map((chart) => chart.keys[0]));
+    // The CODE rows (A50) close the list, one card each.
+    expect(TREND_CHARTS.slice(-3).map((chart) => chart.id)).toEqual(["mrsMerged", "mrCycleWorkingDaysP50", "reviewsGiven"]);
+    expect(trendAnchorOfRow("reviewsGiven")).toBe("trend-reviewsGiven");
   });
 });
 
@@ -216,6 +219,8 @@ describe("the drill of a point", () => {
     expect(pointCountOf(rowOf("deliveredItems"), 7)).toBe(7);
     expect(pointCountOf(rowOf("cycleWorkingDaysP90"), 9)).toBe(9);
     expect(pointCountOf(rowOf("taskSizeP50"), 4)).toBe(4);
+    // The CODE rows list the merge requests (or reviewed merge requests) the n counts.
+    for (const key of ["mrsMerged", "mrCycleWorkingDaysP50", "reviewsGiven"]) expect(pointCountOf(rowOf(key), 6)).toBe(6);
     // A share counts its numerator, the coverage its gap, the average WIP its working days, the age the aged tasks of those held.
     for (const key of ["reopenedShare", "blockedItemsShare", "worklogCoverage", "avgWip", "wipAtEndMedianAgeWd"]) {
       expect(pointCountOf(rowOf(key), 9)).toBeUndefined();

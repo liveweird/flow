@@ -35,6 +35,9 @@ enum class CompareUnit(val tolerance: Double) {
     /** Days (working or elapsed). */
     DAYS(0.05),
 
+    /** Lines of code (a merge request's size): two sizes within a line are a tie. */
+    LINES(1.0),
+
     /** A plain ratio (logged ÷ cycle, active ÷ elapsed, an estimate change). */
     RATIO(0.01),
 
@@ -52,13 +55,16 @@ enum class CompareUnit(val tolerance: Double) {
 
 /** The row groups of the table, in display order. */
 @Serializable
-enum class CompareGroup { DELIVERY, CYCLE, ESTIMATION, WIP, TIME, QUALITY }
+enum class CompareGroup { DELIVERY, CYCLE, ESTIMATION, WIP, TIME, QUALITY, CODE }
 
 /** The drill views of `GET /api/v1/reports/compare-people/items` -- which set of items one cell lists. */
 enum class CompareDrillView {
     DELIVERED, CYCLE_WORKING_DAYS, CYCLE_ELAPSED_DAYS, REPORTED_TIME_RATIO, FLOW_EFFICIENCY, ACCURACY_AT_START, ACCURACY_AT_DONE,
     ADJUSTED, ADJUSTMENT_CHANGE, WIP_TASK_DAYS, WIP_AT_END, BLOCKED, LOGGED, FOREIGN, LATE, NO_WORKLOGS, NO_ESTIMATE, TASK_SIZE,
     REOPENED,
+
+    /** The `CODE` rows' views (Report 21's own, `CodeDrillView`): the commits, merge requests and acts behind a cell. */
+    COMMITS, MRS_MERGED, MR_CYCLE_WORKING_DAYS, MR_SIZE_LINES, REVIEWS_GIVEN, APPROVALS_GIVEN, COMMENTS,
 }
 
 /**
@@ -143,6 +149,17 @@ internal val COMPARE_ROWS: List<CompareRowSpec> = listOf(
     CompareRowSpec("worklogCoverage", CompareGroup.QUALITY, CompareUnit.SHARE, CompareDirection.HIGHER, CompareDrillView.NO_WORKLOGS),
     CompareRowSpec("lateLoggingShare", CompareGroup.QUALITY, CompareUnit.SHARE, CompareDirection.LOWER, CompareDrillView.LATE),
     CompareRowSpec("noEstimateShare", CompareGroup.QUALITY, CompareUnit.SHARE, CompareDirection.LOWER, CompareDrillView.NO_ESTIMATE),
+    // The CODE group (A50): Report 21's member cells. Volumes are NEUTRAL context (no cue); the two p50s are the merge-request flow.
+    CompareRowSpec("commits", CompareGroup.CODE, CompareUnit.ITEMS, CompareDirection.NEUTRAL, CompareDrillView.COMMITS),
+    CompareRowSpec("linesChanged", CompareGroup.CODE, CompareUnit.LINES, CompareDirection.NEUTRAL, CompareDrillView.COMMITS),
+    CompareRowSpec("mrsMerged", CompareGroup.CODE, CompareUnit.ITEMS, CompareDirection.NEUTRAL, CompareDrillView.MRS_MERGED),
+    CompareRowSpec(
+        "mrCycleWorkingDaysP50", CompareGroup.CODE, CompareUnit.DAYS, CompareDirection.LOWER, CompareDrillView.MR_CYCLE_WORKING_DAYS,
+    ),
+    CompareRowSpec("mrSizeLinesP50", CompareGroup.CODE, CompareUnit.LINES, CompareDirection.LOWER, CompareDrillView.MR_SIZE_LINES),
+    CompareRowSpec("reviewsGiven", CompareGroup.CODE, CompareUnit.ITEMS, CompareDirection.NEUTRAL, CompareDrillView.REVIEWS_GIVEN),
+    CompareRowSpec("approvalsGiven", CompareGroup.CODE, CompareUnit.ITEMS, CompareDirection.NEUTRAL, CompareDrillView.APPROVALS_GIVEN),
+    CompareRowSpec("comments", CompareGroup.CODE, CompareUnit.ITEMS, CompareDirection.NEUTRAL, CompareDrillView.COMMENTS),
 )
 
 /**

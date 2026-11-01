@@ -3,7 +3,7 @@ import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes, useLocation } from "react-router-dom";
 import ReportPersonTrend from "./ReportPersonTrend";
-import { compareItems } from "../test/comparePeopleFixtures";
+import { codeCompareItems, compareItems } from "../test/comparePeopleFixtures";
 import { showItems } from "../test/drill";
 import { jsonResponse } from "../test/http";
 import { PERSON_TREND } from "../test/personTrendFixtures";
@@ -132,6 +132,29 @@ describe("ReportPersonTrend page — drilling to the items behind a point", () =
     expect(calls(mockFetch, REPORT)).toHaveLength(1);
   });
 
+  test("a code point lists the person's GitLab merge requests over the window: plain keys, a Person column, the count the table showed", async () => {
+    serve(mockFetch, () => jsonResponse(200, codeCompareItems("MERGE_REQUEST", 6, 3)));
+    const user = userEvent.setup();
+    renderPage(ANN);
+    await screen.findByRole("heading", { level: 3, name: "Merge requests merged" });
+    const merged = card("Merge requests merged");
+    await user.click(within(merged).getByRole("button", { name: "Show the numbers" }));
+    await user.click(within(merged).getByRole("button", { name: showItems("Merge requests merged", "2026-08-11") }));
+    const drawer = await screen.findByRole("dialog", { name: "Merge requests merged · 2026-05-14 – 2026-08-11" });
+    expect(await within(drawer).findByText("6 items")).toBeInTheDocument();
+    expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}${QUERY}&view=MRS_MERGED&pointEnd=2026-08-11`]);
+    expect(search()).toBe(`?${QUERY}&drill=point%3AmrsMerged%3A2026-08-11`);
+    // The point's n (6) is the list's size: no "data changed" note; the key is plain text, never a Jira link.
+    expect(within(drawer).queryByText("The data changed since the chart was drawn.")).not.toBeInTheDocument();
+    expect(within(drawer).getByText("group/app!1")).toBeInTheDocument();
+    expect(within(drawer).queryByRole("link")).toBeNull();
+    expect(
+      within(within(drawer).getByRole("table", { name: "Items behind the bar" }))
+        .getAllByRole("columnheader")
+        .map((header) => header.textContent),
+    ).toEqual(["Issue", "Summary", "Person", "Merged", "Working days"]);
+  });
+
   test("a gap, a withheld figure and a window with nothing derived are plain text in the table, never a button", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
@@ -174,7 +197,7 @@ describe("ReportPersonTrend page — drilling to the items behind a point", () =
     const user = userEvent.setup();
     renderPage(ANN);
     await screen.findByRole("heading", { level: 3, name: "Delivered (items)" });
-    await waitFor(() => expect(screen.getAllByTestId("line-chart")).toHaveLength(13));
+    await waitFor(() => expect(screen.getAllByTestId("line-chart")).toHaveLength(16));
     // Delivered (items): the first window has nothing derived, so it is a null point — no dot, no active dot.
     expect(dotOf(card("Delivered (items)"), "value", "2026-06-30")).toBeNull();
     const delivered = within(card("Delivered (items)"));

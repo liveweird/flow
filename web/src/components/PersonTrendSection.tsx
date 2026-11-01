@@ -19,6 +19,13 @@ const CycleTimeTrendChart = lazy(() => import("./CycleTimeTrendChart"));
 const PersonTrendChart = lazy(() => import("./PersonTrendChart"));
 const PersonTrendMixChart = lazy(() => import("./PersonTrendMixChart"));
 
+/** The chart's y-axis words: the code counts name what is counted (merge requests), every other row its unit. */
+function axisLabelOf(row: PersonTrendRow, t: TFunction): string {
+  if (row.key === "mrsMerged") return t("reports.personTrend.codeAxis.mrsMerged");
+  if (row.key === "reviewsGiven") return t("reports.personTrend.codeAxis.reviewsGiven");
+  return t(`reports.personTrend.unit.${row.unit}`);
+}
+
 /** What the row's direction says in words, for the card's caption. */
 function directionText(row: PersonTrendRow, t: TFunction): string {
   if (row.direction === "TARGET") return t("reports.personTrend.direction.TARGET", { target: (row.target ?? 1).toFixed(1) });
@@ -40,7 +47,8 @@ function CueLine({ row, name }: { row: PersonTrendRow; name?: string }) {
         t("reports.personTrend.cue.none")
       ) : (
         <>
-          {trendGlyph(trend) !== null && (
+          {/* A NEUTRAL row (the code volumes) is context: its change is a number, never a verdict — no mark, no "too few items". */}
+          {row.direction !== "NEUTRAL" && trendGlyph(trend) !== null && (
             <>
               <TrendMark trend={trend} wordOf={(tone) => (tone === "none" ? t("reports.personTrend.cue.unclear") : t(`reports.personTrend.cue.${tone}`))} /> ·{" "}
             </>
@@ -94,7 +102,7 @@ function TrendCard({
   return (
     <ReportChartCard
       title={title}
-      caption={`${directionText(first, t)} ${t("reports.personTrend.cue.caption")}`}
+      caption={`${directionText(first, t)} ${t(first.direction === "NEUTRAL" ? "reports.personTrend.cue.captionNeutral" : "reports.personTrend.cue.caption")}`}
       isPending={false}
       isRefreshing={isRefreshing}
       empty={false}
@@ -114,7 +122,7 @@ function TrendCard({
               <PersonTrendChart
                 points={points[0]}
                 seriesLabel={title}
-                axisLabel={t(`reports.personTrend.unit.${first.unit}`)}
+                axisLabel={axisLabelOf(first, t)}
                 format={rowFormat(first)}
                 minSampleSize={minSampleSize}
                 domain={first.unit === "SHARE" ? [0, 1] : undefined}

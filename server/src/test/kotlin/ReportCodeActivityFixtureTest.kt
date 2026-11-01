@@ -261,6 +261,61 @@ class ReportCodeActivityFixtureTest {
         )
     }
 
+    /**
+     * Compare people's `CODE` cells of [pair] over [from]..[to] against the SQL re-derivation (counts, the counted lines, the size p50) and
+     * Report 21's own member cells of the team [report] (the cycle p50 needs the working calendar); returns how many cells it compared.
+     */
+    private suspend fun assertPeopleCodeRows(
+        client: HttpClient,
+        sql: Sql,
+        pair: List<String>,
+        keys: List<List<String>>,
+        from: String,
+        to: String,
+        min: Int,
+        report: CodeActivityReport,
+    ): Int {
+        val compare = client.comparePeopleReport("from=$from&to=$to&accountId=${pair[0]}&accountId=${pair[1]}")
+        fun cell(key: String, side: Int) = compare.rows.single { it.key == key }.let { if (side == 0) it.a else it.b }
+        var compared = 0
+        pair.indices.forEach { side ->
+            val label = "$from ${pair[side]}"
+            val c = sql.commits(keys[side])
+            val m = sql.mergeRequests(keys[side])
+            val a = sql.acts(keys[side])
+            val group = report.groups.single { it.accountId == pair[side] }
+            val want = mapOf(
+                "commits" to c[0].int(),
+                "linesChanged" to (long(c[2]) + long(c[3])).toInt(),
+                "mrsMerged" to m[0].int(),
+                "reviewsGiven" to a[0].int(),
+                "approvalsGiven" to a[1].int(),
+                "comments" to a[3].int(),
+            )
+            want.forEach { (key, count) ->
+                assertEquals(count.toDouble(), cell(key, side).value, "$label $key")
+                compared++
+            }
+            assertEquals(m[0].int(), cell("mrCycleWorkingDaysP50", side).n, "$label cycle n")
+            assertEquals(group.mrCycleWorkingDaysP50, cell("mrCycleWorkingDaysP50", side).value, "$label cycle p50 is Report 21's")
+            assertEquals(group.mrSizeLinesP50, cell("mrSizeLinesP50", side).value, "$label size p50 is Report 21's")
+            val merged = sql.rows(
+                """SELECT count(*) FILTER (WHERE additions IS NOT NULL AND deletions IS NOT NULL),
+                     percentile_cont(0.5) WITHIN GROUP (ORDER BY additions + deletions)
+                       FILTER (WHERE additions IS NOT NULL AND deletions IS NOT NULL)
+                   FROM norm.code_merge_requests
+                   WHERE connection_id = ? AND deleted_at IS NULL AND state = 'merged' AND merged_at >= ? AND merged_at < ?
+                     AND author_key IN ${placeholders(keys[side].size)}""",
+                sql.connId.toInt(), sql.from, sql.to, *keys[side].toTypedArray(),
+            ).single()
+            assertEquals(long(merged[0]).toInt(), cell("mrSizeLinesP50", side).n, "$label size n")
+            if (long(merged[0]).toInt() >= min) close("$label size p50", dbl(merged[1]), cell("mrSizeLinesP50", side).value)
+            assertEquals(long(merged[0]).toInt() < min, cell("mrSizeLinesP50", side).hidden, "$label size hidden")
+            compared += 3
+        }
+        return compared
+    }
+
     private suspend fun HttpClient.code(query: String): CodeActivityReport {
         val response = get("/api/v1/reports/code-activity?$query")
         assertEquals(HttpStatusCode.OK, response.status, query)
@@ -299,6 +354,10 @@ class ReportCodeActivityFixtureTest {
                 assertEquals(members.toSet(), report.groups.mapNotNull { it.accountId }.toSet(), "$from: one group per member")
                 assertTrue(report.flow.merged > 0 && report.groups.sumOf { it.commits } > 0, "$from: the window is not empty")
                 report.groups.forEach { it.assertMatches(sql, keysOf.getValue(it.accountId!!), min, "$from ${it.accountId}") }
+                // Compare people's CODE rows (A50) for the same window: the first two members head to head, ACROSS teams.
+                val pair = members.take(2)
+                val compared = assertPeopleCodeRows(user, sql, pair, pair.map { keysOf.getValue(it) }, from, to, min, report)
+                assertTrue(compared > 0, "$from: Compare people's code rows are not vacuous")
                 report.assertFlowMatches(sql, allKeys, zone)
 
                 val unassigned = user.code("teamId=0&from=$from&to=$to&connectionId=$ownId&tailPercent=0")
@@ -308,6 +367,13 @@ class ReportCodeActivityFixtureTest {
                 assertEquals(unassigned.quality.unlinkedCommits, residue, "$from: the residue's commits")
                 report.assertQualityMatches(sql, unassigned.quality.unlinkedCommits)
             }
+
+            // Person trend's code points are Compare people's cells over each window (the one-truth gate), on real stub rows.
+            val trend = user.personTrend("from=2026-06-03&to=2026-08-31&accountId=${members[0]}")
+            val truth = user.assertPersonTrendIsComparePeople(trend, members[0], members[1], "")
+            assertEquals(trend.windows.size * trend.rows.size, truth.cells)
+            val mrs = trend.rows.single { it.key == "mrsMerged" }.points
+            assertTrue(mrs.any { (it.value ?: 0.0) > 0.0 }, "the trend's merged merge requests are not all zero")
 
             // The timing target (build-times.md "In-test targets"): the 90-day request, the second one.
             val url = "teamId=$teamId&from=2026-06-03&to=2026-08-31&connectionId=$ownId"

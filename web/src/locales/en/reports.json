@@ -1317,7 +1317,7 @@
   },
   "comparePeople": {
     "title": "Compare people",
-    "description": "Two people head to head over a date range, across every team they belonged to. Pick person A and person B: the better figure of each metric (higher, lower or closer to 1, whichever is better for it) is tinted teal and marked with a check. A tie, a neutral metric or a person with too few items gets no mark. Every figure opens the items behind it.",
+    "description": "Two people head to head over a date range, across every team they belonged to. Pick person A and person B: the better figure of each metric (higher, lower or closer to 1, whichever is better for it) is tinted teal and marked with a check. A tie, a neutral metric or a person with too few items gets no mark. The code group counts each person's GitLab commits, merge requests and reviews through the identities an administrator linked to them (a person with no link shows zeros) and ignores the filters below; its counts are context and are never marked. Every figure opens the items behind it.",
     "pickTwo": "Pick two people to compare them.",
     "tableTitle": "Head to head",
     "tableCaption": "Difference is the gap between the two figures; the better figure is tinted teal and marked with a check.",
@@ -1338,6 +1338,8 @@
     "margin": {
       "MD": "{{value}} MD",
       "MD_PER_MD": "{{value}}",
+      "LINES_one": "{{value}} line",
+      "LINES_other": "{{value}} lines",
       "ITEMS_one": "{{value}} item",
       "ITEMS_other": "{{value}} items",
       "ITEMS_PER_DAY_one": "{{value}} item per day",
@@ -1359,7 +1361,8 @@
       "ESTIMATION": "Estimation",
       "WIP": "Work in progress",
       "TIME": "Logged time",
-      "QUALITY": "Data quality"
+      "QUALITY": "Data quality",
+      "CODE": "Code (GitLab)"
     },
     "row": {
       "deliveredMd": "Delivered (MD)",
@@ -1389,7 +1392,15 @@
       "foreignShare": "Foreign work share of logged time",
       "worklogCoverage": "Finished tasks with time logged",
       "lateLoggingShare": "Worklogs logged over a day late",
-      "noEstimateShare": "Finished tasks without an estimate"
+      "noEstimateShare": "Finished tasks without an estimate",
+      "commits": "Commits",
+      "linesChanged": "Lines changed in commits (added + deleted)",
+      "mrsMerged": "Merge requests merged",
+      "mrCycleWorkingDaysP50": "Merge request cycle time, working days — median",
+      "mrSizeLinesP50": "Merge request size (lines) — median",
+      "reviewsGiven": "Merge requests reviewed",
+      "approvalsGiven": "Merge requests approved",
+      "comments": "Comments"
     },
     "view": {
       "DELIVERED": "Delivered tasks",
@@ -1410,7 +1421,14 @@
       "NO_WORKLOGS": "Tasks with no time logged",
       "NO_ESTIMATE": "Tasks without an estimate",
       "TASK_SIZE": "Task size at start",
-      "REOPENED": "Reopened tasks"
+      "REOPENED": "Reopened tasks",
+      "COMMITS": "Commits",
+      "MRS_MERGED": "Merge requests merged",
+      "MR_CYCLE_WORKING_DAYS": "Merge request cycle time (working days)",
+      "MR_SIZE_LINES": "Merge request size (lines)",
+      "REVIEWS_GIVEN": "Merge requests reviewed",
+      "APPROVALS_GIVEN": "Merge requests approved",
+      "COMMENTS": "Comments"
     },
     "drill": {
       "mix": "{{slice}}: {{key}}"
@@ -1469,6 +1487,7 @@
     },
     "cue": {
       "caption": "The mark compares the first and last full window in the range.",
+      "captionNeutral": "No mark is given: this is context, not a measure of how well anyone does. The change compares the first and last full window in the range.",
       "none": "No mark: fewer than two full windows with a figure in this range.",
       "better": "Better",
       "worse": "Worse",
@@ -1500,8 +1519,13 @@
       "ITEMS_PER_DAY": "Items per day",
       "ITEMS_PER_MD": "Items per available MD",
       "DAYS": "Days",
+      "LINES": "Lines",
       "RATIO": "Ratio",
       "SHARE": "Share"
+    },
+    "codeAxis": {
+      "mrsMerged": "Merge requests",
+      "reviewsGiven": "Merge requests reviewed"
     },
     "table": {
       "label": "{{name}}: figures by window",

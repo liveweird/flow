@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.42.0",
+    date: "2026-11-01",
+    en: `**Compare two people's code, and follow a person's merge requests over time.**
+
+- Compare people has a new "Code (GitLab)" group: each person's commits, lines changed, merge requests merged, the median cycle time and size of those merge requests, and the merge requests they reviewed and approved and their comments. It counts the GitLab identities an administrator linked to the person, in every team, and the filters do not apply to it; a person with no link shows zeros. Every figure opens the commits or merge requests behind it.
+- Counts are plain context and are never marked as better or worse; only the median cycle time and size of a person's merge requests (lower is better) can name a side.
+- Person trend gains three charts, one per window: merge requests merged, their median cycle time and merge requests reviewed, with the team's median beside them like the others. The two counts show their change over the range without a verdict.`,
+    pl: `**Porównaj kod dwóch osób i śledź merge requesty osoby w czasie.**
+
+- Porównanie osób ma nową grupę „Kod (GitLab)”: commity, zmienione linie, scalone merge requesty, mediana czasu cyklu i rozmiaru tych merge requestów oraz merge requesty, które osoba przejrzała i zatwierdziła, i jej komentarze. Liczy tożsamości GitLaba, które administrator połączył z osobą, we wszystkich zespołach, a filtry jej nie dotyczą; osoba bez połączenia ma zera. Każda liczba otwiera commity lub merge requesty, które za nią stoją.
+- Liczby są samym kontekstem i nigdy nie są oznaczane jako lepsze lub gorsze; stronę może wskazać tylko mediana czasu cyklu i rozmiaru merge requestów osoby (im mniej, tym lepiej).
+- Trend osoby ma trzy nowe wykresy, po jednym punkcie na okno: scalone merge requesty, ich mediana czasu cyklu i przejrzane merge requesty, a obok nich mediana zespołu jak przy pozostałych. Dwie liczby pokazują zmianę w zakresie bez oceny.`,
+  },
+  {
     version: "1.41.0",
     date: "2026-11-01",
     en: `**See the commits and merge requests behind a Code activity figure.**

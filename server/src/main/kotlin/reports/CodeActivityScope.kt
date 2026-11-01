@@ -148,13 +148,15 @@ internal class CodeAttribution(
 }
 
 /**
- * What a request narrows the attributed rows to: [teamId] (`0` = the UNASSIGNED bucket, rows with no team at their anchor) and, at USER
- * level, the picked [accounts] (null: the whole team).
+ * What a request narrows the attributed rows to: [teamId] (`0` = the UNASSIGNED bucket, rows with no team at their anchor; null = ANY
+ * team, which Compare people and Person trend read: A41 attributes by person only) and, at USER level, the picked [accounts] (null: the
+ * whole team).
  */
-internal class CodeSelection(val teamId: UInt, val accounts: Set<String>?) {
+internal class CodeSelection(val teamId: UInt?, val accounts: Set<String>?) {
     /** A row whose person is [account] and whose team at the row's anchor is [team] is in scope. */
     fun accepts(team: UInt?, account: String?): Boolean =
-        (if (teamId == UNASSIGNED_TEAM_ID) team == null else team == teamId) && (accounts == null || account in accounts)
+        (teamId == null || (if (teamId == UNASSIGNED_TEAM_ID) team == null else team == teamId)) &&
+            (accounts == null || account in accounts)
 }
 
 /** Who a row is: the LINKED account, else (an unlinked identity) its key on its host; all null for a row naming no identity at all. */

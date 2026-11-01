@@ -29,7 +29,14 @@ internal class CompareData(
     val worklogs: List<CompareWorklog>,
     val wip: CompareWip,
     val capacity: Map<String, ComparePersonCapacity>?,
-)
+) {
+    /**
+     * The people's GitLab populations (A50): the `CODE` rows, which no Jira slice touches. Set once by the loader ([loadCompareData],
+     * Person trend's `dataOf`) after construction -- a property, not a constructor parameter, because the constructor is at the width limit
+     * detekt allows (`LongParameterList`); until set there is no code, so every count is 0.
+     */
+    internal var code: CodePeople = CodePeople.none()
+}
 
 private fun plain(value: Double?, n: Int) = CompareCell(value, n, hidden = false)
 
@@ -59,6 +66,7 @@ internal fun CompareData.cellsOf(account: String): Map<String, CompareCell> {
     cells += wipCells(account)
     cells += timeCells(account)
     cells += qualityCells(account)
+    cells += codeCells(account)
     return cells
 }
 

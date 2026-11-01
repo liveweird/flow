@@ -1351,7 +1351,7 @@
   },
   "comparePeople": {
     "title": "Porównanie osób",
-    "description": "Dwie osoby „twarzą w twarz” w wybranym okresie, we wszystkich zespołach, do których należały. Wskaż osobę A i osobę B: lepsza liczba każdej miary (wyższa, niższa albo bliższa 1 — zależnie od tego, co jest dla niej lepsze) ma turkusowe tło i znacznik ✓. Remis, miara neutralna i osoba ze zbyt małą liczbą zadań nie mają oznaczenia. Każda liczba otwiera zadania, które za nią stoją.",
+    "description": "Dwie osoby „twarzą w twarz” w wybranym okresie, we wszystkich zespołach, do których należały. Wskaż osobę A i osobę B: lepsza liczba każdej miary (wyższa, niższa albo bliższa 1 — zależnie od tego, co jest dla niej lepsze) ma turkusowe tło i znacznik ✓. Remis, miara neutralna i osoba ze zbyt małą liczbą zadań nie mają oznaczenia. Grupa Kod liczy commity, merge requesty i przeglądy danej osoby w GitLabie przez tożsamości, które połączył z nią administrator (osoba bez połączenia ma zera), i pomija filtry poniżej; jej liczby to kontekst i nigdy nie są oznaczane. Każda liczba otwiera elementy, które za nią stoją.",
     "pickTwo": "Wskaż dwie osoby, aby je porównać.",
     "tableTitle": "Zestawienie",
     "tableCaption": "Różnica to odstęp między dwiema liczbami; lepsza liczba ma turkusowe tło i znacznik ✓.",
@@ -1390,6 +1390,10 @@
       "DAYS_few": "{{value}} dni",
       "DAYS_many": "{{value}} dni",
       "DAYS_other": "{{value}} dnia",
+      "LINES_one": "{{value}} linia",
+      "LINES_few": "{{value}} linie",
+      "LINES_many": "{{value}} linii",
+      "LINES_other": "{{value}} linii",
       "RATIO": "{{value}}",
       "SHARE": "{{value}} p.p."
     },
@@ -1403,7 +1407,8 @@
       "ESTIMATION": "Szacowanie",
       "WIP": "Praca w toku",
       "TIME": "Zalogowany czas",
-      "QUALITY": "Jakość danych"
+      "QUALITY": "Jakość danych",
+      "CODE": "Kod (GitLab)"
     },
     "row": {
       "deliveredMd": "Dostarczone (MD)",
@@ -1433,7 +1438,15 @@
       "foreignShare": "Udział pracy obcej w zalogowanym czasie",
       "worklogCoverage": "Zakończone zadania z zalogowanym czasem",
       "lateLoggingShare": "Wpisy czasu zalogowane z ponad dobowym opóźnieniem",
-      "noEstimateShare": "Zakończone zadania bez szacunku"
+      "noEstimateShare": "Zakończone zadania bez szacunku",
+      "commits": "Commity",
+      "linesChanged": "Linie zmienione w commitach (dodane + usunięte)",
+      "mrsMerged": "Scalone merge requesty",
+      "mrCycleWorkingDaysP50": "Czas cyklu merge requesta, dni robocze — mediana",
+      "mrSizeLinesP50": "Rozmiar merge requesta (linie) — mediana",
+      "reviewsGiven": "Przejrzane merge requesty",
+      "approvalsGiven": "Zatwierdzone merge requesty",
+      "comments": "Komentarze"
     },
     "view": {
       "DELIVERED": "Dostarczone zadania",
@@ -1454,7 +1467,14 @@
       "NO_WORKLOGS": "Zadania bez zalogowanego czasu",
       "NO_ESTIMATE": "Zadania bez szacunku",
       "TASK_SIZE": "Rozmiar zadania na starcie",
-      "REOPENED": "Zadania otwarte ponownie"
+      "REOPENED": "Zadania otwarte ponownie",
+      "COMMITS": "Commity",
+      "MRS_MERGED": "Scalone merge requesty",
+      "MR_CYCLE_WORKING_DAYS": "Czas cyklu merge requesta (dni robocze)",
+      "MR_SIZE_LINES": "Rozmiar merge requesta (linie)",
+      "REVIEWS_GIVEN": "Przejrzane merge requesty",
+      "APPROVALS_GIVEN": "Zatwierdzone merge requesty",
+      "COMMENTS": "Komentarze"
     },
     "drill": {
       "mix": "{{slice}}: {{key}}"
@@ -1515,6 +1535,7 @@
     },
     "cue": {
       "caption": "Znacznik porównuje pierwsze i ostatnie pełne okno zakresu.",
+      "captionNeutral": "Nie ma znacznika: to kontekst, a nie miara tego, jak komuś idzie. Zmiana porównuje pierwsze i ostatnie pełne okno zakresu.",
       "none": "Brak znacznika: w tym zakresie jest mniej niż dwa pełne okna z liczbą.",
       "better": "Lepiej",
       "worse": "Gorzej",
@@ -1548,8 +1569,13 @@
       "ITEMS_PER_DAY": "Zadania na dzień",
       "ITEMS_PER_MD": "Zadania na dostępny MD",
       "DAYS": "Dni",
+      "LINES": "Linie",
       "RATIO": "Stosunek",
       "SHARE": "Udział"
+    },
+    "codeAxis": {
+      "mrsMerged": "Merge requesty",
+      "reviewsGiven": "Przejrzane merge requesty"
     },
     "table": {
       "label": "{{name}}: liczby okno po oknie",

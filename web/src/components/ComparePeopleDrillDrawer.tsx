@@ -3,7 +3,7 @@ import { skipToken, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { getComparePeopleItems } from "../api/reportDrill";
 import type { ComparePeopleReport, ReportFilters } from "../api/reports";
-import { cellCountOf, mixKeyLabel, viewColumns } from "../utils/comparePeopleReport";
+import { cellCountOf, isCodeView, mixKeyLabel, viewColumns } from "../utils/comparePeopleReport";
 import { distributionPeople } from "../utils/distributionPeople";
 import { serializeDrill, type CellDrillTarget, type DrillTarget, type MixDrillTarget } from "../utils/reportDrill";
 import { reportQuery, type ReportFilterState } from "../utils/reportFilter";
@@ -88,6 +88,8 @@ function CellDrillDrawer({
       segmentAccountId={open?.segmentAccountId}
       onSegmentChange={onSegmentChange}
       allowEveryone={false}
+      // The CODE rows list commits and merge requests: plain keys (this report names no GitLab host), a "Person" column.
+      codeSources={isCodeView(open?.kind === "cell" ? open.view : undefined) ? [] : undefined}
     />
   );
 }
