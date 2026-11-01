@@ -1,0 +1,120 @@
+package ch.nokillswit.reports
+
+import ch.nokillswit.identities.IdentityResolver
+import ch.nokillswit.metrics.WorkingCalendar
+import java.time.ZoneId
+
+/*
+ * Report 21's read plan (`.claude/docs/reports.md` "Report 21"): the scope, the keys of the people in play, the four reads and the
+ * identity / membership lookups, in the order the data allows. It runs inside the caller's report transaction and computes nothing
+ * (CodeActivityKernels.kt / CodeActivityMembers.kt do), so the figures can be tested without a database.
+ */
+
+/** What one request reads. [picks] are the USER level's accounts (empty: the whole team); [teamId] `0` is the UNASSIGNED bucket. */
+internal class CodeActivityRequest(
+    val sources: List<CodeSource>,
+    val teamId: UInt,
+    val picks: List<String>,
+    val window: Pair<Long, Long>,
+    val nowMs: Long,
+)
+
+/** Everything the figures need: the rows, who they are and the freshly read quality inputs. */
+internal class CodeActivityData(
+    val context: CodeKernelContext,
+    val commits: List<CodeCommitRow>,
+    val mrs: List<CodeMrRow>,
+    val events: List<CodeEventRow>,
+    val requests: List<CodeEventRow>,
+    val summaries: List<CodeReviewSummary>,
+    val keyActivity: List<CodeKeyActivity>,
+    val qualityCounts: CodeQualityCounts,
+    /** The team's people (or the picks): listed in `groups` even with no row. Empty for `teamId=0`. */
+    val roster: Set<String>,
+    /** Display names of the unlinked identity keys of the rows, read for `teamId=0` only. */
+    val labels: Map<String, String>,
+)
+
+/** The figures of one request, ready for the wire mapping (part (b)). */
+internal class CodeActivityFigures(
+    val flow: CodeFlowFigures,
+    val review: CodeReviewConcentration,
+    val open: CodeOpenFigures,
+    val members: List<CodeMemberFigures>,
+    val quality: CodeQuality,
+)
+
+/** The keys by connection that [rows] name, for the identity lookup. */
+private fun keysOf(data: Map<UInt, MutableSet<String>>, connectionId: UInt, vararg keys: String?) {
+    keys.filterNotNull().forEach { data.getValue(connectionId) += it }
+}
+
+/**
+ * Reads everything a request needs. The key scope is the roster's (or the picks') LINKED keys, or none for `teamId=0` (every key of
+ * the sources); rows are then attributed by their anchors in the kernels. The review summaries are read for the READ merged merge
+ * requests in scope only, after the first attribution pass.
+ */
+internal suspend fun loadCodeActivity(
+    resolver: IdentityResolver,
+    request: CodeActivityRequest,
+    calendar: WorkingCalendar,
+    zone: ZoneId,
+    minSample: Int,
+): CodeActivityData {
+    val sources = request.sources
+    val connections = sources.map { it.connectionId }
+    val window = request.window
+    val unassignedAll = request.teamId == UNASSIGNED_TEAM_ID && request.picks.isEmpty()
+    // A mover's rows are attributed by anchor, and an open merge request by now: the roster spans the window and now.
+    val roster = when {
+        request.picks.isNotEmpty() -> request.picks.toSet()
+        unassignedAll -> emptySet()
+        else -> readTeamRoster(request.teamId, minOf(window.first, request.nowMs), maxOf(window.second, request.nowMs + 1))
+    }
+    val scope: CodeKeyScope = if (unassignedAll) null else keysOfAccounts(resolver, sources, roster)
+    val commits = fetchCodeCommits(connections, scope, window)
+    val mrs = fetchCodeMergeRequests(connections, scope, window)
+    val events = fetchCodeActorEvents(connections, scope, window)
+    val requests = fetchCodeReviewRequests(connections, window)
+    val activity = fetchCodeKeyActivity(connections, window)
+    val qualityCounts = fetchCodeQualityCounts(connections, window)
+
+    val seen = connections.associateWith { mutableSetOf<String>() }
+    commits.forEach { keysOf(seen, it.connectionId, it.identityKey) }
+    mrs.forEach { keysOf(seen, it.connectionId, it.authorKey) }
+    (events + requests).forEach { keysOf(seen, it.mr.connectionId, it.actorKey, it.mrAuthorKey, *it.targetKeys.toTypedArray()) }
+    activity.forEach { keysOf(seen, it.connectionId, it.key) }
+    val identities = loadCodeIdentities(resolver, sources, seen)
+    val accounts = seen.flatMap { (id, keys) -> keys.mapNotNull { identities.accountOf(id, it) } }.toSet() + roster
+    val memberships = readCodeMemberships(accounts)
+    val selection = CodeSelection(request.teamId, request.picks.takeIf { it.isNotEmpty() }?.toSet())
+    val first = CodeKernelContext(selection, CodeAttribution(identities, memberships), window, request.nowMs, calendar, zone, minSample)
+
+    val readMrs = first.mergedInScope(mrs).map { it.row }.filter { it.detailsRead }.map { it.ref }
+    val summaries = fetchCodeReviewSummaries(readMrs)
+    // The reviewers may be people who did nothing else in the window: their decisions are read after the summaries are known.
+    summaries.forEach { keysOf(seen, it.mr.connectionId, it.actorKey) }
+    val context = CodeKernelContext(
+        selection, CodeAttribution(loadCodeIdentities(resolver, sources, seen), memberships), window, request.nowMs, calendar, zone,
+        minSample,
+    )
+    val labels = if (request.teamId == UNASSIGNED_TEAM_ID) {
+        val identities = context.attribution.identities
+        fetchCodeIdentityLabels(connections, seen.flatMap { (id, keys) -> keys.filterNot { identities.isDecided(id, it) } })
+    } else {
+        emptyMap()
+    }
+    return CodeActivityData(context, commits, mrs, events, requests, summaries, activity, qualityCounts, roster, labels)
+}
+
+/** The figures of [data]: the flow, the open merge requests, the review concentration, the members and the `quality` block. */
+internal fun codeActivityFigures(data: CodeActivityData): CodeActivityFigures = with(data.context) {
+    val flow = flowFigures(data.mrs, data.summaries)
+    CodeActivityFigures(
+        flow = flow,
+        review = reviewConcentration(flow, minSample),
+        open = openFigures(data.mrs),
+        members = memberFigures(flow, data.commits, data.mrs, data.events, data.requests, data.roster),
+        quality = codeQuality(data.keyActivity, data.qualityCounts, attribution.identities),
+    )
+}

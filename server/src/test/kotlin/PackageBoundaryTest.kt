@@ -21,6 +21,8 @@ import kotlin.test.assertTrue
  * wiring MUST construct the feature services it publishes on `Application.attributes`, so exactly those two files may name
  * exactly those packages.
  *
+ * `identities/` is read by `reports/` (Report 21, A50) and by nothing else ([`only reports references identities`]).
+ *
  * `fetch/` is the hardened HTTP transport every connector shares (`SourceHttp`, the backoff, the call tally, the ceilings). It sits
  * between `infra` and the connectors: it may use `infra` (the outbound guard's `BlockedHostException`, `sha256Hex`) and nothing above
  * it, `ingest` included (a connector hands it everything it needs as plain parameters, and `ingest` already imports `jira`, so an
@@ -120,12 +122,21 @@ class PackageBoundaryTest {
     }
 
     @Test
-    fun `no connector or norm package references identities`() {
-        val lower = setOf(
-            "ch.nokillswit.ingest", "ch.nokillswit.norm", "ch.nokillswit.fetch", "ch.nokillswit.jira", "ch.nokillswit.gitlab",
-        )
-        for (pkg in lower) assertTrue(mainSources.any { packageOf(it.readText()) == pkg }, "no source declares $pkg")
-        assertEquals(emptyList(), violations(lower, listOf("identities")))
+    fun `only reports references identities`() {
+        // The "one entry point" promise (`IdentityResolver`, gitlab-integration.md "Identity"): the identity mapping is read by the
+        // reports layer and by nothing else, so no connector, `norm`, `metrics`, `infra` (the composition root included: the routes are
+        // wired from application.yaml, not from Kotlin) or feature package names it. The scan must see both ends, or an empty result
+        // proves nothing (a moved directory, a stale permission).
+        val allowed = setOf("ch.nokillswit.identities", "ch.nokillswit.reports")
+        for (pkg in allowed) assertTrue(mainSources.any { packageOf(it.readText()) == pkg }, "no source declares $pkg")
+        val violations = mainSources.flatMap { file ->
+            val text = file.readText()
+            if (packageOf(text) in allowed) emptyList() else forbiddenReferences(text, listOf("identities")).map { "${file.name} $it" }
+        }
+        assertEquals(emptyList(), violations)
+        val reportsUse = mainSources.filter { packageOf(it.readText()) == "ch.nokillswit.reports" }
+            .any { forbiddenReferences(it.readText(), listOf("identities")).isNotEmpty() }
+        assertTrue(reportsUse, "reports/ no longer references identities: drop it from the allowance")
     }
 
     @Test

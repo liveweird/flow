@@ -2688,7 +2688,7 @@ built yet: this section is the contract the implementation is written against (t
 - `GET /api/v1/reports/code-activity?teamId=T[&from&to | &lastSprints | &sprintId][&accountId=A&accountId=B…&connectionId&tailPercent]` -- the report.
 - `GET /api/v1/reports/code-activity/items?…&view[&bucketIndex|&bucketStart][&segmentAccountId]` -- the drill (below).
 
-`TEAM_ONLY` ("Scope" above): `teamId` is required and `0` is the UNASSIGNED bucket (the work of identities with no LINKED decision and of linked people with no membership at the anchor); `domain`,
+`TEAM_ONLY` ("Scope" above): `teamId` is required and `0` is the UNASSIGNED bucket (the work of undecided identities and of linked people with no membership at the anchor; a key decided BOT or IGNORED is in no figure and in no unlinked count); `domain`,
 `domainView`, `activityType` and `workCategory` are not declared on the path and ignored like any unknown name. The period is the shared parser's three forms, dates AND sprints: the window of the
 team's sprint is "the merge requests merged in the sprint" (`resolveReportScope` yields the `window` and `meta.resolvedSprints`), the default is the trailing 90 days. `accountId` repeats 1..8
 (`multipleAccounts`, "Repeated query parameters") and makes the level USER; without it the level is TEAM. `connectionId` names one ACTIVE GITLAB source (`400 Unknown or inactive connectionId` for a
@@ -2718,7 +2718,7 @@ CodeActivityReport {
 ```
 
 - **`groups`.** TEAM: one per member with any attributed row or a membership overlapping the window (zero rows kept, so the roster is visible), ordered by `orgGroups` (`reports/ReportSupport.kt:367`); USER: one per pick, and
-  every `Distribution` splits per picked person (`PickedDistributions`); `teamId=0`: one per unlinked identity key (`label` = the identity's display name or username, `accountId` null) plus one per linked account with no
+  every `Distribution` splits per picked person (`PickedDistributions`); `teamId=0`: one per undecided identity key (`label` = the identity's display name or username, `accountId` null) plus one per linked account with no
   membership. These are the volumes and they are **NEUTRAL** (A50): the response carries no tint, rank or verdict for them. Counts are never hidden; the distributions and the p50 cells are under `minSampleSize`.
 - **Verdict-free by construction.** The flow figures are what the page may colour (lower is better for the cycle, time to first review, merged without review, open ages and size); the report itself returns numbers, the
   direction is the page's, as for every report.
@@ -2731,8 +2731,9 @@ The one rule is A50: a row belongs to the person its identity key is LINKED to (
 human"), and to the team that person's dated membership covers at the row's anchor (`teamAt`, half-open `[from, to)`): a commit by `committed_at`, a merged merge request by `merged_at`, an opened one by `created_at`, an open one by now, an
 event by `event_at` (an undated event is in no period and counted in `quality.eventsUndated`). A mover's work splits by anchor. Raw SQL over the Exposed tables of `norm/CodeActivityStore.kt:33-122` (the `HomeDoneSql` idiom) reads,
 per request: (1) the commits by `identity_key IN (keys)` and `committed_at` in the window (for `teamId=0` every key of the sources); (2) the merge requests by `author_key IN` and the `merged_at` / `created_at` windows, and the open
-ones (`state = 'opened'`, not tombstoned); (3) the events by `actor_key IN` / `mr_id IN` with `event_at` windows; (4) per merged merge request the first review event (`MIN(event_at)` grouped by `mr_id`, actor other than the author,
-kind in the five review kinds, `event_at` known, actor not decided BOT/IGNORED -- the exclusion set passed as a list). Merge commits are left out; unknown counted lines are excluded and counted. The figures are computed in Kotlin
+ones (`state = 'opened'`, not tombstoned); (3) the events by `actor_key IN` / `mr_id IN` with `event_at` windows; (4) per merged merge request whose details were read and per actor, the earliest dated review-kind event and whether the actor approved (`MIN(event_at)` and a
+count grouped by `(mr_id, actor_key)`, the five review kinds, actor known; the kernel then drops the author and the actors decided BOT/IGNORED, `IdentityResolver.decidedKeys`, so the
+events themselves are never loaded), plus the grouped per-key counts and the few connection-wide counts of `quality`. Merge commits are left out; unknown counted lines are excluded and counted. The figures are computed in Kotlin
 (pure kernels: per-row `teamAt`, the distinct-merge-request counting, the first-review pairing, `buildDistribution`, `percentileContinuous`, `weekStartsMs`). The roster and the team come from `TeamMembershipService`
 (`membershipsOfAccounts` :116, `allMembershipsByAccount` :205, `memberAccountIds` :182, `currentAccountIds` :169) with `teamAt` (`metrics/DeriveAttribution.kt:107`); the GitLab hosts from `DataSourceService.activeGitLabBaseUrls`
 (`ingest/DataSourceService.kt:129`); the keys of an account from `IdentityResolver.keysByAccount`, the inverse `accountsByKey` for `teamId=0` and the drills, and a new `decidedKeys(host, keys)` for the BOT/IGNORED exclusion.

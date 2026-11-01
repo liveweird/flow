@@ -27,6 +27,14 @@ class IdentityResolver(private val links: CodeIdentityLinkStore) {
             .groupBy({ it.first }, { it.second })
             .mapValues { (_, keys) -> keys.sorted() }
 
+    /**
+     * The stored decision of each of [keys] on [host], whatever it is (LINKED, IGNORED or BOT); an undecided key is absent. Report 21
+     * reads it to tell a human reviewer from a BOT or IGNORED actor (`reports/CodeActivityScope.kt`): those attribute nothing and are
+     * not "a review by another human", while an UNDECIDED actor still is one.
+     */
+    suspend fun decidedKeys(host: String, keys: Collection<String>): Map<String, CodeIdentityDecision> =
+        links.forKeys(host, keys).associate { it.key to it.decision }
+
     private fun IdentityLink.linkedAccount(): String? = jiraAccountId.takeIf { decision == CodeIdentityDecision.LINKED }
 }
 

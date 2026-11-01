@@ -51,7 +51,22 @@ class IdentityResolverTest {
     }
 
     @Test
+    fun `decidedKeys answers every stored decision on this host, an undecided key is absent`() = runBlocking {
+        withHosts { host, other, userId ->
+            store.insertIfAbsent(link(host, userId, "u1", CodeIdentityDecision.LINKED, "acc-1"))
+            store.insertIfAbsent(link(host, userId, "u2", CodeIdentityDecision.IGNORED))
+            store.insertIfAbsent(link(host, userId, "u3", CodeIdentityDecision.BOT))
+            store.insertIfAbsent(link(other, userId, "u4", CodeIdentityDecision.BOT))
+            val expected = mapOf(
+                "u1" to CodeIdentityDecision.LINKED, "u2" to CodeIdentityDecision.IGNORED, "u3" to CodeIdentityDecision.BOT,
+            )
+            assertEquals(expected, resolver.decidedKeys(host, listOf("u1", "u2", "u3", "u4", "u99")))
+        }
+    }
+
+    @Test
     fun `an empty input is an empty answer`() = runBlocking {
+        assertEquals(emptyMap(), resolver.decidedKeys(uniqueHost(), emptyList()))
         assertEquals(emptyMap(), resolver.accountsByKey(uniqueHost(), emptyList()))
         assertEquals(emptyMap(), resolver.keysByAccount(uniqueHost(), emptySet()))
     }
