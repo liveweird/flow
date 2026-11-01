@@ -62,10 +62,12 @@ internal suspend fun ReportService.personTrend(
         // Exactly the cells the report needs, cache or not: the person, and this window's peers that were fetched (a served peer's cell
         // is the cached one). An entry is written only for a cell computed anyway, never for a window the account was not a peer in.
         val accounts = listOf(person) + peersByWindow[i].filter { it in fetched }
-        val datas = populations.dataOf(window, scope, wip.forWindow(window), accounts, code)
-        val personCells = datas.getValue(person).cellsOf(person)
+        val datas = populations.dataOf(window, scope, wip.forWindow(window), accounts)
+        val personCells = datas.getValue(person).cellsOf(person, code)
         val entries = datas.mapValues { (account, data) ->
-            PeerCellEntry.of(if (account == person) personCells else data.cellsOf(account), data.hadActivity(account))
+            PeerCellEntry.of(
+                if (account == person) personCells else data.cellsOf(account, code), data.hadActivity(account), code.isLinked(account),
+            )
         }
         // The person's own entry only where the point has a team: that is the only place it can ever be a peer of someone else, and a
         // teamless (or made-up) account must not be able to fill the cap with entries nobody can be served.
@@ -160,7 +162,6 @@ internal class TrendPopulations(
         scope: ReportScope,
         wip: CompareWip,
         accounts: Collection<String>,
-        code: CodePeople,
     ): Map<String, CompareData> {
         val doneOf = done.sliceByAnchor(window.bounds) { it.doneAt }.groupBy { it.accountId }
         val cycleOf = cycle.sliceByAnchor(window.bounds) { it.doneAt }.groupBy { it.accountId }
@@ -180,7 +181,7 @@ internal class TrendPopulations(
                 worklogs = worklogsOf[account].orEmpty(),
                 wip = wip,
                 capacity = null,
-            ).also { it.code = code }
+            )
         }
     }
 }

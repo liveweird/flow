@@ -55,7 +55,9 @@ internal fun Route.personTrendRoutes(reportService: ReportService) {
             throw BadRequestException("bucketIndex does not apply to a trend point: the list is the person's whole set in the window")
         }
         val pointFilter = filter.atPoint(params.optionalString("pointEnd"), scope.calendar)
-        call.respondRevalidated(reportService.etagFor(call, scope, extraStamp = reportService.codeStamp())) {
+        // Only a code view reads the GitLab rows and links: a Jira view's tag must not move on a link write.
+        val extra = if (view.codeView() != null) reportService.codeStamp() else emptyList()
+        call.respondRevalidated(reportService.etagFor(call, scope, extraStamp = extra)) {
             reportService.comparePeopleItems(pointFilter, view, null, filter.accountIds.single(), scope.nowMs)
         }
     }

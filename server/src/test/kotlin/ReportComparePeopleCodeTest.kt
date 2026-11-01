@@ -2,6 +2,8 @@ package ch.nokillswit
 
 import ch.nokillswit.flowusers.FlowUserRole
 import ch.nokillswit.ingest.SyncJobsService
+import ch.nokillswit.norm.DetailsState
+import ch.nokillswit.norm.NormCodeMergeRequest
 import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.reports.CodeActivityReport
 import ch.nokillswit.reports.CompareCell
@@ -78,6 +80,13 @@ class ReportComparePeopleCodeTest {
             val client = seededClient("cmp-code", FlowUserRole.USER)
             inWorld {
                 pin(this)
+                // A third merged merge request of alice's whose size is unknown (no GraphQL totals): it counts for the cycle, not for the
+                // size, so a size p50 whose `n` were the merged count would be caught.
+                val unsized = NormCodeMergeRequest(
+                    30, 1, 30, "merged", false, kA, null, at(1), at(1), at(5), null, "feature", "main", "unsized", null, null, null,
+                    emptyList(), emptyList(), null, null, null, false, DetailsState.READ, null, emptyList(),
+                )
+                GitLabFixtures.codeStore().replaceMergeRequests(connId, listOf(unsized), now)
                 val report = client.compare(query())
                 val code = report.rows.filter { it.group == CompareGroup.CODE }
                 assertEquals(
@@ -90,16 +99,16 @@ class ReportComparePeopleCodeTest {
                 assertEquals(CompareGroup.CODE, report.rows.last().group)
 
                 // Alice (the only author, in team `teamId`): commits a1 (3 files, +10 -2) and a2 (counts unknown: adds nothing, still
-                // listed); merge requests 1 (3 working days) and 2 (1), sizes 25 and 2 lines; one comment on her own merge request.
+                // listed); merge requests 1 (3 working days), 2 (1) and the unsized 30 (4), sizes 25 and 2 lines; one comment on her own.
                 // Bob (no membership at all): commit b1 (+4 -4); on merge request 1 a REVIEWED, a COMMENT and two APPROVALs (one approval),
                 // on 2 a comment AFTER the merge (still a review-kind act of his): 2 merge requests reviewed, 1 approved, 2 comments.
                 assertCell("commits A", 2.0, 2, false, report.row("commits").a)
                 assertCell("commits B", 1.0, 1, false, report.row("commits").b)
                 assertCell("linesChanged A", 12.0, 2, false, report.row("linesChanged").a)
                 assertCell("linesChanged B", 8.0, 1, false, report.row("linesChanged").b)
-                assertCell("mrsMerged A", 2.0, 2, false, report.row("mrsMerged").a)
+                assertCell("mrsMerged A", 3.0, 3, false, report.row("mrsMerged").a)
                 assertCell("mrsMerged B", 0.0, 0, false, report.row("mrsMerged").b)
-                assertCell("cycle A", 2.0, 2, false, report.row("mrCycleWorkingDaysP50").a)
+                assertCell("cycle A", 3.0, 3, false, report.row("mrCycleWorkingDaysP50").a)
                 assertCell("cycle B", null, 0, true, report.row("mrCycleWorkingDaysP50").b)
                 assertCell("size A", 13.5, 2, false, report.row("mrSizeLinesP50").a)
                 assertCell("size B", null, 0, true, report.row("mrSizeLinesP50").b)
@@ -112,7 +121,7 @@ class ReportComparePeopleCodeTest {
 
                 // The volumes are NEUTRAL: B minus A, never a better side. The two p50 rows are LOWER but bob has none: no verdict.
                 val volumes = listOf("commits", "linesChanged", "mrsMerged", "reviewsGiven", "approvalsGiven", "comments")
-                assertEquals(listOf(-1.0, -4.0, -2.0, 2.0, 1.0, 1.0), volumes.map { report.row(it).difference })
+                assertEquals(listOf(-1.0, -4.0, -3.0, 2.0, 1.0, 1.0), volumes.map { report.row(it).difference })
                 assertTrue(code.all { it.better == null && it.margin == null }, "no side is better: ${code.map { it.better }}")
                 val directions = code.associate { it.key to it.direction }
                 assertEquals(CompareDirection.LOWER, directions["mrCycleWorkingDaysP50"])
@@ -144,6 +153,12 @@ class ReportComparePeopleCodeTest {
                     assertEquals(group.approvalsGiven.toDouble(), cell("approvalsGiven").value, "$side approvals")
                     assertEquals(group.comments.toDouble(), cell("comments").value, "$side comments")
                 }
+
+                // A minimum sample above a cell's n withholds it, and only it: alice's size p50 (n 2) is hidden at 3, her cycle p50 is not.
+                val strict = withMetricsSettings(settings, { it.copy(minSampleSize = 3) }) { client.compare(query()) }
+                assertCell("size A at min 3", null, 2, true, strict.row("mrSizeLinesP50").a)
+                assertCell("cycle A at min 3", 3.0, 3, false, strict.row("mrCycleWorkingDaysP50").a)
+                assertCell("mrsMerged A at min 3", 3.0, 3, false, strict.row("mrsMerged").a)
             }
         }
 

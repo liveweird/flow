@@ -226,7 +226,12 @@ class ReportValidatorInputsTest {
                 )
                 // The Jira-only reports read no GitLab row: not one of them may move (Home and the cycle-time report are team reports).
                 val cycle = "/api/v1/reports/cycle-time?teamId=$teamId&$period"
-                val jiraSide = listOf("/api/v1/reports/filters", "/api/v1/reports/home", cycle)
+                // A Jira-view drill of the code-reading reports reads no GitLab row either: its tag stays put on a link write.
+                val jiraDrills = listOf(
+                    "/api/v1/reports/compare-people/items?$people&segmentAccountId=$accA&view=DELIVERED",
+                    "/api/v1/reports/person-trend/items?$period&accountId=$accA&pointEnd=2026-03-15&view=DELIVERED",
+                )
+                val jiraSide = listOf("/api/v1/reports/filters", "/api/v1/reports/home", cycle) + jiraDrills
                 val jiraBefore = jiraSide.map { client.etagOf(it) }
                 val j = SyncJobsService.Jobs
                 val c = DataSourceService.Connections

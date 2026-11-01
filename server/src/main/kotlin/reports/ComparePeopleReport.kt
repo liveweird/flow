@@ -82,11 +82,11 @@ internal suspend fun ReportService.comparePeople(
 ): ComparePeopleReport = reportTransaction {
     val scope = resolveReportScope(filter, nowMs)
     val picked = pickedAccounts(filter)
-    val data = loadCompareData(filter, scope, nowMs, grant, codeDeps)
+    val (data, code) = loadCompareData(filter, scope, nowMs, grant, codeDeps)
     val showCapacity = data.capacity != null
     val (idA, idB) = picked.ids
-    val cellsA = data.cellsOf(idA)
-    val cellsB = data.cellsOf(idB)
+    val cellsA = data.cellsOf(idA, code)
+    val cellsB = data.cellsOf(idB, code)
     val rows = COMPARE_ROWS.filter { showCapacity || !it.requiresCapacity }.map { spec ->
         val a = cellsA.getValue(spec.key)
         val b = cellsB.getValue(spec.key)
@@ -140,7 +140,7 @@ internal suspend fun R2dbcTransaction.loadCompareData(
     nowMs: Long,
     grant: CapacityGrant,
     codeDeps: CodeActivityDeps?,
-): CompareData {
+): CompareInputs {
     val window = requireNotNull(scope.window) { "compare-people always has a from/to window" }
     val connections = scope.connectionIds
     val memberships =
@@ -166,6 +166,8 @@ internal suspend fun R2dbcTransaction.loadCompareData(
     )
     // The CODE rows (A50): both people's GitLab rows, read once for the pair across every active GitLab source.
     val zone = WorkingCalendar.zoneOf(scope.settings.timeZone)
-    data.code = loadCodePeople(codeDeps, filter.accountIds, window, zone, nowMs, withCommits = true)
-    return data
+    return CompareInputs(data, loadCodePeople(codeDeps, filter.accountIds, window, zone, nowMs, withCommits = true))
 }
+
+/** What one comparison reads: the Jira populations (sliced) and the people's GitLab populations (not sliceable) for [cellsOf]. */
+internal data class CompareInputs(val data: CompareData, val code: CodePeople)

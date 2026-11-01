@@ -27,7 +27,12 @@ internal class CodePeople(
     private val zone: ZoneId,
     private val nowMs: Long,
     val commitsRead: Boolean,
+    /** The accounts with at least one LINKED identity on an active GitLab source: the only people whose code counts mean anything. */
+    private val linkedAccounts: Set<String>,
 ) {
+    /** True when [account] has a LINKED GitLab identity (any active source); an unlinked person's code counts are 0 by absence. */
+    fun isLinked(account: String): Boolean = account in linkedAccounts
+
     /**
      * The rows of [account] for [window] (`[from, to)`): the commits and the acts anchored inside it, every merge request the person
      * authored (the kernels window them by `merged_at` and `created_at` themselves), under a selection of that one person in ANY team.
@@ -63,9 +68,10 @@ internal class CodePeople(
     }
 
     companion object {
-        /** No GitLab source, or none of the people linked: every count is 0. */
-        fun none(commitsRead: Boolean = true): CodePeople = CodePeople(
+        /** No GitLab source, or none of the people linked: every count is 0 and nobody is linked. */
+        fun none(commitsRead: Boolean): CodePeople = CodePeople(
             CodeIdentities(emptyMap(), emptyMap(), emptyMap()), emptyMap(), emptyMap(), emptyMap(), ZoneOffset.UTC, 0L, commitsRead,
+            emptySet(),
         )
     }
 }
@@ -86,7 +92,8 @@ internal suspend fun loadCodePeople(
 ): CodePeople {
     deps ?: return CodePeople.none(withCommits)
     val sources = resolveCodeSources(deps.dataSources, null)
-    val scope = keysOfAccounts(deps.resolver, sources, accounts)
+    val linked = linkedKeysOfAccounts(deps.resolver, sources, accounts)
+    val scope = linked.byConnection
     if (scope.isEmpty()) return CodePeople.none(withCommits)
     val connections = sources.map { it.connectionId }
     val commits = if (withCommits) fetchCodeCommits(connections, scope, range) else emptyList()
@@ -108,6 +115,7 @@ internal suspend fun loadCodePeople(
         zone = zone,
         nowMs = nowMs,
         commitsRead = withCommits,
+        linkedAccounts = linked.linkedAccounts,
     )
 }
 
@@ -116,15 +124,16 @@ private fun <T> Map<String?, List<T>>.linked(): Map<String, List<T>> =
     entries.mapNotNull { (account, rows) -> account?.let { it to rows } }.toMap()
 
 /**
- * The CODE cells of [account] over this comparison's window (`CompareData.window`), keys as [COMPARE_ROWS]. `n` is the cell's sample:
+ * The CODE cells of [account] over [data]'s window (and its calendar and minimum sample), keys as [COMPARE_ROWS]. `n` is the cell's sample:
  * the commits for both commit rows (the unknown-lines ones are in the list with a null figure and add nothing to the sum), the merged
  * merge requests for `mrsMerged` and the cycle p50, those with a known size for the size p50. The two p50 cells are `hidden` under
  * `minSampleSize` like every distribution-shaped row; a count is a fact, never hidden (a person with no link has 0).
  */
-internal fun CompareData.codeCells(account: String): Map<String, CompareCell> {
-    val f = code.figuresOf(account, window, calendar, minSample)
+internal fun CodePeople.cellsOf(account: String, data: CompareData): Map<String, CompareCell> {
+    val minSample = data.minSample
+    val f = figuresOf(account, data.window, data.calendar, minSample)
     val cells = LinkedHashMap<String, CompareCell>()
-    if (code.commitsRead) {
+    if (commitsRead) {
         cells["commits"] = CompareCell(f.commits.toDouble(), f.commits, hidden = false)
         cells["linesChanged"] = CompareCell((f.linesAdded + f.linesDeleted).toDouble(), f.commits, hidden = false)
     }

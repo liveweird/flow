@@ -325,6 +325,16 @@ class ReportPersonTrendCacheTest {
             }
             val after = decode(linkedBody).rows.single { it.key == "mrsMerged" }
             assertTrue(after.points.mapNotNull { it.reference?.value }.any { it >= 1.0 }, "the new median is not the cached 0")
+            // The code median is over the LINKED peers only (3 of the 5 teammates, each with one merge request in the windows after the
+            // 15th
+            // of December): the two unlinked teammates, active in Jira, are not in it, whatever the slice says about who was active.
+            val windowsWithPeers = after.points.filter { it.reference?.value != null }
+            val linkedOnly = windowsWithPeers.all { it.reference?.peers == 3 }
+            assertTrue(windowsWithPeers.isNotEmpty() && linkedOnly, "the linked peers only: $windowsWithPeers")
+            val slice = sliceParameters().first()
+            val sliced = decode(sameBody(query(world.person, slice), "sliced $slice")).rows.single { it.key == "mrsMerged" }
+            val unsliced = after.points.map { it.reference }
+            assertEquals(unsliced, sliced.points.map { it.reference }, "a Jira slice does not move the code median")
             // A link removed is the same: the cached cells of the linked generation are not served either.
             step("a link is removed") { links.delete(host, keys[0].second) }
         } finally {

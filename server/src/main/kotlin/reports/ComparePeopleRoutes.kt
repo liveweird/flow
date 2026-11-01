@@ -27,7 +27,8 @@ class ReportComparePeopleItemsRoute
  * else gets the report without those keys. All or nothing for the pair, checked per request (never cached in a claim), and decided
  * BEFORE the report read so the service computes the capacity only for a caller who may see it. A pair with no team in the period
  * has no manager to ask: only an ADMIN sees capacity then. The verdict is part of the ETag (`CapacityGrant.etagShape`). Both operations
- * also carry Report 21's GitLab stamp lines ([codeStamp]): the `CODE` rows read `norm.code_*` and the identity links live (A50).
+ * also carry Report 21's GitLab stamp lines ([codeStamp]): the `CODE` rows read `norm.code_*` and the identity links live (A50); the
+ * drill only for a code view.
  */
 internal fun Route.comparePeopleRoutes(reportService: ReportService, teams: TeamService) {
     get<ReportComparePeopleRoute> {
@@ -54,9 +55,11 @@ internal fun Route.comparePeopleRoutes(reportService: ReportService, teams: Team
         val scope = reportService.stampScope(StampClock.DAY)
         val filter = params.parseComparePeople(scope.calendar, scope.nowMs, scope.historyHorizon)
         val view = params.requireEnum<CompareDrillView>("view")
+        // Only a code view reads the GitLab rows and links: a Jira view's tag must not move on a link write.
+        val extra = if (view.codeView() != null) reportService.codeStamp() else emptyList()
         val bucketIndex = params.optionalString("bucketIndex")?.let { params.requireBucketIndex() }
         val segmentAccountId = params.optionalString("segmentAccountId")
-        call.respondRevalidated(reportService.etagFor(call, scope, extraStamp = reportService.codeStamp())) {
+        call.respondRevalidated(reportService.etagFor(call, scope, extraStamp = extra)) {
             reportService.comparePeopleItems(filter, view, bucketIndex, segmentAccountId, scope.nowMs)
         }
     }

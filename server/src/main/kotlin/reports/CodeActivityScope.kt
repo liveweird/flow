@@ -91,13 +91,24 @@ internal suspend fun keysOfAccounts(
     resolver: IdentityResolver,
     sources: List<CodeSource>,
     accounts: Collection<String>,
-): Map<UInt, Set<String>> {
-    if (accounts.isEmpty()) return emptyMap()
-    val byHost = sources.map { it.host }.distinct()
-        .associateWith { host -> resolver.keysByAccount(host, accounts).values.flatten().toSet() }
-    return sources.mapNotNull { source ->
-        byHost.getValue(source.host).takeIf { it.isNotEmpty() }?.let { source.connectionId to it }
+): Map<UInt, Set<String>> = linkedKeysOfAccounts(resolver, sources, accounts).byConnection
+
+/** The LINKED keys of some accounts per connection, and which of those accounts have at least one (on any source's host). */
+internal class LinkedKeys(val byConnection: Map<UInt, Set<String>>, val linkedAccounts: Set<String>)
+
+/** [keysOfAccounts] that also says which of [accounts] are linked at all (one statement per host, as before). */
+internal suspend fun linkedKeysOfAccounts(
+    resolver: IdentityResolver,
+    sources: List<CodeSource>,
+    accounts: Collection<String>,
+): LinkedKeys {
+    if (accounts.isEmpty()) return LinkedKeys(emptyMap(), emptySet())
+    val perHost = sources.map { it.host }.distinct().associateWith { host -> resolver.keysByAccount(host, accounts) }
+    val byConnection = sources.mapNotNull { source ->
+        perHost.getValue(source.host).values.flatten().toSet().takeIf { it.isNotEmpty() }?.let { source.connectionId to it }
     }.toMap()
+    val linked = perHost.values.flatMap { byAccount -> byAccount.filterValues { it.isNotEmpty() }.keys }.toSet()
+    return LinkedKeys(byConnection, linked)
 }
 
 /**

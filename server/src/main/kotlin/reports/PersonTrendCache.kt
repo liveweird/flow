@@ -14,8 +14,8 @@ import org.slf4j.LoggerFactory
  * caller-shaped data (D12).
  *
  * GENERATION = the report data stamp (`dataStamp` PLUS Report 21's `codeStamp`, the ETag's own lines), read ONCE in the route BEFORE the
- * report transaction. An entry is
- * therefore never OLDER than its generation promises; a write finishing in between only makes it newer than its key, and the next request
+ * report transaction. An entry is therefore never OLDER than its generation promises; a write finishing in between only makes it newer
+ * than its key, and the next request
  * (a new stamp) misses. Each stamp read takes a TICKET (a monotonic counter) just BEFORE the read. A request whose stamp differs swaps a
  * fresh generation in (compare-and-set from the one it observed) only if the observed generation's ticket is older than its own; a
  * straggler that took its ticket earlier than the generation in place works on a private generation instead. Best effort: two stamp
@@ -76,6 +76,8 @@ internal class PeerCellEntry private constructor(
     private val present: Int,
     private val hiddenMask: Int,
     val active: Boolean,
+    /** Whether the account had a LINKED GitLab identity: the only peers whose `CODE` rows count (an unlinked person's 0 is no fact). */
+    val linked: Boolean,
 ) {
     /** The cell of the [row]-th [TREND_ROWS] row. */
     fun cell(row: Int): CompareCell =
@@ -87,7 +89,7 @@ internal class PeerCellEntry private constructor(
         }
 
         /** The entry of [cells] ([cellsOf] of one account over one window) and its [active] flag. */
-        fun of(cells: Map<String, CompareCell>, active: Boolean): PeerCellEntry {
+        fun of(cells: Map<String, CompareCell>, active: Boolean, linked: Boolean): PeerCellEntry {
             val values = DoubleArray(TREND_ROWS.size)
             val counts = IntArray(TREND_ROWS.size)
             var present = 0
@@ -101,7 +103,7 @@ internal class PeerCellEntry private constructor(
                 counts[row] = cell.n
                 if (cell.hidden) hidden = hidden or (1 shl row)
             }
-            return PeerCellEntry(values, counts, present, hidden, active)
+            return PeerCellEntry(values, counts, present, hidden, active, linked)
         }
     }
 }

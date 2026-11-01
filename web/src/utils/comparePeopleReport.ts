@@ -37,6 +37,7 @@ const UNIT_FORMATS: Record<CompareUnit, ValueFormat> = {
   ITEMS_PER_DAY: formatRatio,
   ITEMS_PER_MD: formatRatio,
   DAYS: formatDays,
+  // Lines of code are whole numbers: the plain number formatter (at most two decimals, no trailing zeros), as the drill lists print them.
   LINES: formatMd,
   RATIO: formatRatio,
   SHARE: formatPercent,
