@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: flow-api
-  version: 1.48.0
+  version: 1.49.0
   description: |
     JWT-authenticated REST API for Flow — a developer-intelligence tool that reads Jira Cloud, stores the raw data
     incrementally and derives flow metrics (cycle and lead time, throughput, WIP, flow efficiency, work-item age),
@@ -4051,6 +4051,62 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/task-code/items:
+    get:
+      tags: [reports]
+      operationId: getReportTaskCodeItems
+      summary: The done tasks behind one figure of the tasks and code report (drill to items)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 22". Takes the parent report's parameters
+        (`GET /api/v1/reports/task-code`: `teamId` or `domain`, the period, the slices, `connectionId`, `tailPercent`, so the same 400s,
+        an `accountId` included) plus the figure's identity: `view` (REQUIRED) and, for the two histogram views, a REQUIRED `bucketIndex`.
+        The list is read by the report's own plan and per-task properties, so `bar.count` equals the figure it stands behind:
+        `TASKS_WITH_MR` `tasks.withMergeRequest` (`figure` the task's code lead time in working days, null if it never started),
+        `TASKS_WITHOUT_MR` `tasks.withoutMergeRequest` (no `figure`), `MERGED_AFTER_DONE` `mergedAfterDone.count` (`figure` the lag in
+        working days) and, with a `bucketIndex` (0-based into that distribution's `histogram`, the open tail last), `CODE_LEAD_TIME` a bar of
+        `codeLeadTimeWorkingDays` and `MERGED_AFTER_DONE_LAG` a bar of `mergedAfterDone.lagWorkingDays` (`bar.count` equals
+        `histogram[bucketIndex].count`, `bar.from`/`bar.to` its range, `to` null = the open tail). `itemKind` is `TASK`; `issueKey` and
+        `summary` are the Jira task's, `accountId`/`assignee` its assignee at done, `teamId` its credit team and `anchorAt` its `done_at`.
+        The item's `linkedKeys` are the GitLab merge requests the figure counted for the task, `<project path>!<iid>`, sorted: the MERGED
+        ones for every view but `TASKS_WITHOUT_MR`, which lists the task's linked merge requests that are NOT merged (open, closed, locked;
+        `[]` for a task no merge request names). They link to the GitLab host of `sources[].baseUrl` of the parent. Sorted by `figure`
+        descending (nulls last), newest `anchorAt`, then key; at most 500 listed — `total` (equal to `bar.count`) says how many are behind
+        the figure. 400: a missing or unknown `view`, a `bucketIndex` that is missing for a histogram view, is sent with another view, is
+        not a non-negative integer or lies outside the histogram, a hidden distribution (fewer than `meta.minSampleSize` values: no bar
+        exists), plus every 400 of the parent (the code-row budget one included: a selection over `reports.codeMaxRows` is refused, not
+        cut).
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportLastSprints' }
+        - { $ref: '#/components/parameters/ReportSprintId' }
+        - { $ref: '#/components/parameters/ReportTeamId' }
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportActivityType' }
+        - { $ref: '#/components/parameters/ReportWorkCategory' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/ReportTailPercent' }
+        - name: view
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [TASKS_WITH_MR, TASKS_WITHOUT_MR, CODE_LEAD_TIME, MERGED_AFTER_DONE, MERGED_AFTER_DONE_LAG]
+          description: Which figure's tasks — see the operation description.
+        - name: bucketIndex
+          in: query
+          required: false
+          schema: { type: integer, format: int32, minimum: 0 }
+          description: The histogram views only (`CODE_LEAD_TIME`, `MERGED_AFTER_DONE_LAG`), and REQUIRED there — a bar of that distribution's `histogram`, 0-based (the open tail bucket last). A 400 on any other view or outside the histogram.
+        - { $ref: '#/components/parameters/IfNoneMatch' }
+      responses:
+        '200': { $ref: '#/components/responses/ReportDrillItemsOk' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/reports/reported-time-ratio:
     get:
       tags: [reports]
@@ -6869,10 +6925,11 @@ components:
           nullable: true
           items: { type: string }
           description: |
-            The Jira issue keys a merge request names in its title or source branch, uppercased, sorted, and only those of a KNOWN Jira project
-            (a configured `projectKeys` entry of an active Jira data source, or an old project of a moved issue). Set only on the
-            `MERGE_REQUEST` items of Report 21's drill and of Home's `CODE_*` lists (which run its selection);
-            `[]` = it names none; null for every other kind and report. A key is listed whether or not Jira has such an issue.
+            The OTHER layer's keys the item is linked to, sorted; their kind is said by `itemKind`. On a `MERGE_REQUEST` item (Report 21's
+            drill and Home's `CODE_*` lists) they are the Jira issue keys its title or source branch names, uppercased, only those of a KNOWN
+            Jira project (a configured `projectKeys` entry of an active Jira data source, or an old project of a moved issue); a key is listed
+            whether or not Jira has such an issue. On a `TASK` item of Report 22's drill (`/reports/task-code/items`) they are the GitLab merge
+            requests, `<project path>!<iid>`, the figure counted for the task. `[]` = none; null for every other kind and report.
     ReportDrillItems:
       type: object
       description: |

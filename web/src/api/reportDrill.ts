@@ -16,6 +16,7 @@ import type {
   MixDrillTarget,
 } from "../utils/reportDrill";
 import { reportQuery, type ReportFilterState } from "../utils/reportFilter";
+import type { TaskCodeDrillTarget } from "../utils/taskCodeDrill";
 import { sprintDrillFilter } from "../utils/sprintDrill";
 
 export type ReportDrillItems = paths["/api/v1/reports/throughput/items"]["get"]["responses"]["200"]["content"]["application/json"];
@@ -178,4 +179,15 @@ export async function getCodeActivityItems(filter: ReportFilterState, target: Hi
   else if (target.bucketStart !== undefined) params.set("bucketStart", target.bucketStart);
   if (target.segmentAccountId && member === undefined) params.set("segmentAccountId", target.segmentAccountId);
   return jsonRequest<ReportDrillItems>(`/api/v1/reports/code-activity/items?${params.toString()}`);
+}
+
+/**
+ * The done tasks behind one figure of Tasks and code: a histogram bar (`hist`: its `view` and `bucketIndex`) or a count (`taskcode`). The page's own filter travels
+ * with it; the report has no person level, so there is no segment. Each task lists the merge requests the figure counted for it (`linkedKeys`, GitLab keys).
+ */
+export async function getTaskCodeItems(filter: ReportFilterState, target: HistDrillTarget | TaskCodeDrillTarget): Promise<ReportDrillItems> {
+  const params = new URLSearchParams(reportQuery(filter));
+  params.set("view", target.view);
+  if (target.kind === "hist") params.set("bucketIndex", String(target.bucketIndex));
+  return jsonRequest<ReportDrillItems>(`/api/v1/reports/task-code/items?${params.toString()}`);
 }

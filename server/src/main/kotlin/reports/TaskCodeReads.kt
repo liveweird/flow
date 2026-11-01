@@ -45,8 +45,12 @@ internal suspend fun fetchTaskCodePopulation(
     val t = MetricsTables.FactTaskDelivery
     val predicate = taskFactSlice(filter, connectionIds) and
         t.doneAt.isNotNull() and (t.doneAt greaterEq window.first) and (t.doneAt less window.second)
-    return t.select(t.connectionId, t.issueId, t.issueKey, t.startedAt, t.doneAt).where { predicate }
-        .map { TaskCodeTask(IssueRef(it[t.connectionId].value, it[t.issueId]), it[t.issueKey], it[t.startedAt], it[t.doneAt]!!) }
+    return t.select(t.connectionId, t.issueId, t.issueKey, t.startedAt, t.doneAt, t.assigneeAccountIdAtDone, t.creditTeamId)
+        .where { predicate }
+        .map {
+            val ref = IssueRef(it[t.connectionId].value, it[t.issueId])
+            TaskCodeTask(ref, it[t.issueKey], it[t.startedAt], it[t.doneAt]!!, it[t.assigneeAccountIdAtDone], it[t.creditTeamId]?.value)
+        }
         .toList()
 }
 

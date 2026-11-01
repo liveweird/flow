@@ -13,17 +13,30 @@ import ch.nokillswit.norm.projectKeyFromIssueKey
 /** What [loadTaskCode] read: each done task with its merge requests. */
 internal class TaskCodeData(val rows: List<TaskMergeRequests>)
 
-internal suspend fun ReportService.taskCode(filter: ReportFilter, nowMs: Long): TaskCodeReport = reportTransaction {
+/** What one request read, shared by the report and its drill: the dependencies, the Jira scope, the GitLab sources, the linked tasks. */
+internal class TaskCodeRead(val deps: CodeActivityDeps, val scope: ReportScope, val sources: List<CodeSource>, val data: TaskCodeData)
+
+/**
+ * The report's whole read, inside the caller's [reportTransaction]: [taskCode] and the drill ([taskCodeItems]) both run THIS, so a figure
+ * and its items cannot disagree.
+ */
+internal suspend fun ReportService.readTaskCode(filter: ReportFilter, nowMs: Long): TaskCodeRead {
     val deps = checkNotNull(codeDeps) { "the tasks and code report is not configured on this service" }
     val scope = resolveReportScope(filter, nowMs)
-    val minSample = scope.settings.minSampleSize
     val sources = resolveCodeSources(deps.dataSources, null)
     // A sprint period with no sprint to resolve reads nothing: every figure is empty, like the other reports'.
     val data = scope.window?.let { loadTaskCode(deps, filter, scope, sources, it) } ?: TaskCodeData(emptyList())
-    val figures = taskCodeFigures(data.rows, scope.calendar)
+    return TaskCodeRead(deps, scope, sources, data)
+}
+
+internal suspend fun ReportService.taskCode(filter: ReportFilter, nowMs: Long): TaskCodeReport = reportTransaction {
+    val read = readTaskCode(filter, nowMs)
+    val scope = read.scope
+    val minSample = scope.settings.minSampleSize
+    val figures = taskCodeFigures(read.data.rows, scope.calendar)
     TaskCodeReport(
         meta = scope.meta,
-        sources = codeSourceFreshness(deps.dataSources, sources),
+        sources = codeSourceFreshness(read.deps.dataSources, read.sources),
         tasks = TaskCodeTasks(figures.done, figures.withMergeRequest, figures.withoutMergeRequest, figures.withoutShare),
         codeLeadTimeWorkingDays = buildDistribution(figures.leadTimes, minSample, filter.tailPercent),
         mergedAfterDone = TaskCodeMergedAfterDone(

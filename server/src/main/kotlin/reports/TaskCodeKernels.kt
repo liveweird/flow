@@ -12,23 +12,37 @@ import ch.nokillswit.metrics.WorkingCalendar
 /** A Jira issue: its connection and id. */
 internal data class IssueRef(val connectionId: UInt, val issueId: Long)
 
-/** One DONE level-0 task of the period: [issueKey] is its key as of the last DERIVE, [startedAt] is null when it never started. */
-internal data class TaskCodeTask(val ref: IssueRef, val issueKey: String, val startedAt: Long?, val doneAt: Long)
+/**
+ * One DONE level-0 task of the period: [issueKey] is its key as of the last DERIVE, [startedAt] is null when it never started. [accountId]
+ * (the assignee at done) and [creditTeamId] are read for the drill's rows only; no figure uses them.
+ */
+internal data class TaskCodeTask(
+    val ref: IssueRef,
+    val issueKey: String,
+    val startedAt: Long?,
+    val doneAt: Long,
+    val accountId: String? = null,
+    val creditTeamId: UInt? = null,
+)
 
 /** One live merge request that names [key]; [mergedAt] is set exactly when the merge request is MERGED (state `merged` with a date). */
 internal data class TaskCodeLink(val key: String, val mr: CodeMrRef, val mergedAt: Long?)
 
 /**
- * A done task and the distinct merge requests linked to it: [merged] and [unmerged] of them, [lastMergedAt] the latest merge.
- * [ambiguousKey] says one of the task's keys names more than one live issue, so it could link nothing through that key.
+ * A done task and the distinct merge requests linked to it: the [mergedMrs] and the [unmergedMrs], [lastMergedAt] the latest merge.
+ * [ambiguousKey] says one of the task's keys names more than one live issue, so it could link nothing through that key. The drill lists
+ * the merge requests themselves; the figures count them.
  */
 internal data class TaskMergeRequests(
     val task: TaskCodeTask,
-    val merged: Int,
-    val unmerged: Int,
+    val mergedMrs: List<CodeMrRef>,
+    val unmergedMrs: List<CodeMrRef>,
     val lastMergedAt: Long?,
     val ambiguousKey: Boolean = false,
 ) {
+    val merged: Int get() = mergedMrs.size
+    val unmerged: Int get() = unmergedMrs.size
+
     /** At least one linked merge request is merged: the task is "with a merge request". */
     val hasMerged: Boolean get() = merged > 0
 
@@ -69,9 +83,9 @@ internal fun linkTasks(
         .filter { resolution[it] == setOf(task.ref) }
         .flatMap { linksByKey[it].orEmpty() }
         .associateBy { it.mr }.values
-    val merged = linked.mapNotNull { it.mergedAt }
+    val (merged, unmerged) = linked.partition { it.mergedAt != null }
     val ambiguous = keysOf[task.ref].orEmpty().any { (resolution[it]?.size ?: 0) > 1 }
-    TaskMergeRequests(task, merged.size, linked.size - merged.size, merged.maxOrNull(), ambiguous)
+    TaskMergeRequests(task, merged.map { it.mr }, unmerged.map { it.mr }, merged.mapNotNull { it.mergedAt }.maxOrNull(), ambiguous)
 }
 
 /** The counts and the raw values behind Report 22's figures; the distributions are built from [leadTimes] and [lags]. */

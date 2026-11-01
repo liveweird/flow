@@ -41,6 +41,7 @@ export default function DistributionDrillDrawer({
   segmentRequired = false,
   anchor = "done",
   codeSources,
+  taskSources,
 }: {
   /** The report's path segment: the query-key family (`cycle-time`, `reported-time-ratio`). */
   report: string;
@@ -59,6 +60,8 @@ export default function DistributionDrillDrawer({
   anchor?: DrillAnchor;
   /** The lists are Code activity's: keys link to these sources' GitLab (see `ReportDrillDrawer`). */
   codeSources?: CodeActivityReport["sources"];
+  /** The lists are Tasks and code's: each task links to Jira and its merge requests to these sources' GitLab (see `ReportDrillDrawer`). */
+  taskSources?: CodeActivityReport["sources"];
 }) {
   const current = target?.kind === "hist" ? views.find((candidate) => candidate.view === target.view) : undefined;
   // The bar the SHOWN report drew: none for a view the page did not draw, a hidden distribution (no histogram, so no bar to list)
@@ -97,6 +100,7 @@ export default function DistributionDrillDrawer({
       onSegmentChange={onSegmentChange}
       allowEveryone={!segmentRequired}
       codeSources={codeSources}
+      taskSources={taskSources}
     />
   );
 }

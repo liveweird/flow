@@ -1,5 +1,6 @@
 // Tasks and code (report 22) test fixtures: responses typed against the generated schema, so a spec drift breaks the fixtures and not just the page.
 // Team Alpha (FILTERS): 40 done tasks, 24 of them with a merged merge request; one GitLab source; every distribution shown.
+import type { ReportDrillItems } from "../api/reportDrill";
 import type { Distribution, TaskCodeReport } from "../api/reports";
 import { shownDistribution } from "./reportFixtures";
 
@@ -69,3 +70,24 @@ export const TASK_CODE_NO_MERGES: TaskCodeReport = {
   mergedAfterDone: { count: 0, lagWorkingDays: hidden(0) },
   quality: { neverStarted: 0, onlyUnmergedMrs: 4, tasksWithAmbiguousKey: 0 },
 };
+
+const DONE_AT = 1_780_000_000_000;
+
+/**
+ * The tasks behind a count or a histogram bar: three listed (the cap, as far as the page cares), `count` of them behind the figure. Each task lists the merge
+ * requests the figure counted for it as GitLab keys (`linkedKeys`): two, one, and none (a task nothing names).
+ */
+export function taskCodeItems(count: number, over: Partial<ReportDrillItems> = {}): ReportDrillItems {
+  return {
+    meta: { ...META, level: "TEAM" },
+    bar: { count, sumMd: null, from: null, to: null },
+    items: [
+      { issueKey: "FLO-12", summary: "Add the export", itemKind: "TASK", accountId: "acc-ann", assignee: "Ann Author", teamId: 1, anchorAt: DONE_AT, figure: 5.5, linkedKeys: ["grp/app!12", "grp/sub/api!7"] },
+      { issueKey: "FLO-30", summary: "Retry the upload", itemKind: "TASK", accountId: "acc-bob", assignee: "Bob Builder", teamId: 1, anchorAt: DONE_AT, figure: 2, linkedKeys: ["grp/app!15"] },
+      { issueKey: "FLO-31", summary: null, itemKind: "TASK", accountId: null, assignee: null, teamId: 1, anchorAt: DONE_AT, figure: null, linkedKeys: [] },
+    ],
+    total: count,
+    truncated: count > 3,
+    ...over,
+  };
+}

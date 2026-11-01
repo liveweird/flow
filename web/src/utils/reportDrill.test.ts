@@ -74,6 +74,8 @@ describe("the drill param codec", () => {
     ["a Code activity tile", { kind: "code", view: "MRS_MERGED" }, "code:MRS_MERGED"],
     ["a Code activity member's cell", { kind: "code", view: "COMMITS", segmentAccountId: "712020:abc-def" }, "code:COMMITS;s=712020:abc-def"],
     ["a Code activity weekly bar", { kind: "code", view: "WEEK", bucketStart: "2026-03-02" }, "code:WEEK:2026-03-02"],
+    ["a Tasks and code count", { kind: "taskcode", view: "TASKS_WITH_MR" }, "taskcode:TASKS_WITH_MR"],
+    ["a Tasks and code histogram bar", { kind: "hist", view: "CODE_LEAD_TIME", bucketIndex: 2 }, "hist:CODE_LEAD_TIME:2"],
     [
       "a Compare people work-mix share (the key is percent-encoded)",
       { kind: "mix", by: "activityType", key: "Run: ops, 100%", segmentAccountId: "acc-ann" },
@@ -173,6 +175,11 @@ describe("the drill param codec", () => {
     ["a Code activity week that is no date", "code:WEEK:2026-02-30"],
     ["a Code activity figure with a date (only the week has one)", "code:COMMITS:2026-03-02"],
     ["a Code activity figure with a stray part", "code:WEEK:2026-03-02:extra"],
+    ["a Tasks and code figure of a view the server does not answer as a count", "taskcode:NOPE"],
+    ["a Tasks and code histogram view (a bar is a hist target)", "taskcode:CODE_LEAD_TIME"],
+    ["a Tasks and code figure in the wrong case", "taskcode:tasks_with_mr"],
+    ["a Tasks and code figure with a stray part", "taskcode:TASKS_WITH_MR:extra"],
+    ["a Tasks and code figure narrowed to a person (the report has none)", "taskcode:MERGED_AFTER_DONE;s=acc-ann"],
   ])("%s parses to nothing (a hand-edited link is ignored, never an error)", (_name, raw) => {
     expect(parseDrill(raw)).toBeNull();
   });

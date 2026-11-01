@@ -40,8 +40,10 @@ data class ReportDrillItem(
     val anchorAt: Long?,
     val figure: Double?,
     /**
-     * The Jira issue keys a merge request names within the known Jira projects, sorted (A51; empty = it names none): set ONLY on the
-     * `MERGE_REQUEST` items of Report 21's drill and Home's `CODE_*` lists; null for every other kind and report.
+     * The OTHER layer's keys the item is linked to, sorted (A51; empty = none), their kind said by [itemKind]: on a `MERGE_REQUEST` item
+     * (Report 21's drill, Home's `CODE_*` lists) the Jira issue keys its title or branch names within the known Jira projects; on a `TASK`
+     * item of Report 22's drill the GitLab merge requests (`<project path>!<iid>`) the figure counted for the task. Null for every other
+     * kind and report.
      */
     val linkedKeys: List<String>? = null,
 )
@@ -91,9 +93,16 @@ internal suspend fun drillItems(meta: ReportMeta, bar: ReportDrillBar, rows: Lis
 /**
  * [drillItems] for a read that already ordered ([DRILL_ORDER], `ORDER BY ... LIMIT` [DRILL_MAX_ITEMS]) and counted in SQL: [listed] is
  * the first page of the set and [total] the size of the WHOLE set (the figures of [bar] are the caller's, over that same set). The
- * rows are re-sorted by the issue key tie-break only, like [drillItems].
+ * rows are re-sorted by the issue key tie-break only, like [drillItems]. [linkedKeys] (by `(connectionId, issueId)`; null = none of the
+ * items carries any) fills [ReportDrillItem.linkedKeys]: a listed row the map has no entry for gets an empty list.
  */
-internal suspend fun listedDrillItems(meta: ReportMeta, bar: ReportDrillBar, listed: List<DrillRow>, total: Int): ReportDrillItems {
+internal suspend fun listedDrillItems(
+    meta: ReportMeta,
+    bar: ReportDrillBar,
+    listed: List<DrillRow>,
+    total: Int,
+    linkedKeys: Map<Pair<UInt, Long>, List<String>>? = null,
+): ReportDrillItems {
     val labels = workItemLabels(listed.map { it.connectionId to it.issueId })
     val names = accountDisplayNames(listed.filter { it.assignee == null }.mapNotNull { it.accountId }.distinct())
     val items = listed.map { row ->
@@ -107,6 +116,7 @@ internal suspend fun listedDrillItems(meta: ReportMeta, bar: ReportDrillBar, lis
             teamId = row.teamId,
             anchorAt = row.anchorAt,
             figure = row.figure,
+            linkedKeys = linkedKeys?.let { it[row.connectionId to row.issueId].orEmpty() },
         )
     }.sortedWith(
         compareByDescending<ReportDrillItem, Double?>(nullsFirst()) { it.figure }

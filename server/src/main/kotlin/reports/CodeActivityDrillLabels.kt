@@ -92,6 +92,18 @@ private suspend fun fetchLinkedKeys(refs: List<CodeMrRef>, dataSources: DataSour
     return candidates.mapValues { (_, keys) -> scopedIssueKeys(keys, known) }
 }
 
+/**
+ * The `<project path>!<iid>` key of each of [refs] (a merge request whose row is gone, not expected, is `#mr-<id>`): the GitLab side of
+ * Report 22's drill, which lists a task's merge requests by these keys.
+ */
+internal suspend fun fetchMergeRequestKeys(refs: Collection<CodeMrRef>): Map<CodeMrRef, String> {
+    val labels = fetchMrLabels(refs.distinct())
+    val paths = fetchProjectPaths(refs.mapNotNull { ref -> labels[ref]?.let { ref.connectionId to it.projectId } }.distinct())
+    return refs.associateWith { ref ->
+        labels[ref]?.let { "${paths[ref.connectionId to it.projectId] ?: "#${it.projectId}"}!${it.iid}" } ?: "#mr-${ref.mrId}"
+    }
+}
+
 private suspend fun fetchMrLabels(refs: List<CodeMrRef>): Map<CodeMrRef, CodeDrillLabels.MrLabel> {
     if (refs.isEmpty()) return emptyMap()
     val m = CodeMergeRequests

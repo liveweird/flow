@@ -1715,6 +1715,14 @@
       "lagTitle": "Done to last merge, working days",
       "lagCaption": "Working days between the task being done and the merge of its last merge request.",
       "axis": "working days"
+    },
+    "drill": {
+      "tilesHint": "Click a figure to list the tasks behind it.",
+      "view": {
+        "TASKS_WITH_MR": "Tasks with a merged merge request",
+        "TASKS_WITHOUT_MR": "Tasks without a merged merge request",
+        "MERGED_AFTER_DONE": "Tasks merged after done"
+      }
     }
   },
   "deepDive": {

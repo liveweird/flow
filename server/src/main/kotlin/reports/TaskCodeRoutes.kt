@@ -9,6 +9,10 @@ import kotlinx.serialization.Serializable
 @Resource("/api/v1/reports/task-code")
 class ReportTaskCodeRoute
 
+@Serializable
+@Resource("/api/v1/reports/task-code/items")
+class ReportTaskCodeItemsRoute
+
 /**
  * Report 22, Tasks and code (`.claude/docs/reports.md` "Report 22", A51): any signed-in user (D12), read-only, no audit, `call.caller()`
  * first (inside [reportGet]). Read per team or per domain (`TEAM_OR_DOMAIN`, the cycle-time scope) over the done tasks of the Jira star;
@@ -22,5 +26,12 @@ internal fun Route.taskCodeRoutes(reportService: ReportService) {
     reportGet<ReportTaskCodeRoute>(reportService, DomainView.TASK, withCodeStamp = true) { filter, _, nowMs ->
         if (filter.accountId != null) throw BadRequestException("accountId is not available: Tasks and code has no user level")
         answer { reportService.taskCode(filter, nowMs) }
+    }
+    // The drill: the parent's parameters plus the figure (`view`) and, for the two histograms, its bar (`bucketIndex`). The same scope,
+    // clock and GitLab stamp as the report (the items are read by the same plan), and the same structural refusal of an `accountId`.
+    reportGet<ReportTaskCodeItemsRoute>(reportService, DomainView.TASK, withCodeStamp = true) { filter, params, nowMs ->
+        if (filter.accountId != null) throw BadRequestException("accountId is not available: Tasks and code has no user level")
+        val query = params.taskCodeDrillQuery()
+        answer { reportService.taskCodeItems(filter, query, nowMs) }
     }
 }

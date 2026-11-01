@@ -226,7 +226,7 @@ class ReportValidatorsTest {
         SweepIds(sprint[d.teamId]!!.value, sprint[d.sprintId], accounts[0], accounts[1], domain[dom.domainKey])
     }
 
-    /** Every report GET of the spec (all 39) with a request that answers 200 over [connectionId]'s derived data. */
+    /** Every report GET of the spec (all 40) with a request that answers 200 over [connectionId]'s derived data. */
     private suspend fun HttpClient.allReportOperations(connectionId: UInt): Map<String, String> {
         val ids = sweepIds(connectionId)
         val epicsResponse = get("/api/v1/reports/deep-dive/epics?connectionId=$connectionId&pageSize=1")
@@ -257,6 +257,7 @@ class ReportValidatorsTest {
             "estimate-adjustments" to "view=TASKS&bucketIndex=0",
             "blocked-time" to "view=BLOCKED_WORKING_DAYS&bucketIndex=0",
             "costs" to "by=ACTIVITY_TYPE&key=Development",
+            "task-code" to "view=TASKS_WITH_MR",
         )
         return buildMap {
             put("$base/filters", "$base/filters")

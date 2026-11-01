@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.flowusers.FlowUserRole
 import ch.nokillswit.ingest.DataSourceKind
 import ch.nokillswit.metrics.WorkingCalendar
+import ch.nokillswit.reports.ReportDrillItems
 import ch.nokillswit.reports.ReportServiceKey
 import ch.nokillswit.reports.TaskCodeReport
 import io.ktor.client.HttpClient
@@ -39,7 +40,10 @@ import org.junit.BeforeClass
 class ReportTaskCodeFixtureTest {
     private class OracleTask(val issueId: Long, val key: String, val startedAt: Long?, val doneAt: Long)
 
-    private class OracleMr(val key: String, val connectionId: Int, val mrId: Long, val mergedAt: Long?)
+    private class OracleMr(val key: String, val connectionId: Int, val mrId: Long, val mergedAt: Long?, val mrKey: String)
+
+    /** What one done task got: the `<path>!<iid>` keys of its merged and unmerged linked merge requests, its lead time and its lag. */
+    private class OracleResult(val key: String, val merged: Set<String>, val unmerged: Set<String>, val lead: Double?, val lag: Double?)
 
     private fun placeholders(n: Int) = List(n) { "?" }.joinToString(",", "(", ")")
 
@@ -60,15 +64,17 @@ class ReportTaskCodeFixtureTest {
         val gitlab = gitlabIds()
         if (keys.isEmpty() || gitlab.isEmpty()) return emptyList()
         return jdbcRows(
-            "SELECT k.issue_key, k.connection_id, k.mr_id, m.state, m.merged_at FROM norm.code_mr_issue_keys k " +
+            "SELECT k.issue_key, k.connection_id, k.mr_id, m.state, m.merged_at, p.path_with_namespace || '!' || m.iid " +
+                "FROM norm.code_mr_issue_keys k " +
                 "JOIN norm.code_merge_requests m ON m.connection_id = k.connection_id AND m.mr_id = k.mr_id " +
+                "JOIN norm.code_projects p ON p.connection_id = m.connection_id AND p.project_id = m.project_id " +
                 "WHERE m.deleted_at IS NULL AND k.connection_id IN ${placeholders(gitlab.size)} " +
                 "AND k.issue_key IN ${placeholders(keys.size)}",
             *gitlab.toTypedArray(), *keys.toTypedArray(),
         ).map {
             val merged = it[3] == "merged"
             val mergedAt = if (merged) (it[4] as Number?)?.toLong() else null
-            OracleMr(it[0] as String, (it[1] as Number).toInt(), (it[2] as Number).toLong(), mergedAt)
+            OracleMr(it[0] as String, (it[1] as Number).toInt(), (it[2] as Number).toLong(), mergedAt, it[5] as String)
         }
     }
 
@@ -89,20 +95,21 @@ class ReportTaskCodeFixtureTest {
     }
 
     /**
-     * No live issue of an active Jira source has an `issuekey` change naming a key of the stub's projects (other classes' hand-written
-     * sources may hold moves of their own projects, which meet no stub key): the oracle needs no old-key resolution.
+     * No live issue of an active Jira source has an `issuekey` change naming a key of the stub's projects: the oracle needs no old-key
+     * resolution. Checked once the OTHER Jira sources are deactivated (a class that ran earlier in the same fork may have left a source
+     * that lists the stub's SEC project, whose live moved issue names `FLO-366`; it cannot meet a derived done task's key).
      */
     private fun assertNoLiveMovesOfStubKeys() {
         val jira = activeJiraIds()
         val stub = SyncedStubFixture.IN_SCOPE_PROJECT_KEYS.joinToString("|")
         val named = listOf("from_value", "from_text", "to_value", "to_text").joinToString(" OR ") { "f.$it ~ '^($stub)-'" }
         val moved = jdbcRows(
-            "SELECT count(*) FROM norm.work_item_field_changes f JOIN norm.work_items w ON w.connection_id = f.connection_id " +
-                "AND w.issue_id = f.issue_id WHERE f.connection_id IN ${placeholders(jira.size)} AND f.field_id = 'issuekey' " +
-                "AND w.deleted_at IS NULL AND w.moved_out_at IS NULL AND ($named)",
+            "SELECT DISTINCT f.connection_id, w.issue_key FROM norm.work_item_field_changes f JOIN norm.work_items w " +
+                "ON w.connection_id = f.connection_id AND w.issue_id = f.issue_id WHERE f.connection_id IN ${placeholders(jira.size)} " +
+                "AND f.field_id = 'issuekey' AND w.deleted_at IS NULL AND w.moved_out_at IS NULL AND ($named)",
             *jira.toTypedArray(),
-        ).single()[0] as Number
-        assertEquals(0L, moved.toLong(), "the stub's one move leaves its scope: the oracle needs no old-key resolution")
+        ).map { "${it[0]}:${it[1]}" }
+        assertEquals(emptyList(), moved, "the stub's one move leaves its scope: the oracle needs no old-key resolution")
     }
 
     private fun setDeleted(ids: List<Int>, deleted: Boolean) = PostgresTestSupport.connect().use { conn ->
@@ -124,6 +131,7 @@ class ReportTaskCodeFixtureTest {
         val late: Int,
         val leads: List<Double>,
         val lags: List<Double>,
+        val results: List<OracleResult>,
     )
 
     private fun expected(population: List<OracleTask>, calendar: WorkingCalendar): Expected {
@@ -135,19 +143,25 @@ class ReportTaskCodeFixtureTest {
         var late = 0
         val leads = mutableListOf<Double>()
         val lags = mutableListOf<Double>()
+        val results = mutableListOf<OracleResult>()
         for (task in population) {
             val mrs = byKey[task.key].orEmpty().distinctBy { it.connectionId to it.mrId }
             val merges = mrs.mapNotNull { it.mergedAt }
             if (merges.isNotEmpty()) withMr++ else if (mrs.isNotEmpty()) onlyUnmerged++
-            val last = merges.maxOrNull() ?: continue
-            if (task.startedAt != null) leads += calendar.workingDaysBetween(task.startedAt, last)
-            if (last > task.doneAt) {
+            val last = merges.maxOrNull()
+            val lead = if (task.startedAt != null && last != null) calendar.workingDaysBetween(task.startedAt, last) else null
+            val lag = if (last != null && last > task.doneAt) calendar.workingDaysBetween(task.doneAt, last) else null
+            lead?.let { leads += it }
+            lag?.let {
                 late++
-                lags += calendar.workingDaysBetween(task.doneAt, last)
+                lags += it
             }
+            val (merged, unmerged) = mrs.partition { it.mergedAt != null }
+            results += OracleResult(task.key, merged.map { it.mrKey }.toSet(), unmerged.map { it.mrKey }.toSet(), lead, lag)
         }
         val ambiguous = population.count { (perKey[it.key] ?: 0) > 1 }
-        return Expected(population.size, withMr, onlyUnmerged, population.count { it.startedAt == null }, ambiguous, late, leads, lags)
+        val neverStarted = population.count { it.startedAt == null }
+        return Expected(population.size, withMr, onlyUnmerged, neverStarted, ambiguous, late, leads, lags, results)
     }
 
     private suspend fun HttpClient.taskCode(query: String): TaskCodeReport {
@@ -155,6 +169,8 @@ class ReportTaskCodeFixtureTest {
         assertEquals(HttpStatusCode.OK, response.status, query)
         return response.body()
     }
+
+    private fun ReportDrillItems.keys() = items.map { it.issueKey }
 
     private fun TaskCodeReport.assertMatches(label: String, want: Expected) {
         val min = meta.minSampleSize
@@ -170,6 +186,50 @@ class ReportTaskCodeFixtureTest {
         println("fixture\ttask-code\t$label\t${figures.joinToString("/")}")
     }
 
+    private suspend fun HttpClient.drill(query: String, identity: String): ReportDrillItems {
+        val response = get("/api/v1/reports/task-code/items?$query&$identity")
+        assertEquals(HttpStatusCode.OK, response.status, "$query $identity")
+        return response.body()
+    }
+
+    /**
+     * The drill reconciliation on the fixture, against the oracle and never the report's code: every list is EXACTLY the oracle's tasks
+     * with EXACTLY the oracle's `<path>!<iid>` merge requests (the merged ones, and for the without list the unmerged ones), every bar
+     * equals its figure, and the buckets of both shown histograms add up to the tasks that have a value.
+     */
+    private suspend fun HttpClient.assertDrills(label: String, query: String, report: TaskCodeReport, want: Expected) {
+        fun ReportDrillItems.linked() = items.associate { it.issueKey to it.linkedKeys }
+        fun ReportDrillItems.assertWhole(count: Int, what: String) {
+            assertEquals(count, bar.count, "$label $what bar")
+            assertEquals(count, total, "$label $what total")
+            assertEquals(count, items.size, "$label $what listed (fewer than the 500 cap)")
+        }
+        val with = drill(query, "view=TASKS_WITH_MR")
+        with.assertWhole(want.withMr, "with")
+        val wantWith = want.results.filter { it.merged.isNotEmpty() }.associate { it.key to it.merged.sorted() }
+        assertEquals(wantWith, with.linked(), "$label with")
+        val without = drill(query, "view=TASKS_WITHOUT_MR")
+        without.assertWhole(want.done - want.withMr, "without")
+        val wantWithout = want.results.filter { it.merged.isEmpty() }.associate { it.key to it.unmerged.sorted() }
+        assertEquals(wantWithout, without.linked(), "$label without")
+        val late = drill(query, "view=MERGED_AFTER_DONE")
+        late.assertWhole(want.late, "late")
+        assertEquals(want.results.filter { it.lag != null }.associate { it.key to it.merged.sorted() }, late.linked(), "$label late")
+        for ((view, distribution, value) in listOf(
+            Triple("CODE_LEAD_TIME", report.codeLeadTimeWorkingDays, { r: OracleResult -> r.lead }),
+            Triple("MERGED_AFTER_DONE_LAG", report.mergedAfterDone.lagWorkingDays, { r: OracleResult -> r.lag }),
+        )) {
+            if (distribution.hidden) continue
+            val seen = distribution.histogram.indices.flatMap { index ->
+                val bar = drill(query, "view=$view&bucketIndex=$index")
+                bar.assertWhole(distribution.histogram[index].count.toInt(), "$view bucket $index")
+                bar.keys()
+            }
+            val measured = want.results.filter { value(it) != null }.map { it.key }.sorted()
+            assertEquals(measured, seen.sorted(), "$label $view: every value in one bar")
+        }
+    }
+
     @Test
     fun `every figure equals an independent re-derivation over the derived Jira fixture and the processed GitLab stub`() = testApplication {
         usePostgresTestcontainer()
@@ -179,7 +239,6 @@ class ReportTaskCodeFixtureTest {
         val team = DerivedStubFixture.teamId()
         val calendar = calendar()
         val zone = reportZone()
-        assertNoLiveMovesOfStubKeys()
         assertTrue(gitlabIds().isNotEmpty(), "the clone of the processed GitLab fixture is an active source")
         val whole = windowBounds(zone, "2024-01-01", "2026-12-31")
 
@@ -195,6 +254,7 @@ class ReportTaskCodeFixtureTest {
             val others = activeJiraIds().filter { it != jira.toInt() }
             setDeleted(others, deleted = true)
             try {
+                assertNoLiveMovesOfStubKeys()
                 compareWindows(client, jira, team, calendar, zone)
             } finally {
                 setDeleted(others, deleted = false)
@@ -209,10 +269,14 @@ class ReportTaskCodeFixtureTest {
             val query = "connectionId=$jira&from=$from&to=$to"
             val domain = client.taskCode("$query&domain=${DerivedStubFixture.DOMAIN}")
             val inDomain = tasks(jira, fromMs, toMs, "domain_key = ?", DerivedStubFixture.DOMAIN)
-            domain.assertMatches("$from..$to domain", expected(inDomain, calendar))
+            val wantDomain = expected(inDomain, calendar)
+            domain.assertMatches("$from..$to domain", wantDomain)
+            client.assertDrills("$from..$to domain", "$query&domain=${DerivedStubFixture.DOMAIN}", domain, wantDomain)
             val teamReport = client.taskCode("$query&teamId=$team")
             val inTeam = tasks(jira, fromMs, toMs, "credit_team_id = ?", team.toInt())
-            teamReport.assertMatches("$from..$to team", expected(inTeam, calendar))
+            val wantTeam = expected(inTeam, calendar)
+            teamReport.assertMatches("$from..$to team", wantTeam)
+            client.assertDrills("$from..$to team", "$query&teamId=$team", teamReport, wantTeam)
             assertEquals(0, domain.quality.tasksWithAmbiguousKey, "one active Jira source: nothing is ambiguous")
             linkedSomewhere = linkedSomewhere || domain.tasks.withMergeRequest > 0
         }

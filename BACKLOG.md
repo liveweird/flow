@@ -95,9 +95,14 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     (`gitlab-integration.md` "Outbound calls", Memory) does not cover, so it needs the fit extended and a re-measure beside a Jira job
     (the worker's old generation peaked at 86 of 448 MiB in the pair).
   - Wait for the real-instance smoke run's per-call cost before deciding: at 12 ms it is minutes, at 100 ms it is hours.
-- [new] **Jira<->GitLab linking (issue keys in MR titles and branches).** Deliberately left out of Report 21 (A50). It needs a per-source project-key
-  seam, a `norm.code_*` column with a `CODE_PROCESSING_VERSION` bump (or a migration), and stub support (`sample-data/gitlab/generate.mjs` embeds no
-  keys today). It opens different questions: code lead time per task, tasks without a merge request, a merge request merged after the task is done.
+- [new] **Home: "tasks without a merge request" figure.** Report 22's `tasks.withoutMergeRequest` / `withoutShare` per picked team on the Home overview
+  (neutral context, like its Code section), drilling to `/task-code/items?view=TASKS_WITHOUT_MR` for the team; a Home view beside `CODE_*`.
+- [new] **The raw issue inspector's merge requests list.** The admin's raw/normalized issue view (`ingest/`) lists the merge requests that name the
+  issue's key (and its old keys), from `norm.code_mr_issue_keys` by the same resolution as Report 22, to debug a missing or ambiguous link.
+- [new] **Commit-title keys (A51/D5 alternative).** Also extract keys from `norm.code_commits.title` into a sibling table, so direct-to-default commits that
+  bypass a merge request link to their task; a later PR with no schema conflict, plus a "commits with no merge request" figure on Report 21.
+- [new] **A scaled measurement of Report 22's reads at plan density.** The 90-day request is measured on the base stub (15 ms in-test); measure the
+  four-step read (population, old keys, key resolution, link rows) at 21k merge requests and a whole-domain period, and record it in `build-times.md`.
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 

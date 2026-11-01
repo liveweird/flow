@@ -5,6 +5,7 @@ import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.norm.DetailsState
 import ch.nokillswit.norm.FieldChangeFact
 import ch.nokillswit.norm.NormCodeMergeRequest
+import ch.nokillswit.norm.NormCodeProject
 import ch.nokillswit.norm.StatusCategory
 import ch.nokillswit.norm.TombstoneKind
 import ch.nokillswit.norm.extractIssueKeyCandidates
@@ -106,8 +107,16 @@ internal class TaskCodeWorld(
         issueKeys = extractIssueKeyCandidates(title, branch),
     )
 
-    suspend fun write(connId: UInt, vararg mergeRequests: NormCodeMergeRequest) =
-        GitLabFixtures.codeStore().replaceMergeRequests(connId, mergeRequests.toList(), now)
+    /** The GitLab project path a merge request of [connId] lives under: the drill lists it as `<path>!<iid>`. */
+    fun pathOf(connId: UInt): String = if (connId == glB) "grp/web" else "grp/app"
+
+    /** Writes the connection's one project (id 1, every merge request's) and [mergeRequests]. */
+    suspend fun write(connId: UInt, vararg mergeRequests: NormCodeMergeRequest) {
+        val store = GitLabFixtures.codeStore()
+        val project = NormCodeProject(1, pathOf(connId), "grp", null, archived = false, movedOutAt = null, deletedAt = null)
+        store.replaceProjects(connId, listOf(project))
+        store.replaceMergeRequests(connId, mergeRequests.toList(), now)
+    }
 }
 
 /**

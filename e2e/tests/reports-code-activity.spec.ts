@@ -8,7 +8,8 @@
 // (1.44.0) is `GET /reports/home?teamId=` - its window is the moving 90 days ending today while the stub's dates are fixed, so nothing about it is asserted as
 // "above zero", only equal to the API (and the drill only where the API says there is something to list).
 // Its second test (Tasks and code, report 22, 1.48.0) syncs its own GitLab source too (no identity decisions: tasks are linked to merge requests by issue key, not by
-// person) and reads a domain of the shared Jira fixture; its oracle is `GET /reports/task-code` for the same domain and window.
+// person) and reads a domain of the shared Jira fixture; its oracle is `GET /reports/task-code` for the same domain and window (1.49.0: and its drill,
+// `GET /reports/task-code/items`, for the with-a-merge-request count that opens the tasks behind it).
 import type { APIRequestContext, Page } from "@playwright/test";
 import {
   apiAsAdmin,
@@ -45,7 +46,7 @@ interface CodeActivityBody {
 /** The slice of `GET /reports/task-code` the second test reads (`TaskCodeReport`): the figures the page prints. */
 interface TaskCodeBody {
   meta: { minSampleSize: number };
-  sources: { name: string }[];
+  sources: { name: string; baseUrl: string }[];
   tasks: { done: number; withMergeRequest: number; withoutMergeRequest: number; withoutShare?: number };
   codeLeadTimeWorkingDays: { n: number; hidden: boolean };
   mergedAfterDone: { count: number; share?: number; lagWorkingDays: { n: number; hidden: boolean } };
@@ -328,7 +329,7 @@ async function expectDistribution(page: Page, title: string, distribution: { n: 
   return false;
 }
 
-test("a regular user reads Tasks and code for a domain: the done tasks with and without a merged merge request, the code lead time and the code merged after done equal the API, the sources and the note are told, the Code group's two tabs are there, and a clean axe scan", async ({ page }) => {
+test("a regular user reads Tasks and code for a domain: the done tasks with and without a merged merge request, the code lead time and the code merged after done equal the API, the sources and the note are told, the Code group's two tabs are there, a clean axe scan, and the with-a-merge-request count opens the tasks behind it with GitLab links to the merge requests", async ({ page }) => {
   // The shared fixture's SYNC and DERIVE (a no-op once another spec prepared it) plus this spec's own GitLab SYNC, each wait bounded.
   test.setTimeout(900_000);
   const { api } = await apiAsAdmin();
@@ -427,6 +428,34 @@ test("a regular user reads Tasks and code for a domain: the done tasks with and 
     // The pointer is parked off the page first: only the settled page is scanned.
     await page.mouse.move(0, 0);
     expect(await axeViolations(page)).toEqual([]);
+
+    // The drill (1.49.0): the with-a-merge-request count opens the tasks behind it - as many as the API's figure (and its own drill answer), each task's merge requests
+    // GitLab links to the stub host. A count of zero is text, not a button.
+    const withMr = report.tasks.withMergeRequest;
+    const trigger = page.getByRole("button", { name: `${withMr} — With a merged merge request: show the items of Done tasks and their merge requests`, exact: true });
+    if (withMr === 0) {
+      await expect(trigger).toHaveCount(0);
+      return;
+    }
+    const itemsAnswer = await api.get(`/api/v1/reports/task-code/items?domain=${encodeURIComponent(chosen.domain)}&${TASK_WINDOW}&view=TASKS_WITH_MR`);
+    expect(itemsAnswer.ok(), await itemsAnswer.text()).toBeTruthy();
+    expect(((await itemsAnswer.json()) as { total: number }).total).toBe(withMr);
+    await trigger.click();
+    const drawer = page.getByRole("dialog", { name: "Tasks with a merged merge request", exact: true });
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByText(`${withMr} ${withMr === 1 ? "item" : "items"}`, { exact: true })).toBeVisible();
+    await expect(drawer.getByRole("table", { name: "Items behind the bar", exact: true }).locator("tbody tr")).toHaveCount(Math.min(withMr, 500));
+    const mergeRequests = drawer.getByRole("link", { name: /\(opens in GitLab\)$/ });
+    expect(await mergeRequests.count(), "every listed task has a merged merge request").toBeGreaterThanOrEqual(Math.min(withMr, 500));
+    for (const link of await mergeRequests.all()) {
+      const href = (await link.getAttribute("href")) ?? "";
+      expect(href.startsWith(`${report.sources[0].baseUrl}/`) && href.includes("/-/merge_requests/"), href).toBeTruthy();
+      await expect(link).toHaveAttribute("target", "_blank");
+      expect(((await link.getAttribute("rel")) ?? "").split(" ").sort()).toEqual(["noopener", "noreferrer"]);
+    }
+    await page.keyboard.press("Escape");
+    await expect(drawer).toBeHidden();
+    await expect(trigger).toBeFocused();
   } finally {
     try {
       if (userId !== null) await deleteViaApi([`/api/v1/flow-users/${userId}`]);

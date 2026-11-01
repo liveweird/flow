@@ -96,6 +96,9 @@ class TaskCodeKernelsTest {
         val only = rows.single()
         assertEquals(2, only.merged, "MR 10 names both keys: one merge request")
         assertEquals(1, only.unmerged)
+        // The drill lists these: the merged and the unmerged merge requests apart, each merge request once.
+        assertEquals(setOf(CodeMrRef(9u, 10), CodeMrRef(9u, 11)), only.mergedMrs.toSet())
+        assertEquals(listOf(CodeMrRef(9u, 12)), only.unmergedMrs)
         assertEquals(at(6), only.lastMergedAt)
         assertTrue(only.hasMerged && !only.onlyUnmerged)
     }
