@@ -20,6 +20,7 @@ import org.jetbrains.exposed.v1.r2dbc.insert
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -116,6 +117,58 @@ class ReportCodeActivityTest {
             assertEquals(listOf(1, 1), listOf(alice.comments, alice.reviewRequestsReceived))
         }
     }
+
+    @Test
+    fun `a selection over the code-row budget is a 400 on the report and on its drill, with the same detail`() = testApplication {
+        configureApp("reports.codeMaxRows" to "3")
+        startApplication()
+        val client = seededClient("code-activity-budget", FlowUserRole.USER)
+        inWorld {
+            pin(this)
+            val detail = "The selection reads more than 3 code rows (commits, merge requests and review events) - " +
+                "narrow the period or pick fewer people"
+            // The team's rows (alice's commits, merge requests and acts) are well over 3; a plain USER caller is refused like anyone.
+            assertEquals(detail, client.refused(query()).detail)
+            val drill = client.get("/api/v1/reports/code-activity/items?${query(extra = "&view=COMMITS")}")
+            assertEquals(HttpStatusCode.BadRequest, drill.status)
+            assertEquals(detail, drill.body<ProblemDetail>().detail)
+            // A selection that names no linked key reads no row at all: under the budget, it answers as ever.
+            assertEquals(0, client.code(query(extra = "&accountId=ghost-${System.nanoTime()}")).groups.single().commits)
+        }
+    }
+
+    @Test
+    fun `with every computation permit held, the report and its drill wait out the statement budget and answer a 429, then recover`() =
+        testApplication {
+            configureApp("reports.codeReadPermits" to "1", "reports.statementTimeoutSeconds" to "1")
+            startApplication()
+            val client = seededClient("code-activity-permits", FlowUserRole.USER)
+            inWorld {
+                pin(this)
+                val permits = checkNotNull(application.attributes[ReportServiceKey].codeDeps).permits
+                val detail = "Too many code activity reports are being computed at once - retry in a moment"
+                val url = "/api/v1/reports/code-activity?${query()}"
+                val drillUrl = "/api/v1/reports/code-activity/items?${query(extra = "&view=COMMITS")}"
+                val etag = assertNotNull(client.get(url).headers[HttpHeaders.ETag])
+                val free = client.code(query())
+                permits.withPermit {
+                    // A validator hit never computes, so it needs no permit.
+                    assertEquals(HttpStatusCode.NotModified, client.get(url) { header(HttpHeaders.IfNoneMatch, etag) }.status)
+                    for (busy in listOf(url, drillUrl)) {
+                        val response = client.get(busy)
+                        assertEquals(HttpStatusCode.TooManyRequests, response.status, busy)
+                        assertEquals(detail, response.body<ProblemDetail>().detail, busy)
+                    }
+                }
+                // Released: the same requests answer 200 with the figures they always had (nothing leaked, nothing cached).
+                assertEquals(HttpStatusCode.OK, client.get(drillUrl).status)
+                assertEquals(free.flow.merged, client.code(query()).flow.merged)
+                assertEquals(2, free.flow.merged)
+                // A block that fails after taking the permit still releases it: the report answers right after.
+                assertFailsWith<IllegalStateException> { permits.withPermit { error("boom") } }
+                assertEquals(2, client.code(query()).flow.merged)
+            }
+        }
 
     @Test
     fun `a matching If-None-Match is a 304 with no body, and an anonymous caller is refused`() = testApplication {

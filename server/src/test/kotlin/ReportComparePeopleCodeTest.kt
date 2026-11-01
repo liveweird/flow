@@ -5,6 +5,7 @@ import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.norm.DetailsState
 import ch.nokillswit.norm.NormCodeMergeRequest
 import ch.nokillswit.metrics.MetricsSettingsService
+import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.reports.CodeActivityReport
 import ch.nokillswit.reports.CompareCell
 import ch.nokillswit.reports.CompareDirection
@@ -191,6 +192,30 @@ class ReportComparePeopleCodeTest {
                 assertEquals(HttpStatusCode.BadRequest, named.status)
             }
         }
+
+    @Test
+    fun `a pair whose code rows are over the row budget is a 400 on Compare people, its drill and Person trend`() = testApplication {
+        configureApp("reports.codeMaxRows" to "3")
+        startApplication()
+        val client = seededClient("cmp-code-budget", FlowUserRole.USER)
+        inWorld {
+            pin(this)
+            val detail = "The selection reads more than 3 code rows (commits, merge requests and review events) - " +
+                "narrow the period or pick fewer people"
+            val urls = listOf(
+                "/api/v1/reports/compare-people?${query()}",
+                "/api/v1/reports/compare-people/items?${query("&segmentAccountId=$accA&view=COMMITS")}",
+                "/api/v1/reports/person-trend?from=2026-03-02&to=2026-03-16&accountId=$accA",
+            )
+            for (url in urls) {
+                val response = client.get(url)
+                assertEquals(HttpStatusCode.BadRequest, response.status, url)
+                assertEquals(detail, response.body<ProblemDetail>().detail, url)
+            }
+            // The refusal is not cached: the same request is refused again (a 400 stores no peer cell, no value).
+            assertEquals(HttpStatusCode.BadRequest, client.get(urls.last()).status)
+        }
+    }
 
     @Test
     fun `every CODE cell equals the count of its drill, in-process, and the HTTP drill names commits and merge requests with no team`() =

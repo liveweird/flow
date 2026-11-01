@@ -156,7 +156,12 @@ private fun scoped(
 }
 
 /** The live non-merge commits of the scope's keys committed in [window]. */
-internal suspend fun fetchCodeCommits(connections: Collection<UInt>, scope: CodeKeyScope, window: Pair<Long, Long>): List<CodeCommitRow> {
+internal suspend fun fetchCodeCommits(
+    connections: Collection<UInt>,
+    scope: CodeKeyScope,
+    window: Pair<Long, Long>,
+    budget: CodeRowBudget,
+): List<CodeCommitRow> {
     val c = CodeCommits
     val keys = scoped(scope, connections, c.connectionId) { c.identityKey inList it } ?: return emptyList()
     val columns = listOf(
@@ -165,7 +170,7 @@ internal suspend fun fetchCodeCommits(connections: Collection<UInt>, scope: Code
     return c.select(columns)
         .where { keys and (c.isMerge eq false) and c.deletedAt.isNull() and inWindow(c.committedAt, window) }
         .orderBy(c.committedAt to SortOrder.ASC, c.sha to SortOrder.ASC)
-        .toList().map {
+        .toBudgetedList(budget) {
             CodeCommitRow(
                 it[c.connectionId].value, it[c.projectId], it[c.sha], it[c.identityKey], it[c.committedAt], it[c.additionsCounted],
                 it[c.deletionsCounted], it[c.filesCounted],
@@ -181,6 +186,7 @@ internal suspend fun fetchCodeMergeRequests(
     connections: Collection<UInt>,
     scope: CodeKeyScope,
     window: Pair<Long, Long>,
+    budget: CodeRowBudget,
 ): List<CodeMrRow> {
     val m = CodeMergeRequests
     val keys = scoped(scope, connections, m.connectionId) { m.authorKey inList it } ?: return emptyList()
@@ -189,13 +195,15 @@ internal suspend fun fetchCodeMergeRequests(
     return m.select(
         m.connectionId, m.mrId, m.projectId, m.iid, m.state, m.draft, m.authorKey, m.createdAt, m.mergedAt, m.closedAt, m.additions,
         m.deletions, m.fileCount, m.detailsState,
-    ).where { keys and m.deletedAt.isNull() and placed }.orderBy(m.createdAt to SortOrder.ASC, m.mrId to SortOrder.ASC).toList().map {
-        CodeMrRow(
-            it[m.connectionId].value, it[m.mrId], it[m.projectId], it[m.iid], it[m.state], it[m.draft], it[m.authorKey], it[m.createdAt],
-            it[m.mergedAt], it[m.closedAt], it[m.additions], it[m.deletions], it[m.fileCount],
-            it[m.detailsState] == DetailsState.READ.name,
-        )
-    }
+    ).where { keys and m.deletedAt.isNull() and placed }
+        .orderBy(m.createdAt to SortOrder.ASC, m.mrId to SortOrder.ASC)
+        .toBudgetedList(budget) {
+            CodeMrRow(
+                it[m.connectionId].value, it[m.mrId], it[m.projectId], it[m.iid], it[m.state], it[m.draft], it[m.authorKey],
+                it[m.createdAt], it[m.mergedAt], it[m.closedAt], it[m.additions], it[m.deletions], it[m.fileCount],
+                it[m.detailsState] == DetailsState.READ.name,
+            )
+        }
 }
 
 private suspend fun fetchCodeEvents(
@@ -204,6 +212,7 @@ private suspend fun fetchCodeEvents(
     window: Pair<Long, Long>,
     ofKind: (Column<String>) -> Op<Boolean>,
     inKeys: (List<String>) -> Op<Boolean>,
+    budget: CodeRowBudget,
 ): List<CodeEventRow> {
     val e = CodeMrEvents
     val m = CodeMergeRequests
@@ -212,7 +221,7 @@ private suspend fun fetchCodeEvents(
     return source.select(e.connectionId, e.mrId, e.seq, e.kind, e.actorKey, e.eventAt, e.targetKeys, m.authorKey)
         .where { keys and m.deletedAt.isNull() and ofKind(e.kind) and inWindowOrNull(e.eventAt, window) }
         .orderBy(e.connectionId to SortOrder.ASC, e.mrId to SortOrder.ASC, e.seq to SortOrder.ASC)
-        .toList().map {
+        .toBudgetedList(budget) {
             CodeEventRow(
                 mr = CodeMrRef(it[e.connectionId].value, it[e.mrId]),
                 seq = it[e.seq],
@@ -233,8 +242,9 @@ internal suspend fun fetchCodeActorEvents(
     connections: Collection<UInt>,
     scope: CodeKeyScope,
     window: Pair<Long, Long>,
+    budget: CodeRowBudget,
 ): List<CodeEventRow> =
-    fetchCodeEvents(connections, scope, window, { it neq MrEventKind.REVIEW_REQUESTED.name }) { CodeMrEvents.actorKey inList it }
+    fetchCodeEvents(connections, scope, window, { it neq MrEventKind.REVIEW_REQUESTED.name }, { CodeMrEvents.actorKey inList it }, budget)
 
 /**
  * The dated REVIEW_REQUESTED events of [window] that name one of the scope's keys in `target_keys` (the people named received the
@@ -247,8 +257,10 @@ internal suspend fun fetchCodeReviewRequests(
     connections: Collection<UInt>,
     scope: CodeKeyScope,
     window: Pair<Long, Long>,
-): List<CodeEventRow> =
-    fetchCodeEvents(connections, scope, window, { it eq MrEventKind.REVIEW_REQUESTED.name }) { namesAnyOf(CodeMrEvents.targetKeys, it) }
+    budget: CodeRowBudget,
+): List<CodeEventRow> = fetchCodeEvents(
+    connections, scope, window, { it eq MrEventKind.REVIEW_REQUESTED.name }, { namesAnyOf(CodeMrEvents.targetKeys, it) }, budget,
+)
 
 /**
  * `jsonb_exists_any(column, ARRAY[keys]::text[])`: the JSONB array [column] holds at least one of [keys] as a string element (the
@@ -277,7 +289,10 @@ private fun namesAnyOf(column: Expression<*>, keys: List<String>): Op<Boolean> =
  * Which actors are another human, and which are BOT or IGNORED, is decided afterwards (the kernel, with
  * `IdentityResolver.decidedKeys`): an actor-less event is no one and is left out here.
  */
-internal suspend fun fetchCodeReviewSummaries(mrs: Collection<CodeMrRef>): List<CodeReviewSummary> {
+internal suspend fun fetchCodeReviewSummaries(
+    mrs: Collection<CodeMrRef>,
+    budget: CodeRowBudget,
+): List<CodeReviewSummary> {
     val e = CodeMrEvents
     val reviewKinds = REVIEW_KINDS.map { it.name }
     val m = CodeMergeRequests
@@ -293,7 +308,7 @@ internal suspend fun fetchCodeReviewSummaries(mrs: Collection<CodeMrRef>): List<
                 .where {
                     (e.connectionId eq connectionId) and (e.mrId inList chunk) and e.actorKey.isNotNull() and (e.kind inList reviewKinds)
                 }
-                .groupBy(e.mrId, e.actorKey).toList().map {
+                .groupBy(e.mrId, e.actorKey).toBudgetedList(budget) {
                     CodeReviewSummary(CodeMrRef(connectionId, it[e.mrId]), it[e.actorKey]!!, it[firstReview], it[approvals] > 0)
                 }
         }

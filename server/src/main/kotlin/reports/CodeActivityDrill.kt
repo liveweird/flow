@@ -184,6 +184,12 @@ internal suspend fun ReportService.codeActivityItems(
     filter: ReportFilter,
     query: CodeDrillQuery,
     nowMs: Long,
+): ReportDrillItems = withCodeReadPermit { computeCodeActivityItems(filter, query, nowMs) }
+
+private suspend fun ReportService.computeCodeActivityItems(
+    filter: ReportFilter,
+    query: CodeDrillQuery,
+    nowMs: Long,
 ): ReportDrillItems = reportTransaction {
     val deps = checkNotNull(codeDeps) { "the code activity report is not configured on this service" }
     val segment = filter.requireSegment(query.segmentAccountId)
