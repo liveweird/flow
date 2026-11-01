@@ -25,6 +25,31 @@ internal suspend fun <T> distributionDrillItems(
     fixedStep: Double? = null,
     drillRow: (row: T, value: Double) -> DrillRow,
 ): ReportDrillItems {
+    val selection = distributionDrillSelection(rows, minSample, tailPercent, bucketIndex, segment, valueOf, fixedStep, drillRow) {
+        it.accountId
+    }
+    return drillItems(meta, selection.bar, selection.rows)
+}
+
+/** The rows of one histogram bar ([rows], already narrowed to the segment) and the bar recomputed over exactly them. */
+internal class DistributionSelection<R>(val bar: ReportDrillBar, val rows: List<R>)
+
+/**
+ * [distributionDrillItems] up to the point where the rows are labelled: the bucket's rows ([drillRow] maps an input row and its value to
+ * the caller's own row type, [accountOf] says whose it is for the [segment]) and the `bar` over them. A drill whose items are not Jira
+ * work items (Report 21's commits and merge requests) labels them itself.
+ */
+internal fun <T, R> distributionDrillSelection(
+    rows: List<T>,
+    minSample: Int,
+    tailPercent: Int,
+    bucketIndex: Int,
+    segment: String?,
+    valueOf: (T) -> Double?,
+    fixedStep: Double? = null,
+    drillRow: (row: T, value: Double) -> R,
+    accountOf: (R) -> String?,
+): DistributionSelection<R> {
     val measured = rows.mapNotNull { row -> valueOf(row)?.let { row to it } }
     val assignment = bucketAssignment(measured.map { it.second }, minSample, tailPercent, fixedStep = fixedStep)
         ?: throw BadRequestException("The distribution is hidden (fewer than $minSample items): there is no bar to list")
@@ -34,7 +59,7 @@ internal suspend fun <T> distributionDrillItems(
     }
     val listed = measured.filterIndexed { index, _ -> assignment.indexes[index] == bucketIndex }
         .map { (row, value) -> drillRow(row, value) }
-        .filter { segment == null || it.accountId == segment }
+        .filter { segment == null || accountOf(it) == segment }
     val bucket = buckets[bucketIndex]
-    return drillItems(meta, ReportDrillBar(count = listed.size, sumMd = null, from = bucket.from, to = bucket.to), listed)
+    return DistributionSelection(ReportDrillBar(count = listed.size, sumMd = null, from = bucket.from, to = bucket.to), listed)
 }

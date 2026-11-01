@@ -1,4 +1,4 @@
-// Code activity (report 21, 1.40.0; `.claude/docs/reports.md` "Report 21"): a team's merge-request flow over a synced GitLab-stub source and its members'
+// Code activity (report 21, 1.40.0 page, 1.41.0 drill; `.claude/docs/reports.md` "Report 21"): a team's merge-request flow over a synced GitLab-stub source and its members'
 // volumes beside it, read the way D12 says everyone reads reports - by a NON-ADMIN user. Owns: its uniquely named GitLab connection (`e2e-code-*`), created and
 // synced through the API, a throwaway team with ONE linked stub person on its roster, a throwaway reader, and the identity decisions of the stub host
 // (`gitlab-stub:8080`, `public.code_identity_links`) - written only by this spec and `code-identities` (the same lock, so never together), cleared at its start and
@@ -29,7 +29,7 @@ const WINDOW = "from=2026-03-01&to=2026-09-30";
 
 interface CodeActivityBody {
   flow: { merged: number; weekly: { bucketStart: string; merged: number }[] };
-  sources: { name: string }[];
+  sources: { name: string; baseUrl: string }[];
   quality: { unlinkedIdentities: number; commitsLinesUnknown: number; mrsSizeUnknown: number; mrsDetailsNotRead: number; eventsUndated: number };
   groups: { accountId?: string; label?: string; commits: number; mrsMerged: number }[];
 }
@@ -43,7 +43,7 @@ const accountOf = (jiraNumber: number) => `5f8a1b2c3d4e5f6a7b8c9d${String(jiraNu
  */
 const LINKED_PEOPLE = [9, 3, 5, 13, 4, 1];
 
-test("a regular user reads a team's code activity: the member's commits, the merge-request flow and the weekly bars equal the API, the unlinked identities are told, a clean axe scan", async ({ page }) => {
+test("a regular user reads a team's code activity: the member's commits, the merge-request flow and the weekly bars equal the API, the member's commits open as the items behind them with GitLab links, the unlinked identities are told, a clean axe scan", async ({ page }) => {
   // The shared fixture's SYNC and DERIVE (a no-op once another spec prepared it) plus this spec's own GitLab SYNC, each wait bounded.
   test.setTimeout(900_000);
   const { api } = await apiAsAdmin();
@@ -113,7 +113,7 @@ test("a regular user reads a team's code activity: the member's commits, the mer
       expect(shown).toEqual(report.flow.weekly.map((week) => [week.bucketStart, String(week.merged)]));
     }
 
-    // The member's row: the commits equal the API's, the neutral caption is there, and no cell of the table is a button (no ranking, no sort).
+    // The member's row: the commits equal the API's, the neutral caption is there, and no column header is a button (no ranking, no sort).
     const table = page.getByRole("table", { name: "Activity by member", exact: true });
     const headers = await table.getByRole("columnheader").allInnerTexts();
     const memberRow = table.getByRole("row").filter({ hasText: member.displayName });
@@ -122,7 +122,25 @@ test("a regular user reads a team's code activity: the member's commits, the mer
     expect(cells[headers.indexOf("Commits")]).toBe(String(row?.commits));
     expect(cells[headers.indexOf("Merged")]).toBe(String(row?.mrsMerged));
     await expect(page.getByText(/Context, not performance: these are volumes of work, in no order of merit/)).toBeVisible();
-    await expect(table.getByRole("button")).toHaveCount(0);
+    await expect(table.getByRole("columnheader").getByRole("button")).toHaveCount(0);
+
+    // The drill: the member's commits figure opens the items behind it - as many as the API's figure (and its own drill answer), each key a GitLab link to the stub host.
+    const itemsAnswer = await api.get(`/api/v1/reports/code-activity/items?teamId=${teamId}&${WINDOW}&accountId=${member.accountId}&view=COMMITS`);
+    expect(itemsAnswer.ok(), await itemsAnswer.text()).toBeTruthy();
+    expect(((await itemsAnswer.json()) as { total: number }).total).toBe(row?.commits);
+    const commitsFigure = memberRow.getByRole("button", { name: new RegExp(`^${row?.commits} — Commits: show the items of `) });
+    await commitsFigure.click();
+    const drawer = page.getByRole("dialog", { name: /^Commits/ });
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByRole("table", { name: "Items behind the bar", exact: true }).locator("tbody tr")).toHaveCount(Math.min(row?.commits ?? 0, 500));
+    const link = drawer.getByRole("link").first();
+    const href = (await link.getAttribute("href")) ?? "";
+    expect(href.startsWith(`${report.sources[0].baseUrl}/`) && href.includes("/-/commit/")).toBeTruthy();
+    await expect(link).toHaveAttribute("target", "_blank");
+    expect(((await link.getAttribute("rel")) ?? "").split(" ").sort()).toEqual(["noopener", "noreferrer"]);
+    await page.keyboard.press("Escape");
+    await expect(drawer).toBeHidden();
+    await expect(commitsFigure).toBeFocused();
 
     // What is not attributed yet is told, to a regular user without a link to the admin's page: the stub's unmapped authors are undecided identities.
     // The note is raised by the page's own predicate: undecided identities OR any count of rows left out of a figure.

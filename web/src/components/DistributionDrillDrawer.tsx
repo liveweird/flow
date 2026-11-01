@@ -1,9 +1,9 @@
 import { useEffect } from "react";
 import { skipToken, useQuery } from "@tanstack/react-query";
 import type { ReportDrillItems } from "../api/reportDrill";
-import type { Distribution } from "../api/reports";
+import type { CodeActivityReport, Distribution } from "../api/reports";
 import type { DistributionPerson } from "../utils/distributionPeople";
-import { serializeDrill, type DrillTarget, type DrillUnit, type HistDrillTarget } from "../utils/reportDrill";
+import { serializeDrill, type DrillAnchor, type DrillTarget, type DrillUnit, type HistDrillTarget } from "../utils/reportDrill";
 import { reportQuery, type ReportFilterState } from "../utils/reportFilter";
 import { histogramLabels, type ValueFormat } from "../utils/reportFormat";
 import ReportDrillDrawer from "./ReportDrillDrawer";
@@ -39,6 +39,8 @@ export default function DistributionDrillDrawer({
   onClose,
   onSegmentChange,
   segmentRequired = false,
+  anchor = "done",
+  codeSources,
 }: {
   /** The report's path segment: the query-key family (`cycle-time`, `reported-time-ratio`). */
   report: string;
@@ -53,6 +55,10 @@ export default function DistributionDrillDrawer({
   onSegmentChange: (accountId: string | undefined) => void;
   /** Every bar is one person's (Compare people): the drawer's person select has no "Everyone". */
   segmentRequired?: boolean;
+  /** The instant the date column shows (default: when the item was done). */
+  anchor?: DrillAnchor;
+  /** The lists are Code activity's: keys link to these sources' GitLab (see `ReportDrillDrawer`). */
+  codeSources?: CodeActivityReport["sources"];
 }) {
   const current = target?.kind === "hist" ? views.find((candidate) => candidate.view === target.view) : undefined;
   // The bar the SHOWN report drew: none for a view the page did not draw, a hidden distribution (no histogram, so no bar to list)
@@ -81,7 +87,7 @@ export default function DistributionDrillDrawer({
       subtitle={current ? label : undefined}
       query={query}
       unit={current?.unit ?? "wd"}
-      anchor="done"
+      anchor={anchor}
       timeZone={timeZone}
       chartCount={chartCount}
       // A request for both kinds (blocked time's `itemKind=BOTH`) lists tasks and epics: every bar says which is which.
@@ -90,6 +96,7 @@ export default function DistributionDrillDrawer({
       segmentAccountId={open?.segmentAccountId}
       onSegmentChange={onSegmentChange}
       allowEveryone={!segmentRequired}
+      codeSources={codeSources}
     />
   );
 }

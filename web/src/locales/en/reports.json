@@ -203,14 +203,21 @@
         "reopens": "Times reopened",
         "ageWd": "Age (working days)",
         "actualMd": "Logged (MD)",
-        "gapMd": "Gap (MD)"
+        "gapMd": "Gap (MD)",
+        "lines": "Lines changed",
+        "files": "Files changed"
       },
       "authors": "Authors",
       "completed": "Sprint completed",
       "logged": "Last logged",
       "started": "Started",
       "worklog": "Logged on",
-      "kind": "Kind"
+      "kind": "Kind",
+      "person": "Person",
+      "merged": "Merged",
+      "created": "Opened",
+      "committed": "Committed",
+      "event": "Done on"
     },
     "sprintFallback": "Sprint {{id}}",
     "epicTitle": "{{bucket}} — {{epic}}",
@@ -693,7 +700,9 @@
   },
   "kind": {
     "TASK": "Task",
-    "EPIC": "Epic"
+    "EPIC": "Epic",
+    "COMMIT": "Commit",
+    "MERGE_REQUEST": "Merge request"
   },
   "agingWip": {
     "noTeams": "Aging WIP is read per team and there is no team yet. An administrator adds teams on the Teams page.",
@@ -1615,7 +1624,26 @@
         "reviewsGiven": "Reviews",
         "approvalsGiven": "Approvals",
         "comments": "Comments"
-      }
+      },
+      "hintRows": "Click a figure in the table to list the commits or merge requests behind it."
+    },
+    "drill": {
+      "view": {
+        "COMMITS": "Commits",
+        "MRS_MERGED": "Merge requests merged",
+        "MRS_OPENED": "Merge requests opened",
+        "OPEN_MRS": "Open merge requests",
+        "OPEN_MRS_WAITING": "Merge requests waiting for review",
+        "MERGED_WITHOUT_REVIEW": "Merged without review",
+        "MERGED_WITHOUT_APPROVAL": "Merged without approval",
+        "REVIEWS_GIVEN": "Merge requests reviewed",
+        "APPROVALS_GIVEN": "Merge requests approved",
+        "CHANGES_REQUESTED_GIVEN": "Merge requests with changes requested",
+        "COMMENTS": "Comments",
+        "REVIEW_REQUESTS_RECEIVED": "Review requests received",
+        "WEEK": "Merged in the week"
+      },
+      "weekOf": "Week starting {{date}}"
     }
   },
   "deepDive": {

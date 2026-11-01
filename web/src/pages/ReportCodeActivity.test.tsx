@@ -185,8 +185,11 @@ describe("ReportCodeActivity page", () => {
       ["Ann Author", "84", "4159 (commits not counted: 2)", "1682", "18", "20", "3", "11", "9", "37"],
       ["Bob Builder", "0", "0", "0", "0", "0", "0", "0", "0", "0"],
     ]);
-    // No sort control, no icon, no colour cue anywhere in the table: a column header is plain text and a cell is its number.
-    expect(within(table).queryAllByRole("button")).toHaveLength(0);
+    // No sort control, no icon, no colour cue anywhere in the table: a column header is plain text and a cell is its number. The only buttons are the
+    // figures with commits or merge requests behind them (Ann's seven counts; Bob's zeros are text) - the same underlined figure as every table's drill.
+    expect(within(table).queryAllByRole("columnheader").flatMap((header) => within(header).queryAllByRole("button"))).toHaveLength(0);
+    expect(within(rows[0]).getAllByRole("button")).toHaveLength(7);
+    expect(within(rows[1]).queryAllByRole("button")).toHaveLength(0);
     expect(table.querySelector("svg")).toBeNull();
     // And not a tint in the DOM either: no cell of a volume column wears a colour or background, bar the dimmed "commits not counted" note.
     expectNeutralVolumes(table);

@@ -84,6 +84,12 @@ internal data class MergedMrFigure(
     val sizeFiles: Double?,
 )
 
+/** The merge request was merged with no review by another human; only for one whose details were read (the share's numerator). */
+internal fun MergedMrFigure.mergedWithoutReview(): Boolean = review?.let { it.firstReviewAt == null } == true
+
+/** The merge request was merged with no approval by another human; only for one whose details were read (the share's numerator). */
+internal fun MergedMrFigure.mergedWithoutApproval(): Boolean = review?.let { !it.approved } == true
+
 /** A count and its share of the population it is read against (null: the population is empty). */
 internal data class CodeShare(val count: Int, val share: Double?)
 
@@ -129,23 +135,36 @@ internal fun CodeKernelContext.flowFigures(mrs: List<CodeMrRow>, summaries: List
     return CodeFlowFigures(
         mrs = figures,
         closedUnmerged = closed,
-        mergedWithoutReview = share(read.count { it.firstReviewAt == null }),
-        mergedWithoutApproval = share(read.count { !it.approved }),
+        mergedWithoutReview = share(figures.count { it.mergedWithoutReview() }),
+        mergedWithoutApproval = share(figures.count { it.mergedWithoutApproval() }),
         weekly = weeklyMerged(figures.map { it.scoped.row.mergedAt!! }),
     )
 }
 
+/** The Monday-started weeks of the window in the zone and the instant each begins (the weekly bars' grid, read by the week drill too). */
+internal class CodeWeekGrid(val days: List<LocalDate>, private val starts: List<Long>) {
+    /** The index of the week [atMs] falls in, or -1 outside the window's weeks. */
+    fun indexOf(atMs: Long): Int {
+        val found = starts.binarySearch(atMs)
+        val index = if (found >= 0) found else -found - 2
+        return if (index in days.indices) index else -1
+    }
+}
+
+internal fun CodeKernelContext.weekGrid(): CodeWeekGrid {
+    val days = bucketStarts(window.first, window.second, zone, ThroughputBucket.WEEK)
+    return CodeWeekGrid(days, days.map { calendar.dayBoundsMs(it).first })
+}
+
 /** Merged-per-week bars over every Monday-started week of the window, zero-filled (the sum is the number merged). */
 internal fun CodeKernelContext.weeklyMerged(mergedAts: List<Long>): List<CodeWeek> {
-    val days = bucketStarts(window.first, window.second, zone, ThroughputBucket.WEEK)
-    val starts = days.map { calendar.dayBoundsMs(it).first }
-    val counts = IntArray(days.size)
+    val grid = weekGrid()
+    val counts = IntArray(grid.days.size)
     for (at in mergedAts) {
-        val found = starts.binarySearch(at)
-        val index = if (found >= 0) found else -found - 2
-        if (index in counts.indices) counts[index]++
+        val index = grid.indexOf(at)
+        if (index >= 0) counts[index]++
     }
-    return days.mapIndexed { i, day -> CodeWeek(day, counts[i]) }
+    return grid.days.mapIndexed { i, day -> CodeWeek(day, counts[i]) }
 }
 
 /**
@@ -192,11 +211,22 @@ internal data class CodeOpenFigures(
     val ageP85: Double?,
 )
 
+/** Who an open merge request counts for NOW (state `opened`, however old, the author in scope at now), else null: tile and cell alike. */
+internal fun CodeKernelContext.openNowMember(row: CodeMrRow): CodeMember? =
+    if (row.state == MR_OPENED) memberAt(row.connectionId, row.authorKey, nowMs) else null
+
+/** Who a merge request counts for as OPENED in the window (`created_at` in the window, the author in scope then), else null. */
+internal fun CodeKernelContext.openedMember(row: CodeMrRow): CodeMember? =
+    if (inWindow(row.createdAt)) memberAt(row.connectionId, row.authorKey, row.createdAt) else null
+
+/** The age of an open merge request now, in working days. */
+internal fun CodeKernelContext.openAgeWorkingDays(row: CodeMrRow): Double = calendar.workingDaysBetween(row.createdAt, nowMs)
+
 /** Open merge requests (state `opened`, however old) whose author is in scope at NOW; the age is created-to-now in working days. */
 internal fun CodeKernelContext.openFigures(mrs: List<CodeMrRow>): CodeOpenFigures {
-    val open = mrs.filter { it.state == MR_OPENED && memberAt(it.connectionId, it.authorKey, nowMs) != null }
+    val open = mrs.filter { openNowMember(it) != null }
     val waiting = open.filterNot { it.draft }
-    val ages = waiting.map { calendar.workingDaysBetween(it.createdAt, nowMs) }.sorted()
+    val ages = waiting.map { openAgeWorkingDays(it) }.sorted()
     val hidden = ages.size < minSample
     return CodeOpenFigures(
         count = waiting.size,

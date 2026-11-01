@@ -9,9 +9,12 @@ import kotlinx.serialization.Serializable
 /** The most items one drill answers with (the Aging WIP idiom); [ReportDrillItems.total] and [ReportDrillBar] cover them all. */
 internal const val DRILL_MAX_ITEMS = 500
 
-/** What a drilled row is: a task, an epic, or (the data-quality late-logging drill) one worklog. */
+/**
+ * What a drilled row is: a task, an epic, (the data-quality late-logging drill) one worklog, or (Report 21's code drill) a commit or a
+ * merge request of the GitLab code layer, whose `issueKey` is `<project path>@<sha12>` / `<project path>!<iid>`.
+ */
 @Serializable
-enum class DrillItemKind { TASK, EPIC, WORKLOG }
+enum class DrillItemKind { TASK, EPIC, WORKLOG, COMMIT, MERGE_REQUEST }
 
 /**
  * The bar the listed items add up to, recomputed by the server over the SAME rows the report's own bar used: [count] items,
@@ -125,7 +128,10 @@ internal inline fun <reified E : Enum<E>> Parameters.requireEnum(name: String): 
     optionalEnum<E>(name) ?: throw BadRequestException("$name is required (allowed: ${enumValues<E>().joinToString { it.name }})")
 
 /** The required `bucketIndex` of a histogram drill: a non-negative integer (`400` otherwise); the histogram checks its range. */
-internal fun Parameters.requireBucketIndex(): Int {
-    val raw = optionalString("bucketIndex") ?: throw BadRequestException("bucketIndex is required")
-    return raw.toIntOrNull()?.takeIf { it >= 0 } ?: throw BadRequestException("Invalid bucketIndex: $raw")
-}
+internal fun Parameters.requireBucketIndex(): Int = optionalBucketIndex() ?: throw BadRequestException("bucketIndex is required")
+
+/** An optional `bucketIndex`: absent is `null`, anything but a non-negative integer is a `400`. */
+internal fun Parameters.optionalBucketIndex(): Int? =
+    optionalString("bucketIndex")?.let { raw ->
+        raw.toIntOrNull()?.takeIf { it >= 0 } ?: throw BadRequestException("Invalid bucketIndex: $raw")
+    }

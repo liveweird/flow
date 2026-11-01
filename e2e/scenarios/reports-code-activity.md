@@ -10,7 +10,7 @@
   which a roster membership needs) and never mutates it. It holds the `data-sources` lock (the stub host allows one active GitLab source, so it never runs beside
   the data-sources spec's GitLab test or `code-identities`), and sweeps leftover `e2e-identities-*`, `e2e-gitlab-*` and `e2e-code-*` sources at its start.
 
-## Scenario: a regular user reads a team's code activity: the member's commits, the merge-request flow and the weekly bars equal the API, the unlinked identities are told, a clean axe scan
+## Scenario: a regular user reads a team's code activity: the member's commits, the merge-request flow and the weekly bars equal the API, the member's commits open as the items behind them with GitLab links, the unlinked identities are told, a clean axe scan
 
 1. Through the API, leftover GitLab-stub sources of earlier runs are deleted, the shared Jira fixture is made ready, a GitLab-stub source (groups `platform` and
    `apps`) is created and synced, every stale decision of the stub host is deleted and **Confirm all proposals** is called (6 Jira people linked, 1 bot). A
@@ -27,7 +27,11 @@
      exactly the API's weeks with their counts, zero weeks included.
 4. They read the members' table.
    - *Expected*: the person's row shows, under **Commits** and **Merged**, the API's commits and merged-merge-request counts; the neutral caption ("Context, not
-     performance: these are volumes of work, in no order of merit…") is shown; no cell of the table is a button (no sort, no ranking).
+     performance: these are volumes of work, in no order of merit…") is shown; no column header is a button (no sort, no ranking).
+   - The test also reads the API's drill for the person (`GET /api/v1/reports/code-activity/items?…&accountId=<person>&view=COMMITS`): its `total` equals the commits figure.
+   - They press the person's **Commits** figure (a button named "<n> — Commits: show the items of <name>").
+   - *Expected*: a dialog "Commits · <name>" opens listing as many items as the figure (at most 500); the first key is a link to the stub's GitLab (`<baseUrl>/<project>/-/commit/<sha>`)
+     opening in a new tab with `rel="noopener noreferrer"`; Escape closes the dialog and focus returns to the figure.
 5. They read the sources and the note.
    - *Expected*: the source's line "<name>: last synced …" is shown; when the API reports undecided identities or any count of rows left out of a figure (lines or size
      unknown, details not read, undated acts), one gray note "Still to attribute, or not yet known" appears (stating the identities' count when there are any), and none

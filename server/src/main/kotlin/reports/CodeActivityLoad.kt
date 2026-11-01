@@ -128,3 +128,23 @@ internal fun codeActivityFigures(data: CodeActivityData): CodeActivityFigures = 
         quality = codeQuality(data.keyActivity, data.qualityCounts, attribution.identities),
     )
 }
+
+/** What a code request read: the Jira star's [scope] (team, `meta`, window), the GitLab [sources] and the [data] (null: no window). */
+internal data class CodeRead(val scope: ReportScope, val sources: List<CodeSource>, val data: CodeActivityData?)
+
+/**
+ * The shared head of Report 21 and its drill (inside the caller's report transaction): the GitLab sources of the filter's `connectionId`,
+ * `resolveReportScope` over the JIRA star (given no `connectionId`: it names a GitLab source here), and [loadCodeActivity] over the window.
+ * A sprint period with no sprint to resolve has no window, hence no data: every figure is empty, like the other reports'.
+ */
+internal suspend fun ReportService.readCodeActivity(deps: CodeActivityDeps, filter: ReportFilter, nowMs: Long): CodeRead {
+    val sources = resolveCodeSources(deps.dataSources, filter.connectionId)
+    val scope = resolveReportScope(filter.copy(connectionId = null), nowMs)
+    val teamId = checkNotNull(filter.teamId) { "TEAM_ONLY: the parser refuses a request without a teamId" }
+    val data = scope.window?.let {
+        val request = CodeActivityRequest(sources, teamId, filter.accountIds, it, nowMs)
+        val zone = WorkingCalendar.zoneOf(scope.settings.timeZone)
+        loadCodeActivity(deps.resolver, request, scope.calendar, zone, scope.settings.minSampleSize)
+    }
+    return CodeRead(scope, sources, data)
+}

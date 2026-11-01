@@ -5,6 +5,7 @@ import type { ReportDrillItem } from "../api/reportDrill";
 import type { ColumnDef } from "../components/ColumnTable";
 import { formatDate } from "./formatDate";
 import type { CostBreakdownBy } from "./costBreakdown";
+import { codeViewOf, type CodeDrillTarget, type CodeDrillView } from "./codeActivityDrill";
 import { isValidIsoDate } from "./isoDate";
 import { formatDays, formatMd, formatPercent, formatRatio, formatSignedMd, formatSignedPercent } from "./reportFormat";
 
@@ -43,7 +44,9 @@ export type DrillTarget =
   | { kind: "home"; view: HomeDrillView; teamId: number; segmentAccountId?: string }
   | { kind: "week"; teamId: number; bucketStart: string; segmentAccountId?: string }
   // Person trend's point: one row (its key) at one window (its last day). Never narrowed to a person: the page's filter names the one person.
-  | { kind: "point"; row: string; end: string; segmentAccountId?: string };
+  | { kind: "point"; row: string; end: string; segmentAccountId?: string }
+  // Code activity (report 21): a tile, a member's cell (`segmentAccountId` = the member) or a weekly bar (`WEEK` + `bucketStart`). A histogram bar is a `hist`.
+  | { kind: "code"; view: CodeDrillView; bucketStart?: string; segmentAccountId?: string };
 
 /** The slices Compare people's work mix groups by — the very filter keys a drill narrows with. */
 export type CompareMixBy = "activityType" | "workCategory" | "domain";
@@ -94,13 +97,17 @@ export type DrillUnit =
   | "reopens"
   | "ageWd"
   | "actualMd"
-  | "gapMd";
+  | "gapMd"
+  | "lines"
+  | "files"
+  | "none";
 
 /**
  * Which instant the date column shows (`anchorAt`): when the item was done, when its sprint was completed, when it was last logged on,
- * when it started or a worklog was logged (Compare people's lists), or none at all (`none`: the list has no date column).
+ * when it started or a worklog was logged (Compare people's lists), when a merge request was merged or opened, a commit made or a review
+ * act done (Code activity's lists), or none at all (`none`: the list has no date column).
  */
-export type DrillAnchor = "done" | "completed" | "logged" | "started" | "worklog" | "none";
+export type DrillAnchor = "done" | "completed" | "logged" | "started" | "worklog" | "merged" | "created" | "committed" | "event" | "none";
 
 const SEGMENT_SEPARATOR = ";s=";
 
@@ -134,6 +141,7 @@ function identityOf(target: DrillTarget): string {
   if (target.kind === "home") return `home:${target.view}:${target.teamId}`;
   if (target.kind === "week") return `week:${target.teamId}:${target.bucketStart}`;
   if (target.kind === "point") return `point:${target.row}:${target.end}`;
+  if (target.kind === "code") return `code:${target.view}${target.bucketStart === undefined ? "" : `:${target.bucketStart}`}`;
   return `hist:${target.view}:${target.bucketIndex}`;
 }
 
@@ -221,6 +229,14 @@ function parsePoint(row: string, end: string | undefined, extra: string | undefi
   return valid && extra === undefined && segmentAccountId === undefined ? { kind: "point", row, end } : null;
 }
 
+/** A `code:<VIEW>[:<monday>]` target: a view the server answers, and (for `WEEK` only, where it is required) the first day of one weekly bar. */
+function parseCode(view: string, bucketStart: string | undefined, extra: string | undefined): Omit<CodeDrillTarget, "segmentAccountId"> | null {
+  const known = codeViewOf(view);
+  if (known === undefined || extra !== undefined) return null;
+  if (known === "WEEK") return bucketStart !== undefined && isValidIsoDate(bucketStart) ? { kind: "code", view: known, bucketStart } : null;
+  return bucketStart === undefined ? { kind: "code", view: known } : null;
+}
+
 /** An `ac-bucket:<monday>` or `ac-sprint:<teamId>:<sprintId>` target (Throughput's actual cost): a real day, or a team and a sprint id, and nothing after. */
 function parseActualCost(
   kind: "ac-bucket" | "ac-sprint",
@@ -265,6 +281,10 @@ export function parseDrill(raw: string | null): DrillTarget | null {
   if (kind === "home") return parseHome(first, second, third, segmentAccountId);
   if (kind === "week") return parseWeek(first, second, third, segmentAccountId);
   if (kind === "point") return parsePoint(first, second, third, segmentAccountId);
+  if (kind === "code") {
+    const code = parseCode(first, second, third);
+    return code === null ? null : { ...code, ...segment };
+  }
   if (kind === "hist") {
     return second !== undefined && third === undefined && VIEW_PATTERN.test(first) && INDEX_PATTERN.test(second)
       ? { kind, view: first, bucketIndex: Number(second), ...segment }
@@ -298,22 +318,37 @@ const FIGURE_FORMATTERS: Record<DrillUnit, (value: number) => string> = {
   ageWd: formatDays,
   actualMd: formatMd,
   gapMd: formatSignedMd,
+  lines: formatMd,
+  files: formatMd,
+  none: formatMd,
 };
 
-/** The column that says whether a row is a task or an epic (only a list that mixes the two needs it; a worklog list never does). */
+/** What a row is, in words: a task unless it is an epic, a commit or a merge request (a worklog list never shows the kind). */
+function kindLabel(t: TFunction, kind: ReportDrillItem["itemKind"]): string {
+  switch (kind) {
+    case "EPIC":
+      return t("reports.kind.EPIC");
+    case "COMMIT":
+      return t("reports.kind.COMMIT");
+    case "MERGE_REQUEST":
+      return t("reports.kind.MERGE_REQUEST");
+    default:
+      return t("reports.kind.TASK");
+  }
+}
+
+/** The column that says what a row is (only a list that mixes kinds needs it: tasks and epics). */
 function kindColumn(t: TFunction): ColumnDef<ReportDrillItem> {
-  return {
-    key: "kind",
-    header: t("reports.drill.columns.kind"),
-    render: (item) => t(item.itemKind === "EPIC" ? "reports.kind.EPIC" : "reports.kind.TASK"),
-  };
+  return { key: "kind", header: t("reports.drill.columns.kind"), render: (item) => kindLabel(t, item.itemKind) };
 }
 
 /**
  * The people column. A delivery list names the item's assignee (an epic has none: a dash, not "Unassigned"); the cost list
  * (`loggedMd`) names the AUTHORS of the worklogs in the slice — the server joins several — or "No known author".
  */
-function peopleColumn(t: TFunction, unit: DrillUnit): ColumnDef<ReportDrillItem> {
+function peopleColumn(t: TFunction, unit: DrillUnit, person: boolean): ColumnDef<ReportDrillItem> {
+  // Code activity's lists name the author of a commit or merge request, or the person who did a review act: "Person", a dash when nobody is known.
+  if (person) return { key: "assignee", header: t("reports.drill.columns.person"), render: (item) => item.assignee ?? "—" };
   if (unit === "loggedMd") {
     return { key: "assignee", header: t("reports.drill.columns.authors"), render: (item) => item.assignee ?? t("reports.costs.noAuthor") };
   }
@@ -337,21 +372,28 @@ export function drillItemColumns(
   showKind = false,
   /** How the key cell renders (the drawer passes the Jira link); plain text by default. */
   renderIssueKey: (item: ReportDrillItem) => ReactNode = (item) => item.issueKey,
+  /** Name the people column "Person" (Code activity's lists). */
+  person = false,
 ): ColumnDef<ReportDrillItem>[] {
   const format = FIGURE_FORMATTERS[unit];
   return [
     { key: "issueKey", header: t("reports.drill.columns.issueKey"), render: renderIssueKey },
     { key: "summary", header: t("reports.drill.columns.summary"), render: (item) => item.summary ?? "—" },
     ...(showKind ? [kindColumn(t)] : []),
-    peopleColumn(t, unit),
+    peopleColumn(t, unit, person),
     ...(anchor === "none"
       ? []
       : [{ key: "anchor", header: t(`reports.drill.columns.${anchor}`), render: (item: ReportDrillItem) => formatDate(item.anchorAt, "—", timeZone) }]),
-    {
-      key: "figure",
-      header: t(`reports.drill.columns.figure.${unit}`),
-      align: "right",
-      render: (item) => (item.figure === null ? "—" : format(item.figure)),
-    },
+    // A list with no figure of its own (the review acts of Code activity) has no column of dashes.
+    ...(unit === "none"
+      ? []
+      : [
+          {
+            key: "figure",
+            header: t(`reports.drill.columns.figure.${unit}`),
+            align: "right" as const,
+            render: (item: ReportDrillItem) => (item.figure === null ? "—" : format(item.figure)),
+          },
+        ]),
   ];
 }

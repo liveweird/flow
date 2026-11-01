@@ -71,6 +71,9 @@ describe("the drill param codec", () => {
       { kind: "cell", view: "WIP_AT_END", segmentAccountId: "712020:abc-def" },
       "cell:WIP_AT_END;s=712020:abc-def",
     ],
+    ["a Code activity tile", { kind: "code", view: "MRS_MERGED" }, "code:MRS_MERGED"],
+    ["a Code activity member's cell", { kind: "code", view: "COMMITS", segmentAccountId: "712020:abc-def" }, "code:COMMITS;s=712020:abc-def"],
+    ["a Code activity weekly bar", { kind: "code", view: "WEEK", bucketStart: "2026-03-02" }, "code:WEEK:2026-03-02"],
     [
       "a Compare people work-mix share (the key is percent-encoded)",
       { kind: "mix", by: "activityType", key: "Run: ops, 100%", segmentAccountId: "acc-ann" },
@@ -163,6 +166,13 @@ describe("the drill param codec", () => {
     ["a work-mix share with no key", "mix:domain;s=acc-ann"],
     ["a work-mix share with an unencoded colon", "mix:domain:A:B;s=acc-ann"],
     ["a work-mix share with a malformed percent escape", "mix:domain:100%;s=acc-ann"],
+    ["a Code activity figure of a view the server does not answer", "code:NOPE"],
+    ["a Code activity figure in the wrong case", "code:commits"],
+    ["a Code activity histogram view (a bar is a hist target)", "code:MR_SIZE_LINES"],
+    ["a Code activity week without a date", "code:WEEK"],
+    ["a Code activity week that is no date", "code:WEEK:2026-02-30"],
+    ["a Code activity figure with a date (only the week has one)", "code:COMMITS:2026-03-02"],
+    ["a Code activity figure with a stray part", "code:WEEK:2026-03-02:extra"],
   ])("%s parses to nothing (a hand-edited link is ignored, never an error)", (_name, raw) => {
     expect(parseDrill(raw)).toBeNull();
   });
@@ -240,6 +250,40 @@ describe("drillItemColumns", () => {
     expect(cells(item, "Europe/Warsaw")[3]).toBe("2026-03-03");
     expect(cells({ ...item, summary: "Ship it", assignee: "Ann", figure: 2.5 })).toEqual(["FLO-1", "Ship it", "Ann", "2026-03-02", "2.5"]);
     expect(cells({ ...item, anchorAt: null })[3]).toBe("—");
+  });
+});
+
+describe("drillItemColumns — Code activity's lists", () => {
+  const t = i18n.t.bind(i18n);
+  const merge: ReportDrillItem = {
+    issueKey: "grp/app!12",
+    summary: "Add the export",
+    itemKind: "MERGE_REQUEST",
+    accountId: "acc-ann",
+    assignee: "Ann Author",
+    teamId: 1,
+    anchorAt: Date.UTC(2026, 2, 2, 10),
+    figure: 250,
+  };
+
+  test("a commit or merge request names its Person, and the lines, files and merged date have their own headers", () => {
+    const columns = drillItemColumns(t, "lines", "merged", "UTC", false, undefined, true);
+    expect(columns.map((c) => c.header)).toEqual(["Issue", "Summary", "Person", "Merged", "Lines changed"]);
+    expect(columns.map((c) => c.render(merge))).toEqual(["grp/app!12", "Add the export", "Ann Author", "2026-03-02", "250"]);
+    expect(columns[2].render({ ...merge, assignee: null })).toBe("—");
+    expect(drillItemColumns(t, "files", "committed", "UTC", false, undefined, true).map((c) => c.header).slice(3)).toEqual(["Committed", "Files changed"]);
+    expect(drillItemColumns(t, "ageWd", "created", "UTC", false, undefined, true).map((c) => c.header).slice(3)).toEqual(["Opened", "Age (working days)"]);
+  });
+
+  test("a list of review acts has no figure column, only the date of the act", () => {
+    const columns = drillItemColumns(t, "none", "event", "UTC", false, undefined, true);
+    expect(columns.map((c) => c.header)).toEqual(["Issue", "Summary", "Person", "Done on"]);
+  });
+
+  test("the kind column names a commit and a merge request", () => {
+    const kind = drillItemColumns(t, "lines", "committed", "UTC", true, undefined, true)[2];
+    expect(kind.render({ ...merge, itemKind: "COMMIT" })).toBe("Commit");
+    expect(kind.render(merge)).toBe("Merge request");
   });
 });
 

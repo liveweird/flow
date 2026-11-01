@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Paper, Stack } from "@mantine/core";
 import { IconGitMerge } from "@tabler/icons-react";
 import { getCodeActivityReport } from "../api/reports";
+import CodeActivityDrillDrawer from "../components/CodeActivityDrillDrawer";
 import CodeFlowSection from "../components/CodeFlowSection";
 import CodeMembersTable from "../components/CodeMembersTable";
 import CodeOpenTile from "../components/CodeOpenTile";
@@ -15,7 +16,10 @@ import ReportMetaNote from "../components/ReportMetaNote";
 import ReportPageHeader from "../components/ReportPageHeader";
 import ReportPageShell from "../components/ReportPageShell";
 import ReportTailControl from "../components/ReportTailControl";
+import { useHistogramDrill } from "../hooks/useHistogramDrill";
+import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
+import { CODE_FLOW_ANCHOR, type CodeDrill } from "../utils/codeActivityDrill";
 import { CODE_ACTIVITY_CONTROLS, normalizeCodeActivityFilter } from "../utils/codeActivityReport";
 
 /**
@@ -27,7 +31,7 @@ import { CODE_ACTIVITY_CONTROLS, normalizeCodeActivityFilter } from "../utils/co
  */
 export default function ReportCodeActivity() {
   const { t } = useTranslation();
-  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage(
+  const { filtersQuery, filters, filter, filterKey, setFilter, query, storageKey } = useReportPage(
     "code-activity",
     getCodeActivityReport,
     normalizeCodeActivityFilter,
@@ -36,6 +40,10 @@ export default function ReportCodeActivity() {
   const report = query.data;
   // While a changed filter loads, the previous report stays on screen dimmed (`isPlaceholderData`).
   const refreshing = query.isPlaceholderData;
+  // The drill (a tile, a member's cell, a weekly bar or a histogram bar) is URL state; a bar of kept data belongs to the PREVIOUS filter and opens nothing.
+  const drill = useReportDrill(filterKey, CODE_FLOW_ANCHOR);
+  const openBar = useHistogramDrill(drill, { anchor: CODE_FLOW_ANCHOR });
+  const codeDrill: CodeDrill = { open: drill.open, bar: openBar, disabled: query.isPlaceholderData };
 
   return (
     <Stack gap="md">
@@ -67,10 +75,19 @@ export default function ReportCodeActivity() {
                   <>
                     <CodeSourcesNote report={report} timeZone={loaded.timeZone} />
                     <ReportTailControl filter={filter} onChange={setFilter} />
-                    <CodeFlowSection report={report} isRefreshing={refreshing} />
-                    <CodeOpenTile report={report} isRefreshing={refreshing} />
+                    <CodeFlowSection report={report} isRefreshing={refreshing} drill={codeDrill} />
+                    <CodeOpenTile report={report} isRefreshing={refreshing} drill={codeDrill} />
                     {report.review && <CodeReviewTile review={report.review} minSampleSize={report.meta.minSampleSize} isRefreshing={refreshing} />}
-                    <CodeMembersTable report={report} filters={loaded} />
+                    <CodeMembersTable report={report} filters={loaded} drill={codeDrill} />
+                    <CodeActivityDrillDrawer
+                      report={report}
+                      filters={loaded}
+                      filter={filter}
+                      opened={drill.target !== null}
+                      target={drill.shown}
+                      onClose={drill.close}
+                      onSegmentChange={drill.setSegment}
+                    />
                   </>
                 )}
               </>

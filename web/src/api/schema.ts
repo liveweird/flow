@@ -2690,6 +2690,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/code-activity/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The commits or merge requests behind one figure of the code activity report (drill to items)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 21". Takes the parent report's parameters
+         *     (`GET /api/v1/reports/code-activity`: a REQUIRED `teamId`, the period, up to 8 `accountId`, `connectionId`, `tailPercent`, so the
+         *     same 400s) plus the figure's identity: `view` (REQUIRED) and, for the histogram views, an optional `bucketIndex`; for `WEEK` the
+         *     REQUIRED `bucketStart`. The list is read from the SAME rows by the report's own attribution and value functions, so
+         *     `bar.count` equals the figure it stands behind: `COMMITS` a member's `commits`; `MRS_MERGED` `flow.merged` / `mrsMerged`;
+         *     `MRS_OPENED` `mrsOpened`; `OPEN_MRS` the member's `openMrs` (drafts included) and `OPEN_MRS_WAITING` `open.count` (the
+         *     non-draft ones; `figure` is the age in working days); the five histogram views `MR_CYCLE_WORKING_DAYS`, `MR_CYCLE_ELAPSED_DAYS`,
+         *     `TIME_TO_FIRST_REVIEW`, `MR_SIZE_LINES`, `MR_SIZE_FILES` the merged merge requests the distribution measures — with a
+         *     `bucketIndex` (0-based into that distribution's `histogram`, the open tail last) the bar's own items (`bar.count` equals
+         *     `histogram[bucketIndex].count`, `bar.from`/`bar.to` its range, `to` null = the open tail; the layout is the union's and
+         *     `segmentAccountId` narrows to a person's share, the `byUser` count), without one the whole measured set (a member's p50 cell);
+         *     `MERGED_WITHOUT_REVIEW` / `MERGED_WITHOUT_APPROVAL` the numerators of the two shares; `REVIEWS_GIVEN`, `APPROVALS_GIVEN`,
+         *     `CHANGES_REQUESTED_GIVEN` and `REVIEW_REQUESTS_RECEIVED` the DISTINCT merge requests behind a member's cell (one row per member
+         *     and merge request, anchored by the earliest such act); `COMMENTS` one row per comment ACT (the cell counts acts); `WEEK` the
+         *     merge requests merged in the weekly bar that starts on `bucketStart` (one of the report's `flow.weekly[].bucketStart`, else 400).
+         *     `itemKind` is `COMMIT` or `MERGE_REQUEST`; `issueKey` is `<project path>@<sha12>` / `<project path>!<iid>`, `summary` the first
+         *     line of the message / the title, `accountId` the author or actor's linked account (null for an unlinked identity, whose
+         *     `assignee` is its display name or username under `teamId=0` and null otherwise — never its key), `teamId` the request's team,
+         *     `anchorAt` the figure's anchor (`committed_at`, `merged_at`, `created_at`, `event_at`) and `figure` the figure's own value (a
+         *     commit's counted lines, a merge request's cycle in working days / size in lines / age; null where the list has none). Sorted by
+         *     `figure` descending, newest `anchorAt`, then key; at most 500 listed — `total` (equal to `bar.count`) says how many are behind the
+         *     figure. `segmentAccountId` needs USER level and must be one of the picked `accountId`s, else 400 (a TEAM-level member's cell is the
+         *     request with that member as the only `accountId`). 400: a missing or unknown `view`, a `bucketIndex` that is not a non-negative
+         *     integer, is sent with a non-histogram view or lies outside the histogram, a hidden distribution (fewer than `meta.minSampleSize`
+         *     values: no bar exists), a `bucketStart` that is missing for `WEEK`, sent with another view or not a week of the period,
+         *     plus every 400 of the parent. The merge requests and commits link to the GitLab host of `sources[].baseUrl` of the parent.
+         */
+        get: operations["getReportCodeActivityItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/reported-time-ratio": {
         parameters: {
             query?: never;
@@ -4780,8 +4825,11 @@ export interface components {
         ReportDrillItem: {
             issueKey: string;
             summary: string | null;
-            /** @enum {string} */
-            itemKind: "TASK" | "EPIC" | "WORKLOG";
+            /**
+             * @description `COMMIT` / `MERGE_REQUEST` are Report 21's (the GitLab code drill): `issueKey` is then `<project path>@<sha12>` / `<project path>!<iid>`.
+             * @enum {string}
+             */
+            itemKind: "TASK" | "EPIC" | "WORKLOG" | "COMMIT" | "MERGE_REQUEST";
             /** @description The item's account (assignee, or the one author); null when there is none, and for the cost drill when the slice has several authors. */
             accountId: string | null;
             /** @description Display name of `accountId` (the id itself when no name is known). For the cost drill (`/costs/items`) the display names of ALL the item's authors in the slice, joined with ", ", the largest contributor first. */
@@ -11413,6 +11461,51 @@ export interface operations {
                     "application/json": components["schemas"]["CodeActivityReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportCodeActivityItems: {
+        parameters: {
+            query: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description The team (required: this report carries no domain slice, so a request without `teamId` is `400`). Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId: components["parameters"]["ReportTeamIdRequired"];
+                /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountIds"];
+                /** @description Restricts to one ACTIVE GitLab data source (a Jira, deleted or unknown id is `400`). Defaults to every active GitLab data source, a disabled one included. */
+                connectionId?: components["parameters"]["ReportCodeConnectionId"];
+                /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
+                tailPercent?: components["parameters"]["ReportTailPercent"];
+                /** @description Which figure's items — see the operation description. */
+                view: "COMMITS" | "MRS_MERGED" | "MRS_OPENED" | "OPEN_MRS" | "OPEN_MRS_WAITING" | "MR_CYCLE_WORKING_DAYS" | "MR_CYCLE_ELAPSED_DAYS" | "TIME_TO_FIRST_REVIEW" | "MR_SIZE_LINES" | "MR_SIZE_FILES" | "MERGED_WITHOUT_REVIEW" | "MERGED_WITHOUT_APPROVAL" | "REVIEWS_GIVEN" | "APPROVALS_GIVEN" | "CHANGES_REQUESTED_GIVEN" | "COMMENTS" | "REVIEW_REQUESTS_RECEIVED" | "WEEK";
+                /** @description The histogram views only — a bar of that distribution's `histogram`, 0-based (the open tail bucket last). A 400 on any other view or outside the histogram; absent, the whole measured set. */
+                bucketIndex?: number;
+                /** @description The `WEEK` view only (and REQUIRED there) — the first day of one weekly bar, one of the report's `flow.weekly[].bucketStart`. */
+                bucketStart?: string;
+                /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
+                segmentAccountId?: components["parameters"]["ReportDrillSegmentAccountId"];
+            };
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ReportDrillItemsOk"];
             304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];

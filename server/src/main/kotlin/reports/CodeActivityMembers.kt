@@ -76,8 +76,8 @@ internal fun CodeKernelContext.memberFigures(
         figure.sizeLines?.let { a.size += it }
     }
     mrs.forEach { row ->
-        if (inWindow(row.createdAt)) memberAt(row.connectionId, row.authorKey, row.createdAt)?.let { of(it).opened++ }
-        if (row.state == MR_OPENED) memberAt(row.connectionId, row.authorKey, nowMs)?.let { of(it).openNow++ }
+        openedMember(row)?.let { of(it).opened++ }
+        openNowMember(row)?.let { of(it).openNow++ }
     }
     events.forEach { event -> addAct(event, ::of) }
     requests.forEach { event -> addRequests(event, ::of) }
@@ -85,8 +85,12 @@ internal fun CodeKernelContext.memberFigures(
         .sortedWith(compareBy({ it.member.accountId ?: "" }, { it.member.host ?: "" }, { it.member.identityKey ?: "" }))
 }
 
+/** Who a commit counts for (its key's person, in scope at `committed_at`), else null. */
+internal fun CodeKernelContext.commitMember(commit: CodeCommitRow): CodeMember? =
+    memberAt(commit.connectionId, commit.identityKey, commit.committedAt)
+
 private fun CodeKernelContext.addCommit(commit: CodeCommitRow, of: (CodeMember) -> MemberAcc) {
-    val member = memberAt(commit.connectionId, commit.identityKey, commit.committedAt) ?: return
+    val member = commitMember(commit) ?: return
     val a = of(member)
     a.commits++
     if (commit.countsKnown) {
@@ -98,22 +102,47 @@ private fun CodeKernelContext.addCommit(commit: CodeCommitRow, of: (CodeMember) 
     }
 }
 
+/**
+ * One act in scope: [member] did [event] at [at] (its `event_at`). It adds to the member's comments when [comment] and, when [review] (a
+ * review-kind event on a merge request the member did not write), to the DISTINCT merge requests reviewed, approved or with changes
+ * requested.
+ */
+internal class CodeAct(val event: CodeEventRow, val at: Long, val member: CodeMember, val comment: Boolean, val review: Boolean)
+
+/** The act of [event] in scope: dated, with an actor, the actor in scope at `event_at`; else null. The cells' and drills' one rule. */
+internal fun CodeKernelContext.actOf(event: CodeEventRow): CodeAct? {
+    val at = event.eventAt ?: return null
+    val actor = event.actorKey ?: return null
+    val member = memberAt(event.mr.connectionId, actor, at) ?: return null
+    return CodeAct(
+        event = event,
+        at = at,
+        member = member,
+        comment = event.kind == MrEventKind.COMMENT || event.kind == MrEventKind.DIFF_COMMENT,
+        review = event.kind in REVIEW_KINDS && !attribution.identities.samePerson(event.mr.connectionId, actor, event.mrAuthorKey),
+    )
+}
+
 /** An act by the actor, at its `event_at`: the review-kind sets are DISTINCT merge requests and leave out the author's own. */
 private fun CodeKernelContext.addAct(event: CodeEventRow, of: (CodeMember) -> MemberAcc) {
-    val at = event.eventAt ?: return
-    val actor = event.actorKey ?: return
-    val a = of(memberAt(event.mr.connectionId, actor, at) ?: return)
-    if (event.kind == MrEventKind.COMMENT || event.kind == MrEventKind.DIFF_COMMENT) a.comments++
-    if (event.kind !in REVIEW_KINDS || attribution.identities.samePerson(event.mr.connectionId, actor, event.mrAuthorKey)) return
+    val act = actOf(event) ?: return
+    val a = of(act.member)
+    if (act.comment) a.comments++
+    if (!act.review) return
     a.reviewed += event.mr
     if (event.kind == MrEventKind.APPROVAL) a.approved += event.mr
     if (event.kind == MrEventKind.CHANGES_REQUESTED) a.changes += event.mr
 }
 
+/** The members a review request names, each in scope at `event_at`, which must lie in the window (a request outside it is nobody's). */
+internal fun CodeKernelContext.requestReceivers(event: CodeEventRow): List<CodeMember> {
+    val at = event.eventAt?.takeIf { inWindow(it) } ?: return emptyList()
+    return event.targetKeys.mapNotNull { target -> memberAt(event.mr.connectionId, target, at) }
+}
+
 /** A review request names its targets: each one in scope at `event_at` received it (distinct merge requests). */
 private fun CodeKernelContext.addRequests(event: CodeEventRow, of: (CodeMember) -> MemberAcc) {
-    val at = event.eventAt?.takeIf { inWindow(it) } ?: return
-    event.targetKeys.forEach { target -> memberAt(event.mr.connectionId, target, at)?.let { of(it).requested += event.mr } }
+    requestReceivers(event).forEach { of(it).requested += event.mr }
 }
 
 private fun MemberAcc.toFigures(member: CodeMember, minSample: Int) = CodeMemberFigures(

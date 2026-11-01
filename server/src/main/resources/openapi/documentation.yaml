@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: flow-api
-  version: 1.40.0
+  version: 1.41.0
   description: |
     JWT-authenticated REST API for Flow — a developer-intelligence tool that reads Jira Cloud, stores the raw data
     incrementally and derives flow metrics (cycle and lead time, throughput, WIP, flow efficiency, work-item age),
@@ -3893,6 +3893,73 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/code-activity/items:
+    get:
+      tags: [reports]
+      operationId: getReportCodeActivityItems
+      summary: The commits or merge requests behind one figure of the code activity report (drill to items)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 21". Takes the parent report's parameters
+        (`GET /api/v1/reports/code-activity`: a REQUIRED `teamId`, the period, up to 8 `accountId`, `connectionId`, `tailPercent`, so the
+        same 400s) plus the figure's identity: `view` (REQUIRED) and, for the histogram views, an optional `bucketIndex`; for `WEEK` the
+        REQUIRED `bucketStart`. The list is read from the SAME rows by the report's own attribution and value functions, so
+        `bar.count` equals the figure it stands behind: `COMMITS` a member's `commits`; `MRS_MERGED` `flow.merged` / `mrsMerged`;
+        `MRS_OPENED` `mrsOpened`; `OPEN_MRS` the member's `openMrs` (drafts included) and `OPEN_MRS_WAITING` `open.count` (the
+        non-draft ones; `figure` is the age in working days); the five histogram views `MR_CYCLE_WORKING_DAYS`, `MR_CYCLE_ELAPSED_DAYS`,
+        `TIME_TO_FIRST_REVIEW`, `MR_SIZE_LINES`, `MR_SIZE_FILES` the merged merge requests the distribution measures — with a
+        `bucketIndex` (0-based into that distribution's `histogram`, the open tail last) the bar's own items (`bar.count` equals
+        `histogram[bucketIndex].count`, `bar.from`/`bar.to` its range, `to` null = the open tail; the layout is the union's and
+        `segmentAccountId` narrows to a person's share, the `byUser` count), without one the whole measured set (a member's p50 cell);
+        `MERGED_WITHOUT_REVIEW` / `MERGED_WITHOUT_APPROVAL` the numerators of the two shares; `REVIEWS_GIVEN`, `APPROVALS_GIVEN`,
+        `CHANGES_REQUESTED_GIVEN` and `REVIEW_REQUESTS_RECEIVED` the DISTINCT merge requests behind a member's cell (one row per member
+        and merge request, anchored by the earliest such act); `COMMENTS` one row per comment ACT (the cell counts acts); `WEEK` the
+        merge requests merged in the weekly bar that starts on `bucketStart` (one of the report's `flow.weekly[].bucketStart`, else 400).
+        `itemKind` is `COMMIT` or `MERGE_REQUEST`; `issueKey` is `<project path>@<sha12>` / `<project path>!<iid>`, `summary` the first
+        line of the message / the title, `accountId` the author or actor's linked account (null for an unlinked identity, whose
+        `assignee` is its display name or username under `teamId=0` and null otherwise — never its key), `teamId` the request's team,
+        `anchorAt` the figure's anchor (`committed_at`, `merged_at`, `created_at`, `event_at`) and `figure` the figure's own value (a
+        commit's counted lines, a merge request's cycle in working days / size in lines / age; null where the list has none). Sorted by
+        `figure` descending, newest `anchorAt`, then key; at most 500 listed — `total` (equal to `bar.count`) says how many are behind the
+        figure. `segmentAccountId` needs USER level and must be one of the picked `accountId`s, else 400 (a TEAM-level member's cell is the
+        request with that member as the only `accountId`). 400: a missing or unknown `view`, a `bucketIndex` that is not a non-negative
+        integer, is sent with a non-histogram view or lies outside the histogram, a hidden distribution (fewer than `meta.minSampleSize`
+        values: no bar exists), a `bucketStart` that is missing for `WEEK`, sent with another view or not a week of the period,
+        plus every 400 of the parent. The merge requests and commits link to the GitLab host of `sources[].baseUrl` of the parent.
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportLastSprints' }
+        - { $ref: '#/components/parameters/ReportSprintId' }
+        - { $ref: '#/components/parameters/ReportTeamIdRequired' }
+        - { $ref: '#/components/parameters/ReportAccountIds' }
+        - { $ref: '#/components/parameters/ReportCodeConnectionId' }
+        - { $ref: '#/components/parameters/ReportTailPercent' }
+        - name: view
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [COMMITS, MRS_MERGED, MRS_OPENED, OPEN_MRS, OPEN_MRS_WAITING, MR_CYCLE_WORKING_DAYS, MR_CYCLE_ELAPSED_DAYS, TIME_TO_FIRST_REVIEW, MR_SIZE_LINES, MR_SIZE_FILES, MERGED_WITHOUT_REVIEW, MERGED_WITHOUT_APPROVAL, REVIEWS_GIVEN, APPROVALS_GIVEN, CHANGES_REQUESTED_GIVEN, COMMENTS, REVIEW_REQUESTS_RECEIVED, WEEK]
+          description: Which figure's items — see the operation description.
+        - name: bucketIndex
+          in: query
+          required: false
+          schema: { type: integer, format: int32, minimum: 0 }
+          description: The histogram views only — a bar of that distribution's `histogram`, 0-based (the open tail bucket last). A 400 on any other view or outside the histogram; absent, the whole measured set.
+        - name: bucketStart
+          in: query
+          required: false
+          schema: { type: string, format: date, description: "ISO date (YYYY-MM-DD)." }
+          description: The `WEEK` view only (and REQUIRED there) — the first day of one weekly bar, one of the report's `flow.weekly[].bucketStart`.
+        - { $ref: '#/components/parameters/ReportDrillSegmentAccountId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
+      responses:
+        '200': { $ref: '#/components/responses/ReportDrillItemsOk' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/reports/reported-time-ratio:
     get:
       tags: [reports]
@@ -6698,7 +6765,7 @@ components:
       properties:
         issueKey: { type: string }
         summary: { type: string, nullable: true }
-        itemKind: { type: string, enum: [TASK, EPIC, WORKLOG] }
+        itemKind: { type: string, enum: [TASK, EPIC, WORKLOG, COMMIT, MERGE_REQUEST], description: "`COMMIT` / `MERGE_REQUEST` are Report 21's (the GitLab code drill): `issueKey` is then `<project path>@<sha12>` / `<project path>!<iid>`." }
         accountId: { type: string, nullable: true, description: "The item's account (assignee, or the one author); null when there is none, and for the cost drill when the slice has several authors." }
         assignee: { type: string, nullable: true, description: "Display name of `accountId` (the id itself when no name is known). For the cost drill (`/costs/items`) the display names of ALL the item's authors in the slice, joined with \", \", the largest contributor first." }
         teamId: { type: integer, format: int32, minimum: 0, nullable: true }
