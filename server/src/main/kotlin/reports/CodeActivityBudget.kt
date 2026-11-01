@@ -29,6 +29,15 @@ internal const val MAX_CODE_READ_PERMITS = 64
 internal const val MAX_CODE_MAX_ROWS = 5_000_000
 
 /**
+ * The refusal of an over-budget selection: a plain 400 (the type is a [BadRequestException], mapped by `ErrorHandling.kt`; its message
+ * is the SPA's text match, `saveError.ts`). A caller that can degrade instead (Home's code section) catches exactly this type.
+ */
+internal class CodeRowBudgetExceededException(maxRows: Int) : BadRequestException(
+    "The selection reads more than $maxRows code rows (commits, merge requests and review events) - " +
+        "narrow the period or pick fewer people",
+)
+
+/**
  * One request's running row count against [maxRows]. Not thread-safe by design: a request's reads are sequential inside its one report
  * transaction.
  */
@@ -44,12 +53,7 @@ internal class CodeRowBudget(val maxRows: Int = DEFAULT_CODE_MAX_ROWS) {
     fun charge(n: Int) {
         used += n
         if (used > maxRows) {
-            // The SPA's `loadErrorMessage` (web/src/utils/saveError.ts) matches the phrase
-            // "narrow the period or pick fewer people": keep it when rewording.
-            throw BadRequestException(
-                "The selection reads more than $maxRows code rows (commits, merge requests and review events) - " +
-                    "narrow the period or pick fewer people",
-            )
+            throw CodeRowBudgetExceededException(maxRows)
         }
     }
 }

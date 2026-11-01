@@ -87,6 +87,15 @@ const ALPHA: HomeTeam = {
     epicsNoDates: figure(0, 0),
     epicsEstimateGap: figure(2, 2),
   },
+  code: {
+    linkedMembers: 4,
+    merged: figure(9, 9, { previous: previous(7, 7, "BETTER", 2) }),
+    cycleP50: figure(2.4, 9, { previous: previous(3.1, 7, "BETTER", -0.7) }),
+    openCount: figure(3, 3),
+    openDrafts: 1,
+    openAgeP50: figure(4.2, 3, { hidden: false }),
+    mergedWithoutReview: figure(0.25, 8, { numerator: 2, previous: previous(0.5, 6, "BETTER", -0.25) }),
+  },
 };
 
 const BETA: HomeTeam = {
@@ -142,6 +151,16 @@ const BETA: HomeTeam = {
     epicsNoDates: figure(1, 1),
     epicsEstimateGap: figure(0, 0),
   },
+  // Under the minimum sample (5): the cycle and the age are hidden, the share is hidden while its count (1 of 4 read) stays.
+  code: {
+    linkedMembers: 2,
+    merged: figure(4, 4, { previous: previous(4, 4, null, 0) }),
+    cycleP50: figure(null, 4, { hidden: true, previous: previous(null, 4, null, null, true) }),
+    openCount: figure(1, 1),
+    openDrafts: 0,
+    openAgeP50: figure(null, 1, { hidden: true }),
+    mergedWithoutReview: figure(null, 4, { hidden: true, numerator: 1, previous: previous(null, 4, null, null, true) }),
+  },
 };
 
 /** A team with nothing in the window: no closed sprint, every sample under the minimum. */
@@ -171,6 +190,16 @@ const GAMMA: HomeTeam = {
     epicsNoDates: figure(0, 0),
     epicsEstimateGap: figure(0, 0),
   },
+  // Nobody in the team has a linked GitLab identity: no figures, a row that says so.
+  code: {
+    linkedMembers: 0,
+    merged: figure(0, 0, { previous: previous(0, 0, null, 0) }),
+    cycleP50: figure(null, 0, { hidden: true, previous: previous(null, 0, null, null, true) }),
+    openCount: figure(0, 0),
+    openDrafts: 0,
+    openAgeP50: figure(null, 0, { hidden: true }),
+    mergedWithoutReview: figure(null, 0, { hidden: true, numerator: 0, previous: previous(null, 0, null, null, true) }),
+  },
 };
 
 /** The overview as the server answers it: three active teams (Gamma with nothing in the window), one connection, the 90-day window of the meta. */
@@ -183,6 +212,10 @@ export const HOME: HomeOverview = {
   freshness: [{ connectionId: 1, name: "Stub", lastSyncAt: Date.UTC(2026, 8, 29, 10, 15), lastDeriveAt: Date.UTC(2026, 8, 29, 10, 30) }],
   teams: [ALPHA, BETA, GAMMA],
   unassigned: { doneTasks: 2, openTasks: 1, epics: 0 },
+  code: {
+    sources: [{ connectionId: 7, name: "Stub GitLab", baseUrl: "https://gitlab.example", lastSyncAt: Date.UTC(2026, 8, 29, 9, 45), commitFilesPending: 0, mrDetailsPending: 0 }],
+    overBudget: false,
+  },
 };
 
 /** Nothing derived yet: an empty overview with a null `derivedAt`. */
@@ -192,4 +225,5 @@ export const HOME_NOT_DERIVED: HomeOverview = {
   freshness: [],
   teams: [],
   unassigned: { doneTasks: 0, openTasks: 0, epics: 0 },
+  code: { sources: [], overBudget: false },
 };

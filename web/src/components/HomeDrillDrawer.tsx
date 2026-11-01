@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { getHomeItems, type HomeOverview } from "../api/home";
 import { getSprintScopeItems, getThroughputItems } from "../api/reportDrill";
 import { getReportFilters } from "../api/reports";
-import { drillDrawn, HOME_VIEWS, sprintBucketItems } from "../utils/homeOverview";
+import { drillDrawn, HOME_VIEWS, isCodeView, sprintBucketItems } from "../utils/homeOverview";
 import { serializeDrill, type DrillTarget, type HomeDrillTarget, type WeekDrillTarget } from "../utils/reportDrill";
 import { reportQuery, type ReportFilterState } from "../utils/reportFilter";
 import ReportDrillDrawer from "./ReportDrillDrawer";
@@ -25,7 +25,8 @@ const NO_FILTER: ReportFilterState = {};
 function ViewDrawer({ overview, opened, target, onClose }: Pick<Props, "overview" | "opened" | "onClose"> & { target: HomeDrillTarget | null }) {
   const { t } = useTranslation();
   const team = target ? overview.teams.find((candidate) => candidate.teamId === target.teamId) : undefined;
-  const open = target && team ? target : null;
+  // A code view of a team the overview drew no code figures for is a stale link: no request (the page drops it from the URL).
+  const open = target && team && drillDrawn(target, overview) ? target : null;
   const query = useQuery({
     queryKey: ["home", "items", open ? serializeDrill(open) : null],
     // Closed means no request; the last answer stays cached.
@@ -42,6 +43,7 @@ function ViewDrawer({ overview, opened, target, onClose }: Pick<Props, "overview
       anchor={open ? HOME_VIEWS[open.view].anchor : "done"}
       timeZone={overview.timeZone}
       chartCount={open && team ? HOME_VIEWS[open.view].count(team) : undefined}
+      codeSources={open && isCodeView(open.view) ? overview.code.sources : undefined}
     />
   );
 }

@@ -192,6 +192,24 @@ class HomeKernelsTest {
     }
 
     @Test
+    fun `the code figures read merged higher, the cycle and merged-without-review lower`() {
+        assertEquals(CompareDirection.HIGHER, HomeMeasure.CODE_MERGED.direction)
+        assertEquals(CompareUnit.ITEMS, HomeMeasure.CODE_MERGED.unit)
+        assertEquals(CompareDirection.LOWER, HomeMeasure.CODE_CYCLE.direction)
+        assertEquals(CompareUnit.DAYS, HomeMeasure.CODE_CYCLE.unit)
+        assertEquals(CompareDirection.LOWER, HomeMeasure.CODE_WITHOUT_REVIEW.direction)
+        assertEquals(CompareUnit.SHARE, HomeMeasure.CODE_WITHOUT_REVIEW.unit)
+        assertEquals(HomeVerdict.BETTER, trendOf(HomeMeasure.CODE_MERGED, countFigure(4), countFigure(5), 5).verdict)
+        assertEquals(HomeVerdict.WORSE, trendOf(HomeMeasure.CODE_CYCLE, measured(2.0), measured(3.0), 5).verdict)
+        // A share is sample-gated: a side under the minimum gives no cue, and the share's `difference` is current - previous.
+        val gated = trendOf(HomeMeasure.CODE_WITHOUT_REVIEW, Measured(0.5, 2, hidden = true), Measured(0.1, 9, hidden = false), 5)
+        assertNull(gated.verdict)
+        val open = trendOf(HomeMeasure.CODE_WITHOUT_REVIEW, Measured(0.5, 8, hidden = false), Measured(0.25, 9, hidden = false), 5)
+        assertEquals(HomeVerdict.BETTER, open.verdict)
+        assertEquals(-0.25, open.difference)
+    }
+
+    @Test
     fun `trendOf names the better side per direction and keeps current minus previous`() {
         val lower = trendOf(HomeMeasure.CYCLE_WORKING_DAYS, measured(10.0), measured(8.0), 5)
         assertEquals(HomeVerdict.BETTER, lower.verdict)

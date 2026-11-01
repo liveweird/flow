@@ -13,7 +13,8 @@
     "never": "never",
     "none": "No data source is connected.",
     "connection": "{{name}}: synced {{sync}}, derived {{derive}}",
-    "windows": "Figures cover {{from}} – {{to}}; arrows compare with {{previousFrom}} – {{previousTo}} (days in {{zone}})."
+    "windows": "Figures cover {{from}} – {{to}}; arrows compare with {{previousFrom}} – {{previousTo}} (days in {{zone}}).",
+    "codeSource": "{{name}} (GitLab): synced {{sync}}"
   },
   "table": {
     "team": "Team",
@@ -53,7 +54,10 @@
       "QUALITY_TASKS_ESTIMATED_LATE": "Done tasks estimated late",
       "QUALITY_EPICS_NO_ESTIMATE": "Epics with no estimate",
       "QUALITY_EPICS_NO_DATES": "Epics with no dates",
-      "QUALITY_EPICS_ESTIMATE_GAP": "Epics whose estimate differs from their tasks"
+      "QUALITY_EPICS_ESTIMATE_GAP": "Epics whose estimate differs from their tasks",
+      "CODE_MERGED": "Merge requests merged",
+      "CODE_OPEN": "Merge requests open now, waiting for review",
+      "CODE_MERGED_WITHOUT_REVIEW": "Merge requests merged without review"
     }
   },
   "sprints": {
@@ -151,6 +155,23 @@
     "cycleP85": "Cycle time, p85 (working days)",
     "itemsUnit_one": "task",
     "itemsUnit_other": "tasks"
+  },
+  "code": {
+    "title": "Code",
+    "caption": "Merge requests from the connected GitLab, by their author's team: merged {{from}} – {{to}} and open right now. More merged is better; a shorter cycle time and fewer merged without review are better; the open ones are a snapshot of now, with no arrow. The arrow compares with {{previousFrom}} – {{previousTo}}. Only people an administrator has linked to a Jira account are counted.",
+    "tableAria": "Merge requests per team",
+    "merged": "Merged",
+    "cycle": "Cycle time, p50 (working days)",
+    "open": "Open now",
+    "age": "Open age, p50 (working days)",
+    "withoutReview": "Merged without review",
+    "drafts_one": "+{{count}} draft",
+    "drafts_other": "+{{count}} drafts",
+    "share": "{{share}} of {{n}} read",
+    "shareHidden": "share hidden: only {{n}} read",
+    "noLinks": "No linked GitLab identities",
+    "linkIdentities": "Link identities on {{name}}",
+    "overBudget": "The merge requests of these teams are too many to summarise here. Open the Code activity report for one team and a narrower period."
   },
   "quality": {
     "title": "What is missing from the data",

@@ -10,7 +10,7 @@
   which a roster membership needs) and never mutates it. It holds the `data-sources` lock (the stub host allows one active GitLab source, so it never runs beside
   the data-sources spec's GitLab test or `code-identities`), and sweeps leftover `e2e-identities-*`, `e2e-gitlab-*` and `e2e-code-*` sources at its start.
 
-## Scenario: a regular user reads a team's code activity: the member's commits, the merge-request flow and the weekly bars equal the API, the member's commits open as the items behind them with GitLab links, the unlinked identities are told, a clean axe scan, and the Unassigned choice of the team control reads the work no team holds (teamId=0, kept on reload, the unlinked identity by its GitLab name without a link)
+## Scenario: a regular user reads a team's code activity: the member's commits, the merge-request flow and the weekly bars equal the API, the member's commits open as the items behind them with GitLab links, the unlinked identities are told, a clean axe scan, the Unassigned choice of the team control reads the work no team holds (teamId=0, kept on reload, the unlinked identity by its GitLab name without a link), and Home's Code row for the team equals the API's overview and drills to GitLab links
 
 1. Through the API, leftover GitLab-stub sources of earlier runs are deleted, the shared Jira fixture is made ready, a GitLab-stub source (groups `platform` and
    `apps`) is created and synced, every stale decision of the stub host is deleted and **Confirm all proposals** is called (6 Jira people linked, 1 bot). A
@@ -44,7 +44,17 @@
      hint "Unassigned: the work of GitLab identities that no administrator has linked to a person yet…" is shown; the "Merged" tile shows the API's `teamId=0` merged count; there is no Member control.
 8. They reload the page.
    - *Expected*: the URL still says `teamId=0` with the same dates (it is not rewritten to the first team), the same row shows the same commits, and an axe scan reports zero violations.
-9. Whatever the outcome, the test removes the membership, the team, the reader, every decision of the host and the connection.
+9. Through the API the test reads `GET /api/v1/reports/home?teamId=<team>` as the oracle for Home's Code section, then the reader opens Home with only the spec's team picked
+   (the remembered pick, `showTeamsOnHome`). Home's window is the moving 90 days ending today while the stub's dates are fixed, so nothing is asserted as "above zero":
+   every expectation is equal to the API, and the drill is exercised only when the API's merged count is above zero.
+   - *Expected*: the overview reports no over-budget code read, the spec's own source as the only code source and exactly one linked member for the team; the
+     freshness shows "<source> (GitLab): synced …"; a "Code" card with the table "Merge requests per team" has one row for the team with five figures whose Merged, Open now and
+     Merged without review cells start with the API's counts (`merged.n`, `openCount.n`, `mergedWithoutReview.numerator`); the card's title links to
+     `/reports/code-activity` with exactly the overview's `from`/`to` and the team.
+   - They press the Merged figure (only when its count is above zero; otherwise it is plain text, no button).
+   - *Expected*: a dialog "Merge requests merged · <team>" lists as many items as the figure (at most 500); the first key is a link to the stub's GitLab
+     (`<baseUrl>/<project>/-/merge_requests/<iid>`); Escape closes the dialog and focus returns to the figure.
+10. Whatever the outcome, the test removes the membership, the team, the reader, every decision of the host and the connection.
 
 ## Not covered here (and why)
 

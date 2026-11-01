@@ -33,6 +33,9 @@ export const HOME_DRILL_VIEWS: readonly HomeDrillView[] = [
   "QUALITY_EPICS_NO_ESTIMATE",
   "QUALITY_EPICS_NO_DATES",
   "QUALITY_EPICS_ESTIMATE_GAP",
+  "CODE_MERGED",
+  "CODE_OPEN",
+  "CODE_MERGED_WITHOUT_REVIEW",
 ];
 
 /** The overview of the given teams (1 to 3 ids; `teamId` repeated); no ids = the bare URL, the server's caller-agnostic default. */

@@ -98,7 +98,7 @@ private fun CodeOpenFigures.toWire() = CodeActivityOpen(count, drafts, CodeActiv
  * Each source's freshness: its last successful sync and the two pending counts of its last data profile (the PROFILE stream writes them
  * after every sync; a source never profiled, or whose stored profile does not decode, reads 0). In connection order.
  */
-private suspend fun codeSourceFreshness(dataSources: DataSourceService, sources: List<CodeSource>): List<CodeActivitySource> {
+internal suspend fun codeSourceFreshness(dataSources: DataSourceService, sources: List<CodeSource>): List<CodeActivitySource> {
     if (sources.isEmpty()) return emptyList()
     val c = DataSourceService.Connections
     val rows = c.select(c.id, c.name, c.lastSyncSucceededAt).where { c.id inList sources.map { it.connectionId } }.toList()

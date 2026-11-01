@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.44.0",
+    date: "2026-11-01",
+    en: `**Home shows the code of each team.**
+
+- A new **Code** section appears on Home while a GitLab data source is connected. For each team you picked it shows the merge requests merged in the last 90 days with their median cycle time, the merge requests open right now (drafts counted apart) with their median age, and how many were merged without a review — each beside the previous 90 days, with the same "Better", "Worse" and "No change" words as the rest of the page.
+- The counts open the merge requests behind them, each key a link to GitLab. The figures are the ones the Code activity report shows for the same team and period; the section title opens that report.
+- A team with no linked GitLab identity says so (an administrator gets the link to the Identities page), and a figure resting on too few merge requests says so instead of showing a share. When the code is too large to summarise, the section says so and the rest of Home loads as usual.`,
+    pl: `**Strona główna pokazuje kod każdego zespołu.**
+
+- Nowa sekcja **Kod** pojawia się na stronie głównej, gdy podłączone jest źródło danych GitLab. Dla każdego wybranego zespołu pokazuje merge requesty scalone w ostatnich 90 dniach z medianą czasu cyklu, merge requesty otwarte teraz (wersje robocze liczone osobno) z medianą wieku oraz liczbę scalonych bez przeglądu — każdą obok poprzednich 90 dni, z tymi samymi słowami „Lepiej”, „Gorzej” i „Bez zmian” co reszta strony.
+- Liczby otwierają merge requesty, które za nimi stoją, a każdy klucz jest linkiem do GitLaba. Wartości są takie same jak w raporcie Aktywność w kodzie dla tego samego zespołu i okresu; tytuł sekcji otwiera ten raport.
+- Zespół bez połączonej tożsamości GitLab mówi o tym wprost (administrator/ka dostaje link do strony Tożsamości), a wartość oparta na zbyt małej liczbie merge requestów to zaznacza zamiast pokazywać udział. Gdy kodu jest zbyt dużo, by go podsumować, sekcja mówi o tym, a reszta strony głównej ładuje się jak zwykle.`,
+  },
+  {
     version: "1.43.0",
     date: "2026-11-01",
     en: `**Code activity can show the work no team holds, and says why a selection was refused.**

@@ -51,6 +51,35 @@ private fun keysOf(data: Map<UInt, MutableSet<String>>, connectionId: UInt, vara
     keys.filterNotNull().forEach { data.getValue(connectionId) += it }
 }
 
+/** Which of the optional reads [loadCodeRows] performs (the merge requests and the review summaries are always read). */
+internal class CodeRowReads(
+    /** The commits read. */
+    val commits: Boolean,
+    /** The actor events and the dated review requests read. */
+    val events: Boolean,
+    /** The two connection-wide aggregate reads of the `quality` block (a drill and Home read none). */
+    val quality: Boolean,
+)
+
+/**
+ * The roster-driven read plan of [loadCodeRows]: [sources], the [roster] whose LINKED keys are the key scope (or every key of the sources
+ * when [allKeys]), the [firstPass] selection that decides which merged merge requests get their review summaries read (and that the
+ * returned context carries), the [window] and the clock inputs of the kernels.
+ */
+internal class CodeRowsRequest(
+    val sources: List<CodeSource>,
+    val roster: Set<String>,
+    val firstPass: CodeSelection,
+    val window: Pair<Long, Long>,
+    val nowMs: Long,
+    val calendar: WorkingCalendar,
+    val zone: ZoneId,
+    val minSample: Int,
+    val reads: CodeRowReads,
+    /** No key scope: every key of the sources is read (the UNASSIGNED bucket). */
+    val allKeys: Boolean = false,
+)
+
 /**
  * Reads everything a request needs. The key scope is the roster's (or the picks') LINKED keys, or none for `teamId=0` (every key of
  * the sources); rows are then attributed by their anchors in the kernels. The review summaries are read for the READ merged merge
@@ -65,8 +94,6 @@ internal suspend fun loadCodeActivity(
     minSample: Int,
     budget: CodeRowBudget,
 ): CodeActivityData {
-    val sources = request.sources
-    val connections = sources.map { it.connectionId }
     val window = request.window
     val unassignedAll = request.teamId == UNASSIGNED_TEAM_ID && request.picks.isEmpty()
     // A mover's rows are attributed by anchor, and an open merge request by now: the roster is who belonged to the team at some point of
@@ -77,13 +104,30 @@ internal suspend fun loadCodeActivity(
         else -> readTeamRoster(request.teamId, window.first, window.second) +
             readTeamRoster(request.teamId, request.nowMs, request.nowMs + 1)
     }
-    val scope: CodeKeyScope = if (unassignedAll) null else keysOfAccounts(resolver, sources, roster)
-    val commits = fetchCodeCommits(connections, scope, window, budget)
+    val selection = CodeSelection(request.teamId, request.picks.takeIf { it.isNotEmpty() }?.toSet())
+    val reads = CodeRowReads(commits = true, events = true, quality = !request.forDrill)
+    val rows = CodeRowsRequest(request.sources, roster, selection, window, request.nowMs, calendar, zone, minSample, reads, unassignedAll)
+    return loadCodeRows(resolver, rows, budget)
+}
+
+/**
+ * The read plan under [loadCodeActivity], driven by an explicit roster: the key scope, the reads [CodeRowsRequest.reads] asks for, the
+ * identity and membership lookups, then the review summaries of the merged merge requests in `firstPass`. Home's code section calls it
+ * with the union of its teams' rosters and no commits or events (`HomeCode.kt`).
+ */
+internal suspend fun loadCodeRows(resolver: IdentityResolver, request: CodeRowsRequest, budget: CodeRowBudget): CodeActivityData {
+    val sources = request.sources
+    val connections = sources.map { it.connectionId }
+    val window = request.window
+    val roster = request.roster
+    val reads = request.reads
+    val scope: CodeKeyScope = if (request.allKeys) null else keysOfAccounts(resolver, sources, roster)
+    val commits = if (reads.commits) fetchCodeCommits(connections, scope, window, budget) else emptyList()
     val mrs = fetchCodeMergeRequests(connections, scope, window, budget)
-    val events = fetchCodeActorEvents(connections, scope, window, budget)
-    val requests = fetchCodeReviewRequests(connections, scope, window, budget)
-    val activity = if (request.forDrill) emptyList() else fetchCodeKeyActivity(connections, window)
-    val qualityCounts = if (request.forDrill) CodeQualityCounts(0, 0, 0, 0) else fetchCodeQualityCounts(connections, window)
+    val events = if (reads.events) fetchCodeActorEvents(connections, scope, window, budget) else emptyList()
+    val requests = if (reads.events) fetchCodeReviewRequests(connections, scope, window, budget) else emptyList()
+    val activity = if (reads.quality) fetchCodeKeyActivity(connections, window) else emptyList()
+    val qualityCounts = if (reads.quality) fetchCodeQualityCounts(connections, window) else CodeQualityCounts(0, 0, 0, 0)
 
     val seen = connections.associateWith { mutableSetOf<String>() }
     commits.forEach { keysOf(seen, it.connectionId, it.identityKey) }
@@ -93,18 +137,20 @@ internal suspend fun loadCodeActivity(
     val identities = loadCodeIdentities(resolver, sources, seen)
     val accounts = seen.flatMap { (id, keys) -> keys.mapNotNull { identities.accountOf(id, it) } }.toSet() + roster
     val memberships = readCodeMemberships(accounts)
-    val selection = CodeSelection(request.teamId, request.picks.takeIf { it.isNotEmpty() }?.toSet())
-    val first = CodeKernelContext(selection, CodeAttribution(identities, memberships), window, request.nowMs, calendar, zone, minSample)
+    val selection = request.firstPass
+    val first = CodeKernelContext(
+        selection, CodeAttribution(identities, memberships), window, request.nowMs, request.calendar, request.zone, request.minSample,
+    )
 
     val readMrs = first.mergedInScope(mrs).map { it.row }.filter { it.detailsRead }.map { it.ref }
     val summaries = fetchCodeReviewSummaries(readMrs, budget)
     // The reviewers may be people who did nothing else in the window: their decisions are read after the summaries are known.
     summaries.forEach { keysOf(seen, it.mr.connectionId, it.actorKey) }
     val context = CodeKernelContext(
-        selection, CodeAttribution(loadCodeIdentities(resolver, sources, seen), memberships), window, request.nowMs, calendar, zone,
-        minSample,
+        selection, CodeAttribution(loadCodeIdentities(resolver, sources, seen), memberships), window, request.nowMs, request.calendar,
+        request.zone, request.minSample,
     )
-    val labels = if (request.teamId == UNASSIGNED_TEAM_ID) undecidedLabels(context.attribution.identities, sources, seen) else emptyMap()
+    val labels = if (selection.teamId == UNASSIGNED_TEAM_ID) undecidedLabels(context.attribution.identities, sources, seen) else emptyMap()
     return CodeActivityData(context, commits, mrs, events, requests, summaries, activity, qualityCounts, roster, labels)
 }
 

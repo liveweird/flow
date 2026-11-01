@@ -98,6 +98,9 @@ internal enum class HomeMeasure(val unit: CompareUnit, val direction: CompareDir
     DELIVERED_ITEMS(CompareUnit.ITEMS, CompareDirection.HIGHER),
     CYCLE_PERCENTILE(CompareUnit.DAYS, CompareDirection.LOWER),
     FINDING_COUNT(CompareUnit.ITEMS, CompareDirection.LOWER),
+    CODE_MERGED(CompareUnit.ITEMS, CompareDirection.HIGHER),
+    CODE_CYCLE(CompareUnit.DAYS, CompareDirection.LOWER),
+    CODE_WITHOUT_REVIEW(CompareUnit.SHARE, CompareDirection.LOWER),
 }
 
 /** [current] against the same figure of the previous window ([previous]), by [measure]'s direction: previous is side A, current side B. */

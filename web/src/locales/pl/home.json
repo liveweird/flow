@@ -13,7 +13,8 @@
     "never": "nigdy",
     "none": "Nie podłączono żadnego źródła danych.",
     "connection": "{{name}}: synchronizacja {{sync}}, wyliczenie {{derive}}",
-    "windows": "Wartości obejmują okres {{from}} – {{to}}; strzałki porównują z okresem {{previousFrom}} – {{previousTo}} (dni w strefie {{zone}})."
+    "windows": "Wartości obejmują okres {{from}} – {{to}}; strzałki porównują z okresem {{previousFrom}} – {{previousTo}} (dni w strefie {{zone}}).",
+    "codeSource": "{{name}} (GitLab): synchronizacja {{sync}}"
   },
   "table": {
     "team": "Zespół",
@@ -53,7 +54,10 @@
       "QUALITY_TASKS_ESTIMATED_LATE": "Zakończone zadania oszacowane za późno",
       "QUALITY_EPICS_NO_ESTIMATE": "Epiki bez szacunku",
       "QUALITY_EPICS_NO_DATES": "Epiki bez dat",
-      "QUALITY_EPICS_ESTIMATE_GAP": "Epiki, których szacunek rozjeżdża się z zadaniami"
+      "QUALITY_EPICS_ESTIMATE_GAP": "Epiki, których szacunek rozjeżdża się z zadaniami",
+      "CODE_MERGED": "Scalone merge requesty",
+      "CODE_OPEN": "Otwarte merge requesty czekające na przegląd",
+      "CODE_MERGED_WITHOUT_REVIEW": "Merge requesty scalone bez przeglądu"
     }
   },
   "sprints": {
@@ -153,6 +157,25 @@
     "itemsUnit_few": "zadania",
     "itemsUnit_many": "zadań",
     "itemsUnit_other": "zadania"
+  },
+  "code": {
+    "title": "Kod",
+    "caption": "Merge requesty z podłączonego GitLaba, według zespołu autora: scalone {{from}} – {{to}} i otwarte właśnie teraz. Więcej scalonych jest lepsze; krótszy czas cyklu i mniej scalonych bez przeglądu jest lepsze; otwarte to stan na teraz, bez strzałki. Strzałka porównuje z {{previousFrom}} – {{previousTo}}. Liczymy tylko osoby, które administrator/ka połączył/a z kontem w Jirze.",
+    "tableAria": "Merge requesty według zespołów",
+    "merged": "Scalone",
+    "cycle": "Czas cyklu, p50 (dni robocze)",
+    "open": "Otwarte teraz",
+    "age": "Wiek otwartych, p50 (dni robocze)",
+    "withoutReview": "Scalone bez przeglądu",
+    "drafts_one": "+{{count}} wersja robocza",
+    "drafts_few": "+{{count}} wersje robocze",
+    "drafts_many": "+{{count}} wersji roboczych",
+    "drafts_other": "+{{count}} wersji roboczych",
+    "share": "{{share}} z {{n}} odczytanych",
+    "shareHidden": "udział ukryty: odczytano tylko {{n}}",
+    "noLinks": "Brak połączonych tożsamości GitLab",
+    "linkIdentities": "Połącz tożsamości w {{name}}",
+    "overBudget": "Merge requestów tych zespołów jest za dużo, by je tu podsumować. Otwórz raport Aktywność w kodzie dla jednego zespołu i krótszego okresu."
   },
   "quality": {
     "title": "Czego brakuje w danych",
