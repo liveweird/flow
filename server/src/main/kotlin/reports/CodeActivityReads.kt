@@ -10,8 +10,10 @@ import ch.nokillswit.norm.MrEventKind
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.Count
+import org.jetbrains.exposed.v1.core.Expression
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.Op
+import org.jetbrains.exposed.v1.core.QueryBuilder
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.count
@@ -27,6 +29,7 @@ import org.jetbrains.exposed.v1.core.lessEq
 import org.jetbrains.exposed.v1.core.min
 import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.core.or
+import org.jetbrains.exposed.v1.core.stringParam
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 
@@ -200,10 +203,11 @@ private suspend fun fetchCodeEvents(
     scope: CodeKeyScope,
     window: Pair<Long, Long>,
     ofKind: (Column<String>) -> Op<Boolean>,
+    inKeys: (List<String>) -> Op<Boolean>,
 ): List<CodeEventRow> {
     val e = CodeMrEvents
     val m = CodeMergeRequests
-    val keys = scoped(scope, connections, e.connectionId) { e.actorKey inList it } ?: return emptyList()
+    val keys = scoped(scope, connections, e.connectionId, inKeys) ?: return emptyList()
     val source = e.join(m, JoinType.INNER, e.connectionId, m.connectionId, additionalConstraint = { e.mrId eq m.mrId })
     return source.select(e.connectionId, e.mrId, e.seq, e.kind, e.actorKey, e.eventAt, e.targetKeys, m.authorKey)
         .where { keys and m.deletedAt.isNull() and ofKind(e.kind) and inWindowOrNull(e.eventAt, window) }
@@ -230,14 +234,40 @@ internal suspend fun fetchCodeActorEvents(
     scope: CodeKeyScope,
     window: Pair<Long, Long>,
 ): List<CodeEventRow> =
-    fetchCodeEvents(connections, scope, window) { it neq MrEventKind.REVIEW_REQUESTED.name }
+    fetchCodeEvents(connections, scope, window, { it neq MrEventKind.REVIEW_REQUESTED.name }) { CodeMrEvents.actorKey inList it }
 
 /**
- * Every dated REVIEW_REQUESTED event of [window], whoever asked: the people named in `target_keys` received it, so the filter by
- * target is the kernel's (a JSON containment test in SQL buys little over the few events of a window).
+ * The dated REVIEW_REQUESTED events of [window] that name one of the scope's keys in `target_keys` (the people named received the
+ * request, whoever asked; the requester's key plays no part). With no key scope (the UNASSIGNED bucket's, every key of the sources) every
+ * dated request of the window is read. The SQL test is a PRE-FILTER only: it keeps the events the kernel could attribute (`target_keys`
+ * of each is still read whole), so which target counts at `event_at` stays [requestReceivers]'s -- a request naming nobody in scope is
+ * simply never loaded (about a quarter of the window's requests for a 15-member team, `build-times.md` WHY 61).
  */
-internal suspend fun fetchCodeReviewRequests(connections: Collection<UInt>, window: Pair<Long, Long>): List<CodeEventRow> =
-    fetchCodeEvents(connections, null, window) { it eq MrEventKind.REVIEW_REQUESTED.name }
+internal suspend fun fetchCodeReviewRequests(
+    connections: Collection<UInt>,
+    scope: CodeKeyScope,
+    window: Pair<Long, Long>,
+): List<CodeEventRow> =
+    fetchCodeEvents(connections, scope, window, { it eq MrEventKind.REVIEW_REQUESTED.name }) { namesAnyOf(CodeMrEvents.targetKeys, it) }
+
+/**
+ * `jsonb_exists_any(column, ARRAY[keys]::text[])`: the JSONB array [column] holds at least one of [keys] as a string element (the
+ * function form of `?|`, whose literal `?` clashes with placeholders). Every key is a bind parameter; a NULL column is not a match.
+ */
+private fun namesAnyOf(column: Expression<*>, keys: List<String>): Op<Boolean> = object : Op<Boolean>() {
+    override fun toQueryBuilder(queryBuilder: QueryBuilder) {
+        queryBuilder {
+            append("jsonb_exists_any(")
+            append(column)
+            append(", ARRAY[")
+            keys.forEachIndexed { i, key ->
+                if (i > 0) append(", ")
+                append(stringParam(key))
+            }
+            append("]::text[])")
+        }
+    }
+}
 
 /**
  * Per (merged merge request, actor): the earliest dated review-kind event and whether the actor approved. ONE grouped statement per

@@ -21,6 +21,7 @@ ch.nokillswit.CgroupProbeTest	0.0
 ch.nokillswit.ClusterCollectorsTest	1.9
 ch.nokillswit.CodeActivityKernelsTest	0.0
 ch.nokillswit.CodeActivityReadsTest	0.3
+ch.nokillswit.CodeActivityRequestScopeTest	1.5
 ch.nokillswit.CodeIdentityLinkStoreTest	0.2
 ch.nokillswit.CodeIdentityProposalMatchesTest	0.1
 ch.nokillswit.CodeIdentityProposalsTest	0.0

@@ -140,9 +140,12 @@ class CodeActivityReadsTest {
             // The requester's REVIEW_REQUESTED is not an act of review.
             val ofA = fetchCodeActorEvents(listOf(connId), mapOf(connId to listOf(kA)), window)
             assertTrue(ofA.none { it.kind == MrEventKind.REVIEW_REQUESTED })
-            val requests = fetchCodeReviewRequests(listOf(connId), window)
+            val requests = fetchCodeReviewRequests(listOf(connId), null, window)
             assertEquals(listOf(listOf(kB), listOf(kA)), requests.map { it.targetKeys })
             assertEquals(listOf(kA, kU), requests.map { it.actorKey })
+            // The key scope reads the requests naming one of the keys (the pre-filter's exactness: CodeActivityRequestScopeTest).
+            val ofKeyA = fetchCodeReviewRequests(listOf(connId), mapOf(connId to listOf(kA)), window)
+            assertEquals(listOf(listOf(kA)), ofKeyA.map { it.targetKeys })
         }
     }
 

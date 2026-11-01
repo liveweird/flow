@@ -107,9 +107,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   once killed the 256 MiB web role (`OutOfMemoryError`, exit 3); eight at the measured 15k / 3k world survive (`build-times.md` WHY 61).
   Any signed-in user can ask for it (D12). Bound it (a window cap for `teamId=0`, or aggregate in SQL), or stream it, and give the web
   role's report calls a heap line in the perf method.
-- [new] **Code activity: bound the review-request read by the team.** It reads every REVIEW_REQUESTED event of the window and tests the
-  targets in the JVM (26,467 rows for a 15-member team at 4x, about 200 ms of a 733 ms request, derived); a `target_keys ?| keys`
-  predicate returns 6,020 rows in 9.4 ms (an EXPLAIN only, WHY 61).
 - [new] **Code activity: the unattributed work on the page.** The endpoint answers `teamId=0` (the work of undecided GitLab identities
   and of linked people with no team, A50), but the page cannot ask for it: the shared team control rewrites a team it does not know
   (`requiredTeamId`). Today the page only counts it in the "still to attribute" note, with a link to the Identities page for admins. Needs
