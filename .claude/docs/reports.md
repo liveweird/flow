@@ -31,9 +31,10 @@ Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit 
 | 18 | Compare people (two people head to head over a date range, across every team) | `/compare-people` (+ the drill `/compare-people/items`; SPA route `/reports/compare-people`) | [Report 18](#report-18----compare-people) |
 | 19 | Task estimates (the distribution of the DONE tasks' estimates in MD, at done and at start, in fixed 0.5-MD bars) | `/task-estimates` (+ the drill `/task-estimates/items`; SPA route `/reports/task-estimates`) | [Report 19](#report-19----task-estimates) |
 | 20 | Person trend (one person's Compare-people figures over rolling 90-day windows, a point every 14 days, across every team) | `/person-trend` (+ the drill `/person-trend/items`; page `/reports/person-trend`, 1.19.0) | [Report 20](#report-20----person-trend) |
+| 21 | Code activity (**planned**, A50: merge-request flow and per-member code activity over the GitLab `norm.code_*` layer, per team) | `/code-activity` (+ the drill `/code-activity/items`; SPA route `/reports/code-activity`) | [Report 21](#report-21----code-activity) |
 | — | Home overview (up to three picked teams, 90 days beside the previous 90; not a numbered report) | `/home` (+ the drill `/home/items`; SPA route `/`) | [Home overview](#home-overview-get-apiv1reportshome) |
 
-The deep dive is three of the twenty-five endpoints: the report itself and the paged option lists its pickers read.
+The deep dive is three of the twenty-five endpoints: the report itself and the paged option lists its pickers read. Report 21 is **planned**: when it ships the index counts twenty-one reports and twenty-seven endpoints (and the operation counts below grow by two); until then every count in this doc is the built set.
 
 Report 13 (item counts beside SP, backlog in sprints) is not an endpoint of its own: the item
 counts ride reports 1, 2, 6 and 10, and the backlog in sprints rides `/backlog`. The shared
@@ -68,6 +69,7 @@ of every shared-filter report and drill. Three rules, each with its exact `detai
 - **`TEAM_ONLY`** (Commitments, Sprint consistency and its drill `/sprint-consistency/items` -- the reports with no domain slice, where
   `domain` is an ignored unknown name): a `teamId`. Neither: `teamId is required: this report carries no domain slice and is read per team, never for the whole unit`.
   The spec declares `teamId` `required: true` there (`ReportTeamIdRequired`); everywhere else "one of the two" is carried by descriptions (OpenAPI 3.0 cannot say it).
+  **Planned (Report 21):** `/code-activity` and its drill `/code-activity/items` join this list (a GitLab project is not a Jira domain, so no domain slice; `0` is the UNASSIGNED bucket of unlinked work), and `ReportScopeGuardTest` lists them with this refusal text.
 - **`TEAM_DOMAIN_OR_EPIC`** (Epic progress): an `epicId` (raw presence, so a blank one keeps its own `epicId must not be blank`), a `domain` or a
   `teamId`. Neither: `epicId, domain or teamId is required: epic progress is read per epic, per domain or per team, never for the whole unit`.
 
@@ -432,6 +434,10 @@ inputs and the capacity verdict.
   - `target:<team>:<category>:<percent>:<updated_at>` of every team's work-category targets -- read at query time by Costs (`CostsCategories.kt`), and
     their PUT (a hard delete + insert of the whole set) bumps NO revision because DERIVE never reads them, so they are stamped here. A cleared set
     leaves no line, which is itself a change.
+  - **Planned, Report 21 only** (added to the stamp of the two `code-activity` operations; a Jira report's tag must NOT move on a GitLab page or a link write, `ReportValidatorInputsTest`): the report reads `norm.code_*` and the identity links LIVE, which no DERIVE stamps. PR 5 (the `CODE` rows of Compare people and Person trend) adds the same lines to those reports' operations (and to the Person trend peer-cell cache key), since they then read the same live rows; the Jira-only reports stay without them.
+    - `code:<id>:<name>:<host>:<last_sync_succeeded_at>:<backfill_from>` of every ACTIVE GITLAB connection -- existence (`400 Unknown or inactive connectionId`), the `sources[]` block (name, `baseUrl`, `lastSyncAt`) and the backfill start; `host` is `sourceHostOf(baseUrl)`, what the links are keyed on.
+    - the GitLab connections' `ingest:` lines -- the same grouped query over their SYNC/RECONCILE/REPROCESS/PURGE jobs (today it keeps `derivesMetrics()` rows only, `ReportValidators.kt:144-152`): a PROCESS commits `norm.code_*` page by page and heartbeats after each, and `sources[].commitFilesPending` / `mrDetailsPending` move with it.
+    - `links:<host>:<count>:<max decided_at>` per host of those connections (`public.code_identity_links`): a PUT, DELETE or confirm-proposals changes the count or the newest `decided_at`, and nothing bumps a revision for them. Removing the newest decision lowers the count, so the line still moves.
   - `clock:<token>` -- see the next bullet.
   The stamp is computed BEFORE the report, so a DERIVE (or any write) finishing in between can only make the validator older than the body (the next
   request mismatches and refetches), never newer.
@@ -439,7 +445,7 @@ inputs and the capacity verdict.
   (`asOfDay`, the deep dive's default day, capacity "up to today", Compare people's ages at a day end) move at local midnight -- except for the
   operations whose figures move continuously with `now`, which use `StampClock.FIVE_MINUTES` (`now / 5 min`):
   **aging WIP** (fractional working-day ages at `now`), **Home** and **`home/items`** (the same ages in the WIP figures and the WIP drills),
-  **data quality** (member-days clipped at `now`), **`/reports/filters`** (the roster "current as of the instant") and, conservatively,
+  **data quality** (member-days clipped at `now`), **code-activity and its drill** (planned: the open merge requests' ages at `now`), **`/reports/filters`** (the roster "current as of the instant") and, conservatively,
   **throughput, costs and their drills** (a picked OPEN sprint's window ends at `now`, so a worklog dated inside `(then, now]` would be missed by a
   day tag; a write would move the stamp, a future-dated Jira `started` would not). Everything else follows the derived data only.
   `ReportValidatorsTest` pins this set operation by operation (the pinned clock moved by 3 min, 6 min and a day).
@@ -457,6 +463,7 @@ inputs and the capacity verdict.
 | home, home/items | 5 min | the same; the default team list is the first three active teams by name (`team:`), whoever asks; the freshness block prints each connection's `last_sync_succeeded_at` (`connection:`) |
 | compare-people | day | the same, plus the memberships (`settings:`), the team managers (`team:`) and **the caller's verdict** (in the tag) |
 | compare-people/items, person-trend (+ `/items`) | day | memberships and the calendar (`settings:`); person-trend's windows also start at the backfill (`connection:`); no capacity, so no verdict; person-trend also uses the whole stamp as its peer-cell cache's generation |
+| code-activity (+ `/items`) (planned) | 5 min | `team:` (existence, the roster's labels), `settings:` (memberships, calendar, thresholds), `run:`/`ingest:`/`retired:` (the Jira people's names and the roster's sprints); and the code inputs above: `code:`, the GitLab `ingest:` lines, `links:` |
 | deep-dive and its two option lists | day | `team:`/`connection:` existence; the `norm.work_items` titles (read live) follow `run:` and `ingest:` |
 
 A change in the `norm` labels (a person's display name, an issue summary) moves the tag with the first page the SYNC commits (`ingest:`) and
@@ -558,6 +565,7 @@ ReportDrillItem  { issueKey, summary|null, itemKind: TASK|EPIC|WORKLOG, accountI
 | `/costs/items` | `by` (`ACTIVITY_TYPE`, `WORK_CATEGORY`) + `key` (repeated, 1..100; the folded "Other" sends them all) | the tasks (sub-tasks rolled up to the parent; epics logged on directly as EPIC) with worklogs in that slice in the period, `assignee` = their authors | MD logged in the slice (anchor: the latest `started_at`) |
 | `/compare-people/items` | `view` (the row's `drill`: `DELIVERED`, `CYCLE_WORKING_DAYS`, `CYCLE_ELAPSED_DAYS`, `REPORTED_TIME_RATIO`, `FLOW_EFFICIENCY`, `ACCURACY_AT_START`, `ACCURACY_AT_DONE`, `ADJUSTED`, `ADJUSTMENT_CHANGE`, `WIP_TASK_DAYS`, `WIP_AT_END`, `BLOCKED`, `LOGGED`, `FOREIGN`, `LATE`, `NO_WORKLOGS`, `NO_ESTIMATE`, `TASK_SIZE`, `REOPENED`) + `segmentAccountId` (REQUIRED, one of the two picks) + `bucketIndex` (optional, the two cycle-time views) | the cell's own set -- see "Report 18"; the first consumer of `itemKind` `WORKLOG` | the row's unit (MD, days, a ratio, the age in working days, a worklog's MD...) |
 | `/person-trend/items` | the parent's parameters (ONE `accountId`, `from`/`to`, the slices) + `view` (the `drill` of a TREND row: `DELIVERED`, `CYCLE_WORKING_DAYS`, `FLOW_EFFICIENCY`, `ACCURACY_AT_START`, `WIP_TASK_DAYS`, `WIP_AT_END`, `BLOCKED`, `LATE`, `NO_WORKLOGS`, `NO_ESTIMATE`, `TASK_SIZE`, `REOPENED`) + `pointEnd` (REQUIRED, one of the grid's days; no `bucketIndex`, no `segmentAccountId`) | the point's window, delegated to Report 18's drill for the person -- see "Report 20" | the row's unit |
+| `/code-activity/items` (planned) | the parent's parameters (`teamId`, the period, up to 8 `accountId`s) + `view` (`COMMITS`, `MRS_MERGED`, `MRS_OPENED`, `OPEN_MRS`, `MR_CYCLE_WORKING_DAYS`, `MR_CYCLE_ELAPSED_DAYS`, `TIME_TO_FIRST_REVIEW`, `MR_SIZE_LINES`, `MR_SIZE_FILES`, `MERGED_WITHOUT_REVIEW`, `MERGED_WITHOUT_APPROVAL`, `REVIEWS_GIVEN`, `APPROVALS_GIVEN`, `CHANGES_REQUESTED_GIVEN`, `COMMENTS`, `REVIEW_REQUESTS_RECEIVED`, `WEEK`) + `bucketIndex` (the four histogram views) or `bucketStart` (`WEEK`) + `segmentAccountId` where the figure is one person's (one of the picks) | the rows behind a figure of Report 21, by the report's own attribution and value functions -- see "Report 21"; `itemKind` gains `COMMIT` and `MERGE_REQUEST` (`DrillItemKind`, `ReportDrill.kt:14`, a wire enum) and `issueKey` is `<project path>!<iid>` / `<project path>@<sha12>` | the figure's own value (days, lines, files, or the count of acts) |
 
 `/throughput/items` runs `fetchThroughputTasks` (the rows `byBucket` aggregates) and the same pure `bucketStart(doneAt, zone, bucket)`
 the report groups by, in the configured zone (a task done Monday 00:30 local is that Monday's, whatever the UTC date). A request
@@ -880,7 +888,7 @@ CommitmentsReport {
   lists — a DISABLED connection only has syncing paused, and its derived data still counts. **Only connections of a kind that derives
   metrics** (`DataSourceKind.derivesMetrics`: Jira, not GitLab) are in any report scope: `/reports/filters`, Home's `freshness`, the
   default scope and the ETag stamp's `connection:`/`retired:`/`ingest:` lines leave the others out, and an explicit `connectionId` of
-  another kind is the same `400` as an unknown one (nothing is disclosed). `KindLeakTest`.
+  another kind is the same `400` as an unknown one (nothing is disclosed). `KindLeakTest`. **Planned exception, Report 21:** the code report is the mirror image: its scope is the ACTIVE GITLAB connections only, a Jira `connectionId` is the same `400 Unknown or inactive connectionId`, and the Jira reports stay untouched (`KindLeakTest` gains the inverse case).
 - **`teamId`/`sprintId` existence.** A positive, non-zero `teamId` must name an ACTIVE team (`400`
   otherwise) -- the client-supplied-FK idiom, `reports/ReportFilter.kt`'s own doc comment: structural
   parsing stays in the parser, existence checks live in the service.
@@ -2666,3 +2674,88 @@ PersonTrendReport {
 hand-computed anchors and cues, the coverage labels at both edges and outside, the grid and its cap, the 400 matrix, D12), `ReportPersonTrendFixtureTest` (the derived fixture's busiest person over a year,
 every point against Compare people, the coverage and the cue recomputed, the timing line), `ReportPersonTrendDrillTest` (the drill: every point x every row reconciles and equals Compare people's drill over the window; the
 400 matrix), `PersonTrendCacheTest` (the slice string, the entry round trip, the generation CAS, the plan, the exact cap under concurrency, the `in-test peer-cell-bytes` line; no DB), `ReportPersonTrendCacheTest` (a derived clone with a six-person team: cache-ON bodies equal the cache-OFF oracle app's as raw strings -- cold, repeated, a teammate's, every slice, 1100 days --, one swap per stamp input, the cap, the off switch, eight racing cold requests, the knob's boot validation, Compare people and the drill leaving the cache untouched), `PersonTrendFactsTest` (the one scan returns exactly the four separate fetches and `fetchTrendWorklogs` exactly `fetchCompareWorklogs`, with and without a slice), `WipPlanShapeTest` / `CompareWipPushdownTest` (the `days` narrowing of the WIP statements; the day-count statement `wipUserDayCountsSql` is `NOT MATERIALIZED` and hashable, the listing ones stay `MATERIALIZED`; `wipUserHeldSql`'s held arrays of every listed day equal the expansion's rows of that day plus `started_at`).
+
+## Report 21 -- Code activity
+
+Status: **planned** (A50, `.claude/docs/domain-model.md`; per-measure rows in `.claude/docs/measures.md` "Report 21", marked `planned`; the page, `.claude/docs/web-features.md` "Code activity"). Nothing below is
+built yet: this section is the contract the implementation is written against (the plan's PRs 2-4) and is rewritten as built when it lands. The first report over the GitLab code layer
+(`.claude/docs/gitlab-integration.md`): where merge requests wait and how big they are, with the per-member activity volumes beside them as NEUTRAL context. Reports-layer only: **no migration, no
+`DERIVE` step, no new job kind** -- it reads `norm.code_*` at request time and attributes through the admin's identity links (A50). Any signed-in user (D12), read-only, no audit; answers
+`200`/`304`/`400`/`401`/`429`/`500`.
+
+### Endpoints and parameters
+
+- `GET /api/v1/reports/code-activity?teamId=T[&from&to | &lastSprints | &sprintId][&accountId=A&accountId=B…&connectionId&tailPercent]` -- the report.
+- `GET /api/v1/reports/code-activity/items?…&view[&bucketIndex|&bucketStart][&segmentAccountId]` -- the drill (below).
+
+`TEAM_ONLY` ("Scope" above): `teamId` is required and `0` is the UNASSIGNED bucket (the work of identities with no LINKED decision and of linked people with no membership at the anchor); `domain`,
+`domainView`, `activityType` and `workCategory` are not declared on the path and ignored like any unknown name. The period is the shared parser's three forms, dates AND sprints: the window of the
+team's sprint is "the merge requests merged in the sprint" (`resolveReportScope` yields the `window` and `meta.resolvedSprints`), the default is the trailing 90 days. `accountId` repeats 1..8
+(`multipleAccounts`, "Repeated query parameters") and makes the level USER; without it the level is TEAM. `connectionId` names one ACTIVE GITLAB source (`400 Unknown or inactive connectionId` for a
+Jira or an unknown one); absent, every active GITLAB source is read. `tailPercent` is the shared open-tail knob of the histograms. History horizon (A48): by each figure's anchor, through the parser's clamp
+(a period wholly before it is `400`); an open merge request is current whatever its age.
+
+### Response
+
+```
+CodeActivityReport {
+  meta: ReportMeta,                                    // level TEAM/USER, resolvedSprints as every TEAM_ONLY report; derivedAt/configRevision are the JIRA star's (the roster, names and sprints come from it)
+  sources[]{connectionId, name, baseUrl, lastSyncAt?, commitFilesPending, mrDetailsPending},      // THE freshness of the code figures; baseUrl is the organisation's own host (D12), the drill links build on it
+  quality{unlinkedIdentities, unlinkedCommits, unlinkedMergeRequests, unlinkedEvents,             // connection-wide for the sources in scope: how much is still unattributed
+          commitsLinesUnknown, mrsSizeUnknown, mrsDetailsNotRead, eventsUndated},
+  flow{merged, closedUnmerged,
+       cycleWorkingDays: Distribution, cycleElapsedDays: Distribution,                          // created -> merged
+       timeToFirstReviewWorkingDays: Distribution,
+       sizeLines: Distribution, sizeFiles: Distribution,
+       mergedWithoutReview{count, share?}, mergedWithoutApproval{count, share?},
+       weekly[]{bucketStart, merged}},                                                           // Monday-started weeks in the zone, zero-filled
+  open{count, drafts, age{n, hidden, p50?, p85?}},                                               // working days, NOW
+  review?{reviewersPerMergedMrP50?, topReviewerShare?, n},                                       // optional review concentration (measures.md)
+  groups[]{teamId?, accountId?, label?, commits, filesChanged, linesAdded, linesDeleted, commitsLinesUnknown,
+           mrsMerged, mrsOpened, openMrs, mrCycleWorkingDaysP50?, mrSizeLinesP50?,
+           reviewsGiven, approvalsGiven, changesRequestedGiven, comments, reviewRequestsReceived}
+}
+```
+
+- **`groups`.** TEAM: one per member with any attributed row or a membership overlapping the window (zero rows kept, so the roster is visible), ordered by `orgGroups` (`reports/ReportSupport.kt:367`); USER: one per pick, and
+  every `Distribution` splits per picked person (`PickedDistributions`); `teamId=0`: one per unlinked identity key (`label` = the identity's display name or username, `accountId` null) plus one per linked account with no
+  membership. These are the volumes and they are **NEUTRAL** (A50): the response carries no tint, rank or verdict for them. Counts are never hidden; the distributions and the p50 cells are under `minSampleSize`.
+- **Verdict-free by construction.** The flow figures are what the page may colour (lower is better for the cycle, time to first review, merged without review, open ages and size); the report itself returns numbers, the
+  direction is the page's, as for every report.
+- **`meta` is the Jira star's.** `derivedAt` and `configRevision` say when the roster, names and sprints were derived, not when the code was read: the freshness of the code figures is `sources[].lastSyncAt` and the two pending
+  counts. A code-specific `meta` was rejected (it would break the `ReportMeta` every page prints).
+
+### Attribution and reads
+
+The one rule is A50: a row belongs to the person its identity key is LINKED to (`IdentityResolver`, host = `sourceHostOf(baseUrl)` of the row's connection; BOT and IGNORED actors attribute nothing and are not "a review by another
+human"), and to the team that person's dated membership covers at the row's anchor (`teamAt`, half-open `[from, to)`): a commit by `committed_at`, a merged merge request by `merged_at`, an opened one by `created_at`, an open one by now, an
+event by `event_at` (an undated event is in no period and counted in `quality.eventsUndated`). A mover's work splits by anchor. Raw SQL over the Exposed tables of `norm/CodeActivityStore.kt:33-122` (the `HomeDoneSql` idiom) reads,
+per request: (1) the commits by `identity_key IN (keys)` and `committed_at` in the window (for `teamId=0` every key of the sources); (2) the merge requests by `author_key IN` and the `merged_at` / `created_at` windows, and the open
+ones (`state = 'opened'`, not tombstoned); (3) the events by `actor_key IN` / `mr_id IN` with `event_at` windows; (4) per merged merge request the first review event (`MIN(event_at)` grouped by `mr_id`, actor other than the author,
+kind in the five review kinds, `event_at` known, actor not decided BOT/IGNORED -- the exclusion set passed as a list). Merge commits are left out; unknown counted lines are excluded and counted. The figures are computed in Kotlin
+(pure kernels: per-row `teamAt`, the distinct-merge-request counting, the first-review pairing, `buildDistribution`, `percentileContinuous`, `weekStartsMs`). The roster and the team come from `TeamMembershipService`
+(`membershipsOfAccounts` :116, `allMembershipsByAccount` :205, `memberAccountIds` :182, `currentAccountIds` :169) with `teamAt` (`metrics/DeriveAttribution.kt:107`); the GitLab hosts from `DataSourceService.activeGitLabBaseUrls`
+(`ingest/DataSourceService.kt:129`); the keys of an account from `IdentityResolver.keysByAccount`, the inverse `accountsByKey` for `teamId=0` and the drills, and a new `decidedKeys(host, keys)` for the BOT/IGNORED exclusion.
+`identities/` stays free of `metrics/`: the team join happens here, in `reports/`. Names: `ReportNames.accountDisplayNames` (`norm.people`).
+
+### Drill to items
+
+(Planned, the plan's PR 4.) `GET /code-activity/items` takes the parent's parameters plus `view` (the table row of "Drill to items" above), `bucketIndex` for the histogram views, `bucketStart` for `WEEK`, and `segmentAccountId` (one of the picks)
+wherever the figure is one person's. It answers the shared `{meta, bar, items[<=500], total, truncated}` over the report's OWN fetch and value functions (the histogram views through `distributionDrillItems`), so every bar of every
+histogram and every figure of the table reconciles with its drill (the "Reconciliation is a gate" rule). `itemKind` `MERGE_REQUEST` (`issueKey` = `<project path>!<iid>`, `summary` = the title) or `COMMIT` (`<project path>@<sha12>`, the first
+line of the message); the SPA links them to `<baseUrl>/<path_with_namespace>/-/merge_requests/<iid>` and `/-/commit/<sha>` from `sources[].baseUrl`.
+
+### Cache validators and performance
+
+Both operations are `StampClock.FIVE_MINUTES` (open ages at `now`) and carry the `code:`, GitLab `ingest:` and `links:` stamp lines ("Cache validators" above). Expected cost: a team over 90 days is a few hundred commits, about a hundred
+merge requests and about seven hundred events (WHY 59's source: 15k commits, 3k merge requests, 21k events); `build-times.md` WHY 61 (planned) measures it on the 70-user rig and decides whether `merged_at` needs an index (V46,
+reserved for that only). The in-test target `code-activity-90d` joins `build-times.md` "In-test targets" with PR 2.
+
+### Code and tests
+
+(Planned names.) `reports/CodeActivityScope.kt` (the GitLab scope, hosts, keys and accounts, memberships), `CodeActivityReads.kt` (the SQL reads), `CodeActivityKernels.kt` (pure: attribution, first review, distinct-merge-request counts),
+`CodeActivityReport.kt` (the DTOs, `ReportService.codeActivity`), the route in `ReportRoutes.kt`, `CodeActivityDrill.kt` (PR 4); `identities/IdentityResolver.decidedKeys`; `reports/ReportValidators.kt` (the stamp lines). Tests:
+`CodeActivityKernelsTest` (pure: approve/unapprove/approve is one approval, a self-review and a BOT actor excluded, a REVIEWED-only first review, an undated event, a merge commit excluded, unknown lines excluded and counted, a mover split by
+anchor, a draft open merge request), `ReportCodeActivityTest` (a hand-built world through `CodeActivityStore` and `CodeIdentityLinkStore`, every figure hand-computed, the `400` matrix incl. a Jira `connectionId`, `teamId=0`, the minimum
+sample, D12), `ReportCodeActivityFixtureTest` (the GitLab stub's clone against an independent JDBC re-derivation over `norm.code_*`), `ReportCodeActivityDrillTest` (PR 4), plus cases in `ReportValidatorInputsTest`,
+`ReportValidatorsTest`, `ReportScopeGuardTest`, `KindLeakTest` and `PackageBoundaryTest` (a rule: `identities` is referenced only by `reports` and the composition root). The names are pinned in `measures.md` when they land.

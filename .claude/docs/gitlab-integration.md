@@ -6,8 +6,10 @@ the Jira people through admin-confirmed identity links. The queue, worker, curso
 into are in `.claude/docs/ingestion.md`; the Jira connector it sits beside is `.claude/docs/jira-integration.md`.
 
 **Status: as built, 1.34.0-1.38.0** (PR 12 closed the sequence with the scaled-world figures, `build-times.md` WHY 59, and the real-instance checklist, "Real-instance smoke run").
-Each section is the as-built reference (file names, tests); the PR sequence is at the end. Reports over
-`norm.code_*` are a separate, later plan: nothing here derives metrics.
+Each section is the as-built reference (file names, tests); the PR sequence is at the end. Nothing here derives metrics. Reports over
+`norm.code_*` are **planned** (agreed 2026-11-01): Report 21 "Code activity" (`reports.md` "Report 21", `domain-model.md` A50, `measures.md` "Report 21") reads the
+code layer at query time and attributes through the identity links below; it adds no migration, job kind or stream to this connector, and
+`DataSourceKind.derivesMetrics` stays false for GITLAB.
 
 ## What is tracked, per person
 
@@ -606,9 +608,9 @@ Measured on the isolated `flow-perf` stack (`docker-compose.perf.yaml`: the prod
   default budgets. Longer with instance rate limits on.
 - **Commit ↔ MR linking:** only merge and squash SHAs are stored for now.
 - **Code layer, open points (PR 10):** MR line counts (GraphQL totals) stay exclusion-blind and `generated_file` is stored raw and not applied. `REVIEWED`'s
-  time is the reviewer entry's `created_at` (approximate; the smoke run, item 4, checks it). **A reports plan must count approvals as distinct merge requests per
-  person**: an approve / unapprove / approve sequence leaves two NOTE `APPROVAL` events by one actor (kept as history; only the legacy endpoint row is
-  de-duplicated against the notes). **Identity rows come from LIVE commits only**: a tombstoned commit under an address no live commit uses has an `e`
+  time is the reviewer entry's `created_at` (approximate; the smoke run, item 4, checks it). **Report 21 counts approvals as distinct merge requests per
+  person** (A50, planned): an approve / unapprove / approve sequence leaves two NOTE `APPROVAL` events by one actor (kept as history; only the legacy endpoint row is
+  de-duplicated against the notes). The same report treats `REVIEWED` as an approximate first-review signal (above) and sizes a merge request exclusion-blind. **Identity rows come from LIVE commits only**: a tombstoned commit under an address no live commit uses has an `e`
   key without an identity row. A user added to GitLab re-flags every merge request (the username map is fingerprinted) and any address change every commit:
   one first-run-sized local pass, deadline-exempt. Ghost USER rows (an id with no users row, e.g. deleted before the first sync) are counted separately
   (`identities.ghosts`).
