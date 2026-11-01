@@ -31,10 +31,10 @@ Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit 
 | 18 | Compare people (two people head to head over a date range, across every team) | `/compare-people` (+ the drill `/compare-people/items`; SPA route `/reports/compare-people`) | [Report 18](#report-18----compare-people) |
 | 19 | Task estimates (the distribution of the DONE tasks' estimates in MD, at done and at start, in fixed 0.5-MD bars) | `/task-estimates` (+ the drill `/task-estimates/items`; SPA route `/reports/task-estimates`) | [Report 19](#report-19----task-estimates) |
 | 20 | Person trend (one person's Compare-people figures over rolling 90-day windows, a point every 14 days, across every team) | `/person-trend` (+ the drill `/person-trend/items`; page `/reports/person-trend`, 1.19.0) | [Report 20](#report-20----person-trend) |
-| 21 | Code activity (**endpoint built, 1.39.0; the drill and the page are planned**, A50: merge-request flow and per-member code activity over the GitLab `norm.code_*` layer, per team) | `/code-activity` (+ the drill `/code-activity/items`; SPA route `/reports/code-activity`) | [Report 21](#report-21----code-activity) |
+| 21 | Code activity (**endpoint 1.39.0 and page 1.40.0 built; the drill is planned**, A50: merge-request flow and per-member code activity over the GitLab `norm.code_*` layer, per team) | `/code-activity` (+ the drill `/code-activity/items`; SPA route `/reports/code-activity`) | [Report 21](#report-21----code-activity) |
 | — | Home overview (up to three picked teams, 90 days beside the previous 90; not a numbered report) | `/home` (+ the drill `/home/items`; SPA route `/`) | [Home overview](#home-overview-get-apiv1reportshome) |
 
-The deep dive is three of the twenty-five endpoints: the report itself and the paged option lists its pickers read. Report 21's endpoint (1.39.0) is built without its page and its drill: the counts in this doc are still the pre-Report-21 set (twenty reports, twenty-five endpoints) until the drill and the page land, when the index counts twenty-one reports and twenty-seven endpoints; the operation counts below already include `/code-activity`.
+The deep dive is three of the twenty-five endpoints: the report itself and the paged option lists its pickers read. Report 21's endpoint (1.39.0) and page (1.40.0) are built without its drill: the counts in this doc are still the pre-Report-21 set (twenty reports, twenty-five endpoints) until the drill lands, when the index counts twenty-one reports and twenty-seven endpoints; the operation counts below already include `/code-activity`.
 
 Report 13 (item counts beside SP, backlog in sprints) is not an endpoint of its own: the item
 counts ride reports 1, 2, 6 and 10, and the backlog in sprints rides `/backlog`. The shared
@@ -2677,7 +2677,7 @@ every point against Compare people, the coverage and the cue recomputed, the tim
 
 ## Report 21 -- Code activity
 
-Status: **the endpoint is built (1.39.0, the plan's PR 2); the drill (PR 4) and the page (PR 3) are planned** (A50, `.claude/docs/domain-model.md`; per-measure rows in `.claude/docs/measures.md` "Report 21"; the page, `.claude/docs/web-features.md` "Code activity"). The sections below describe the endpoint as built and the drill as planned. The first report over the GitLab code layer
+Status: **the endpoint (1.39.0, the plan's PR 2) and the page (1.40.0, PR 3) are built; the drill (PR 4) is planned** (A50, `.claude/docs/domain-model.md`; per-measure rows in `.claude/docs/measures.md` "Report 21"; the page, `.claude/docs/web-features.md` "Code activity"). The sections below describe the endpoint as built and the drill as planned. The first report over the GitLab code layer
 (`.claude/docs/gitlab-integration.md`): where merge requests wait and how big they are, with the per-member activity volumes beside them as NEUTRAL context. Reports-layer only: **no migration, no
 `DERIVE` step, no new job kind** -- it reads `norm.code_*` at request time and attributes through the admin's identity links (A50). Any signed-in user (D12), read-only, no audit; answers
 `200`/`304`/`400`/`401`/`429`/`500`.

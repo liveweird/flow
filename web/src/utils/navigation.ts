@@ -7,6 +7,7 @@ import {
   IconChartBar,
   IconChecklist,
   IconCoin,
+  IconGitMerge,
   IconTarget,
   IconHistory,
   IconHome2,
@@ -22,7 +23,7 @@ import {
 } from "@tabler/icons-react";
 import { capacityPath } from "./capacityLinks";
 import { dataSourcesPath } from "./dataSourceLinks";
-import { commitmentsPath, comparePeoplePath, costsPath, dataQualityPath, deepDiveBasePath, DELIVERY_TABS, ESTIMATION_TABS, FLOW_TABS, personTrendPath, taskAccuracyPath, wipPath } from "./reportLinks";
+import { codeActivityPath, commitmentsPath, comparePeoplePath, costsPath, dataQualityPath, deepDiveBasePath, DELIVERY_TABS, ESTIMATION_TABS, FLOW_TABS, personTrendPath, taskAccuracyPath, wipPath } from "./reportLinks";
 import { publicHolidaysPath } from "./publicHolidayLinks";
 import { teamsPath } from "./teamLinks";
 import { flowUsersPath } from "./flowUserLinks";
@@ -96,6 +97,8 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
       { to: comparePeoplePath, label: "appShell.nav.reportsCompare", icon: IconScale },
       // Person trend: ONE person's figures over rolling windows, "is this person getting better" (a series, where Compare people is a table), a group of one too.
       { to: personTrendPath, label: "appShell.nav.reportsPersonTrend", icon: IconTimeline },
+      // Code activity: a team's merge-request flow over the GitLab code layer, with the members' volumes as context (A50) - a group of one as well.
+      { to: codeActivityPath, label: "appShell.nav.reportsCodeActivity", icon: IconGitMerge, keywords: ["gitlab", "merge requests", "commits"] },
       // And the Deep dive: one matrix over a selection the page's own panel makes, so it has no tabs either.
       { to: deepDiveBasePath, label: "appShell.nav.reportsDeepDive", icon: IconZoomScan },
     ],

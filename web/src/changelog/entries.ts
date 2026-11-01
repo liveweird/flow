@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.40.0",
+    date: "2026-11-01",
+    en: `**The Code activity page.**
+
+- A new page under Reports, **Code activity**, shows how a team's merge requests flow through GitLab: how long they take from creation to merge, how long they wait for a first review, how big they are, how many are merged each week, how many were merged without a review or an approval, how many are open now and how review work is spread among reviewers. Pick the team, optionally up to eight members, and a period of dates or sprints.
+- Beside the flow, a table lists each member's commits, lines, merge requests, reviews, approvals and comments. It is context, not a score: it has no ranking, no colours and no order of merit.
+- People appear once an administrator has linked their GitLab identity to their Jira account on the data source's Identities page; the page tells you how many identities are still waiting for that, and what is not read yet.`,
+    pl: `**Strona Aktywność w kodzie.**
+
+- Nowa strona w Raportach, **Aktywność w kodzie**, pokazuje, jak merge requesty zespołu płyną przez GitLaba: ile trwają od utworzenia do scalenia, ile czekają na pierwszy przegląd, jak są duże, ile scalono co tydzień, ile scalono bez przeglądu lub zatwierdzenia, ile jest teraz otwartych i jak rozkłada się praca przeglądowa między recenzentów. Wybierz zespół, opcjonalnie do ośmiu osób oraz okres z dat lub sprintów.
+- Obok przepływu tabela podaje commity, linie, merge requesty, przeglądy, zatwierdzenia i komentarze poszczególnych osób. To tło, a nie ocena: bez rankingu, bez kolorów i bez kolejności zasług.
+- Osoby pojawiają się, gdy administrator połączy ich tożsamość w GitLabie z kontem w Jirze na stronie Tożsamości źródła danych; strona mówi, ile tożsamości na to czeka i czego jeszcze nie odczytano.`,
+  },
+  {
     version: "1.39.0",
     date: "2026-11-01",
     en: `**The API for the coming Code activity report.**

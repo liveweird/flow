@@ -1512,6 +1512,112 @@
       "empty": "Nothing was delivered in any window."
     }
   },
+  "codeActivity": {
+    "title": "Code activity",
+    "description": "Where a team's merge requests wait and how big they are, from the connected GitLab: the cycle, the time to first review, the size, what is merged each week, what is open now and how review work is spread. These flow figures say which direction is better; the members' table beside them is context only, the volumes of work, never a ranking. A person is counted once an administrator has linked their GitLab identity to their Jira account.",
+    "noTeams": "There are no teams yet, so there is nothing to read.",
+    "noSources": "No GitLab data source is active.",
+    "noSourcesHint": "An administrator connects one under Data sources; its commits and merge requests are read here.",
+    "sources": {
+      "synced": "{{name}}: last synced {{date}}.",
+      "neverSynced": "{{name}}: not synced yet.",
+      "filesPending": "Files of {{n}} commits are still to be read, so their lines are unknown for now.",
+      "detailsPending": "Details of {{n}} merge requests are still to be read, so they are left out of the review figures for now.",
+      "metaHint": "The derived date and configuration revision above belong to the Jira data (the team roster, names and sprints); how fresh the code figures are is said per source here."
+    },
+    "quality": {
+      "title": "Still to attribute, or not yet known",
+      "unlinked": "GitLab identities with activity in this period that no one has linked to a person yet: {{n}}. Their commits ({{commits}}), merge requests ({{mrs}}) and review acts ({{events}}) are in no member's figures until an administrator decides.",
+      "link": "Open the identities of {{name}}",
+      "commitsLinesUnknown": "Commits with unknown lines, left out of the lines sums: {{n}}.",
+      "mrsSizeUnknown": "Merged merge requests with unknown size, left out of the size figures: {{n}}.",
+      "mrsDetailsNotRead": "Merged merge requests whose details are not read yet, left out of the review figures: {{n}}.",
+      "eventsUndated": "Review acts with no date, in no period: {{n}}."
+    },
+    "flow": {
+      "title": "Merge request flow",
+      "caption": "Merge requests merged in the period, by their author's team on the day of the merge. Lower is better for the times, the size and the merged-without-review counts.",
+      "merged": "Merged",
+      "closedUnmerged": "Closed without merging: {{n}}",
+      "withoutReview": "Merged without review",
+      "withoutApproval": "Merged without approval",
+      "withoutReviewRule": "No comment, approval or review by another person up to the merge. Lower is better.",
+      "withoutApprovalRule": "No approval by another person before the merge. Lower is better.",
+      "share": "That is {{share}} of the merged merge requests whose details were read.",
+      "noShare": "No merged merge request has its details read yet.",
+      "cycleWorking": {
+        "title": "Cycle time, working days",
+        "caption": "From creation to merge, in working days. Lower is better.",
+        "axis": "working days"
+      },
+      "cycleElapsed": {
+        "title": "Cycle time, elapsed days",
+        "caption": "From creation to merge, in calendar days. Lower is better.",
+        "axis": "calendar days"
+      },
+      "firstReview": {
+        "title": "Time to first review, working days",
+        "caption": "From creation to the first comment, approval or review by another person. A merge request merged without one is counted above, not here. Lower is better.",
+        "axis": "working days"
+      },
+      "sizeLines": {
+        "title": "Merge request size, lines",
+        "caption": "Lines added plus deleted by the whole diff, generated and vendored files included. Lower is better.",
+        "axis": "lines"
+      },
+      "sizeFiles": {
+        "title": "Merge request size, files",
+        "caption": "Files touched by the diff. Lower is better.",
+        "axis": "files"
+      }
+    },
+    "weekly": {
+      "title": "Merged per week",
+      "caption": "Merge requests merged each week (a week starts on Monday), weeks with none included.",
+      "chartLabel": "Chart: merge requests merged per week",
+      "series": "Merged",
+      "yAxis": "Merge requests",
+      "tableLabel": "Merged per week, as a table",
+      "week": "Week starting",
+      "merged": "Merged"
+    },
+    "open": {
+      "title": "Open merge requests now",
+      "caption": "Merge requests open today whose author is on the team today, whatever their age. Lower is better.",
+      "waiting": "Waiting for review",
+      "drafts": "Drafts",
+      "ageLabel": "Age of the waiting merge requests",
+      "ageP50": "Age, median (working days)",
+      "ageP85": "Age, p85 (working days)",
+      "ageHidden": "Fewer than {{min}} merge requests are waiting, so no ages are shown.",
+      "hint": "Drafts are counted apart: a draft is not waiting for review, and the ages cover the waiting ones only."
+    },
+    "review": {
+      "title": "How review work is spread",
+      "caption": "A bottleneck signal about the team's review work, not a verdict on any person.",
+      "reviewers": "Reviewers per merged merge request (median)",
+      "topShare": "Share of the reviews held by the busiest reviewer",
+      "basis": "Over the merged merge requests whose details were read: {{n}}.",
+      "withheld": "A figure shown as a dash is withheld under {{min}} such merge requests."
+    },
+    "members": {
+      "title": "Activity by member",
+      "caption": "Context, not performance: these are volumes of work, in no order of merit, and they say nothing about who does better. A merge request's size counts every line of its diff, while a commit's lines leave out generated and vendored files, so the two are different lines. A member appears here through an administrator's link between their GitLab identity and their Jira account.",
+      "unlabelled": "Not linked to a person",
+      "linesUnknown": "commits not counted: {{n}}",
+      "column": {
+        "commits": "Commits",
+        "linesAdded": "Lines added",
+        "linesDeleted": "Lines deleted",
+        "mrsMerged": "Merged",
+        "mrsOpened": "Opened",
+        "openMrs": "Open now",
+        "reviewsGiven": "Reviews",
+        "approvalsGiven": "Approvals",
+        "comments": "Comments"
+      }
+    }
+  },
   "deepDive": {
     "title": "Deep dive",
     "description": "Plan, approximate earned value and cost in man-days for a chosen set of work: a domain's tasks in the sprints you pick, or whole epics. Drill months into weeks and days, epics into tasks.",

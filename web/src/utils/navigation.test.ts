@@ -36,6 +36,7 @@ describe("visibleSections", () => {
         "/reports/data-quality",
         "/reports/compare-people",
         "/reports/person-trend",
+        "/reports/code-activity",
         "/reports/deep-dive",
       ]);
       expect(reports?.items[0].activeFor).toEqual([

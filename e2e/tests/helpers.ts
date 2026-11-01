@@ -371,6 +371,51 @@ export async function syncGitLabStubDataSourceViaApi(api: APIRequestContext, nam
   return { id: await syncDataSourceViaApi(api, gitLabStubDataSourceBody(name)), name };
 }
 
+/** The names the specs that create a GitLab-stub source give them (`code-identities`, the data-sources UI journey, `reports-code-activity`). */
+const GITLAB_STUB_SOURCE_PREFIXES = ["e2e-identities", "e2e-gitlab", "e2e-code"];
+
+/**
+ * Delete the GitLab-stub sources an earlier, crashed run left behind (any of the specs' prefixes), through the API: a leftover ACTIVE
+ * source on the stub host with the same groups would make the next create answer 409. Safe to sweep without an age cutoff because every
+ * spec that creates one holds the `dataSources` lock (`REPORTS_EXCLUSIVE_LOCKS`), so none runs at the same time.
+ */
+export async function sweepLeftoverGitLabSources(): Promise<void> {
+  const { api } = await apiAsAdmin();
+  try {
+    for (const prefix of GITLAB_STUB_SOURCE_PREFIXES) {
+      const res = await api.get("/api/v1/data-sources", { params: { name: `${prefix}-`, pageSize: 100 } });
+      expect(res.ok(), await res.text()).toBeTruthy();
+      for (const item of (await res.json()).items as { id: number; name: string }[]) {
+        if (!item.name.startsWith(`${prefix}-`)) continue;
+        const removed = await api.delete(`/api/v1/data-sources/${item.id}`);
+        expect([204, 404]).toContain(removed.status());
+      }
+    }
+  } finally {
+    await api.dispose();
+  }
+}
+
+/**
+ * Delete every stored identity decision of the source's host, orphans included, through a fresh admin session (the sync wait outlives a
+ * token). The decisions are keyed by HOST, so they outlive the connection: the specs that write them clear them at their start and end.
+ */
+export async function clearGitLabDecisions(dataSourceId: number): Promise<void> {
+  const { api } = await apiAsAdmin();
+  try {
+    for (const status of ["LINKED", "IGNORED_OR_BOT"]) {
+      const res = await api.get(`/api/v1/data-sources/${dataSourceId}/code-identities`, { params: { status, pageSize: 100 } });
+      expect(res.ok(), await res.text()).toBeTruthy();
+      for (const item of (await res.json()).items as { identityKey: string }[]) {
+        const removed = await api.delete(`/api/v1/data-sources/${dataSourceId}/code-identities/${item.identityKey}`);
+        expect(removed.status()).toBe(204);
+      }
+    }
+  } finally {
+    await api.dispose();
+  }
+}
+
 /**
  * The minimal metrics configuration reports need, through the API: a fresh team and the stub's FLO
  * board mapped to it (D10 — a sprint is a team's sprint only through its board). Every other
@@ -579,6 +624,8 @@ export const REPORT_PAGES: { path: string; heading: string }[] = [
   { path: "/reports/compare-people", heading: "Compare people" },
   // Likewise without a person: the picker and its empty state.
   { path: "/reports/person-trend", heading: "Person trend" },
+  // Read per team over the GitLab code layer: with no active GitLab source (the sweep's usual state) the page is its "no GitLab data source" empty state, not an error.
+  { path: "/reports/code-activity", heading: "Code activity" },
 ];
 
 /** The people reports (Compare people, Person trend) read people across every team: they are never scoped to a team. */

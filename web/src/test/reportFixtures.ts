@@ -517,7 +517,7 @@ export const CONSISTENCY_EMPTY: SprintConsistencyReport = { meta: META, sprints:
 const hiddenDistribution = (n: number): Distribution => ({ n, hidden: true, histogram: [] });
 
 /** A visible distribution over equal-width buckets starting at `lo`; `n` is the bucket total. */
-const shownDistribution = (
+export const shownDistribution = (
   counts: number[],
   lo: number,
   step: number,

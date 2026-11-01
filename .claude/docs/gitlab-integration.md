@@ -7,7 +7,7 @@ into are in `.claude/docs/ingestion.md`; the Jira connector it sits beside is `.
 
 **Status: as built, 1.34.0-1.38.0** (PR 12 closed the sequence with the scaled-world figures, `build-times.md` WHY 59, and the real-instance checklist, "Real-instance smoke run").
 Each section is the as-built reference (file names, tests); the PR sequence is at the end. Nothing here derives metrics. Reports over
-`norm.code_*` are **built as an endpoint (1.39.0; the page and the drill are planned)**: Report 21 "Code activity" (`reports.md` "Report 21", `domain-model.md` A50, `measures.md` "Report 21") reads the
+`norm.code_*` are **built as an endpoint and a page (1.39.0, 1.40.0; the drill is planned)**: Report 21 "Code activity" (`reports.md` "Report 21", `domain-model.md` A50, `measures.md` "Report 21") reads the
 code layer at query time and attributes through the identity links below; it adds no migration, job kind or stream to this connector, and
 `DataSourceKind.derivesMetrics` stays false for GITLAB.
 
