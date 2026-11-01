@@ -1,7 +1,10 @@
 package ch.nokillswit
 
 import ch.nokillswit.gitlab.IdentityMap
+import ch.nokillswit.gitlab.RawMergeRequestForProcessing
 import ch.nokillswit.gitlab.RawUserForNorm
+import ch.nokillswit.gitlab.codeMergeRequest
+import ch.nokillswit.norm.IssueKeyCandidate
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -40,5 +43,36 @@ class GitLabNormalizerTest {
         val moreAddresses = IdentityMap.from(listOf(user(1, "a", listOf("a@mail.example", "a2@mail.example"))))
         assertNotEquals(map.fingerprint, moreAddresses.fingerprint)
         assertEquals(map.usernameFingerprint, moreAddresses.usernameFingerprint)
+    }
+
+    private fun rawMr(title: String, source: String, target: String = "main", detailsError: String? = null, deletedAt: Long? = null) =
+        RawMergeRequestForProcessing(
+            mrId = 1, projectId = 2, iid = 3, state = "merged", draft = false, authorId = null, mergeUserId = null, createdAt = 1,
+            updatedAt = 2, mergedAt = 3, closedAt = null, sourceBranch = source, targetBranch = target, title = title, headSha = null,
+            mergeCommitSha = null, squashCommitSha = null, reviewerIds = emptyList(), assigneeIds = emptyList(), additions = null,
+            deletions = null, fileCount = null, notesCapped = false, changedAt = 1, detailsSyncedAt = 2, detailsError = detailsError,
+            deletedAt = deletedAt,
+        )
+
+    @Test
+    fun `a normalized merge request names the keys of its title and source branch, never of its target branch`() {
+        val map = IdentityMap.from(emptyList())
+        val mr = codeMergeRequest(rawMr("FLO-12: fix (OPS-3)", "feature/flo-12-fix", target = "release/PLT-9"), emptyList(), map)
+        assertEquals(
+            listOf(
+                IssueKeyCandidate("FLO-12", inTitle = true, inBranch = true),
+                IssueKeyCandidate("OPS-3", inTitle = true, inBranch = false),
+            ),
+            mr.issueKeys,
+        )
+        assertEquals(emptyList(), codeMergeRequest(rawMr("no key", "main"), emptyList(), map).issueKeys)
+    }
+
+    @Test
+    fun `the keys do not depend on the details state or a tombstone`() {
+        val map = IdentityMap.from(emptyList())
+        val keys = listOf(IssueKeyCandidate("ABC-7", inTitle = true, inBranch = false))
+        assertEquals(keys, codeMergeRequest(rawMr("ABC-7", "x", detailsError = "NOT_FOUND"), emptyList(), map).issueKeys)
+        assertEquals(keys, codeMergeRequest(rawMr("ABC-7", "x", deletedAt = 9), emptyList(), map).issueKeys)
     }
 }

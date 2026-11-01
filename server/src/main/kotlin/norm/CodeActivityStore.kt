@@ -13,7 +13,7 @@ import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 val CodeActivityStoreKey = AttributeKey<CodeActivityStore>("CodeActivityStore")
 
 /**
- * The `norm` schema's CODE layer (V44, `.claude/docs/persistence.md` "The normalized code layer (V44)"): the five Exposed tables, the row
+ * The `norm` schema's CODE layer (V44, `.claude/docs/persistence.md` "The normalized code layer (V44)"): the six Exposed tables, the row
  * shapes and the ONE entry point every other package uses (`attributes[CodeActivityStoreKey]`) - the [WorkItemStore] shape. The behaviour
  * lives in one small collaborator per concern, each in its own file; every method below is a one-line delegation:
  *
@@ -121,6 +121,15 @@ class CodeActivityStore(private val database: R2dbcDatabase, private val analyze
         override val primaryKey = PrimaryKey(connectionId, mrId, seq)
     }
 
+    object CodeMrIssueKeys : Table("norm.code_mr_issue_keys") {
+        val connectionId = reference("connection_id", DataSourceService.Connections)
+        val mrId = long("mr_id")
+        val issueKey = varchar("issue_key", ISSUE_KEY_MAX_LENGTH)
+        val inTitle = bool("in_title")
+        val inBranch = bool("in_branch")
+        override val primaryKey = PrimaryKey(connectionId, mrId, issueKey)
+    }
+
     suspend fun replaceProjects(connectionId: UInt, rows: List<NormCodeProject>) = writer.replaceProjects(connectionId, rows)
 
     /** Rebuilds the connection's identities wholesale; the rows written. */
@@ -130,7 +139,7 @@ class CodeActivityStore(private val database: R2dbcDatabase, private val analyze
     suspend fun replaceCommits(connectionId: UInt, rows: List<NormCodeCommit>, now: Long, version: Int = CODE_PROCESSING_VERSION) =
         writer.replaceCommits(connectionId, rows, now, version)
 
-    /** REPLACES a page of merge requests: their events are deleted and re-inserted, the rows upserted. */
+    /** REPLACES a page of merge requests: their events and issue keys are deleted and re-inserted, the rows upserted. */
     suspend fun replaceMergeRequests(
         connectionId: UInt,
         rows: List<NormCodeMergeRequest>,
@@ -173,6 +182,14 @@ class CodeActivityStore(private val database: R2dbcDatabase, private val analyze
 
     internal suspend fun mrEventRows(connectionId: UInt, mrId: Long? = null): Map<Long, List<NormCodeMrEvent>> =
         reads.mrEventRows(connectionId, mrId)
+
+    /** The issue-key candidates by merge request id, each list in key order (the tests' reader; the reports query the table). */
+    internal suspend fun mrIssueKeyRows(connectionId: UInt, mrId: Long? = null): Map<Long, List<IssueKeyCandidate>> =
+        reads.mrIssueKeyRows(connectionId, mrId)
+
+    /** One batch of the connection's issue keys (PURGE, drained before the events); the rows deleted. */
+    suspend fun purgeMrIssueKeysBatch(connectionId: UInt, batchSize: Int = NORM_PURGE_BATCH_SIZE): Int =
+        purge.purgeMrIssueKeysBatch(connectionId, batchSize)
 
     /** One batch of the connection's events (PURGE); the rows deleted. */
     suspend fun purgeMrEventsBatch(connectionId: UInt, batchSize: Int = NORM_PURGE_BATCH_SIZE): Int =
@@ -256,7 +273,10 @@ data class NormCodeCommit(
     val deletedAt: Long?,
 )
 
-/** One `norm.code_merge_requests` row with its [events] (empty when the row came from the store's reader: see `mergeRequestRows`). */
+/**
+ * One `norm.code_merge_requests` row with its [events] and [issueKeys] (both empty when the row came from the store's reader: see
+ * `mergeRequestRows`; read them with `mrEventRows` / `mrIssueKeyRows`).
+ */
 data class NormCodeMergeRequest(
     val mrId: Long,
     val projectId: Long,
@@ -284,6 +304,7 @@ data class NormCodeMergeRequest(
     val detailsState: DetailsState,
     val deletedAt: Long?,
     val events: List<NormCodeMrEvent>,
+    val issueKeys: List<IssueKeyCandidate> = emptyList(),
 )
 
 /** One review event; [seq] is 1..n per merge request in the deterministic order, [targetKeys] only for REVIEW_REQUESTED. */

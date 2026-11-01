@@ -1,6 +1,6 @@
 package ch.nokillswit
 
-/** The eleven GitLab tables (six raw, five `norm.code_*`) by name, with per-connection row counts over a plain JDBC connection. */
+/** The twelve GitLab tables (six raw, six `norm.code_*`) by name, with per-connection row counts over a plain JDBC connection. */
 internal object GitLabCodeTables {
     val RAW = listOf(
         "raw.gitlab_projects", "raw.gitlab_users", "raw.gitlab_commits", "raw.gitlab_commit_files", "raw.gitlab_merge_requests",
@@ -8,6 +8,7 @@ internal object GitLabCodeTables {
     )
     val NORM = listOf(
         "norm.code_projects", "norm.code_identities", "norm.code_commits", "norm.code_merge_requests", "norm.code_mr_events",
+        "norm.code_mr_issue_keys",
     )
     val ALL = RAW + NORM
 

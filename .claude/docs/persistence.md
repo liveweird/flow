@@ -386,6 +386,7 @@ the status: `Teams.requireActiveOrNotFound` for a path team, a `400` for the rep
   in the process: `counts.gitlab` is then null). `gitlab/GitLabConnector` WRITES `raw.gitlab_*`, its `sync_cursors` rows (the streams' own and `code_process`, whose three fingerprints are the configuration the norm rows were computed under), `norm.code_*` (V44) ONLY through `CodeActivityStore` (PROCESS's replace and PURGE's drains, never a route) and `source_connections.profile` through `DataSourceService.updateProfile` (the PROFILE stream, like Jira's); it READS
   the connection through `DataSourceService.readGitLabForSync` (the decrypted token and the EFFECTIVE path exclusions, for the connector alone) and the code layer's aggregates through `CodeActivityStore` for the profile. `CodeActivityStoreKey` is published even when GitLab is off, so `identities/` can read `norm.code_*` through the store.
 - `identities/` READS `norm.code_identities` and the `norm.people` email matches through `CodeActivityStore` (`identityRows`, `identityRow`, `identityKeysOf` for the orphan rule across the host's sources, `proposalMatches`), `WorkItemStore.displayNames` (`norm.people` of ACTIVE connections) for the PUT's account check and the linked names, `source_connections` through `DataSourceService.read` (the path's data source) and `DataSourceService.list` (the other active sources on the same host); WRITES only `public.code_identity_links` (its own table).
+- **Issue-key reads (V46, "Merge request issue keys (V46)"; the reports that use them land with the linking PRs):** `reports/` MAY READ `norm.code_mr_issue_keys` (joined to the LIVE rows of `norm.code_merge_requests`), `norm.work_items` BY `issue_key` (`idx_norm_work_items_issue_key`) and the `norm.work_item_field_changes` rows with `field_id = 'issuekey'` (`from_text` / `to_text`: the old keys of a moved issue), read-only, with raw SQL over the Exposed table objects like Report 21; it never writes them. `gitlab/GitLabConnector` WRITES `norm.code_mr_issue_keys` only through `CodeActivityStore` (PROCESS's replace, PURGE's drain). Nothing outside `reports/` reads the table, and no code path reads a Jira table from the GitLab side (`norm` references neither connector).
 - **Report 21 (A50, built 1.39.0; `reports.md` "Report 21"):** `reports/CodeActivity*.kt` READ `norm.code_commits`, `norm.code_merge_requests`, `norm.code_mr_events` (and `code_projects` for the drill labels: the drill, 1.41.0, reads `path_with_namespace`, the merge request's `iid`/`title` and the commit's `title` for the LISTED rows only, `CodeActivityDrillLabels.kt`) with raw SQL over the Exposed table objects of `norm/CodeActivityStore.kt` (read-only, no new store method; `reports/` may import `norm/`, never the reverse), the identity links ONLY through `IdentityResolver` (`accountsByKey`, `keysByAccount`, and a new `decidedKeys` for the BOT/IGNORED actors: `reports/` never touches `CodeIdentityLinkStore` or the table), `source_connections` through `DataSourceService.activeGitLabBaseUrls` (the hosts), and the dated memberships from `TeamMembershipService.TeamMembership` (read-only, the `readPeopleMemberships` precedent, then `teamAt`). It writes nothing and adds no table, index or migration (the performance run, `build-times.md` WHY 61, found no statement that needs one: no `merged_at` or other time index). `CodeActivityStamp.kt` READS `source_connections` (GITLAB rows), their `sync_jobs` and `public.code_identity_links` (count and newest `decided_at` per host) for the stamp lines, and `CodeActivityReport.kt` the stored data profile (`DataSourceService.readProfile`) for `sources[]`; `PackageBoundaryTest` carries the rule that `identities/` is referenced only by `reports/` (the routes are wired from `application.yaml`, so the composition root names it nowhere).
 
 List each new cross-feature read/write here as it lands — the list IS the permission.
@@ -408,7 +409,7 @@ amendment over the architect's original all-`public`-with-prefixes recommendatio
   alongside these rather than inventing a fourth schema.
 - **`norm`** — the neutral, source-agnostic layer every connector normalizes into (`work_items`,
   `sprints`, `boards`, …) — landed at V13 (plan commit 8a, "The normalized layer (V13)" below); the code layer's
-  `code_projects`, `code_identities`, `code_commits`, `code_merge_requests` and `code_mr_events` joined it at V44 ("The normalized code layer (V44)" below).
+  `code_projects`, `code_identities`, `code_commits`, `code_merge_requests` and `code_mr_events` joined it at V44 ("The normalized code layer (V44)" below), `code_mr_issue_keys` at V46 ("Merge request issue keys (V46)").
 - **`metrics`** — the metrics layer's own schema: configuration lands first (V15, v0.3.0 M1 commit
   3, "The `metrics` schema — configuration (V15)" below); the derived star (dimensions/bridges/
   facts/daily aggregates) lands at V16, v0.3.0 M3 commit 7 ("The `metrics` schema — the derived
@@ -1447,11 +1448,31 @@ description or note body, and no key holds an email (decision 10).
   events, `insertRows` the fresh set and `upsertRows` the rows. A tombstone is MIRRORED in `deleted_at`, never deleted. Every write joins the caller's
   transaction (the PROCESS page transaction also holds the raw rows' marks). The fact writers skip empty input; the wholesale rebuilds (`replaceProjects`,
   `replaceIdentities`) always delete first, so an empty list empties them.
-- **`CODE_PROCESSING_VERSION`** (`norm/CodeNormalization.kt`, `1`) is separate from Jira's `PROCESSING_VERSION`: bump it on ANY change to the code layer's
+- **`CODE_PROCESSING_VERSION`** (`norm/CodeNormalization.kt`, `2` since V46) is separate from Jira's `PROCESSING_VERSION`: bump it on ANY change to the code layer's
   rules, and every raw GitLab commit / merge request is claimed again on the next pass with no migration.
 - **PURGE**: `CodeActivityStore.purgeAll` (`norm/CodeActivityPurge.kt`) drains `code_mr_events` (batches of `NORM_PURGE_BATCH_SIZE` rows by their own
   `(mr_id, seq)` key), `code_merge_requests`, `code_commits` (batches by key), then clears `code_identities` and `code_projects` outright. The telemetry size
-  estimate picks the tables up by their `connection_id` column. Purely additive: an old pod never reads them. `MigrationChecksumTest` pins it.
+  estimate picks the tables up by their `connection_id` column. Purely additive: an old pod never reads them. `MigrationChecksumTest` pins it. (V46 adds a sixth table, `code_mr_issue_keys`, drained FIRST: "Merge request issue keys (V46)" below.)
+
+### Merge request issue keys (V46)
+
+`V46__norm_code_mr_issue_keys.sql` (`norm/CodeActivityStore.kt` `CodeMrIssueKeys`; the pure extractor `norm/IssueKeys.kt`; design `gitlab-integration.md` "Issue keys")
+adds `norm.code_mr_issue_keys` and one Jira-side index. Same idiom as V44: `connection_id INTEGER REFERENCES public.source_connections(id)` (no `ON DELETE`), `mr_id
+BIGINT`, and NO foreign key to `norm.code_merge_requests`.
+
+- **`norm.code_mr_issue_keys`**: PK `(connection_id, mr_id, issue_key)`; `issue_key VARCHAR(20)` the UPPERCASE key; `in_title` / `in_branch` say where the merge
+  request names it (a key in both is ONE row, both flags true; the target branch is never read). Every candidate the token rule admits is stored, with no
+  knowledge of which Jira projects exist (`UTF-8`, `SHA-256` and a `v2-3` slug included): the reports scope a candidate to the known project keys at read time.
+  `idx_norm_code_mr_issue_keys_key (connection_id, issue_key)` serves task -> merge requests. Merge requests only: commits are linked through their merge request.
+- **REPLACED per merge request** like the events: `replaceMergeRequests` deletes the page's rows `(connection_id, mr_id IN (...))`, `insertRows` the fresh set
+  and upserts the merge request rows, in the page transaction. A tombstoned merge request keeps its rows (the keys follow its title and branch; the reports read
+  the live merge requests by joining `code_merge_requests`), exactly as its events do.
+- **PURGE**: `purgeAll` drains `code_mr_issue_keys` FIRST (batches of `NORM_PURGE_BATCH_SIZE` rows by their own `(mr_id, issue_key)` key), then the events.
+- **`CODE_PROCESSING_VERSION` 2**: the bump re-claims every raw commit and merge request on the next PROCESS (no migration, no refetch), which fills the table.
+  The new table is not in `NORM_CODE_ANALYZED_TABLES` (no PROFILE or DERIVE statement joins it yet); a report that joins it at scale adds it there.
+- **`idx_norm_work_items_issue_key (connection_id, issue_key)`** on `norm.work_items` (V13 had no index on `issue_key`; the primary key is `(connection_id,
+  issue_id)`): the key -> issue resolution. A plain `CREATE INDEX` (Flyway runs the migration in a transaction), built over the existing rows once.
+- Purely additive: an old pod never reads either. `MigrationChecksumTest` pins it.
 
 ### Code identity links (V45)
 

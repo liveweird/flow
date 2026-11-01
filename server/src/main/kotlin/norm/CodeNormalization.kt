@@ -17,8 +17,10 @@ import ch.nokillswit.infra.validation.canonicalEmail
  * the other.
  *
  * `1` (PR 10): the first code layer.
+ * `2`: the merge requests' issue-key candidates (`norm.code_mr_issue_keys`, V46; `extractIssueKeyCandidates`). Commits re-process too,
+ * to the same rows.
  */
-const val CODE_PROCESSING_VERSION = 1
+const val CODE_PROCESSING_VERSION = 2
 
 /** What an identity key stands for (`norm.code_identities.kind`, Kotlin-enum-whitelisted, no CHECK). */
 enum class IdentityKind {

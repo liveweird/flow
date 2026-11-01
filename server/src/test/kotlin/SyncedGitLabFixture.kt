@@ -18,7 +18,7 @@ import kotlin.test.assertEquals
  *
  * The SYNC ends with the code layer's PROCESS, so the connection also carries `norm.code_*` rows (and the GitLab section of the data
  * profile once PROFILE lands). A test that needs a MUTABLE copy clones: [cloneRawData] (the six raw tables) or [cloneProcessedData]
- * (plus the five `norm.code_*` tables and the profile columns), with `GitLabFixtures.createConnection` for the target.
+ * (plus the six `norm.code_*` tables and the profile columns), with `GitLabFixtures.createConnection` for the target.
  *
  * A class that reads it warms it in a `@BeforeClass` through [warmGitLabFixture] (`StubFixtureWarmupGuardTest` enforces it), so the
  * one-time Postgres + SYNC cost lands outside `testApplication`'s hard 60 s limit. It has its OWN warm-up call, not
@@ -46,7 +46,7 @@ object SyncedGitLabFixture {
 
     internal val PROCESSED_CLONE_TABLES: List<Table> = listOf(
         CodeActivityStore.CodeProjects, CodeActivityStore.CodeIdentities, CodeActivityStore.CodeCommits,
-        CodeActivityStore.CodeMergeRequests, CodeActivityStore.CodeMrEvents,
+        CodeActivityStore.CodeMergeRequests, CodeActivityStore.CodeMrEvents, CodeActivityStore.CodeMrIssueKeys,
     )
 
     /** Copies the six `raw.gitlab_*` tables of [fromConnectionId] verbatim (flags and tombstones as they are) into [toConnectionId]. */
@@ -55,7 +55,7 @@ object SyncedGitLabFixture {
     }
 
     /**
-     * [cloneRawData] plus the five `norm.code_*` tables, `source_connections.profile`/`profile_at` and the `code_process` cursor row (the
+     * [cloneRawData] plus the six `norm.code_*` tables, `source_connections.profile`/`profile_at` and the `code_process` cursor row (the
      * fingerprints the norm rows were computed under: without it the clone's first PROCESS would re-flag everything), in ONE transaction.
      */
     fun cloneProcessedData(fromConnectionId: UInt, toConnectionId: UInt) {

@@ -5,6 +5,7 @@ import ch.nokillswit.norm.CodeActivityStore.CodeCommits
 import ch.nokillswit.norm.CodeActivityStore.CodeIdentities
 import ch.nokillswit.norm.CodeActivityStore.CodeMergeRequests
 import ch.nokillswit.norm.CodeActivityStore.CodeMrEvents
+import ch.nokillswit.norm.CodeActivityStore.CodeMrIssueKeys
 import ch.nokillswit.norm.CodeActivityStore.CodeProjects
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.toList
@@ -224,6 +225,16 @@ internal class CodeActivityReads(private val database: R2dbcDatabase) {
             }
     }
 
+    /** The issue-key candidates by merge request id, each list in key order; one merge request's when [mrId] is given. */
+    suspend fun mrIssueKeyRows(connectionId: UInt, mrId: Long?): Map<Long, List<IssueKeyCandidate>> = suspendTransaction(database) {
+        CodeMrIssueKeys.selectAll()
+            .where { (CodeMrIssueKeys.connectionId eq connectionId) and (mrId?.let { CodeMrIssueKeys.mrId eq it } ?: Op.TRUE) }
+            .orderBy(CodeMrIssueKeys.mrId).orderBy(CodeMrIssueKeys.issueKey).toList()
+            .groupBy({ it[CodeMrIssueKeys.mrId] }) {
+                IssueKeyCandidate(it[CodeMrIssueKeys.issueKey], it[CodeMrIssueKeys.inTitle], it[CodeMrIssueKeys.inBranch])
+            }
+    }
+
     private fun commitOf(row: ResultRow) = NormCodeCommit(
         projectId = row[CodeCommits.projectId],
         sha = row[CodeCommits.sha],
@@ -269,5 +280,6 @@ internal class CodeActivityReads(private val database: R2dbcDatabase) {
         detailsState = DetailsState.valueOf(row[CodeMergeRequests.detailsState]),
         deletedAt = row[CodeMergeRequests.deletedAt],
         events = emptyList(),
+        issueKeys = emptyList(),
     )
 }

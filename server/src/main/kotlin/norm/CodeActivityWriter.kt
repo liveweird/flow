@@ -7,6 +7,7 @@ import ch.nokillswit.norm.CodeActivityStore.CodeCommits
 import ch.nokillswit.norm.CodeActivityStore.CodeIdentities
 import ch.nokillswit.norm.CodeActivityStore.CodeMergeRequests
 import ch.nokillswit.norm.CodeActivityStore.CodeMrEvents
+import ch.nokillswit.norm.CodeActivityStore.CodeMrIssueKeys
 import ch.nokillswit.norm.CodeActivityStore.CodeProjects
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
@@ -18,9 +19,9 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 /**
  * The code layer's PROCESS write path ([CodeActivityStore] delegates here). Two shapes, as V44's header says: the REFERENCE rows
  * (projects, identities) are rebuilt wholesale - the connection's rows deleted and the current set inserted - and the FACTS (commits, merge
- * requests) are upserted on the raw primary key, a merge request's events replaced with it. Each method is ONE transaction that joins the
- * caller's enclosing one (the PROCESS stream's page transaction also holds the raw rows' marks). The fact writers skip empty input; the
- * wholesale rebuilds (`replaceProjects`, `replaceIdentities`) always delete first, so an empty list empties them.
+ * requests) are upserted on the raw primary key, a merge request's events and issue keys replaced with it. Each method is ONE transaction
+ * that joins the caller's enclosing one (the PROCESS stream's page transaction also holds the raw rows' marks). The fact writers skip empty
+ * input; the wholesale rebuilds (`replaceProjects`, `replaceIdentities`) always delete first, so an empty list empties them.
  * No row is ever deleted outside a wholesale rebuild or a PURGE: a tombstone is MIRRORED in `deleted_at`.
  */
 internal class CodeActivityWriter(private val database: R2dbcDatabase) {
@@ -84,7 +85,10 @@ internal class CodeActivityWriter(private val database: R2dbcDatabase) {
         }
     }
 
-    /** REPLACE a page: the events of the page's merge requests deleted, the fresh events inserted, the merge request rows upserted. */
+    /**
+     * REPLACE a page: the events and issue keys of the page's merge requests deleted, the fresh ones inserted, the merge request rows
+     * upserted. A tombstoned merge request is replaced like any other (its keys follow its title and branch; the reports read live rows).
+     */
     suspend fun replaceMergeRequests(connectionId: UInt, rows: List<NormCodeMergeRequest>, now: Long, version: Int) {
         if (rows.isEmpty()) return
         suspendTransaction(database) {
@@ -99,6 +103,15 @@ internal class CodeActivityWriter(private val database: R2dbcDatabase) {
                 this[CodeMrEvents.actorKey] = event.actorKey
                 this[CodeMrEvents.eventAt] = event.eventAt
                 this[CodeMrEvents.targetKeys] = event.targetKeys.takeIf { it.isNotEmpty() }?.let(::stringArrayJson)
+            }
+            CodeMrIssueKeys.deleteWhere { (CodeMrIssueKeys.connectionId eq connectionId) and (CodeMrIssueKeys.mrId inList ids) }
+            val keys = rows.flatMap { mr -> mr.issueKeys.map { mr.mrId to it } }
+            CodeMrIssueKeys.insertRows(keys) { (mrId, key) ->
+                this[CodeMrIssueKeys.connectionId] = connectionId
+                this[CodeMrIssueKeys.mrId] = mrId
+                this[CodeMrIssueKeys.issueKey] = key.issueKey
+                this[CodeMrIssueKeys.inTitle] = key.inTitle
+                this[CodeMrIssueKeys.inBranch] = key.inBranch
             }
             CodeMergeRequests.upsertRows(rows, keys = listOf(CodeMergeRequests.connectionId, CodeMergeRequests.mrId)) { mr ->
                 this[CodeMergeRequests.connectionId] = connectionId

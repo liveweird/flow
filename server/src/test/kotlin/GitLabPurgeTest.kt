@@ -43,7 +43,7 @@ class GitLabPurgeTest {
             val own = clone()
             val before = GitLabCodeTables.counts(own)
             assertEquals(GitLabCodeTables.counts(fixtureId), before, "the clone starts as the fixture")
-            assertTrue(before.values.all { it > 0 }, "every one of the eleven tables has rows to purge: $before")
+            assertTrue(before.values.all { it > 0 }, "every one of the twelve tables has rows to purge: $before")
             val profile = profileOf(own)
             assertTrue(profile.first != null && profile.second != null, "the clone carries the fixture's profile")
 
@@ -56,11 +56,24 @@ class GitLabPurgeTest {
         }
 
     @Test
-    fun `the code layer drains in bounded batches, events first, and a neighbouring clone is left alone`() = runBlocking<Unit> {
+    fun `the code layer drains in bounded batches, keys and events first, and a neighbouring clone is left alone`() = runBlocking<Unit> {
         val own = clone()
         val other = clone()
         val code = GitLabFixtures.codeStore()
         val events = GitLabCodeTables.counts(own, listOf("norm.code_mr_events")).getValue("norm.code_mr_events")
+
+        val keysTable = "norm.code_mr_issue_keys"
+        val keys = GitLabCodeTables.counts(own, listOf(keysTable)).getValue(keysTable)
+        assertTrue(keys > 3, "the fixture has issue keys to drain in more than one batch: $keys")
+        var drainedKeys = 0L
+        while (true) {
+            val batch = code.purgeMrIssueKeysBatch(own, batchSize = 3)
+            assertTrue(batch <= 3, "a key batch never exceeds its size: $batch")
+            if (batch == 0) break
+            drainedKeys += batch
+        }
+        assertEquals(keys, drainedKeys, "the batches add up to every issue key")
+        assertEquals(keys, GitLabCodeTables.counts(other, listOf(keysTable)).getValue(keysTable), "the neighbour's keys stay")
 
         var drained = 0L
         while (true) {
