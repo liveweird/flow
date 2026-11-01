@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: flow-api
-  version: 1.46.0
+  version: 1.47.0
   description: |
     JWT-authenticated REST API for Flow — a developer-intelligence tool that reads Jira Cloud, stores the raw data
     incrementally and derives flow metrics (cycle and lead time, throughput, WIP, flow efficiency, work-item age),
@@ -3992,6 +3992,65 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/task-code:
+    get:
+      tags: [reports]
+      operationId: getReportTaskCode
+      summary: Report 22 — tasks and code (the done tasks of a team or domain and the GitLab merge requests that name them by issue key)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 22", domain-model A51. Population as cycle time (Report 7):
+        level-0 tasks (no sub-tasks) DONE in the period (`done_at`), team = the D5 credit team, domain per `domainView` (default TASK),
+        `teamId` or `domain` required (`400` otherwise: a report is read per team or per domain, never for the whole unit); the period is
+        dates (default the trailing 90 days) or the team's sprints (`lastSprints`, `sprintId`). There is no user level in this slice: an
+        `accountId` is a `400`. `connectionId` names one JIRA data source (a GitLab, deleted or unknown id is `400`) and narrows only the
+        tasks; without it every active Jira source's tasks are read. Whether a key names one issue is always decided over EVERY active
+        Jira source. The merge requests are
+        those of EVERY active GitLab source, live ones only, linked to a task by the issue keys their title or source branch name
+        (stored at PROCESS, scoped to the known Jira projects and resolved at read time): a key links to a task when it is the task's
+        current key or an old key from its `issuekey` changes AND names exactly one live issue (not deleted, not moved out) of the active
+        Jira sources; a key naming several issues is ambiguous and links to none, a key naming none links to none. `meta` is the JIRA star's; the freshness of the merge requests is `sources[]`
+        (empty while no GitLab source is active: then no task has a merge request, which says nothing about the tasks).
+        `tasks`: `done` tasks, of which `withMergeRequest` have at least one linked MERGED merge request (state `merged` with a date) and
+        `withoutMergeRequest` have none (a task with only open, closed or locked merge requests is "without" and counted in
+        `quality.onlyUnmergedMrs`); `withoutShare` is `withoutMergeRequest` over `done` (absent when nothing is done), a NEUTRAL context figure with
+        no verdict. `codeLeadTimeWorkingDays` is a `Distribution` of the working days (the configured calendar) from the task's start
+        (`started_at`, the cycle-time anchor) to its LAST linked merged merge request, over the tasks that started and have one (a merge
+        before the start is 0); hidden below `meta.minSampleSize`. `mergedAfterDone` counts the done tasks whose last linked merge
+        happened after `done_at` (`count`; `share` over `tasks.withMergeRequest`, absent when there is none; `lagWorkingDays` the working
+        days from `done_at` to that merge). Lower is better for the lead time and the merged-after-done figures; the response carries no
+        verdict. `quality`, all counts of done tasks of the period: `neverStarted` (no `started_at`, so no lead time), `onlyUnmergedMrs` (linked
+        merge requests, none merged: open, closed unmerged, locked, or `merged` with no date; counted in `tasks.withoutMergeRequest`) and
+        `tasksWithAmbiguousKey` (a key of the task names more than one live issue, so it linked nothing through that key). The merge
+        requests are read by the keys of the done tasks and charged to `reports.codeMaxRows` (a selection over it is a `400` that says to
+        narrow the period, never a cut figure).
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportLastSprints' }
+        - { $ref: '#/components/parameters/ReportSprintId' }
+        - { $ref: '#/components/parameters/ReportTeamId' }
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportActivityType' }
+        - { $ref: '#/components/parameters/ReportWorkCategory' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/ReportTailPercent' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
+      responses:
+        '200':
+          description: The tasks and code report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskCodeReport'
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/reports/reported-time-ratio:
     get:
       tags: [reports]
@@ -7822,6 +7881,46 @@ components:
         changesRequestedGiven: { type: integer, format: int32, minimum: 0, description: "Distinct merge requests with changes requested." }
         comments: { type: integer, format: int32, minimum: 0, description: "Comment and diff-comment acts, none excluded." }
         reviewRequestsReceived: { type: integer, format: int32, minimum: 0, description: "Distinct merge requests that named the member as a reviewer." }
+
+    TaskCodeTasks:
+      type: object
+      required: [done, withMergeRequest, withoutMergeRequest]
+      properties:
+        done: { type: integer, format: int32, minimum: 0, description: "Level-0 tasks done in the period (the cycle-time population)." }
+        withMergeRequest: { type: integer, format: int32, minimum: 0, description: "Of them, with at least one linked MERGED merge request." }
+        withoutMergeRequest: { type: integer, format: int32, minimum: 0, description: "`done − withMergeRequest`: no linked merge request, or only unmerged ones (`quality.onlyUnmergedMrs`)." }
+        withoutShare: { type: number, format: double, minimum: 0, maximum: 1, description: "`withoutMergeRequest` over `done`; absent when nothing is done. NEUTRAL: no verdict (a task may need no code)." }
+    TaskCodeMergedAfterDone:
+      type: object
+      required: [count, lagWorkingDays]
+      properties:
+        count: { type: integer, format: int32, minimum: 0, description: "Done tasks whose LAST linked merged merge request merged after the task's `done_at`." }
+        share: { type: number, format: double, minimum: 0, maximum: 1, description: "`count` over the tasks with a merged merge request; absent when there is none." }
+        lagWorkingDays: { $ref: '#/components/schemas/Distribution' }
+    TaskCodeQuality:
+      type: object
+      required: [neverStarted, onlyUnmergedMrs, tasksWithAmbiguousKey]
+      properties:
+        neverStarted: { type: integer, format: int32, minimum: 0, description: "Done tasks with no `started_at`: no code lead time (they still count as with / without a merge request)." }
+        onlyUnmergedMrs: { type: integer, format: int32, minimum: 0, description: "Done tasks with linked merge requests, none of them merged (open, closed unmerged, locked, or `merged` with no date); counted in `tasks.withoutMergeRequest`." }
+        tasksWithAmbiguousKey: { type: integer, format: int32, minimum: 0, description: "Done tasks one of whose keys (current or old) names more than one live issue across the active Jira sources (the key was reused, or two sources hold it): it links no merge request through that key." }
+    TaskCodeReport:
+      type: object
+      required: [meta, sources, tasks, codeLeadTimeWorkingDays, mergedAfterDone, quality]
+      properties:
+        meta:
+          allOf: [{ $ref: '#/components/schemas/ReportMeta' }]
+          description: "The JIRA star's (`derivedAt`, `configRevision`): the tasks, roster, names and sprints come from it. The merge requests' freshness is `sources`."
+        sources:
+          type: array
+          items: { $ref: '#/components/schemas/CodeActivitySource' }
+          description: The GitLab sources read, in connection order; empty while no GitLab source is active.
+        tasks: { $ref: '#/components/schemas/TaskCodeTasks' }
+        codeLeadTimeWorkingDays:
+          allOf: [{ $ref: '#/components/schemas/Distribution' }]
+          description: "Working days from a task's `started_at` to its LAST linked merged merge request, over the started tasks that have one; hidden under `meta.minSampleSize`. Lower is better."
+        mergedAfterDone: { $ref: '#/components/schemas/TaskCodeMergedAfterDone' }
+        quality: { $ref: '#/components/schemas/TaskCodeQuality' }
 
     CycleTimeReport:
       type: object

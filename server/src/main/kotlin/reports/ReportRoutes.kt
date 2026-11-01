@@ -184,6 +184,7 @@ fun Application.configureReportRoutes() {
                 comparePeopleRoutes(reportService, teams)
                 personTrendRoutes(reportService)
                 codeActivityRoutes(reportService)
+                taskCodeRoutes(reportService)
                 homeRoutes(reportService)
                 drillRoutes(reportService)
             }

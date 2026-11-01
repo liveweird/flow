@@ -226,6 +226,8 @@ class ReportValidatorInputsTest {
                     "/api/v1/reports/compare-people/items?$people&segmentAccountId=$accA&view=COMMITS",
                     "/api/v1/reports/person-trend?$period&accountId=$accA",
                     "/api/v1/reports/person-trend/items?$period&accountId=$accA&pointEnd=2026-03-15&view=MRS_MERGED",
+                    // Report 22 (1.47.0) reads the merge requests by their issue keys: it carries the stamp lines too.
+                    "/api/v1/reports/task-code?teamId=$teamId&$period",
                     // Home's Code section reads the same rows (1.44.0): the overview and its CODE_* drills carry the stamp lines too.
                     "/api/v1/reports/home",
                     "/api/v1/reports/home/items?view=CODE_MERGED&teamId=$teamId",

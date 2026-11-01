@@ -2767,6 +2767,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/task-code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 22 — tasks and code (the done tasks of a team or domain and the GitLab merge requests that name them by issue key)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 22", domain-model A51. Population as cycle time (Report 7):
+         *     level-0 tasks (no sub-tasks) DONE in the period (`done_at`), team = the D5 credit team, domain per `domainView` (default TASK),
+         *     `teamId` or `domain` required (`400` otherwise: a report is read per team or per domain, never for the whole unit); the period is
+         *     dates (default the trailing 90 days) or the team's sprints (`lastSprints`, `sprintId`). There is no user level in this slice: an
+         *     `accountId` is a `400`. `connectionId` names one JIRA data source (a GitLab, deleted or unknown id is `400`) and narrows only the
+         *     tasks; without it every active Jira source's tasks are read. Whether a key names one issue is always decided over EVERY active
+         *     Jira source. The merge requests are
+         *     those of EVERY active GitLab source, live ones only, linked to a task by the issue keys their title or source branch name
+         *     (stored at PROCESS, scoped to the known Jira projects and resolved at read time): a key links to a task when it is the task's
+         *     current key or an old key from its `issuekey` changes AND names exactly one live issue (not deleted, not moved out) of the active
+         *     Jira sources; a key naming several issues is ambiguous and links to none, a key naming none links to none. `meta` is the JIRA star's; the freshness of the merge requests is `sources[]`
+         *     (empty while no GitLab source is active: then no task has a merge request, which says nothing about the tasks).
+         *     `tasks`: `done` tasks, of which `withMergeRequest` have at least one linked MERGED merge request (state `merged` with a date) and
+         *     `withoutMergeRequest` have none (a task with only open, closed or locked merge requests is "without" and counted in
+         *     `quality.onlyUnmergedMrs`); `withoutShare` is `withoutMergeRequest` over `done` (absent when nothing is done), a NEUTRAL context figure with
+         *     no verdict. `codeLeadTimeWorkingDays` is a `Distribution` of the working days (the configured calendar) from the task's start
+         *     (`started_at`, the cycle-time anchor) to its LAST linked merged merge request, over the tasks that started and have one (a merge
+         *     before the start is 0); hidden below `meta.minSampleSize`. `mergedAfterDone` counts the done tasks whose last linked merge
+         *     happened after `done_at` (`count`; `share` over `tasks.withMergeRequest`, absent when there is none; `lagWorkingDays` the working
+         *     days from `done_at` to that merge). Lower is better for the lead time and the merged-after-done figures; the response carries no
+         *     verdict. `quality`, all counts of done tasks of the period: `neverStarted` (no `started_at`, so no lead time), `onlyUnmergedMrs` (linked
+         *     merge requests, none merged: open, closed unmerged, locked, or `merged` with no date; counted in `tasks.withoutMergeRequest`) and
+         *     `tasksWithAmbiguousKey` (a key of the task names more than one live issue, so it linked nothing through that key). The merge
+         *     requests are read by the keys of the done tasks and charged to `reports.codeMaxRows` (a selection over it is a `400` that says to
+         *     narrow the period, never a cut figure).
+         */
+        get: operations["getReportTaskCode"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/reported-time-ratio": {
         parameters: {
             query?: never;
@@ -5888,6 +5932,69 @@ export interface components {
              * @description Distinct merge requests that named the member as a reviewer.
              */
             reviewRequestsReceived: number;
+        };
+        TaskCodeTasks: {
+            /**
+             * Format: int32
+             * @description Level-0 tasks done in the period (the cycle-time population).
+             */
+            done: number;
+            /**
+             * Format: int32
+             * @description Of them, with at least one linked MERGED merge request.
+             */
+            withMergeRequest: number;
+            /**
+             * Format: int32
+             * @description `done − withMergeRequest`: no linked merge request, or only unmerged ones (`quality.onlyUnmergedMrs`).
+             */
+            withoutMergeRequest: number;
+            /**
+             * Format: double
+             * @description `withoutMergeRequest` over `done`; absent when nothing is done. NEUTRAL: no verdict (a task may need no code).
+             */
+            withoutShare?: number;
+        };
+        TaskCodeMergedAfterDone: {
+            /**
+             * Format: int32
+             * @description Done tasks whose LAST linked merged merge request merged after the task's `done_at`.
+             */
+            count: number;
+            /**
+             * Format: double
+             * @description `count` over the tasks with a merged merge request; absent when there is none.
+             */
+            share?: number;
+            lagWorkingDays: components["schemas"]["Distribution"];
+        };
+        TaskCodeQuality: {
+            /**
+             * Format: int32
+             * @description Done tasks with no `started_at`: no code lead time (they still count as with / without a merge request).
+             */
+            neverStarted: number;
+            /**
+             * Format: int32
+             * @description Done tasks with linked merge requests, none of them merged (open, closed unmerged, locked, or `merged` with no date); counted in `tasks.withoutMergeRequest`.
+             */
+            onlyUnmergedMrs: number;
+            /**
+             * Format: int32
+             * @description Done tasks one of whose keys (current or old) names more than one live issue across the active Jira sources (the key was reused, or two sources hold it): it links no merge request through that key.
+             */
+            tasksWithAmbiguousKey: number;
+        };
+        TaskCodeReport: {
+            /** @description The JIRA star's (`derivedAt`, `configRevision`): the tasks, roster, names and sprints come from it. The merge requests' freshness is `sources`. */
+            meta: components["schemas"]["ReportMeta"];
+            /** @description The GitLab sources read, in connection order; empty while no GitLab source is active. */
+            sources: components["schemas"]["CodeActivitySource"][];
+            tasks: components["schemas"]["TaskCodeTasks"];
+            /** @description Working days from a task's `started_at` to its LAST linked merged merge request, over the started tasks that have one; hidden under `meta.minSampleSize`. Lower is better. */
+            codeLeadTimeWorkingDays: components["schemas"]["Distribution"];
+            mergedAfterDone: components["schemas"]["TaskCodeMergedAfterDone"];
+            quality: components["schemas"]["TaskCodeQuality"];
         };
         CycleTimeReport: {
             meta: components["schemas"]["ReportMeta"];
@@ -11576,6 +11683,59 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: components["responses"]["ReportDrillItemsOk"];
+            304: components["responses"]["NotModified"];
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportTaskCode: {
+        parameters: {
+            query?: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
+                tailPercent?: components["parameters"]["ReportTailPercent"];
+            };
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tasks and code report */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskCodeReport"];
+                };
+            };
             304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
