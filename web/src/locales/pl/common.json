@@ -48,6 +48,8 @@
     "network": "Błąd sieci. Sprawdź połączenie i spróbuj ponownie.",
     "loadFailedStatus": "Wczytywanie nie powiodło się ({{status}})",
     "tooManyRequests": "Zbyt wiele żądań. Odczekaj minutę i spróbuj ponownie.",
+    "codeReadTooLarge": "Ten wybór jest zbyt duży, żeby go wczytać. Zawęź okres lub wybierz mniej osób.",
+    "serverBusy": "Serwer jest zajęty liczeniem innych raportów. Spróbuj ponownie za chwilę.",
     "actionFailed": "Akcja nie powiodła się. Sprawdź połączenie i spróbuj ponownie.",
     "actionFailedStatus": "Akcja nie powiodła się ({{status}})",
     "createFailedStatus": "Tworzenie nie powiodło się ({{status}})",

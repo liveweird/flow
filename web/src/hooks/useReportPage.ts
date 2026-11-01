@@ -18,7 +18,7 @@ export function useReportPage<T>(
   /** Makes an unanswerable filter answerable (see `useReportFilter`); a module-level function. */
   normalize?: (filter: ReportFilterState) => ReportFilterState,
   /** The page's `ReportControls` flags that change how the filter is read (a module-level constant). */
-  controls: Pick<ReportControls, "teamRequired" | "teamOrDomain" | "epicScope" | "multiMember" | "peopleOnly" | "peopleCount" | "defaultPeriod"> = {},
+  controls: Pick<ReportControls, "teamRequired" | "teamUnassigned" | "teamOrDomain" | "epicScope" | "multiMember" | "peopleOnly" | "peopleCount" | "defaultPeriod"> = {},
 ) {
   const filtersQuery = useQuery({ queryKey: ["reports", "filters"], queryFn: getReportFilters, staleTime: 60_000 });
   const storageKey = `reports.${report}`;

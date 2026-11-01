@@ -48,6 +48,8 @@
     "network": "Network error. Check your connection and try again.",
     "loadFailedStatus": "Load failed ({{status}})",
     "tooManyRequests": "Too many requests. Wait a minute and try again.",
+    "codeReadTooLarge": "This selection is too large to read. Narrow the period or pick fewer people.",
+    "serverBusy": "The server is busy computing other reports. Retry in a moment.",
     "actionFailed": "Action failed. Check your connection and try again.",
     "actionFailedStatus": "Action failed ({{status}})",
     "createFailedStatus": "Create failed ({{status}})",

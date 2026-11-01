@@ -12,12 +12,23 @@ type ColumnKey = "commits" | "linesAdded" | "linesDeleted" | "mrsMerged" | "mrsO
  * The members' volumes over the period — commits, lines, merge requests, reviews, approvals, comments. **NEUTRAL context (A50)**: the columns
  * carry no tint, icon, rank or cue, the rows keep the server's order (alphabetical by label, `orgGroups`; never sorted by volume) and the caption says these are
  * volumes of work, not performance, and that a merge request's size and a commit's lines are different "lines". A member with nothing in the
- * period stays as a row of zeros, so the roster is visible. `teamId=0` (the work of identities no one has linked) comes with its own labels
- * and no member to narrow to. At the USER level the rows are the picked members, plain text: there is nothing further to narrow to.
+ * period stays as a row of zeros, so the roster is visible. `teamId=0` ("Unassigned": the work of identities no one has linked, and of linked people
+ * with no team) comes with its own labels, a hint saying what the rows are, and no member to narrow to (`unassigned`: no name is a link). At the USER level the rows are the picked members, plain text: there is nothing further to narrow to.
  * With a `drill`, the counts that stand for commits or merge requests (the cells of `MEMBER_CELLS`) are buttons to the items behind them: the same
  * underlined figure as every table's drill, no colour or rank added, and a member with no linked account (a `teamId=0` row) has none to open.
  */
-export default function CodeMembersTable({ report, filters, drill }: { report: CodeActivityReport; filters: ReportFilters; drill?: CodeDrill }) {
+export default function CodeMembersTable({
+  report,
+  filters,
+  drill,
+  unassigned = false,
+}: {
+  report: CodeActivityReport;
+  filters: ReportFilters;
+  drill?: CodeDrill;
+  /** The page is read for "Unassigned" (`teamId=0`): the rows are identities, not a roster, and no name narrows to anything. */
+  unassigned?: boolean;
+}) {
   const { t } = useTranslation();
   const roster = filters.teams.flatMap((team) => team.members);
   const column = (key: ColumnKey, render: (group: CodeActivityGroup) => ReactNode): GroupColumn<CodeActivityGroup> => {
@@ -62,12 +73,17 @@ export default function CodeMembersTable({ report, filters, drill }: { report: C
         filters={filters}
         groups={report.groups}
         columns={columns}
-        drill={report.meta.level !== "USER"}
+        drill={report.meta.level !== "USER" && !unassigned}
         wording={{ title: t("reports.codeActivity.members.title"), unassigned: t("reports.codeActivity.members.unlabelled") }}
       />
       <Text size="xs" c="dimmed">
         {t("reports.codeActivity.members.caption")}
       </Text>
+      {unassigned && (
+        <Text size="xs" c="dimmed">
+          {t("reports.codeActivity.members.unassignedHint")}
+        </Text>
+      )}
       {drill && (
         <Text size="xs" c="dimmed">
           {t("reports.codeActivity.members.hintRows")}

@@ -77,7 +77,7 @@ const isRememberedTeam = (v: unknown): v is number | null => v === null || (type
  * A `teamRequired` report (`ReportControls.teamRequired`) is never read for the whole unit: a URL that names no team — a bare link, or one with
  * only a period — is given one (`requiredTeamId`: the team listing a linked sprint, else the remembered team, else the first
  * by name) and the URL is rewritten (replace) like the restore case; so is a `teamId` the loaded team list does
- * not know (a deleted team, `0`), whose members are dropped with it. With no team at all the filter stays teamless
+ * not know (a deleted team, `0` unless the report offers "Unassigned", `teamUnassigned`), whose members are dropped with it. With no team at all the filter stays teamless
  * and the page says so. With `teamOrDomain` a URL naming a domain and no team is left alone (the domain stands in for the team, and
  * the remembered team survives it). `multiMember` makes the URL's repeated `accountId` read as `accountIds`; `peopleOnly` (Compare people, Person trend) reads
  * them with no team at all, and remembers them like any other part of the filter (they are Jira accounts, so a restore keeps them as written).
@@ -88,7 +88,7 @@ export function useReportFilter(
   filters: ReportFilters | undefined,
   storageKey: string,
   normalize: (filter: ReportFilterState) => ReportFilterState = identity,
-  controls: Pick<ReportControls, "teamRequired" | "teamOrDomain" | "epicScope" | "multiMember" | "peopleOnly" | "defaultPeriod"> = {},
+  controls: Pick<ReportControls, "teamRequired" | "teamUnassigned" | "teamOrDomain" | "epicScope" | "multiMember" | "peopleOnly" | "defaultPeriod"> = {},
 ): {
   filter: ReportFilterState;
   setFilter: (next: ReportFilterState) => void;
@@ -117,7 +117,7 @@ export function useReportFilter(
     rememberedTeam !== null && (filters?.teams.some((team) => team.id === rememberedTeam) ?? false) ? rememberedTeam : undefined;
   const requiredTeam =
     controls.teamRequired && filters && !domainStandsForTeam(controls, base)
-      ? requiredTeamId(base, filters.teams, rememberedListed)
+      ? requiredTeamId(base, filters.teams, rememberedListed, controls.teamUnassigned === true)
       : undefined;
   // The shared team stands in for a screen that remembers no filter of its own: no memory at all, or one holding only a page-local switch.
   const rememberedNoFilter = stored === null || (stored !== "" && seed !== undefined && Object.keys(seed.filter).length === 0);
@@ -189,7 +189,8 @@ export function useReportFilter(
     liveFilter.current = normalize(merged);
     // A domain standing in for the team (`teamOrDomain`) does not wipe the memory: clearing the domain returns to that team.
     const teamTouched = merged.teamId !== current.teamId && !domainStandsForTeam(controls, merged);
-    if (teamTouched) setRememberedTeam(merged.teamId !== undefined && merged.teamId > 0 ? merged.teamId : null);
+    // "Unassigned" (`teamId=0`) is no team to come back to: it leaves the shared remembered team as it was.
+    if (teamTouched && merged.teamId !== 0) setRememberedTeam(merged.teamId !== undefined && merged.teamId > 0 ? merged.teamId : null);
     // Written before the navigation, so the bare URL a cleared filter can leave never meets the previous memory.
     writeRememberedQuery(storageKey, rememberedFor(liveFilter.current, liveUrl.params()));
     setParams((prev) => applyReportFilter(prev, merged), { state: liveUrl.state() });

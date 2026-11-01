@@ -302,7 +302,7 @@ describe("ReportCodeActivity page", () => {
 
   test("the work of unlinked identities (teamId=0) keeps its own labels and links nowhere", async () => {
     serve(mockFetch, () => jsonResponse(200, CODE_ACTIVITY_UNASSIGNED));
-    renderPage();
+    renderPage("/reports/code-activity?teamId=0");
     const table = await screen.findByRole("table", { name: "Activity by member" });
     expect(within(table).getAllByRole("row").slice(1).map((row) => cellsOf(row).slice(0, 2))).toEqual([
       ["sample.stranger", "5"],

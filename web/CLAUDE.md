@@ -144,7 +144,7 @@ scratch, use `npm install --legacy-peer-deps`.
 - **Messages**: never render `error.message` (it's the internal `API <status>` / the browser's
   "Failed to fetch") — map statuses to i18n keys via the shared mappers in `utils/saveError.ts`:
   `saveErrorMessage(err, t, keys)` for mutations (per-status keys + a `failed` fallback) and
-  `loadErrorMessage(err, t)` for list loads. Errors render inline as `color="red" variant="light"`
+  `loadErrorMessage(err, t)` for list loads (it also tells Report 21's two code-read refusals, a `400` row budget and a `429` permit, in the app's own words, matched by status plus a phrase of the problem `detail`; `web-features.md` "Code activity"). Errors render inline as `color="red" variant="light"`
   Alerts — never as toasts. A failed QUERY renders through `components/ErrorAlert.tsx`
   (`error`, optional `title`), never an inline `<Alert>{loadErrorMessage(…)}</Alert>`; a form/action failure
   (an already-mapped string) renders through `components/FormErrorAlert.tsx`, never a hand-written red `<Alert>`.

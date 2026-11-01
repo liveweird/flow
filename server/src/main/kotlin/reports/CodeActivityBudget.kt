@@ -44,6 +44,8 @@ internal class CodeRowBudget(val maxRows: Int = DEFAULT_CODE_MAX_ROWS) {
     fun charge(n: Int) {
         used += n
         if (used > maxRows) {
+            // The SPA's `loadErrorMessage` (web/src/utils/saveError.ts) matches the phrase
+            // "narrow the period or pick fewer people": keep it when rewording.
             throw BadRequestException(
                 "The selection reads more than $maxRows code rows (commits, merge requests and review events) - " +
                     "narrow the period or pick fewer people",
@@ -84,6 +86,7 @@ class CodeReadPermits(count: Int, private val waitMs: Long) {
                 gate.acquire()
                 acquired = true
             }
+            // The SPA's `loadErrorMessage` (web/src/utils/saveError.ts) matches the phrase "retry in a moment": keep it.
             if (!acquired) throw TooManyRequestsException("Too many code activity reports are being computed at once - retry in a moment")
             return block()
         } finally {

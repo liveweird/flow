@@ -2695,7 +2695,7 @@ Status: **the endpoint (1.39.0, the plan's PR 2), the page (1.40.0, PR 3) and th
 - `GET /api/v1/reports/code-activity?teamId=T[&from&to | &lastSprints | &sprintId][&accountId=A&accountId=B…&connectionId&tailPercent]` -- the report.
 - `GET /api/v1/reports/code-activity/items?…&view[&bucketIndex|&bucketStart][&segmentAccountId]` -- the drill (below).
 
-`TEAM_ONLY` ("Scope" above): `teamId` is required and `0` is the UNASSIGNED bucket (the work of undecided identities and of linked people with no membership at the anchor; a key decided BOT or IGNORED is in no figure and in no unlinked count); `domain`,
+`TEAM_ONLY` ("Scope" above): `teamId` is required and `0` is the UNASSIGNED bucket (the page asks for it through the Team control's "Unassigned" choice since 1.43.0, `web-features.md` "Code activity") (the work of undecided identities and of linked people with no membership at the anchor; a key decided BOT or IGNORED is in no figure and in no unlinked count); `domain`,
 `domainView`, `activityType` and `workCategory` are not declared on the path and ignored like any unknown name. The period is the shared parser's three forms, dates AND sprints: the window of the
 team's sprint is "the merge requests merged in the sprint" (`resolveReportScope` yields the `window` and `meta.resolvedSprints`), the default is the trailing 90 days. `accountId` repeats 1..8
 (`multipleAccounts`, "Repeated query parameters") and makes the level USER; without it the level is TEAM. `connectionId` names one ACTIVE GITLAB source (`400 Unknown or inactive connectionId` for a

@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.43.0",
+    date: "2026-11-01",
+    en: `**Code activity can show the work no team holds, and says why a selection was refused.**
+
+- The Team control of the Code activity page has a new last choice, **Unassigned**: the work of GitLab identities that no administrator has linked to a person yet, and of linked people who were in no team when they did it. The members' table lists each unlinked identity by the name GitLab gives it, the flow cards and the lists behind the figures read the same bucket, and the choice stays in the address, so a reload or a shared link opens it again. Other reports are unchanged.
+- A selection that is too large to read (a long period for the whole bucket, or for a big team) now says so — "narrow the period or pick fewer people" — instead of a bare "Load failed (400)", on the page and in the lists behind its figures. When the server is busy computing other Code activity reports, the page asks you to retry in a moment.`,
+    pl: `**Aktywność w kodzie pokazuje pracę, której nie ma żaden zespół, i mówi, dlaczego odrzuciła wybór.**
+
+- Kontrolka Zespół na stronie Aktywność w kodzie ma nowy, ostatni wybór: **Nieprzypisane**. To praca tożsamości z GitLaba, których żaden administrator nie połączył jeszcze z osobą, oraz połączonych osób, które w chwili pracy nie należały do żadnego zespołu. Tabela członków wypisuje każdą niepołączoną tożsamość pod nazwą, jaką nadaje jej GitLab, karty przepływu i listy za liczbami czytają ten sam zbiór, a wybór zostaje w adresie, więc odświeżenie strony lub udostępniony link otwiera go ponownie. Pozostałe raporty się nie zmieniają.
+- Wybór zbyt duży, żeby go wczytać (długi okres dla całego zbioru albo dla dużego zespołu), mówi to teraz wprost — „zawęź okres lub wybierz mniej osób” — zamiast gołego „Wczytywanie nie powiodło się (400)”, na stronie i na listach za jej liczbami. Gdy serwer jest zajęty liczeniem innych raportów Aktywności w kodzie, strona prosi o ponowną próbę za chwilę.`,
+  },
+  {
     version: "1.42.2",
     date: "2026-11-01",
     en: `**Code activity can no longer exhaust the server's memory.**
