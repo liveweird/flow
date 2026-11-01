@@ -5,6 +5,7 @@ import ch.nokillswit.identities.CodeIdentityConfirmResult
 import ch.nokillswit.identities.CodeIdentityDecision
 import ch.nokillswit.identities.CodeIdentityLinkStore
 import ch.nokillswit.identities.sourceHostOf
+import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.TeamMembershipCreateRequest
@@ -37,6 +38,7 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.insert
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import org.jetbrains.exposed.v1.r2dbc.update
 import org.junit.AfterClass
 import org.junit.BeforeClass
 
@@ -191,6 +193,69 @@ class ReportCodeActivityDrillKeysTest {
                 assertEquals(before[0], etag(drill), "restoring the list restores the tag")
             }
         }
+
+    @Test
+    fun `a Jira source appearing or deleted, and an issue-key change with its ingest heartbeat, move the drill's etag`() = testApplication {
+        usePostgresTestcontainer()
+        val client = seededClient("code-drill-keys-scope", FlowUserRole.USER)
+        val adminId = TestUsers.seed(uniqueEmail("code-drill-keys-admin"), "pw", role = FlowUserRole.ADMIN)
+        val newcomers = mutableListOf<UInt>()
+        inWorld { jiraId ->
+            pin(this)
+            val early = keyed(this, 38, "ZQN-9: named before ZQN is known", "feature/q")
+            GitLabFixtures.codeStore().replaceMergeRequests(connId, listOf(early), now)
+            val query = "teamId=$teamId&from=2026-03-02&to=2026-03-15&connectionId=$connId&view=MRS_MERGED"
+            suspend fun etag() = assertNotNull(client.get("/api/v1/reports/code-activity/items?$query").headers[HttpHeaders.ETag])
+            var tag = etag()
+            suspend fun moved(what: String) {
+                val next = etag()
+                assertNotEquals(tag, next, what)
+                tag = next
+            }
+            try {
+                // A new active Jira source (its `keys:` line appears) and its soft delete (the line disappears).
+                val other = SyncedStubFixture.createConnection(
+                    projectKeys = uniqueProjectKeys(1), enabled = false, namePrefix = "drill-keys-new",
+                )
+                newcomers += other
+                moved("a Jira source created")
+                jira.delete(other)
+                newcomers -= other
+                moved("a Jira source soft-deleted")
+
+                // An `issuekey` change into a new project, written the way PROCESS writes it (the norm row), does not by itself change a
+                // validator input: the Jira SYNC that commits it heartbeats its job row (`ingest:`), and THAT moves the tag. Together
+                // they make the drill list the key of the newly known project.
+                assertEquals(emptyList(), client.items(query).keysByMr()["grp/app!38"])
+                suspendTransaction(db) {
+                    FieldChanges.insert {
+                        it[connectionId] = jiraId
+                        it[issueId] = 880_002L
+                        it[seq] = 1
+                        it[field] = "Key"
+                        it[changedAt] = 2L
+                        it[fromText] = "ZQN-1"
+                        it[toText] = "FLO-78"
+                        it[fieldId] = "issuekey"
+                    }
+                }
+                val job = SyncJobsService(db, 3).requestJob(jiraId, SyncJobKind.SYNC, adminId, configRevision = 1L).jobId
+                moved("the SYNC job that commits the change is enqueued")
+                suspendTransaction(db) { SyncJobsService.Jobs.update({ SyncJobsService.Jobs.id eq job }) { it[heartbeatAt] = 1_000L } }
+                moved("the SYNC's committed page")
+                assertEquals(listOf("ZQN-9"), client.items(query).keysByMr()["grp/app!38"], "ZQN is known now")
+            } finally {
+                newcomers.forEach { jira.delete(it) }
+                PostgresTestSupport.connect().use { conn ->
+                    conn.prepareStatement("DELETE FROM sync_jobs WHERE connection_id = ?").use {
+                        it.setInt(1, jiraId.toInt())
+                        it.executeUpdate()
+                    }
+                }
+                TestUsers.softDelete(adminId)
+            }
+        }
+    }
 
     @Test
     fun `a Jira report's items carry no linkedKeys`() = testApplication {

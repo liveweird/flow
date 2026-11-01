@@ -260,6 +260,7 @@ class ReportHomeCodeTest {
                     "CODE_MERGED_WITHOUT_REVIEW" to "MERGED_WITHOUT_REVIEW",
                 )
                 val listed = views.keys.associateWith { 0 }.toMutableMap()
+                var withKeys = 0
                 for (team in overview.teams) {
                     val code = team.code()
                     val counts = mapOf(
@@ -281,10 +282,15 @@ class ReportHomeCodeTest {
                         assertEquals(report.bar, home.bar, "$label: Report 21's bar")
                         assertEquals(report.total, home.total, "$label: Report 21's total")
                         assertEquals(report.items, home.items, "$label: Report 21's items, figure and anchor included")
+                        // Home's lists carry Report 21's Jira keys: every merge request has a list (null is for commits), equal to the
+                        // report's (the items comparison above), and the stub's key cases make some of them non-empty.
+                        assertTrue(home.items.all { it.linkedKeys != null }, "$label: linkedKeys is a list on every merge request")
+                        withKeys += home.items.count { !it.linkedKeys.isNullOrEmpty() }
                         listed[view] = listed.getValue(view) + home.total
                     }
                 }
                 listed.forEach { (view, total) -> assertTrue(total > 0, "$view lists something across the arranged teams") }
+                assertTrue(withKeys > 0, "some listed merge request names a key of a known Jira project")
             }
         }
 

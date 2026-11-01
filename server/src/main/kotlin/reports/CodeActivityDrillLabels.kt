@@ -28,6 +28,8 @@ internal class CodeDrillLabels(
     private val commits: Map<Triple<UInt, Long, String>, String>,
     private val paths: Map<Pair<UInt, Long>, String>,
     private val linkedKeys: Map<CodeMrRef, List<String>> = emptyMap(),
+    /** Whether the Jira scope was requested ([fetchCodeDrillLabels] given a data source); unscoped, no row has a `linkedKeys` list. */
+    private val scoped: Boolean = false,
 ) {
     internal class MrLabel(val projectId: Long, val iid: Long, val title: String)
 
@@ -41,10 +43,10 @@ internal class CodeDrillLabels(
 
     /**
      * The Jira keys a merge request names within the known projects, sorted (empty when it names none); null for a commit, which is linked
-     * through its merge request only (A51/D5).
+     * through its merge request only (A51/D5), and for every row when the scope was not requested (Compare people's lists).
      */
     fun linkedKeys(row: CodeDrillRow): List<String>? =
-        if (row.kind == DrillItemKind.MERGE_REQUEST) linkedKeys[row.mrRef].orEmpty() else null
+        if (scoped && row.kind == DrillItemKind.MERGE_REQUEST) linkedKeys[row.mrRef].orEmpty() else null
 
     /** The merge request's title, or a commit's first line; null when blank or unknown. */
     fun summary(row: CodeDrillRow): String? {
@@ -67,7 +69,8 @@ internal suspend fun fetchCodeDrillLabels(rows: List<CodeDrillRow>, dataSources:
     val commits = fetchCommitTitles(commitRows)
     val projects = (mrRows.mapNotNull { row -> mrs[row.mrRef]?.let { row.connectionId to it.projectId } } +
         commitRows.map { it.connectionId to it.projectId }).distinct()
-    return CodeDrillLabels(mrs, commits, fetchProjectPaths(projects), fetchLinkedKeys(mrRows.map { it.mrRef }, dataSources))
+    val linked = fetchLinkedKeys(mrRows.map { it.mrRef }, dataSources)
+    return CodeDrillLabels(mrs, commits, fetchProjectPaths(projects), linked, scoped = dataSources != null)
 }
 
 /**
