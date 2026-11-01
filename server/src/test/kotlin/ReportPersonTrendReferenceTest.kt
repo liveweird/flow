@@ -6,6 +6,7 @@ import ch.nokillswit.metrics.TeamMembershipCreateRequest
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.reports.PersonTrendReport
 import ch.nokillswit.reports.PersonTrendRow
+import ch.nokillswit.reports.TREND_ROW_KEYS
 import io.ktor.server.testing.testApplication
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -105,7 +106,7 @@ class ReportPersonTrendReferenceTest {
                 val compared = admin.assertReferenceIsPeerMedian(
                     trend, w.person, listOf(null, w.peersA, w.peersB), w.base,
                 )
-                assertEquals(2 * 14, compared, "two windows with a team x fourteen rows")
+                assertEquals(2 * TREND_ROW_KEYS.size, compared, "two windows with a team x every row")
 
                 // Hand-computed. Jan 15, team A: the peers delivered 1, 2 and 3 items; the person's own 5 would make the median 2.5.
                 val items = trend.row("deliveredItems").points
@@ -136,7 +137,7 @@ class ReportPersonTrendReferenceTest {
             withMinSampleSize(2) {
                 val trend = admin.personTrend("$slice&from=2026-01-01&to=2026-01-29&accountId=${w.person}")
                 val compared = admin.assertReferenceIsPeerMedian(trend, w.person, listOf(null, w.peersA, w.peersB), slice)
-                assertEquals(2 * 14, compared)
+                assertEquals(2 * TREND_ROW_KEYS.size, compared)
                 // Bug items on Jan 15: the person 2; team A's peers 1, 1 and 2 (the quiet member none) -> median 1.0 over three.
                 val items = trend.row("deliveredItems").points
                 assertEquals(2.0, items[1].value)

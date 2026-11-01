@@ -2,10 +2,15 @@ package ch.nokillswit
 
 import ch.nokillswit.auth.LoginResponse
 import ch.nokillswit.flowusers.FlowUserRole
+import ch.nokillswit.identities.CodeIdentityDecision
+import ch.nokillswit.identities.CodeIdentityLinkStore
+import ch.nokillswit.identities.IdentityLink
 import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.metrics.TeamMembershipCreateRequest
 import ch.nokillswit.metrics.TeamMembershipService
+import ch.nokillswit.norm.DetailsState
+import ch.nokillswit.norm.NormCodeMergeRequest
 import ch.nokillswit.reports.PersonTrendReport
 import ch.nokillswit.reports.PeerCellCache
 import ch.nokillswit.reports.ReportService
@@ -20,6 +25,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.TestApplication
 import io.ktor.server.testing.testApplication
 import java.time.LocalDate
+import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -278,6 +284,67 @@ class ReportPersonTrendCacheTest {
                 DerivedStubFixture.derivePinned(world.connId, jobId = 2u)
             }
         }.let { assertEquals(rows, decode(it).rows, "the same facts again: the same figures") }
+    }
+
+    @Test
+    fun `a GitLab source and a link decision swap the generation, so a teammate's cached code cells are never served stale`() = withApps {
+        // The CODE rows (A50) read `norm.code_*` and the identity links LIVE, which no DERIVE stamps: the generation is the stamp WITH the
+        // `code:` / `code-ingest:` / `links:` lines, so a link written between two requests is a miss and the body equals the oracle's.
+        val person = query(world.person)
+        val before = decode(warm(person)).rows.single { it.key == "mrsMerged" }
+        assertTrue(before.points.mapNotNull { it.reference?.value }.all { it == 0.0 }, "no GitLab source yet: the teammates' median is 0")
+        val db = sharedDatabaseForTests()
+        val dataSources = GitLabFixtures.dataSources()
+        val links = CodeIdentityLinkStore(db)
+        val host = "trend-cache-${UUID.randomUUID().toString().take(8)}.example.test"
+        val decider = TestUsers.seed(uniqueEmail("trend-cache-link"), "pw", role = FlowUserRole.ADMIN)
+        var connId = 0u
+        try {
+            // Three teammates each merged one merge request in the middle of the span (the median of five peers becomes 1 where all
+            // three are active); their identities are not linked yet.
+            val keys = world.peers.take(3).mapIndexed { i, account -> account to "u9100$i" }
+            val created = noonUtc("2025-12-10")
+            val merged = noonUtc("2025-12-15")
+            fun mr(id: Long, key: String) = NormCodeMergeRequest(
+                id, 1, id, "merged", false, key, null, created, created, merged, null, "feature", "main", "mr $id", null, null, null,
+                emptyList(), emptyList(), 3, 2, 1, false, DetailsState.READ, null, emptyList(),
+            )
+            // The source appearing is a stamp line of its own (`code:`/`links:`); its rows alone stamp nothing (a SYNC does, per page).
+            step("a GitLab source with merge requests appears") {
+                connId = GitLabFixtures.createConnection(
+                    dataSources, baseUrl = "https://$host", enabled = false, namePrefix = "trend-cache-code",
+                )
+                GitLabFixtures.codeStore().replaceMergeRequests(connId, keys.mapIndexed { i, (_, key) -> mr(i + 1L, key) }, merged)
+            }
+            val unlinked = decode(warm(person)).rows.single { it.key == "mrsMerged" }
+            assertEquals(before.points.map { it.reference?.value }, unlinked.points.map { it.reference?.value }, "no link, no attribution")
+            val linkedBody = step("three teammates' identities are linked") {
+                keys.forEach { (account, key) ->
+                    links.insertIfAbsent(IdentityLink(host, key, CodeIdentityDecision.LINKED, account, decider.toLong(), 1L))
+                }
+            }
+            val after = decode(linkedBody).rows.single { it.key == "mrsMerged" }
+            assertTrue(after.points.mapNotNull { it.reference?.value }.any { it >= 1.0 }, "the new median is not the cached 0")
+            // The code median is over the LINKED peers only (3 of the 5 teammates, each with one merge request in the windows after the
+            // 15th
+            // of December): the two unlinked teammates, active in Jira, are not in it, whatever the slice says about who was active.
+            val windowsWithPeers = after.points.filter { it.reference?.value != null }
+            val linkedOnly = windowsWithPeers.all { it.reference?.peers == 3 }
+            assertTrue(windowsWithPeers.isNotEmpty() && linkedOnly, "the linked peers only: $windowsWithPeers")
+            val slice = sliceParameters().first()
+            val sliced = decode(sameBody(query(world.person, slice), "sliced $slice")).rows.single { it.key == "mrsMerged" }
+            val unsliced = after.points.map { it.reference }
+            assertEquals(unsliced, sliced.points.map { it.reference }, "a Jira slice does not move the code median")
+            // A link removed is the same: the cached cells of the linked generation are not served either.
+            step("a link is removed") { links.delete(host, keys[0].second) }
+        } finally {
+            links.deleteHost(host)
+            if (connId != 0u) {
+                GitLabFixtures.purgeAll(connId)
+                dataSources.delete(connId)
+            }
+            TestUsers.softDelete(decider)
+        }
     }
 
     @Test

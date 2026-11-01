@@ -105,6 +105,10 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [new] **Jira<->GitLab linking (issue keys in MR titles and branches).** Deliberately left out of Report 21 (A50). It needs a per-source project-key
   seam, a `norm.code_*` column with a `CODE_PROCESSING_VERSION` bump (or a migration), and stub support (`sample-data/gitlab/generate.mjs` embeds no
   keys today). It opens different questions: code lead time per task, tasks without a merge request, a merge request merged after the task is done.
+- [new] **The server test forks' heap keeps growing through a run.** A fork's post-GC floor climbs steadily (181 -> 467 MiB at the old
+  512 MiB default, 16-20 full GCs a fork); live Jackson `ObjectNode`/`LinkedHashMap` trees grow, and it is NOT the OpenAPI validator's
+  bounded schema cache (`build-times.md` WHY 62). The forks now get 768 MiB, which buys headroom only. Take a heap dump late in a fork
+  and find what holds the trees (a static cache, a fixture, an in-JVM stub's journal, ...).
 - [new] **Code activity: the unattributed work on the page.** The endpoint answers `teamId=0` (the work of undecided GitLab identities
   and of linked people with no team, A50), but the page cannot ask for it: the shared team control rewrites a team it does not know
   (`requiredTeamId`). Today the page only counts it in the "still to attribute" note, with a link to the Identities page for admins. Needs

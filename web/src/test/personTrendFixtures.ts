@@ -69,6 +69,10 @@ export const PERSON_TREND_ROWS: PersonTrendRow[] = [
   row({ key: "reopenedShare", group: "DELIVERY", unit: "SHARE", direction: "LOWER", tolerance: 0.02, drill: "REOPENED" }, { values: [undefined, 0.05, 0.05, 0.1, 0.12] }, cue(2, 4, "WORSE", 0.07)),
   // No cue: the person had a task size in one full window only.
   row({ key: "taskSizeP50", group: "DELIVERY", unit: "MD", direction: "LOWER", tolerance: 0.25, drill: "TASK_SIZE" }, { values: [undefined, undefined, 2, undefined, undefined], hidden: [3, 4], n: [0, 0, 7, 2, 1] }),
+  // The CODE rows (A50): the merged merge requests are NEUTRAL context — the cue is a change, never a verdict —, the cycle p50 is LOWER, the reviews NEUTRAL.
+  row({ key: "mrsMerged", group: "CODE", unit: "ITEMS", direction: "NEUTRAL", tolerance: 0, drill: "MRS_MERGED" }, { values: [0, 3, 4, 6, 8], n: [0, 3, 4, 6, 8] }, cue(2, 4, undefined, 4)),
+  row({ key: "mrCycleWorkingDaysP50", group: "CODE", unit: "DAYS", direction: "LOWER", tolerance: 0.05, drill: "MR_CYCLE_WORKING_DAYS" }, { values: [undefined, 4, 3.5, 3, 2], n: [0, 3, 4, 6, 8] }, cue(2, 4, "BETTER", -1.5)),
+  row({ key: "reviewsGiven", group: "CODE", unit: "ITEMS", direction: "NEUTRAL", tolerance: 0, drill: "REVIEWS_GIVEN" }, { values: [0, 2, 2, 5, 9], n: [0, 2, 2, 5, 9] }, cue(2, 4, undefined, 7)),
 ];
 
 const mixPoints = (md: number[], shares: Array<number | undefined>) => ENDS.map((end, i) => ({ end, md: md[i], ...(shares[i] === undefined ? {} : { share: shares[i] }) }));

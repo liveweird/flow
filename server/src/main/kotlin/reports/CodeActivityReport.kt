@@ -101,7 +101,7 @@ private suspend fun codeSourceFreshness(dataSources: DataSourceService, sources:
 }
 
 /** A member with no figure at all (a pick whose rows are all elsewhere). */
-private fun zeroFigures(member: CodeMember) = CodeMemberFigures(member, 0, 0, 0, 0, 0, 0, 0, 0, null, null, 0, 0, 0, 0, 0)
+private fun zeroFigures(member: CodeMember) = CodeMemberFigures(member, 0, 0, 0, 0, 0, 0, 0, 0, null, null, 0, 0, 0, 0, 0, 0)
 
 private fun CodeMemberFigures.toGroup(label: String?) = CodeActivityGroup(
     accountId = member.accountId,

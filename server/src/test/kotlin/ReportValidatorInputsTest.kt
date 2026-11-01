@@ -203,7 +203,7 @@ class ReportValidatorInputsTest {
         }
 
     @Test
-    fun `the code report's validator also carries the GitLab inputs - links, sync activity, the source - and a Jira report's does not`() =
+    fun `the code-reading reports' validators carry the GitLab inputs - links, sync activity, the source - a Jira report's does not`() =
         testApplication {
             usePostgresTestcontainer()
             val client = seededClient("etag-code")
@@ -213,17 +213,34 @@ class ReportValidatorInputsTest {
             val zone = ZoneId.of(DerivedStubFixture.metricsSettings().read().timeZone)
             withCodeWorld(zone) {
                 application.attributes[ReportServiceKey].clock = { now }
-                val code = "/api/v1/reports/code-activity?teamId=$teamId&from=2026-03-02&to=2026-03-15&connectionId=$connId"
-                val jiraSide = listOf("/api/v1/reports/filters", "/api/v1/reports/home")
+                // Report 21 and every operation that reads the CODE rows (A50): Compare people and Person trend, and their drills.
+                val period = "from=2026-03-02&to=2026-03-15"
+                val people = "$period&accountId=$accA&accountId=$accB"
+                val code = "/api/v1/reports/code-activity?teamId=$teamId&$period&connectionId=$connId"
+                val codeReaders = listOf(
+                    code,
+                    "/api/v1/reports/compare-people?$people",
+                    "/api/v1/reports/compare-people/items?$people&segmentAccountId=$accA&view=COMMITS",
+                    "/api/v1/reports/person-trend?$period&accountId=$accA",
+                    "/api/v1/reports/person-trend/items?$period&accountId=$accA&pointEnd=2026-03-15&view=MRS_MERGED",
+                )
+                // The Jira-only reports read no GitLab row: not one of them may move (Home and the cycle-time report are team reports).
+                val cycle = "/api/v1/reports/cycle-time?teamId=$teamId&$period"
+                // A Jira-view drill of the code-reading reports reads no GitLab row either: its tag stays put on a link write.
+                val jiraDrills = listOf(
+                    "/api/v1/reports/compare-people/items?$people&segmentAccountId=$accA&view=DELIVERED",
+                    "/api/v1/reports/person-trend/items?$period&accountId=$accA&pointEnd=2026-03-15&view=DELIVERED",
+                )
+                val jiraSide = listOf("/api/v1/reports/filters", "/api/v1/reports/home", cycle) + jiraDrills
                 val jiraBefore = jiraSide.map { client.etagOf(it) }
                 val j = SyncJobsService.Jobs
                 val c = DataSourceService.Connections
-                val tags = mutableListOf(client.etagOf(code))
+                var tags = codeReaders.map { client.etagOf(it) }
                 suspend fun moved(what: String) {
-                    val next = client.etagOf(code)
-                    assertNotEquals(tags.last(), next, what)
+                    val next = codeReaders.map { client.etagOf(it) }
+                    codeReaders.indices.forEach { assertNotEquals(tags[it], next[it], "$what: ${codeReaders[it].substringBefore('?')}") }
                     assertEquals(jiraBefore, jiraSide.map { client.etagOf(it) }, "$what must not move a Jira report's tag")
-                    tags += next
+                    tags = next
                 }
                 try {
                     // `links:<host>:<count>:<newest decided_at>`: an insert (count), an overwrite (newest instant) and a delete (count).
@@ -254,7 +271,7 @@ class ReportValidatorInputsTest {
                     moved("a source rename")
                     // The negative control for the stamp itself: an unrelated write to the row moves nothing.
                     suspendTransaction(db) { c.update({ c.id eq connId }) { it[updatedAt] = nowPlus(1) } }
-                    assertEquals(tags.last(), client.etagOf(code), "updated_at is not stamped")
+                    assertEquals(tags, codeReaders.map { client.etagOf(it) }, "updated_at is not stamped")
                 } finally {
                     PostgresTestSupport.connect().use { conn ->
                         conn.prepareStatement("DELETE FROM sync_jobs WHERE connection_id = ?").use {

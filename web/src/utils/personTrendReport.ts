@@ -55,6 +55,9 @@ export const TREND_CHARTS: ReadonlyArray<{ id: TrendKey; keys: readonly [TrendKe
   { id: "noEstimateShare", keys: ["noEstimateShare"] },
   { id: "reopenedShare", keys: ["reopenedShare"] },
   { id: "taskSizeP50", keys: ["taskSizeP50"] },
+  { id: "mrsMerged", keys: ["mrsMerged"] },
+  { id: "mrCycleWorkingDaysP50", keys: ["mrCycleWorkingDaysP50"] },
+  { id: "reviewsGiven", keys: ["reviewsGiven"] },
 ];
 
 /** The focus-return anchor of a chart card (`useReportDrill`, `ReportChartCard`'s `drillAnchor`). */
@@ -68,7 +71,16 @@ export function trendAnchorOfRow(rowKey: string): string {
 }
 
 /** The views whose figure's sample `n` IS the number of items the drill lists (a share lists its numerator, the coverage its gap, WIP its tasks). */
-const SAMPLE_VIEWS: ReadonlySet<string> = new Set(["DELIVERED", "CYCLE_WORKING_DAYS", "FLOW_EFFICIENCY", "ACCURACY_AT_START", "TASK_SIZE"]);
+const SAMPLE_VIEWS: ReadonlySet<string> = new Set([
+  "DELIVERED",
+  "CYCLE_WORKING_DAYS",
+  "FLOW_EFFICIENCY",
+  "ACCURACY_AT_START",
+  "TASK_SIZE",
+  "MRS_MERGED",
+  "MR_CYCLE_WORKING_DAYS",
+  "REVIEWS_GIVEN",
+]);
 
 /**
  * The item count the chart's point stands behind for the row's view — what the drawer's own count is compared with — or `undefined` where the

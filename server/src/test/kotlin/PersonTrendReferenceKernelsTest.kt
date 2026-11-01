@@ -7,10 +7,16 @@ import ch.nokillswit.reports.CompareDoneTask
 import ch.nokillswit.reports.CompareWip
 import ch.nokillswit.reports.CompareWorklog
 import ch.nokillswit.reports.MIN_REFERENCE_PEERS
+import ch.nokillswit.reports.PeerCellEntry
+import ch.nokillswit.reports.PersonTrendReference
+import ch.nokillswit.reports.PersonTrendTeam
+import ch.nokillswit.reports.TREND_ROWS
+import ch.nokillswit.reports.TrendReferenceTeam
 import ch.nokillswit.reports.PersonMembership
 import ch.nokillswit.reports.hadActivity
 import ch.nokillswit.reports.peersOf
 import ch.nokillswit.reports.referenceOf
+import ch.nokillswit.reports.referencesOf
 import ch.nokillswit.reports.referenceTeamOf
 import ch.nokillswit.reports.trendWindowOf
 import java.math.BigDecimal
@@ -152,6 +158,36 @@ class PersonTrendReferenceKernelsTest {
         assertEquals(2, two.peers)
         assertEquals(0, referenceOf(emptyList()).peers)
         assertNull(referenceOf(emptyList()).value)
+    }
+
+    @Test
+    fun `the CODE rows' pool is the peers with a LINKED GitLab identity, every other row's the Jira-active ones`() {
+        fun entry(mrs: Double, delivered: Double, active: Boolean, linked: Boolean) = PeerCellEntry.of(
+            TREND_ROWS.associate { spec ->
+                val value = when (spec.key) {
+                    "mrsMerged" -> mrs
+                    "deliveredItems" -> delivered
+                    else -> 1.0
+                }
+                spec.key to CompareCell(value, 5, hidden = false)
+            },
+            active, linked,
+        )
+        val entries = mapOf(
+            // Jira-active but with no link: an unlinked 0 is no fact about merge requests, so the code median leaves them out.
+            "po" to entry(mrs = 0.0, delivered = 4.0, active = true, linked = false),
+            // Linked with no merge request in the window: a real 0, counted.
+            "a" to entry(mrs = 0.0, delivered = 1.0, active = true, linked = true),
+            "b" to entry(mrs = 4.0, delivered = 2.0, active = true, linked = true),
+            "c" to entry(mrs = 6.0, delivered = 3.0, active = true, linked = true),
+            // Linked but with no Jira activity in the window: in the code pool, in no Jira row's.
+            "dev" to entry(mrs = 8.0, delivered = 9.0, active = false, linked = true),
+        )
+        val references = referencesOf(TrendReferenceTeam(PersonTrendTeam(1u, "T"), entries.keys.toList()), entries)!!
+        // Code: a, b, c, dev -> [0, 4, 6, 8] -> 5 (with the unlinked 0 it would be 4 over five).
+        assertEquals(PersonTrendReference(5.0, 4), references.getValue("mrsMerged"))
+        // Jira: po, a, b, c -> [4, 1, 2, 3] -> 2.5; the code-only dev is not a peer of a Jira row.
+        assertEquals(PersonTrendReference(2.5, 4), references.getValue("deliveredItems"))
     }
 
     @Test

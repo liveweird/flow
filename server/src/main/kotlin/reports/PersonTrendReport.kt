@@ -1,5 +1,7 @@
 package ch.nokillswit.reports
 
+import ch.nokillswit.metrics.WorkingCalendar
+
 /**
  * `GET /api/v1/reports/person-trend` (Report 20, `.claude/docs/reports.md` "Report 20"): ONE person's Compare-people cells over rolling
  * [TREND_WINDOW_DAYS]-day windows, one ending every [TREND_STEP_DAYS] days from the request's `to` back to its `from`, read across every
@@ -51,6 +53,9 @@ internal suspend fun ReportService.personTrend(
     // Nothing anchored before the horizon is read, whatever a window's own start: the slice of an early window is its part inside it.
     val factRange = maxOf(range.first, horizonFrom?.let { calendar.dayBoundsMs(it).first } ?: range.first) to range.second
     val populations = fetchTrendPopulations(filter.copy(accountIds = plan.fetch), scope.connectionIds, factRange)
+    // The CODE rows (A50): the fetched accounts' GitLab rows over the same range, once; a peer served from the cache reads none.
+    val zone = WorkingCalendar.zoneOf(scope.settings.timeZone)
+    val code = loadCodePeople(codeDeps, plan.fetch, factRange, zone, nowMs, withCommits = false)
 
     val fetched = plan.fetch.toSet()
     val results = windows.mapIndexed { i, window ->
@@ -58,9 +63,11 @@ internal suspend fun ReportService.personTrend(
         // is the cached one). An entry is written only for a cell computed anyway, never for a window the account was not a peer in.
         val accounts = listOf(person) + peersByWindow[i].filter { it in fetched }
         val datas = populations.dataOf(window, scope, wip.forWindow(window), accounts)
-        val personCells = datas.getValue(person).cellsOf(person)
+        val personCells = datas.getValue(person).cellsOf(person, code)
         val entries = datas.mapValues { (account, data) ->
-            PeerCellEntry.of(if (account == person) personCells else data.cellsOf(account), data.hadActivity(account))
+            PeerCellEntry.of(
+                if (account == person) personCells else data.cellsOf(account, code), data.hadActivity(account), code.isLinked(account),
+            )
         }
         // The person's own entry only where the point has a team: that is the only place it can ever be a peer of someone else, and a
         // teamless (or made-up) account must not be able to fill the cap with entries nobody can be served.
@@ -150,7 +157,12 @@ internal class TrendPopulations(
      * The [CompareData] of each of [accounts] over one window: that account's rows of every population's slice plus the window's [wip]
      * -- what `loadCompareData` builds for that period (every cell function reads only its own account's rows, so the split is exact).
      */
-    fun dataOf(window: TrendWindow, scope: ReportScope, wip: CompareWip, accounts: Collection<String>): Map<String, CompareData> {
+    fun dataOf(
+        window: TrendWindow,
+        scope: ReportScope,
+        wip: CompareWip,
+        accounts: Collection<String>,
+    ): Map<String, CompareData> {
         val doneOf = done.sliceByAnchor(window.bounds) { it.doneAt }.groupBy { it.accountId }
         val cycleOf = cycle.sliceByAnchor(window.bounds) { it.doneAt }.groupBy { it.accountId }
         val accuracyOf = accuracy.sliceByAnchor(window.bounds) { it.doneAt }.groupBy { it.accountId }

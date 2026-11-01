@@ -210,10 +210,13 @@ private fun assigneeOf(member: CodeMember, names: Map<String, String>, unlinkedL
     return if (member.host != null && member.identityKey != null) unlinkedLabels[member.host to member.identityKey] else null
 }
 
-/** Sorts, cuts to [DRILL_MAX_ITEMS], labels ONLY the listed rows and assembles the response (`total` and `bar` cover every row). */
-private suspend fun codeDrillItems(
+/**
+ * Sorts, cuts to [DRILL_MAX_ITEMS], labels ONLY the listed rows and assembles the response (`total` and `bar` cover every row). [teamId]
+ * is the request's team, null where the figure belongs to no team (Compare people's code drill reads a person across teams).
+ */
+internal suspend fun codeDrillItems(
     meta: ReportMeta,
-    teamId: UInt,
+    teamId: UInt?,
     selection: DistributionSelection<CodeDrillRow>,
     unlinkedLabels: Map<Pair<String, String>, String>,
 ): ReportDrillItems {

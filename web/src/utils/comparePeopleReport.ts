@@ -37,6 +37,8 @@ const UNIT_FORMATS: Record<CompareUnit, ValueFormat> = {
   ITEMS_PER_DAY: formatRatio,
   ITEMS_PER_MD: formatRatio,
   DAYS: formatDays,
+  // Lines of code are whole numbers: the plain number formatter (at most two decimals, no trailing zeros), as the drill lists print them.
+  LINES: formatMd,
   RATIO: formatRatio,
   SHARE: formatPercent,
 };
@@ -154,7 +156,23 @@ const VIEW_COLUMNS: Readonly<Record<CompareView, { unit: DrillUnit; anchor: Dril
   NO_ESTIMATE: { unit: "md", anchor: "done" },
   TASK_SIZE: { unit: "estimateMd", anchor: "done" },
   REOPENED: { unit: "reopens", anchor: "done" },
+  // The CODE group (A50): Report 21's own lists. A commit's figure is its counted lines, a merge request's its cycle or size; a review act has none.
+  COMMITS: { unit: "lines", anchor: "committed" },
+  MRS_MERGED: { unit: "wd", anchor: "merged" },
+  MR_CYCLE_WORKING_DAYS: { unit: "wd", anchor: "merged" },
+  MR_SIZE_LINES: { unit: "lines", anchor: "merged" },
+  REVIEWS_GIVEN: { unit: "none", anchor: "event" },
+  APPROVALS_GIVEN: { unit: "none", anchor: "event" },
+  COMMENTS: { unit: "none", anchor: "event" },
 };
+
+/** The views that list GitLab commits and merge requests (the `CODE` rows): their keys are not Jira keys, and the report names no GitLab host to link to. */
+const CODE_VIEWS: ReadonlySet<string> = new Set(["COMMITS", "MRS_MERGED", "MR_CYCLE_WORKING_DAYS", "MR_SIZE_LINES", "REVIEWS_GIVEN", "APPROVALS_GIVEN", "COMMENTS"]);
+
+/** True for a `CODE` row's view: its list shows commits and merge requests (plain keys, a "Person" column) instead of Jira tasks. */
+export function isCodeView(view: string | undefined): boolean {
+  return view !== undefined && CODE_VIEWS.has(view);
+}
 
 /** The view's column pair; an unknown view (a newer server) reads as delivered tasks. */
 export function viewColumns(view: string): { unit: DrillUnit; anchor: DrillAnchor } {

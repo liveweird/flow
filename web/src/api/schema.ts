@@ -2490,6 +2490,13 @@ export interface paths {
          *     read at query time, the plan's days cut off at the last derived day), the items still in progress at the last listed day and
          *     their median age (11), the share of done tasks that were blocked and the blocked share of the cycle (12), logged MD (16), the
          *     foreign share of it (A21) and the data-quality shares of report 14 (worklog coverage, late logging over a day, no estimate).
+         *     The `CODE` group (A50, Report 21's member cells, computed by the very same functions) holds the person's GitLab activity over
+         *     the period: `commits`, `linesChanged` (counted lines added + deleted; a commit with unknown counted lines adds nothing and is
+         *     listed with no figure), `mrsMerged`, `mrCycleWorkingDaysP50` and `mrSizeLinesP50` (the p50 of the person's merged merge requests,
+         *     working days and lines, lower is better, hidden under `minSampleSize`), `reviewsGiven` and `approvalsGiven` (DISTINCT merge
+         *     requests) and `comments` (acts); the volumes are NEUTRAL (no `better`). They are attributed by the identity key LINKED to the
+         *     person on every ACTIVE GitLab source, whatever the team (a person with no link has 0 in every count, never hidden), and the
+         *     slices (`domain`/`domainView`/`activityType`/`workCategory`/`connectionId`) do not apply to them.
          *     Each cell is `{value, n, hidden}`: `n` the cell's sample, `hidden` true (value null) when a distribution-shaped figure has
          *     fewer than `minSampleSize` measured items. `direction` says which side is better (HIGHER, LOWER, TARGET — the value closer to
          *     `target` — or NEUTRAL: no side); `difference` is B minus A (both values present); `better` (A or B) is absent for a NEUTRAL
@@ -2543,7 +2550,9 @@ export interface paths {
          *     `bar.sumMd` is their MD (for `DELIVERED` the estimate at done; a task without one is listed with a null `figure`, an item worth
          *     0 MD). `bucketIndex` — the cycle-time views (`CYCLE_WORKING_DAYS`, `CYCLE_ELAPSED_DAYS`) only, 0-based into the matching
          *     `cycleTime` histogram (the open tail last) — narrows the list to that bar's share of the person (the histogram's `byUser`
-         *     count) and sets `bar.from`/`bar.to`; without it the cell's whole measured set. A cell hidden under `minSampleSize` still lists
+         *     count) and sets `bar.from`/`bar.to`; without it the cell's whole measured set. The `CODE` rows' views (`COMMITS`, `MRS_MERGED`,
+         *     `MR_CYCLE_WORKING_DAYS`, `MR_SIZE_LINES`, `REVIEWS_GIVEN`, `APPROVALS_GIVEN`, `COMMENTS`) are `GET /api/v1/reports/code-activity/items`'
+         *     own selection for the person in any team: `itemKind` `COMMIT` or `MERGE_REQUEST`, `bar.count` equals the cell's `n`, no `teamId`. A cell hidden under `minSampleSize` still lists
          *     its items (the histogram bar of a hidden distribution is 400). Sorted by `figure` descending, newest `anchorAt`, then issue key;
          *     at most 500 listed — `total` (equal to `bar.count`) says how many are behind the cell. 400: a missing or unknown `view`, a
          *     missing `segmentAccountId` or one outside the picks, a `bucketIndex` on another view, not a non-negative integer or outside the
@@ -2576,8 +2585,9 @@ export interface paths {
          *     `GET /api/v1/reports/compare-people` over `from=windows[].from&to=windows[].end` (same `key`, `unit`, `direction`, `target`,
          *     `tolerance`, `drill` and the same `{value, n, hidden}`; `value` is absent when hidden or undefined) — the rows are
          *     `cycleWorkingDaysP50`/`P90`, `flowEfficiencyP50`, `deliveredItems`, `deliveredMd`, `accuracyAtStartPred25`, `avgWip`,
-         *     `wipAtEndMedianAgeWd`, `blockedItemsShare`, `worklogCoverage`, `lateLoggingShare`, `noEstimateShare`, `reopenedShare` and
-         *     `taskSizeP50`, in that order; no capacity row (A39) is ever present. `domain`/`domainView`/`activityType`/`workCategory`/
+         *     `wipAtEndMedianAgeWd`, `blockedItemsShare`, `worklogCoverage`, `lateLoggingShare`, `noEstimateShare`, `reopenedShare`,
+         *     `taskSizeP50` and the three `CODE` rows `mrsMerged`, `mrCycleWorkingDaysP50` and `reviewsGiven` (A50, from the person's linked GitLab
+         *     identities in any team; the Jira slices do not apply to them), in that order; no capacity row (A39) is ever present. `domain`/`domainView`/`activityType`/`workCategory`/
          *     `connectionId` slice every window alike (the WIP rows ignore the slices, like report 9). `windows[].coverage` says how much data
          *     backs a window: `FULL`; `PARTIAL` when it starts before the latest `backfillFrom` of the connections in scope or before the history
          *     horizon's first day (`meta.historyHorizon`, A48: the figures read from that day, and the points of a `from` before it start at it) or
@@ -5335,11 +5345,11 @@ export interface components {
         /** @description One row of the comparison table; see the path description for the verdict fields. */
         CompareRow: {
             /** @enum {string} */
-            key: "deliveredMd" | "deliveredItems" | "taskSizeP50" | "reopenedShare" | "deliveredMdPerAvailableMd" | "deliveredItemsPerAvailableMd" | "cycleWorkingDaysP50" | "cycleWorkingDaysP90" | "cycleElapsedDaysP50" | "cycleElapsedDaysP90" | "flowEfficiencyP50" | "reportedTimeRatioP50" | "accuracyAtStartPred25" | "accuracyAtDonePred25" | "adjustedShare" | "adjustmentMedianChange" | "avgWip" | "wipAtEndItems" | "wipAtEndMedianAgeWd" | "blockedItemsShare" | "blockedShareOfCycle" | "loggedMd" | "availableMd" | "loggedPerAvailableMd" | "foreignShare" | "worklogCoverage" | "lateLoggingShare" | "noEstimateShare";
+            key: "deliveredMd" | "deliveredItems" | "taskSizeP50" | "reopenedShare" | "deliveredMdPerAvailableMd" | "deliveredItemsPerAvailableMd" | "cycleWorkingDaysP50" | "cycleWorkingDaysP90" | "cycleElapsedDaysP50" | "cycleElapsedDaysP90" | "flowEfficiencyP50" | "reportedTimeRatioP50" | "accuracyAtStartPred25" | "accuracyAtDonePred25" | "adjustedShare" | "adjustmentMedianChange" | "avgWip" | "wipAtEndItems" | "wipAtEndMedianAgeWd" | "blockedItemsShare" | "blockedShareOfCycle" | "loggedMd" | "availableMd" | "loggedPerAvailableMd" | "foreignShare" | "worklogCoverage" | "lateLoggingShare" | "noEstimateShare" | "commits" | "linesChanged" | "mrsMerged" | "mrCycleWorkingDaysP50" | "mrSizeLinesP50" | "reviewsGiven" | "approvalsGiven" | "comments";
             /** @enum {string} */
-            group: "DELIVERY" | "CYCLE" | "ESTIMATION" | "WIP" | "TIME" | "QUALITY";
+            group: "DELIVERY" | "CYCLE" | "ESTIMATION" | "WIP" | "TIME" | "QUALITY" | "CODE";
             /** @enum {string} */
-            unit: "MD" | "MD_PER_MD" | "ITEMS" | "ITEMS_PER_DAY" | "ITEMS_PER_MD" | "DAYS" | "RATIO" | "SHARE";
+            unit: "MD" | "MD_PER_MD" | "ITEMS" | "ITEMS_PER_DAY" | "ITEMS_PER_MD" | "DAYS" | "LINES" | "RATIO" | "SHARE";
             /** @enum {string} */
             direction: "HIGHER" | "LOWER" | "TARGET" | "NEUTRAL";
             /**
@@ -5373,7 +5383,7 @@ export interface components {
              * @description The `view` of `GET /api/v1/reports/compare-people/items` that lists the items behind a cell of this row; absent for the available man-days.
              * @enum {string}
              */
-            drill?: "DELIVERED" | "CYCLE_WORKING_DAYS" | "CYCLE_ELAPSED_DAYS" | "REPORTED_TIME_RATIO" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "ACCURACY_AT_DONE" | "ADJUSTED" | "ADJUSTMENT_CHANGE" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LOGGED" | "FOREIGN" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE" | "TASK_SIZE" | "REOPENED";
+            drill?: "DELIVERED" | "CYCLE_WORKING_DAYS" | "CYCLE_ELAPSED_DAYS" | "REPORTED_TIME_RATIO" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "ACCURACY_AT_DONE" | "ADJUSTED" | "ADJUSTMENT_CHANGE" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LOGGED" | "FOREIGN" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE" | "TASK_SIZE" | "REOPENED" | "COMMITS" | "MRS_MERGED" | "MR_CYCLE_WORKING_DAYS" | "MR_SIZE_LINES" | "REVIEWS_GIVEN" | "APPROVALS_GIVEN" | "COMMENTS";
         };
         CompareCycleTime: {
             workingDays: components["schemas"]["Distribution"];
@@ -5509,11 +5519,11 @@ export interface components {
         };
         PersonTrendRow: {
             /** @enum {string} */
-            key: "cycleWorkingDaysP50" | "cycleWorkingDaysP90" | "flowEfficiencyP50" | "deliveredItems" | "deliveredMd" | "accuracyAtStartPred25" | "avgWip" | "wipAtEndMedianAgeWd" | "blockedItemsShare" | "worklogCoverage" | "lateLoggingShare" | "noEstimateShare" | "reopenedShare" | "taskSizeP50";
+            key: "cycleWorkingDaysP50" | "cycleWorkingDaysP90" | "flowEfficiencyP50" | "deliveredItems" | "deliveredMd" | "accuracyAtStartPred25" | "avgWip" | "wipAtEndMedianAgeWd" | "blockedItemsShare" | "worklogCoverage" | "lateLoggingShare" | "noEstimateShare" | "reopenedShare" | "taskSizeP50" | "mrsMerged" | "mrCycleWorkingDaysP50" | "reviewsGiven";
             /** @enum {string} */
-            group: "DELIVERY" | "CYCLE" | "ESTIMATION" | "WIP" | "TIME" | "QUALITY";
+            group: "DELIVERY" | "CYCLE" | "ESTIMATION" | "WIP" | "TIME" | "QUALITY" | "CODE";
             /** @enum {string} */
-            unit: "MD" | "MD_PER_MD" | "ITEMS" | "ITEMS_PER_DAY" | "ITEMS_PER_MD" | "DAYS" | "RATIO" | "SHARE";
+            unit: "MD" | "MD_PER_MD" | "ITEMS" | "ITEMS_PER_DAY" | "ITEMS_PER_MD" | "DAYS" | "LINES" | "RATIO" | "SHARE";
             /** @enum {string} */
             direction: "HIGHER" | "LOWER" | "TARGET" | "NEUTRAL";
             /**
@@ -5530,7 +5540,7 @@ export interface components {
              * @description The Compare people `view` that lists the items behind this figure (over one window); `GET /api/v1/reports/person-trend/items` lists them for a point.
              * @enum {string}
              */
-            drill?: "DELIVERED" | "CYCLE_WORKING_DAYS" | "CYCLE_ELAPSED_DAYS" | "REPORTED_TIME_RATIO" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "ACCURACY_AT_DONE" | "ADJUSTED" | "ADJUSTMENT_CHANGE" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LOGGED" | "FOREIGN" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE" | "TASK_SIZE" | "REOPENED";
+            drill?: "DELIVERED" | "CYCLE_WORKING_DAYS" | "CYCLE_ELAPSED_DAYS" | "REPORTED_TIME_RATIO" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "ACCURACY_AT_DONE" | "ADJUSTED" | "ADJUSTMENT_CHANGE" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LOGGED" | "FOREIGN" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE" | "TASK_SIZE" | "REOPENED" | "COMMITS" | "MRS_MERGED" | "MR_CYCLE_WORKING_DAYS" | "MR_SIZE_LINES" | "REVIEWS_GIVEN" | "APPROVALS_GIVEN" | "COMMENTS";
             /** @description One per window, in the order of `windows`. */
             points: components["schemas"]["PersonTrendPoint"][];
             trend?: components["schemas"]["PersonTrendCue"];
@@ -11292,7 +11302,7 @@ export interface operations {
                 /** @description Whose cell — one of the two `accountId`s (400 otherwise). */
                 segmentAccountId: string;
                 /** @description Which set of items — the `drill` of a row of the parent report. */
-                view: "DELIVERED" | "CYCLE_WORKING_DAYS" | "CYCLE_ELAPSED_DAYS" | "REPORTED_TIME_RATIO" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "ACCURACY_AT_DONE" | "ADJUSTED" | "ADJUSTMENT_CHANGE" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LOGGED" | "FOREIGN" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE" | "TASK_SIZE" | "REOPENED";
+                view: "DELIVERED" | "CYCLE_WORKING_DAYS" | "CYCLE_ELAPSED_DAYS" | "REPORTED_TIME_RATIO" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "ACCURACY_AT_DONE" | "ADJUSTED" | "ADJUSTMENT_CHANGE" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LOGGED" | "FOREIGN" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE" | "TASK_SIZE" | "REOPENED" | "COMMITS" | "MRS_MERGED" | "MR_CYCLE_WORKING_DAYS" | "MR_SIZE_LINES" | "REVIEWS_GIVEN" | "APPROVALS_GIVEN" | "COMMENTS";
                 /** @description The cycle-time views only — a bar of the `cycleTime` histogram, 0-based (the open tail bucket last). A 400 on any other view or outside the histogram. */
                 bucketIndex?: number;
             };
@@ -11392,7 +11402,7 @@ export interface operations {
                 /** @description The point's day — one of the parent's `windows[].end` for the same `from`/`to` (400 otherwise). */
                 pointEnd: string;
                 /** @description Which set of items — the `drill` of a row of the parent report. */
-                view: "DELIVERED" | "CYCLE_WORKING_DAYS" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE" | "TASK_SIZE" | "REOPENED";
+                view: "DELIVERED" | "CYCLE_WORKING_DAYS" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE" | "TASK_SIZE" | "REOPENED" | "MRS_MERGED" | "MR_CYCLE_WORKING_DAYS" | "REVIEWS_GIVEN";
             };
             header?: {
                 /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */

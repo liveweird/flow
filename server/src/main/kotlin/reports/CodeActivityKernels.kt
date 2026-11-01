@@ -107,13 +107,10 @@ internal class CodeFlowFigures(
     val merged: Int get() = mrs.size
 }
 
-/**
- * The flow figures. [summaries] hold the actors of the READ merged merge requests (`fetchCodeReviewSummaries`). Merged without review /
- * approval are counted among the merge requests whose details were read, and their share is read against those.
- */
-internal fun CodeKernelContext.flowFigures(mrs: List<CodeMrRow>, summaries: List<CodeReviewSummary>): CodeFlowFigures {
+/** The measurable values of every merged merge request in scope ([mergedInScope]); the review fields need the READ ones' [summaries]. */
+internal fun CodeKernelContext.mergedFigures(mrs: List<CodeMrRow>, summaries: List<CodeReviewSummary>): List<MergedMrFigure> {
     val byMr = summaries.groupBy { it.mr }
-    val figures = mergedInScope(mrs).map { scoped ->
+    return mergedInScope(mrs).map { scoped ->
         val row = scoped.row
         val mergedAt = row.mergedAt!!
         val review = if (row.detailsRead) reviewOf(row, byMr[row.ref].orEmpty()) else null
@@ -127,6 +124,14 @@ internal fun CodeKernelContext.flowFigures(mrs: List<CodeMrRow>, summaries: List
             sizeFiles = row.fileCount?.toDouble(),
         )
     }
+}
+
+/**
+ * The flow figures. [summaries] hold the actors of the READ merged merge requests (`fetchCodeReviewSummaries`). Merged without review /
+ * approval are counted among the merge requests whose details were read, and their share is read against those.
+ */
+internal fun CodeKernelContext.flowFigures(mrs: List<CodeMrRow>, summaries: List<CodeReviewSummary>): CodeFlowFigures {
+    val figures = mergedFigures(mrs, summaries)
     val read = figures.mapNotNull { it.review }
     fun share(count: Int) = CodeShare(count, if (read.isEmpty()) null else count.toDouble() / read.size)
     val closed = mrs.count { row ->

@@ -91,13 +91,24 @@ internal suspend fun keysOfAccounts(
     resolver: IdentityResolver,
     sources: List<CodeSource>,
     accounts: Collection<String>,
-): Map<UInt, Set<String>> {
-    if (accounts.isEmpty()) return emptyMap()
-    val byHost = sources.map { it.host }.distinct()
-        .associateWith { host -> resolver.keysByAccount(host, accounts).values.flatten().toSet() }
-    return sources.mapNotNull { source ->
-        byHost.getValue(source.host).takeIf { it.isNotEmpty() }?.let { source.connectionId to it }
+): Map<UInt, Set<String>> = linkedKeysOfAccounts(resolver, sources, accounts).byConnection
+
+/** The LINKED keys of some accounts per connection, and which of those accounts have at least one (on any source's host). */
+internal class LinkedKeys(val byConnection: Map<UInt, Set<String>>, val linkedAccounts: Set<String>)
+
+/** [keysOfAccounts] that also says which of [accounts] are linked at all (one statement per host, as before). */
+internal suspend fun linkedKeysOfAccounts(
+    resolver: IdentityResolver,
+    sources: List<CodeSource>,
+    accounts: Collection<String>,
+): LinkedKeys {
+    if (accounts.isEmpty()) return LinkedKeys(emptyMap(), emptySet())
+    val perHost = sources.map { it.host }.distinct().associateWith { host -> resolver.keysByAccount(host, accounts) }
+    val byConnection = sources.mapNotNull { source ->
+        perHost.getValue(source.host).values.flatten().toSet().takeIf { it.isNotEmpty() }?.let { source.connectionId to it }
     }.toMap()
+    val linked = perHost.values.flatMap { byAccount -> byAccount.filterValues { it.isNotEmpty() }.keys }.toSet()
+    return LinkedKeys(byConnection, linked)
 }
 
 /**
@@ -148,13 +159,15 @@ internal class CodeAttribution(
 }
 
 /**
- * What a request narrows the attributed rows to: [teamId] (`0` = the UNASSIGNED bucket, rows with no team at their anchor) and, at USER
- * level, the picked [accounts] (null: the whole team).
+ * What a request narrows the attributed rows to: [teamId] (`0` = the UNASSIGNED bucket, rows with no team at their anchor; null = ANY
+ * team, which Compare people and Person trend read: A41 attributes by person only) and, at USER level, the picked [accounts] (null: the
+ * whole team).
  */
-internal class CodeSelection(val teamId: UInt, val accounts: Set<String>?) {
+internal class CodeSelection(val teamId: UInt?, val accounts: Set<String>?) {
     /** A row whose person is [account] and whose team at the row's anchor is [team] is in scope. */
     fun accepts(team: UInt?, account: String?): Boolean =
-        (if (teamId == UNASSIGNED_TEAM_ID) team == null else team == teamId) && (accounts == null || account in accounts)
+        (teamId == null || (if (teamId == UNASSIGNED_TEAM_ID) team == null else team == teamId)) &&
+            (accounts == null || account in accounts)
 }
 
 /** Who a row is: the LINKED account, else (an unlinked identity) its key on its host; all null for a row naming no identity at all. */

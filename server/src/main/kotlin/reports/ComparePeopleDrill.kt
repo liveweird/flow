@@ -1,5 +1,6 @@
 package ch.nokillswit.reports
 
+import ch.nokillswit.metrics.WorkingCalendar
 import io.ktor.server.plugins.BadRequestException
 import java.math.BigDecimal
 import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
@@ -16,7 +17,14 @@ import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
 private val HISTOGRAM_VIEWS = setOf(CompareDrillView.CYCLE_WORKING_DAYS, CompareDrillView.CYCLE_ELAPSED_DAYS)
 
 /** What every view of one request shares: the resolved [scope], the [filter], the [segment] (the person) and the period [window]. */
-private class DrillContext(val tx: R2dbcTransaction, val filter: ReportFilter, val scope: ReportScope, val segment: String) {
+private class DrillContext(
+    val tx: R2dbcTransaction,
+    val filter: ReportFilter,
+    val scope: ReportScope,
+    val segment: String,
+    val codeDeps: CodeActivityDeps?,
+    val nowMs: Long,
+) {
     val window: Pair<Long, Long> = requireNotNull(scope.window) { "compare-people always has a from/to window" }
     val meta: ReportMeta get() = scope.meta
     val connections: List<UInt> get() = scope.connectionIds
@@ -48,7 +56,7 @@ internal suspend fun ReportService.comparePeopleItems(
         throw BadRequestException("bucketIndex applies to the cycle-time views only (${HISTOGRAM_VIEWS.joinToString { it.name }})")
     }
     return reportTransaction {
-        val ctx = DrillContext(this, filter, resolveReportScope(filter, nowMs), segment)
+        val ctx = DrillContext(this, filter, resolveReportScope(filter, nowMs), segment, codeDeps, nowMs)
         when (view) {
             CompareDrillView.DELIVERED, CompareDrillView.NO_ESTIMATE -> ctx.deliveredItems(view == CompareDrillView.DELIVERED)
             CompareDrillView.CYCLE_WORKING_DAYS, CompareDrillView.CYCLE_ELAPSED_DAYS ->
@@ -63,6 +71,9 @@ internal suspend fun ReportService.comparePeopleItems(
             CompareDrillView.BLOCKED -> ctx.blockedItems()
             CompareDrillView.LOGGED, CompareDrillView.FOREIGN, CompareDrillView.LATE -> ctx.worklogItems(view)
             CompareDrillView.WIP_TASK_DAYS, CompareDrillView.WIP_AT_END -> ctx.wipItems(view == CompareDrillView.WIP_TASK_DAYS)
+            CompareDrillView.COMMITS, CompareDrillView.MRS_MERGED, CompareDrillView.MR_CYCLE_WORKING_DAYS,
+            CompareDrillView.MR_SIZE_LINES, CompareDrillView.REVIEWS_GIVEN, CompareDrillView.APPROVALS_GIVEN, CompareDrillView.COMMENTS ->
+                ctx.codeItems(checkNotNull(view.codeView()))
         }
     }
 }
@@ -169,4 +180,18 @@ private suspend fun DrillContext.wipItems(taskDays: Boolean): ReportDrillItems {
         task(held.connectionId, held.issueId, null, startedAt, age)
     }
     return listed(rows)
+}
+
+/**
+ * The `CODE` views (A50): the commits, merge requests and acts behind the person's cell, by Report 21's own drill selection
+ * ([selectCodeDrill]) over the very rows the cell is computed from ([CodePeople.dataOf]: the person in ANY team, the window's rows).
+ * `bar.count` equals the cell's `n`; the items carry no team (the figure is the person's across teams). A commit with unknown counted
+ * lines is listed with no figure (the lines cell adds nothing for it).
+ */
+private suspend fun DrillContext.codeItems(view: CodeDrillView): ReportDrillItems {
+    val zone = WorkingCalendar.zoneOf(scope.settings.timeZone)
+    val people = loadCodePeople(codeDeps, listOf(segment), window, zone, nowMs, withCommits = view == CodeDrillView.COMMITS)
+    val data = people.dataOf(segment, window, scope.calendar, scope.settings.minSampleSize)
+    val selection = data.context.selectCodeDrill(CodeDrillQuery(view, null, null, null), null, 0, data)
+    return codeDrillItems(meta, null, selection, emptyMap())
 }

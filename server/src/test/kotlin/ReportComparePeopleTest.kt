@@ -118,6 +118,16 @@ class ReportComparePeopleTest {
         // Worklogs with a known creation time: alice 2 (1 over a day), bob 4 (3 over a day).
         "lateLoggingShare" to WantRow(Want(0.5, 2), Want(0.75, 4), CompareSide.A, 0.25, 0.25),
         "noEstimateShare" to WantRow(Want(0.25, 4), Want(0.0, 4), CompareSide.B, -0.25, 0.25),
+        // The CODE rows (A50): no GitLab identity of either person is linked, so every count is 0 (never hidden, a tie) and the two p50s
+        // have no merge request behind them (withheld under the minimum of 2). The linked people are ReportComparePeopleCodeTest's.
+        "commits" to WantRow(Want(0.0, 0), Want(0.0, 0), difference = 0.0),
+        "linesChanged" to WantRow(Want(0.0, 0), Want(0.0, 0), difference = 0.0),
+        "mrsMerged" to WantRow(Want(0.0, 0), Want(0.0, 0), difference = 0.0),
+        "mrCycleWorkingDaysP50" to WantRow(Want(null, 0, hidden = true), Want(null, 0, hidden = true)),
+        "mrSizeLinesP50" to WantRow(Want(null, 0, hidden = true), Want(null, 0, hidden = true)),
+        "reviewsGiven" to WantRow(Want(0.0, 0), Want(0.0, 0), difference = 0.0),
+        "approvalsGiven" to WantRow(Want(0.0, 0), Want(0.0, 0), difference = 0.0),
+        "comments" to WantRow(Want(0.0, 0), Want(0.0, 0), difference = 0.0),
     )
 
     @Test
@@ -273,11 +283,11 @@ class ReportComparePeopleTest {
                     assertNotNull(service.comparePeople(filter, now, CapacityGrant.Admin).capacity)
                     val both = service.comparePeople(filter, now, CapacityGrant.Teams(setOf(w.t1, w.t2)))
                     assertNotNull(both.capacity)
-                    assertEquals(28, both.rows.size)
+                    assertEquals(36, both.rows.size)
                     // Bob also belongs to team 2: a route that checked only team 1 (a membership appeared since) gets no capacity at all.
                     val stale = service.comparePeople(filter, now, CapacityGrant.Teams(setOf(w.t1)))
                     assertNull(stale.capacity)
-                    assertEquals(24, stale.rows.size)
+                    assertEquals(32, stale.rows.size)
                     assertNull(service.comparePeople(filter, now, CapacityGrant.None).capacity)
                     assertNull(service.comparePeople(filter, now, CapacityGrant.Teams(emptySet())).capacity)
                 }
@@ -334,7 +344,7 @@ class ReportComparePeopleTest {
                 for ((who, client) in listOf("admin" to admin, "the manager of both teams" to managerClient)) {
                     val report = client.compare(w.query())
                     assertNotNull(report.capacity, who)
-                    assertEquals(28, report.rows.size, "$who: all rows")
+                    assertEquals(36, report.rows.size, "$who: all rows")
                     assertEquals(20.0, report.row("availableMd").a.value, who)
                 }
                 // Team 1 now has another manager: bob also belonged to team 2, so neither manager is enough on their own.
@@ -355,7 +365,7 @@ class ReportComparePeopleTest {
                     }
                     val report = client.compare(w.query())
                     assertNull(report.capacity, who)
-                    assertEquals(24, report.rows.size, "$who: the other rows are the same for everyone")
+                    assertEquals(32, report.rows.size, "$who: the other rows are the same for everyone")
                     assertEquals(7.0, report.row("deliveredMd").a.value, who)
                 }
                 // Alice alone is a team-1 member only: the manager of team 1 manages every team she belonged to.

@@ -3,7 +3,7 @@ import { skipToken, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { getPersonTrendItems } from "../api/reportDrill";
 import type { PersonTrendReport } from "../api/reports";
-import { viewColumns } from "../utils/comparePeopleReport";
+import { isCodeView, viewColumns } from "../utils/comparePeopleReport";
 import { pointCountOf } from "../utils/personTrendReport";
 import { serializeDrill, type DrillTarget } from "../utils/reportDrill";
 import { reportQuery, type ReportFilterState } from "../utils/reportFilter";
@@ -69,6 +69,8 @@ export default function PersonTrendDrillDrawer({ report, filter, timeZone, opene
       anchor={columns.anchor}
       timeZone={timeZone}
       chartCount={row === undefined || index < 0 ? undefined : pointCountOf(row, row.points[index].n)}
+      // The CODE rows list commits and merge requests: plain keys (this report names no GitLab host), a "Person" column.
+      codeSources={isCodeView(view) ? [] : undefined}
     />
   );
 }

@@ -108,13 +108,13 @@ test.describe("person trend, read by a regular user", () => {
 
     // One card per figure (the two cycle-time percentiles share one) and the work mix, each chart drawn.
     const titles = page.getByRole("heading", { level: 3 });
-    await expect(titles).toHaveCount(14);
+    await expect(titles).toHaveCount(17);
     await expect(titles.last()).toHaveText("Work mix");
     await expect(page.getByRole("group", { name: "Delivered (items)", exact: true }).locator(".recharts-surface").first()).toBeVisible();
 
     // Every chart says where it is going: an arrow and a word with the two window ends, or why there is no mark.
     const cues = page.locator('[data-testid^="cue-"]');
-    await expect(cues).toHaveCount(14);
+    await expect(cues).toHaveCount(17);
     for (const text of await cues.allInnerTexts()) {
       if (text.includes("No mark:")) {
         expect(text).toContain("No mark: fewer than two full windows with a figure in this range.");

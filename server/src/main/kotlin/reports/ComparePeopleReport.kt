@@ -1,5 +1,6 @@
 package ch.nokillswit.reports
 
+import ch.nokillswit.metrics.WorkingCalendar
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
@@ -81,11 +82,11 @@ internal suspend fun ReportService.comparePeople(
 ): ComparePeopleReport = reportTransaction {
     val scope = resolveReportScope(filter, nowMs)
     val picked = pickedAccounts(filter)
-    val data = loadCompareData(filter, scope, nowMs, grant)
+    val (data, code) = loadCompareData(filter, scope, nowMs, grant, codeDeps)
     val showCapacity = data.capacity != null
     val (idA, idB) = picked.ids
-    val cellsA = data.cellsOf(idA)
-    val cellsB = data.cellsOf(idB)
+    val cellsA = data.cellsOf(idA, code)
+    val cellsB = data.cellsOf(idB, code)
     val rows = COMPARE_ROWS.filter { showCapacity || !it.requiresCapacity }.map { spec ->
         val a = cellsA.getValue(spec.key)
         val b = cellsB.getValue(spec.key)
@@ -130,14 +131,16 @@ internal fun cycleDistribution(
 
 /**
  * Every population one comparison reads, for the filter's two people over `scope.window` (a `from`/`to` period: never null here).
- * [grant] is the route's A39 verdict, re-checked against the memberships read here (a [CapacityGrant.None] reads none at all).
+ * [codeDeps] serves the `CODE` rows (null: no GitLab source is wired, the rows are 0). [grant] is the route's A39 verdict, re-checked
+ * against the memberships read here (a [CapacityGrant.None] reads none at all).
  */
 internal suspend fun R2dbcTransaction.loadCompareData(
     filter: ReportFilter,
     scope: ReportScope,
     nowMs: Long,
     grant: CapacityGrant,
-): CompareData {
+    codeDeps: CodeActivityDeps?,
+): CompareInputs {
     val window = requireNotNull(scope.window) { "compare-people always has a from/to window" }
     val connections = scope.connectionIds
     val memberships =
@@ -148,7 +151,7 @@ internal suspend fun R2dbcTransaction.loadCompareData(
         is CapacityGrant.Teams -> memberships.isNotEmpty() && grant.teamIds.containsAll(memberships.map { it.teamId })
     }
     val capacity = if (allowed) loadPeopleCapacity(memberships, connections, window, scope.calendar, nowMs) else null
-    return CompareData(
+    val data = CompareData(
         minSample = scope.settings.minSampleSize,
         window = window,
         calendar = scope.calendar,
@@ -161,4 +164,10 @@ internal suspend fun R2dbcTransaction.loadCompareData(
         wip = fetchCompareWip(scope, filter),
         capacity = capacity,
     )
+    // The CODE rows (A50): both people's GitLab rows, read once for the pair across every active GitLab source.
+    val zone = WorkingCalendar.zoneOf(scope.settings.timeZone)
+    return CompareInputs(data, loadCodePeople(codeDeps, filter.accountIds, window, zone, nowMs, withCommits = true))
 }
+
+/** What one comparison reads: the Jira populations (sliced) and the people's GitLab populations (not sliceable) for [cellsOf]. */
+internal data class CompareInputs(val data: CompareData, val code: CodePeople)

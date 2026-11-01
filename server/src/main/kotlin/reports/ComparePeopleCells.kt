@@ -50,8 +50,12 @@ private fun List<BigDecimal>.exactSum(): BigDecimal = fold(BigDecimal.ZERO, BigD
 
 private fun BigDecimal.over(divisor: BigDecimal): Double? = if (divisor.signum() == 0) null else toDouble() / divisor.toDouble()
 
-/** Every row of [account] -- keyed by [CompareRowSpec.key]; the capacity rows only when [CompareData.capacity] is set. */
-internal fun CompareData.cellsOf(account: String): Map<String, CompareCell> {
+/**
+ * Every row of [account] -- keyed by [CompareRowSpec.key]; the capacity rows only when [CompareData.capacity] is set. [code] is the
+ * people's
+ * GitLab populations (A50): the `CODE` rows, which no Jira slice touches (so they are not part of the Jira-sliced [CompareData]).
+ */
+internal fun CompareData.cellsOf(account: String, code: CodePeople): Map<String, CompareCell> {
     val cells = LinkedHashMap<String, CompareCell>()
     cells += deliveryCells(account)
     cells += cycleCells(account)
@@ -59,6 +63,7 @@ internal fun CompareData.cellsOf(account: String): Map<String, CompareCell> {
     cells += wipCells(account)
     cells += timeCells(account)
     cells += qualityCells(account)
+    cells += code.cellsOf(account, this)
     return cells
 }
 
