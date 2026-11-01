@@ -1,7 +1,7 @@
 import type { UseQueryResult } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Alert, Drawer, Select, Stack, Text, VisuallyHidden } from "@mantine/core";
-import type { ReportDrillItems } from "../api/reportDrill";
+import type { ReportDrillItem, ReportDrillItems } from "../api/reportDrill";
 import { personLabel } from "../utils/commitmentsReport";
 import { drillItemColumns, type DrillAnchor, type DrillUnit } from "../utils/reportDrill";
 import { formatMd } from "../utils/reportFormat";
@@ -13,6 +13,7 @@ import ErrorAlert from "./ErrorAlert";
 import JiraKeyLink from "./JiraKeyLink";
 import LoadingBlock from "./LoadingBlock";
 import ScrollRegion from "./ScrollRegion";
+import TaskCodeItemKey from "./TaskCodeItemKey";
 
 /** A picked person of a stacked chart, as the drawer's person select lists them (numbered like the chart's legend). */
 interface DrillPerson {
@@ -71,6 +72,18 @@ export interface ReportDrillDrawerProps {
    * `linkedKeys` link to Jira beside it, and its people column is "Person".
    */
   codeSources?: CodeActivityReport["sources"];
+  /**
+   * The list is Tasks and code's (tasks): each task's Jira key links to Jira and its `linkedKeys` — the merge requests linked to it —
+   * link to the GitLab of these report sources. The people column stays "Assignee".
+   */
+  taskSources?: CodeActivityReport["sources"];
+}
+
+/** How the key cell of a row renders: Code activity's GitLab key with its Jira issues, Tasks and code's Jira key with its merge requests, else a Jira link. */
+function issueKeyRenderer(codeSources?: CodeActivityReport["sources"], taskSources?: CodeActivityReport["sources"]) {
+  if (codeSources !== undefined) return (item: ReportDrillItem) => <CodeItemKey item={item} sources={codeSources} />;
+  if (taskSources !== undefined) return (item: ReportDrillItem) => <TaskCodeItemKey item={item} sources={taskSources} />;
+  return (item: ReportDrillItem) => <JiraKeyLink issueKey={item.issueKey} />;
 }
 
 /**
@@ -100,6 +113,7 @@ export default function ReportDrillDrawer({
   onSegmentChange,
   allowEveryone = true,
   codeSources,
+  taskSources,
 }: ReportDrillDrawerProps) {
   const { t } = useTranslation();
   const data = query.data;
@@ -177,9 +191,7 @@ export default function ReportDrillDrawer({
                     anchor,
                     timeZone,
                     showKind,
-                    codeSources === undefined
-                      ? (item) => <JiraKeyLink issueKey={item.issueKey} />
-                      : (item) => <CodeItemKey item={item} sources={codeSources} />,
+                    issueKeyRenderer(codeSources, taskSources),
                     codeSources !== undefined,
                   )}
                   rows={data.items}

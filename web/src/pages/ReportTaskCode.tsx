@@ -10,10 +10,14 @@ import ReportMetaNote from "../components/ReportMetaNote";
 import ReportPageHeader from "../components/ReportPageHeader";
 import ReportPageShell from "../components/ReportPageShell";
 import ReportTailControl from "../components/ReportTailControl";
+import TaskCodeDrillDrawer from "../components/TaskCodeDrillDrawer";
 import TaskCodeFigures from "../components/TaskCodeFigures";
 import TaskCodeSourcesNote from "../components/TaskCodeSourcesNote";
+import { useHistogramDrill } from "../hooks/useHistogramDrill";
+import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
 import { CODE_TABS } from "../utils/reportLinks";
+import { taskCodeAnchor, type TaskCodeDrill } from "../utils/taskCodeDrill";
 import { normalizeTaskCodeFilter, TASK_CODE_CONTROLS } from "../utils/taskCodeReport";
 
 /**
@@ -25,7 +29,7 @@ import { normalizeTaskCodeFilter, TASK_CODE_CONTROLS } from "../utils/taskCodeRe
  */
 export default function ReportTaskCode() {
   const { t } = useTranslation();
-  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage(
+  const { filtersQuery, filters, filter, filterKey, setFilter, query, storageKey } = useReportPage(
     "task-code",
     getTaskCodeReport,
     normalizeTaskCodeFilter,
@@ -34,6 +38,10 @@ export default function ReportTaskCode() {
   const report = query.data;
   // While a changed filter loads, the previous report stays on screen dimmed (`isPlaceholderData`).
   const refreshing = query.isPlaceholderData;
+  // The drill (a count or a histogram bar) is URL state; a figure of kept data belongs to the PREVIOUS filter and opens nothing.
+  const drill = useReportDrill(filterKey, taskCodeAnchor);
+  const openBar = useHistogramDrill(drill, { segment: "none" });
+  const taskCodeDrill: TaskCodeDrill = { open: drill.open, bar: openBar, disabled: query.isPlaceholderData };
   // Neither a team nor a domain exists to read: nothing to pick. A domain but no team yet leaves the bar up with a prompt, since the query waits for a pick.
   const nothingToRead = filters !== undefined && filters.teams.length === 0 && filters.domains.length === 0;
   const needsPick = filters !== undefined && !nothingToRead && filter.teamId === undefined && filter.domain === undefined;
@@ -72,7 +80,15 @@ export default function ReportTaskCode() {
                   <>
                     <TaskCodeSourcesNote report={report} timeZone={loaded.timeZone} />
                     <ReportTailControl filter={filter} onChange={setFilter} />
-                    <TaskCodeFigures report={report} isRefreshing={refreshing} />
+                    <TaskCodeFigures report={report} isRefreshing={refreshing} drill={taskCodeDrill} />
+                    <TaskCodeDrillDrawer
+                      report={report}
+                      filters={loaded}
+                      filter={filter}
+                      opened={drill.target !== null}
+                      target={drill.shown}
+                      onClose={drill.close}
+                    />
                   </>
                 )}
               </>

@@ -7,6 +7,7 @@ import { formatDate } from "./formatDate";
 import type { CostBreakdownBy } from "./costBreakdown";
 import { codeViewOf, type CodeDrillTarget, type CodeDrillView } from "./codeActivityDrill";
 import { isValidIsoDate } from "./isoDate";
+import { taskCodeViewOf, type TaskCodeFigureView } from "./taskCodeDrill";
 import { formatDays, formatMd, formatPercent, formatRatio, formatSignedMd, formatSignedPercent } from "./reportFormat";
 
 /**
@@ -46,7 +47,9 @@ export type DrillTarget =
   // Person trend's point: one row (its key) at one window (its last day). Never narrowed to a person: the page's filter names the one person.
   | { kind: "point"; row: string; end: string; segmentAccountId?: string }
   // Code activity (report 21): a tile, a member's cell (`segmentAccountId` = the member) or a weekly bar (`WEEK` + `bucketStart`). A histogram bar is a `hist`.
-  | { kind: "code"; view: CodeDrillView; bucketStart?: string; segmentAccountId?: string };
+  | { kind: "code"; view: CodeDrillView; bucketStart?: string; segmentAccountId?: string }
+  // Tasks and code (report 22): a count of the page (tasks with a merged merge request, without one, merged after done). A histogram bar is a `hist`. Never a person's.
+  | { kind: "taskcode"; view: TaskCodeFigureView; segmentAccountId?: string };
 
 /** The slices Compare people's work mix groups by — the very filter keys a drill narrows with. */
 export type CompareMixBy = "activityType" | "workCategory" | "domain";
@@ -142,6 +145,7 @@ function identityOf(target: DrillTarget): string {
   if (target.kind === "week") return `week:${target.teamId}:${target.bucketStart}`;
   if (target.kind === "point") return `point:${target.row}:${target.end}`;
   if (target.kind === "code") return `code:${target.view}${target.bucketStart === undefined ? "" : `:${target.bucketStart}`}`;
+  if (target.kind === "taskcode") return `taskcode:${target.view}`;
   return `hist:${target.view}:${target.bucketIndex}`;
 }
 
@@ -237,6 +241,12 @@ function parseCode(view: string, bucketStart: string | undefined, extra: string 
   return bucketStart === undefined ? { kind: "code", view: known } : null;
 }
 
+/** A `taskcode:<VIEW>` target: a count view the server answers. Tasks and code has no person level, so a segment spoils it. */
+function parseTaskCode(view: string, extra: string | undefined, segmentAccountId: string | undefined): DrillTarget | null {
+  const known = taskCodeViewOf(view);
+  return known !== undefined && extra === undefined && segmentAccountId === undefined ? { kind: "taskcode", view: known } : null;
+}
+
 /** An `ac-bucket:<monday>` or `ac-sprint:<teamId>:<sprintId>` target (Throughput's actual cost): a real day, or a team and a sprint id, and nothing after. */
 function parseActualCost(
   kind: "ac-bucket" | "ac-sprint",
@@ -285,6 +295,7 @@ export function parseDrill(raw: string | null): DrillTarget | null {
     const code = parseCode(first, second, third);
     return code === null ? null : { ...code, ...segment };
   }
+  if (kind === "taskcode") return parseTaskCode(first, second, segmentAccountId);
   if (kind === "hist") {
     return second !== undefined && third === undefined && VIEW_PATTERN.test(first) && INDEX_PATTERN.test(second)
       ? { kind, view: first, bucketIndex: Number(second), ...segment }

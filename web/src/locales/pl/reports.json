@@ -1765,6 +1765,14 @@
       "lagTitle": "Od zakończenia do ostatniego scalenia, dni robocze",
       "lagCaption": "Dni robocze między zakończeniem zadania a scaleniem jego ostatniego merge requestu.",
       "axis": "dni robocze"
+    },
+    "drill": {
+      "tilesHint": "Kliknij liczbę, aby wyświetlić zadania, które za nią stoją.",
+      "view": {
+        "TASKS_WITH_MR": "Zadania ze scalonym merge requestem",
+        "TASKS_WITHOUT_MR": "Zadania bez scalonego merge requestu",
+        "MERGED_AFTER_DONE": "Zadania scalone po zakończeniu"
+      }
     }
   },
   "deepDive": {

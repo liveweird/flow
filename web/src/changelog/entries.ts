@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.49.0",
+    date: "2026-11-01",
+    en: `**Tasks and code: open the tasks behind a figure.**
+
+- On the Tasks and code page, the counts of tasks with and without a merged merge request, the count merged after done and every bar of the code lead time and merge lag histograms now open a list of the tasks behind them (and their tables' figures open it from the keyboard).
+- Each task shows its Jira key and, beside it, its merged merge requests as links to GitLab. Tasks without a merged merge request list the open or closed ones that kept them out. The list always adds up to the figure it came from.`,
+    pl: `**Zadania i kod: otwórz zadania stojące za liczbą.**
+
+- Na stronie Zadania i kod liczby zadań ze scalonym merge requestem i bez niego, liczba zadań scalonych po zakończeniu oraz każdy słupek histogramów czasu realizacji kodu i opóźnienia scalenia otwierają teraz listę zadań, które za nimi stoją (a figury w ich tabelach robią to z klawiatury).
+- Każde zadanie pokazuje klucz z Jiry, a obok jego scalone merge requesty jako linki do GitLaba. Zadania bez scalonego merge requestu wymieniają te otwarte lub zamknięte, przez które się w nim nie znalazły. Lista zawsze sumuje się do liczby, z której powstała.`,
+  },
+  {
     version: "1.48.0",
     date: "2026-11-01",
     en: `**A new report, Tasks and code, shows how done tasks line up with their merge requests.**

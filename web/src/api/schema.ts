@@ -2811,6 +2811,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/task-code/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The done tasks behind one figure of the tasks and code report (drill to items)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 22". Takes the parent report's parameters
+         *     (`GET /api/v1/reports/task-code`: `teamId` or `domain`, the period, the slices, `connectionId`, `tailPercent`, so the same 400s,
+         *     an `accountId` included) plus the figure's identity: `view` (REQUIRED) and, for the two histogram views, a REQUIRED `bucketIndex`.
+         *     The list is read by the report's own plan and per-task properties, so `bar.count` equals the figure it stands behind:
+         *     `TASKS_WITH_MR` `tasks.withMergeRequest` (`figure` the task's code lead time in working days, null if it never started),
+         *     `TASKS_WITHOUT_MR` `tasks.withoutMergeRequest` (no `figure`), `MERGED_AFTER_DONE` `mergedAfterDone.count` (`figure` the lag in
+         *     working days) and, with a `bucketIndex` (0-based into that distribution's `histogram`, the open tail last), `CODE_LEAD_TIME` a bar of
+         *     `codeLeadTimeWorkingDays` and `MERGED_AFTER_DONE_LAG` a bar of `mergedAfterDone.lagWorkingDays` (`bar.count` equals
+         *     `histogram[bucketIndex].count`, `bar.from`/`bar.to` its range, `to` null = the open tail). `itemKind` is `TASK`; `issueKey` and
+         *     `summary` are the Jira task's, `accountId`/`assignee` its assignee at done, `teamId` its credit team and `anchorAt` its `done_at`.
+         *     The item's `linkedKeys` are the GitLab merge requests linked to the task, `<project path>!<iid>`, sorted: ALL its MERGED
+         *     ones for every view but `TASKS_WITHOUT_MR`, which lists the task's linked merge requests that are NOT merged (open, closed, locked;
+         *     `[]` for a task no merge request names). They link to the GitLab host of `sources[].baseUrl` of the parent. Sorted by `figure`
+         *     descending (nulls last), newest `anchorAt`, then key; at most 500 listed — `total` (equal to `bar.count`) says how many are behind
+         *     the figure. 400: a missing or unknown `view`, a `bucketIndex` that is missing for a histogram view, is sent with another view, is
+         *     not a non-negative integer or lies outside the histogram, a hidden distribution (fewer than `meta.minSampleSize` values: no bar
+         *     exists), plus every 400 of the parent (the code-row budget one included: a selection over `reports.codeMaxRows` is refused, not
+         *     cut).
+         */
+        get: operations["getReportTaskCodeItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/reported-time-ratio": {
         parameters: {
             query?: never;
@@ -4933,10 +4970,11 @@ export interface components {
              */
             figure: number | null;
             /**
-             * @description The Jira issue keys a merge request names in its title or source branch, uppercased, sorted, and only those of a KNOWN Jira project
-             *     (a configured `projectKeys` entry of an active Jira data source, or an old project of a moved issue). Set only on the
-             *     `MERGE_REQUEST` items of Report 21's drill and of Home's `CODE_*` lists (which run its selection);
-             *     `[]` = it names none; null for every other kind and report. A key is listed whether or not Jira has such an issue.
+             * @description The OTHER layer's keys the item is linked to, sorted; their kind is said by `itemKind`. On a `MERGE_REQUEST` item (Report 21's
+             *     drill and Home's `CODE_*` lists) they are the Jira issue keys its title or source branch names, uppercased, only those of a KNOWN
+             *     Jira project (a configured `projectKeys` entry of an active Jira data source, or an old project of a moved issue); a key is listed
+             *     whether or not Jira has such an issue. On a `TASK` item of Report 22's drill (`/reports/task-code/items`) they are the GitLab merge
+             *     requests linked to the task, `<project path>!<iid>` (all its merged ones; the unmerged ones on `TASKS_WITHOUT_MR`). `[]` = none; null for every other kind and report.
              */
             linkedKeys?: string[] | null;
         };
@@ -11736,6 +11774,53 @@ export interface operations {
                     "application/json": components["schemas"]["TaskCodeReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportTaskCodeItems: {
+        parameters: {
+            query: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
+                tailPercent?: components["parameters"]["ReportTailPercent"];
+                /** @description Which figure's tasks — see the operation description. */
+                view: "TASKS_WITH_MR" | "TASKS_WITHOUT_MR" | "CODE_LEAD_TIME" | "MERGED_AFTER_DONE" | "MERGED_AFTER_DONE_LAG";
+                /** @description The histogram views only (`CODE_LEAD_TIME`, `MERGED_AFTER_DONE_LAG`), and REQUIRED there — a bar of that distribution's `histogram`, 0-based (the open tail bucket last). A 400 on any other view or outside the histogram. */
+                bucketIndex?: number;
+            };
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ReportDrillItemsOk"];
             304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];

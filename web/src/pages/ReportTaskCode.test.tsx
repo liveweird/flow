@@ -96,12 +96,12 @@ describe("ReportTaskCode page", () => {
     const without = tile("Without a merged merge request");
     expect(within(without).getByText("16")).toBeInTheDocument();
     expect(without).toHaveTextContent("40% of the done tasks.");
-    // Neutral: no direction is claimed for these counts, and nothing in the card is a button (no drill yet) or wears a verdict colour.
+    // Neutral: no direction is claimed for these counts. The two counts open their tasks (the drill's own tests are in ReportTaskCodeDrill.test.tsx); the Done total is text.
     expect(screen.getByText(/No direction is better here: a task may need no code\./)).toBeInTheDocument();
-    for (const name of ["Done tasks", "With a merged merge request", "Without a merged merge request"]) {
-      expect(within(tile(name)).queryAllByRole("button")).toHaveLength(0);
+    expect(within(tile("Done tasks")).queryAllByRole("button")).toHaveLength(0);
+    for (const name of ["With a merged merge request", "Without a merged merge request"]) {
+      expect(within(tile(name)).getAllByRole("button")).toHaveLength(1);
     }
-    expect(screen.queryByRole("button", { name: /show the items/i })).not.toBeInTheDocument();
   });
 
   test("the code lead time: a distribution in working days with its numbers as a table, lower is better in words", async () => {

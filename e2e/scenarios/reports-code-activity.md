@@ -58,7 +58,7 @@
      (`<baseUrl>/<project>/-/merge_requests/<iid>`); Escape closes the dialog and focus returns to the figure.
 10. Whatever the outcome, the test removes the membership, the team, the reader, every decision of the host and the connection.
 
-## Scenario: a regular user reads Tasks and code for a domain: the done tasks with and without a merged merge request, the code lead time and the code merged after done equal the API, the sources and the note are told, the Code group's two tabs are there, and a clean axe scan
+## Scenario: a regular user reads Tasks and code for a domain: the done tasks with and without a merged merge request, the code lead time and the code merged after done equal the API, the sources and the note are told, the Code group's two tabs are there, a clean axe scan, and the with-a-merge-request count opens the tasks behind it with GitLab links to the merge requests
 
 1. Through the API, leftover GitLab-stub sources of earlier runs are deleted, the shared Jira fixture is made ready, a GitLab-stub source is created and synced, and a
    reader is created. The test reads `GET /api/v1/reports/task-code?domain=<domain>&from=2025-09-01&to=2026-09-30` (the whole history of the Jira stub) for every domain
@@ -84,7 +84,12 @@
      (never started, only unmerged merge requests, an ambiguous key) is above zero, and then each non-zero count is stated with the API's number.
 7. They run an accessibility scan.
    - *Expected*: an axe scan (WCAG 2.0/2.1 A+AA, `color-contrast` included) reports zero violations.
-8. Whatever the outcome, the test removes the reader and the connection.
+8. They press the **With a merged merge request** count (a button only when the API's count is above zero; at zero it is plain text and the test ends here). The test also reads
+   `GET /api/v1/reports/task-code/items?domain=<domain>&from=2025-09-01&to=2026-09-30&view=TASKS_WITH_MR`.
+   - *Expected*: the API's drill `total` equals the count; the dialog "Tasks with a merged merge request" opens and says "<count> items" (or "1 item"); its table "Items behind the bar" has
+     as many rows as the count (at most 500); each task lists its merge requests as links ending "(opens in GitLab)", each to the stub source's base URL and a `/-/merge_requests/` path,
+     opening in a new tab with `rel="noopener noreferrer"`; Escape closes the dialog and focus returns to the count.
+9. Whatever the outcome, the test removes the reader and the connection.
 
 ## Not covered here (and why)
 
@@ -95,4 +100,5 @@
 - The identity decisions themselves: `code-identities.spec.ts`.
 - Tasks and code's states (no active source, withheld distributions, a period with no done task, the note's three counts, the domain link and the bar's controls, a pasted member, the
   budget's 400): `ReportTaskCode.test.tsx` (web); the link rule (old keys, ambiguous keys, deleted merge requests, the figures' definitions) and the `400` matrix:
-  `ReportTaskCodeTest`, `ReportTaskCodeFixtureTest` and `TaskCodeKernelsTest` (server). Its drill is not built yet (the plan's next PR).
+  `ReportTaskCodeTest`, `ReportTaskCodeFixtureTest` and `TaskCodeKernelsTest` (server). The drill's other views (without, merged after done, both histogram bars), its URL state and
+  stale deep links: `ReportTaskCodeDrill.test.tsx` (web); every bar against its figure and the merge-request keys: `ReportTaskCodeDrillTest` and `ReportTaskCodeFixtureTest` (server).
