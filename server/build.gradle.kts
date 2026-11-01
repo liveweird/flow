@@ -532,6 +532,11 @@ tasks.test {
         }
     }
     maxParallelForks = forks
+    // The test fork HEAP (build-times.md WHY 62): Gradle's default is 512 MiB, and a fork's post-GC floor climbs to ~450-470 MiB over
+    // a full run on master (fixtures, the Kover agent's ~40 MiB of line data, Jackson trees that are NOT the OpenAPI validator's
+    // bounded schema cache), with 16-20 full GCs per fork; `PooledConnectionPinTest` (three 16 MiB arrays) then ran out of heap when it
+    // landed late in the fuller fork. 768 MiB restores headroom; finding the growth itself is a BACKLOG item.
+    maxHeapSize = "768m"
     // Candidates are selected by FILE NAME, not by scanning class files for @Test (Gradle's documented pairing: with
     // scanning off, `include` patterns decide). A later change relies on the exact candidate set; the naming rule
     // behind it is pinned by `TestClassNamingTest`.
