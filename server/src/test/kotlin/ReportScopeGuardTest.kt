@@ -31,7 +31,8 @@ class ReportScopeGuardTest {
             "cycle-time", "reported-time-ratio", "blocked-time", "costs",
         ).forEach { put(it, teamOrDomain); put("$it/items", teamOrDomain) }
         listOf("wip", "backlog", "aging-wip", "data-quality").forEach { put(it, teamOrDomain) }
-        listOf("commitments", "sprint-consistency", "sprint-consistency/items", "code-activity").forEach { put(it, teamOnly) }
+        listOf("commitments", "sprint-consistency", "sprint-consistency/items", "code-activity", "code-activity/items")
+            .forEach { put(it, teamOnly) }
         put("epic-progress", epicDomainOrTeam)
     }
 

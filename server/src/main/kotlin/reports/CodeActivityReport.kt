@@ -4,7 +4,6 @@ import ch.nokillswit.identities.IdentityResolver
 import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.ingest.DataProfileSections
 import ch.nokillswit.ingest.DataSourceService
-import ch.nokillswit.metrics.WorkingCalendar
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.v1.core.inList
@@ -25,17 +24,10 @@ private val PROFILE_JSON = Json { ignoreUnknownKeys = true }
  */
 internal suspend fun ReportService.codeActivity(filter: ReportFilter, nowMs: Long): CodeActivityReport = reportTransaction {
     val deps = checkNotNull(codeDeps) { "the code activity report is not configured on this service" }
-    val sources = resolveCodeSources(deps.dataSources, filter.connectionId)
-    val scope = resolveReportScope(filter.copy(connectionId = null), nowMs)
-    val teamId = checkNotNull(filter.teamId) { "TEAM_ONLY: the parser refuses a request without a teamId" }
+    val (scope, sources, data) = readCodeActivity(deps, filter, nowMs)
     val picked = pickedAccounts(filter)
     val minSample = scope.settings.minSampleSize
     val freshness = codeSourceFreshness(deps.dataSources, sources)
-    val window = scope.window
-    val data = window?.let {
-        val request = CodeActivityRequest(sources, teamId, filter.accountIds, it, nowMs)
-        loadCodeActivity(deps.resolver, request, scope.calendar, WorkingCalendar.zoneOf(scope.settings.timeZone), minSample)
-    }
     // A sprint period with no sprint to resolve reads nothing: every figure is empty, like the other reports'.
     val figures = data?.let { codeActivityFigures(it) } ?: emptyCodeActivityFigures(minSample)
     val flow = figures.flow
@@ -46,11 +38,12 @@ internal suspend fun ReportService.codeActivity(filter: ReportFilter, nowMs: Lon
         flow = CodeActivityFlow(
             merged = flow.merged,
             closedUnmerged = flow.closedUnmerged,
-            cycleWorkingDays = flow.distribution(minSample, filter.tailPercent, picked) { it.cycleWorkingDays },
-            cycleElapsedDays = flow.distribution(minSample, filter.tailPercent, picked) { it.cycleElapsedDays },
-            timeToFirstReviewWorkingDays = flow.distribution(minSample, filter.tailPercent, picked) { it.firstReviewWorkingDays },
-            sizeLines = flow.distribution(minSample, filter.tailPercent, picked) { it.sizeLines },
-            sizeFiles = flow.distribution(minSample, filter.tailPercent, picked) { it.sizeFiles },
+            // The value functions are the drill's too (CodeActivityDrill.kt): a bar and its items cannot disagree.
+            cycleWorkingDays = flow.distribution(minSample, filter.tailPercent, picked, MergedMrFigure::cycleWorkingDays),
+            cycleElapsedDays = flow.distribution(minSample, filter.tailPercent, picked, MergedMrFigure::cycleElapsedDays),
+            timeToFirstReviewWorkingDays = flow.distribution(minSample, filter.tailPercent, picked, MergedMrFigure::firstReviewWorkingDays),
+            sizeLines = flow.distribution(minSample, filter.tailPercent, picked, MergedMrFigure::sizeLines),
+            sizeFiles = flow.distribution(minSample, filter.tailPercent, picked, MergedMrFigure::sizeFiles),
             mergedWithoutReview = flow.mergedWithoutReview.toWire(),
             mergedWithoutApproval = flow.mergedWithoutApproval.toWire(),
             weekly = flow.weekly.map { CodeActivityWeek(it.bucketStart.toString(), it.merged) },

@@ -209,14 +209,21 @@
         "reopens": "Liczba ponownych otwarć",
         "ageWd": "Wiek (dni robocze)",
         "actualMd": "Zalogowane (MD)",
-        "gapMd": "Różnica (MD)"
+        "gapMd": "Różnica (MD)",
+        "lines": "Zmienione linie",
+        "files": "Zmienione pliki"
       },
       "authors": "Autorzy",
       "completed": "Sprint zakończony",
       "logged": "Ostatnio zalogowano",
       "started": "Rozpoczęto",
       "worklog": "Zalogowano dnia",
-      "kind": "Rodzaj"
+      "kind": "Rodzaj",
+      "person": "Osoba",
+      "merged": "Scalono",
+      "created": "Otwarto",
+      "committed": "Zatwierdzono",
+      "event": "Wykonano"
     },
     "sprintFallback": "Sprint {{id}}",
     "epicTitle": "{{bucket}} — {{epic}}",
@@ -721,7 +728,9 @@
   },
   "kind": {
     "TASK": "Zadanie",
-    "EPIC": "Epik"
+    "EPIC": "Epik",
+    "COMMIT": "Commit",
+    "MERGE_REQUEST": "Merge request"
   },
   "agingWip": {
     "noTeams": "Wiek WIP liczymy dla zespołu, a nie ma jeszcze żadnego zespołu. Administrator/ka dodaje zespoły na stronie Zespoły.",
@@ -1663,7 +1672,26 @@
         "reviewsGiven": "Przeglądy",
         "approvalsGiven": "Zatwierdzenia",
         "comments": "Komentarze"
-      }
+      },
+      "hintRows": "Kliknij liczbę w tabeli, aby zobaczyć commity lub merge requesty, które za nią stoją."
+    },
+    "drill": {
+      "view": {
+        "COMMITS": "Commity",
+        "MRS_MERGED": "Scalone merge requesty",
+        "MRS_OPENED": "Otwarte merge requesty",
+        "OPEN_MRS": "Otwarte merge requesty teraz",
+        "OPEN_MRS_WAITING": "Merge requesty czekające na przegląd",
+        "MERGED_WITHOUT_REVIEW": "Scalone bez przeglądu",
+        "MERGED_WITHOUT_APPROVAL": "Scalone bez zatwierdzenia",
+        "REVIEWS_GIVEN": "Przejrzane merge requesty",
+        "APPROVALS_GIVEN": "Zatwierdzone merge requesty",
+        "CHANGES_REQUESTED_GIVEN": "Merge requesty z żądanymi zmianami",
+        "COMMENTS": "Komentarze",
+        "REVIEW_REQUESTS_RECEIVED": "Otrzymane prośby o przegląd",
+        "WEEK": "Scalone w tygodniu"
+      },
+      "weekOf": "Tydzień od {{date}}"
     }
   },
   "deepDive": {

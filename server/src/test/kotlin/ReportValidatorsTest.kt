@@ -226,7 +226,7 @@ class ReportValidatorsTest {
         SweepIds(sprint[d.teamId]!!.value, sprint[d.sprintId], accounts[0], accounts[1], domain[dom.domainKey])
     }
 
-    /** Every report GET of the spec (all 36) with a request that answers 200 over [connectionId]'s derived data. */
+    /** Every report GET of the spec (all 38) with a request that answers 200 over [connectionId]'s derived data. */
     private suspend fun HttpClient.allReportOperations(connectionId: UInt): Map<String, String> {
         val ids = sweepIds(connectionId)
         val epicsResponse = get("/api/v1/reports/deep-dive/epics?connectionId=$connectionId&pageSize=1")
@@ -282,6 +282,7 @@ class ReportValidatorsTest {
             )
             // No connectionId: that one names a GITLAB source here (the Jira fixture's id would be the unknown-id 400).
             put("$base/code-activity", "$base/code-activity?teamId=${ids.teamId}&from=2026-01-01&to=2026-03-01")
+            put("$base/code-activity/items", "$base/code-activity/items?teamId=${ids.teamId}&from=2026-01-01&to=2026-03-01&view=MRS_MERGED")
             put("$base/deep-dive", "$base/deep-dive?epicId=${epic.key}&$scope")
             put("$base/deep-dive/sprints", "$base/deep-dive/sprints?domain=${ids.domainKey}&$scope")
             put("$base/deep-dive/epics", "$base/deep-dive/epics?$scope")
@@ -328,7 +329,7 @@ class ReportValidatorsTest {
     /** The operations whose figures move with `now` inside a day (reports.md "Cache validators"): only they use the 5-minute clock. */
     private val fiveMinuteOperations = setOf(
         "filters", "home", "home/items", "aging-wip", "data-quality", "throughput", "throughput/items", "costs", "costs/items",
-        "code-activity",
+        "code-activity", "code-activity/items",
     ).map { "/api/v1/reports/$it" }.toSet()
 
     @Test

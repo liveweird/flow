@@ -134,6 +134,19 @@ internal class CodeWorld(val zone: ZoneId, val source: CodeSource, val teamId: U
 }
 
 /**
+ * Two more merged merge requests by the team's member at the two edges of a week in the report zone: Sunday 23:59 of the first week (id 20)
+ * and the following Monday 00:00 (id 21), so a week-boundary drift between the weekly bars and their drill is caught. Written on top of the
+ * world (an upsert, nothing existing is touched); only the drill test adds them, so the hand-computed figures of the other tests stand.
+ */
+internal suspend fun CodeWorld.addWeekEdgeMergeRequests() {
+    fun edge(id: Long, mergedAt: Long) = NormCodeMergeRequest(
+        id, 1, id, "merged", false, kA, null, at(1), at(1), mergedAt, null, "feature", "main", "edge $id", null, null, null, emptyList(),
+        emptyList(), 3, 2, 1, false, DetailsState.READ, null, emptyList(),
+    )
+    GitLabFixtures.codeStore().replaceMergeRequests(connId, listOf(edge(20, at(6, 23) + 59 * 60_000L), edge(21, at(7))), now)
+}
+
+/**
  * Runs [body] in a fresh [CodeWorld] (rows written through the store, links through `CodeIdentityLinkStore`, the member's membership
  * inserted directly) and removes everything in `finally`. [zone] is the zone the days' midnights are taken in (UTC for the reads, the
  * configured report zone for an HTTP test, so the report's day bounds coincide with the world's days).

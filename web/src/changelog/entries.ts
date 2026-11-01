@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.41.0",
+    date: "2026-11-01",
+    en: `**See the commits and merge requests behind a Code activity figure.**
+
+- On the Code activity page, double-click a bar of any histogram or of the merged-per-week chart, or click a figure — a tile, the open-now count or a count in the members' table — to list the merge requests or commits it counts. Each line shows the project, the number or commit, the title, who did it, when and the figure's own value; the key opens it in GitLab in a new tab.
+- The list always adds up to the figure it came from, and the cell of one member lists only that member's items. The members' table stays plain context: the figures are underlined buttons and nothing more.`,
+    pl: `**Zobacz commity i merge requesty stojące za liczbą w Aktywności w kodzie.**
+
+- Na stronie Aktywność w kodzie kliknij dwukrotnie słupek dowolnego histogramu lub wykresu scalonych w tygodniu albo kliknij liczbę — kafel, liczbę otwartych teraz lub liczbę w tabeli osób — aby zobaczyć listę merge requestów lub commitów, które ona liczy. Każdy wiersz pokazuje projekt, numer lub commit, tytuł, kto to zrobił, kiedy i własną wartość liczby; klucz otwiera element w GitLabie w nowej karcie.
+- Lista zawsze sumuje się do liczby, z której powstała, a komórka jednej osoby pokazuje tylko jej elementy. Tabela osób pozostaje samym tłem: liczby są podkreślonymi przyciskami i niczym więcej.`,
+  },
+  {
     version: "1.40.0",
     date: "2026-11-01",
     en: `**The Code activity page.**

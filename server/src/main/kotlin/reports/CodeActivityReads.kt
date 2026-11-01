@@ -69,6 +69,9 @@ internal data class CodeCommitRow(
 ) {
     /** The counted lines are known: all three figures are present (one null leaves the whole commit out of the sums). */
     val countsKnown: Boolean get() = additionsCounted != null && deletionsCounted != null && filesCounted != null
+
+    /** `additions + deletions` counted, null while the commit's counts are unknown (the drill's figure). */
+    val linesCounted: Int? get() = if (countsKnown) additionsCounted!! + deletionsCounted!! else null
 }
 
 /**

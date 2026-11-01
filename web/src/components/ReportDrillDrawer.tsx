@@ -7,7 +7,9 @@ import { drillItemColumns, type DrillAnchor, type DrillUnit } from "../utils/rep
 import { formatMd } from "../utils/reportFormat";
 import classes from "../theme.module.css";
 import ColumnTable from "./ColumnTable";
+import type { CodeActivityReport } from "../api/reports";
 import ErrorAlert from "./ErrorAlert";
+import GitLabKeyLink from "./GitLabKeyLink";
 import JiraKeyLink from "./JiraKeyLink";
 import LoadingBlock from "./LoadingBlock";
 import ScrollRegion from "./ScrollRegion";
@@ -64,6 +66,11 @@ export interface ReportDrillDrawerProps {
   onSegmentChange?: (accountId: string | undefined) => void;
   /** Whether the person select offers "Everyone". Compare people's lists are always one person's (the API requires the segment), so it does not. */
   allowEveryone?: boolean;
+  /**
+   * The list is Code activity's (commits and merge requests): its keys link to the GitLab of these report sources, not to Jira, and its
+   * people column is "Person".
+   */
+  codeSources?: CodeActivityReport["sources"];
 }
 
 /**
@@ -92,6 +99,7 @@ export default function ReportDrillDrawer({
   segmentAccountId,
   onSegmentChange,
   allowEveryone = true,
+  codeSources,
 }: ReportDrillDrawerProps) {
   const { t } = useTranslation();
   const data = query.data;
@@ -163,7 +171,17 @@ export default function ReportDrillDrawer({
               <ScrollRegion label={t("reports.drill.tableAria")} minWidth={520} fill>
                 <ColumnTable
                   aria-label={t("reports.drill.tableAria")}
-                  columns={drillItemColumns(t, unit, anchor, timeZone, showKind, (item) => <JiraKeyLink issueKey={item.issueKey} />)}
+                  columns={drillItemColumns(
+                    t,
+                    unit,
+                    anchor,
+                    timeZone,
+                    showKind,
+                    codeSources === undefined
+                      ? (item) => <JiraKeyLink issueKey={item.issueKey} />
+                      : (item) => <GitLabKeyLink issueKey={item.issueKey} sources={codeSources} />,
+                    codeSources !== undefined,
+                  )}
                   rows={data.items}
                   rowKey={(item, index) => `${item.issueKey}:${index}`}
                   stickyHeader

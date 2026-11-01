@@ -1,5 +1,6 @@
 // Code activity (report 21) test fixtures: responses typed against the generated schema, so a spec drift breaks the fixtures and not just the page.
 // Team Alpha (FILTERS): Ann with the busy volumes, Bob with a roster row of zeros; one GitLab source, 40 merged merge requests, every distribution shown.
+import type { ReportDrillItems } from "../api/reportDrill";
 import type { CodeActivityGroup, CodeActivityReport } from "../api/reports";
 import { shownDistribution } from "./reportFixtures";
 
@@ -181,3 +182,36 @@ export const CODE_ACTIVITY_QUIET: CodeActivityReport = {
   review: { n: 0 },
   groups: [BOB],
 };
+
+const MERGED_AT = Date.UTC(2026, 8, 10, 9);
+
+/** The merge requests behind the merged tile / a histogram bar / a week: three listed (the cap, as far as the page cares), `count` of them behind the figure. */
+export function codeMrItems(count: number, over: Partial<ReportDrillItems> = {}): ReportDrillItems {
+  return {
+    meta: { ...META, level: "TEAM" },
+    bar: { count, sumMd: null, from: null, to: null },
+    items: [
+      { issueKey: "grp/app!12", summary: "Add the export", itemKind: "MERGE_REQUEST", accountId: "acc-ann", assignee: "Ann Author", teamId: 1, anchorAt: MERGED_AT, figure: 3 },
+      { issueKey: "grp/sub/api!7", summary: "Fix the retry", itemKind: "MERGE_REQUEST", accountId: "acc-bob", assignee: "Bob Builder", teamId: 1, anchorAt: MERGED_AT, figure: 2 },
+      { issueKey: "grp/app!3", summary: null, itemKind: "MERGE_REQUEST", accountId: null, assignee: null, teamId: 1, anchorAt: MERGED_AT, figure: null },
+    ],
+    total: count,
+    truncated: count > 3,
+    ...over,
+  };
+}
+
+/** Ann's commits (84 behind the figure, three listed): `figure` is the counted lines, unknown for the last. */
+export function codeCommitItems(count = 84): ReportDrillItems {
+  return {
+    meta: { ...META, level: "TEAM" },
+    bar: { count, sumMd: null, from: null, to: null },
+    items: [
+      { issueKey: "grp/app@3f9a1c2b4d5e", summary: "Add the export", itemKind: "COMMIT", accountId: "acc-ann", assignee: "Ann Author", teamId: 1, anchorAt: MERGED_AT, figure: 240 },
+      { issueKey: "grp/app@a1b2c3d4e5f6", summary: "Tidy", itemKind: "COMMIT", accountId: "acc-ann", assignee: "Ann Author", teamId: 1, anchorAt: MERGED_AT, figure: 12 },
+      { issueKey: "grp/app@0123456789ab", summary: "Unknown lines", itemKind: "COMMIT", accountId: "acc-ann", assignee: "Ann Author", teamId: 1, anchorAt: MERGED_AT, figure: null },
+    ],
+    total: count,
+    truncated: count > 3,
+  };
+}

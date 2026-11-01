@@ -8,6 +8,10 @@ import kotlinx.serialization.Serializable
 @Resource("/api/v1/reports/code-activity")
 class ReportCodeActivityRoute
 
+@Serializable
+@Resource("/api/v1/reports/code-activity/items")
+class ReportCodeActivityItemsRoute
+
 /**
  * Report 21, Code activity (`.claude/docs/reports.md` "Report 21", A50): any signed-in user (D12), read-only, no audit, `call.caller()`
  * first (inside [reportGet]). Read per team (`TEAM_ONLY`: a request naming no `teamId` is a `400`), `accountId` repeats 1..8 (USER level),
@@ -21,5 +25,14 @@ internal fun Route.codeActivityRoutes(reportService: ReportService) {
         scope = ReportScopeRule.TEAM_ONLY, withCodeStamp = true,
     ) { filter, _, nowMs ->
         answer { reportService.codeActivity(filter, nowMs) }
+    }
+    // The drill: the parent's parameters, the figure (`view`) and its bar (`bucketIndex` / `bucketStart`), `segmentAccountId` for one
+    // picked person. The same scope, clock and GitLab stamp as the report: the items are read from the same `norm.code_*` rows and links.
+    reportGet<ReportCodeActivityItemsRoute>(
+        reportService, DomainView.TASK, multipleAccounts = true, clock = StampClock.FIVE_MINUTES,
+        scope = ReportScopeRule.TEAM_ONLY, withCodeStamp = true,
+    ) { filter, params, nowMs ->
+        val query = params.codeDrillQuery()
+        answer { reportService.codeActivityItems(filter, query, nowMs) }
     }
 }
