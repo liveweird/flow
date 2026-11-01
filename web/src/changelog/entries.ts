@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.38.1",
+    date: "2026-11-01",
+    en: `**A second data source's metrics no longer wait on stale database statistics.**
+
+- When a sync rewrites a large share of a source's normalized data (a first sync, a second source of a similar size, a reprocess), Flow now refreshes the database's planner statistics for those tables right after it. Before, the metrics calculation that followed could plan the new source's rows as if there were one and run about three times longer, depending on when the database's own maintenance happened to run.
+- It applies to Jira and GitLab sources alike, costs a fraction of a second and is skipped for small incremental syncs.
+- Nothing to configure; a source that is busy with another maintenance task simply keeps the statistics it had, and the sync still succeeds.`,
+    pl: `**Metryki drugiego źródła danych nie czekają już na nieaktualne statystyki bazy.**
+
+- Gdy synchronizacja przepisuje dużą część znormalizowanych danych źródła (pierwsza synchronizacja, drugie źródło o podobnej wielkości, ponowne przetworzenie), Flow odświeża zaraz potem statystyki planera bazy dla tych tabel. Wcześniej następujące po niej obliczanie metryk mogło zaplanować wiersze nowego źródła tak, jakby był jeden, i trwać około trzy razy dłużej, zależnie od tego, kiedy akurat uruchomiła się własna konserwacja bazy.
+- Dotyczy źródeł Jira i GitLab, kosztuje ułamek sekundy i jest pomijane przy małych synchronizacjach przyrostowych.
+- Nic nie trzeba konfigurować; źródło zajęte inną czynnością konserwacyjną zachowuje po prostu dotychczasowe statystyki, a synchronizacja i tak się udaje.`,
+  },
+  {
     version: "1.38.0",
     date: "2026-10-31",
     en: `**GitLab identities are linked to Jira people.**

@@ -10,8 +10,8 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
  * bridges and facts, plus the global `dim_date` (ensured in the same run, in its own transaction; every step joins it).
  * Deliberately NOT here: `agg_daily_*` (written by those steps, never read by them),
  * `fact_epic_delivery`/`item_blocked`/`fact_sprint_snapshot` (read by neither), `team_membership`
- * (config, not rebuilt by DERIVE) and `norm.*` (PROCESS already committed those rows, so autovacuum
- * analyzes them). `MetricsAnalyzeTest` checks the list against the steps' SQL sources.
+ * (config, not rebuilt by DERIVE) and `norm.*` (PROCESS committed those rows earlier and ends with its own ANALYZE of the tables
+ * DERIVE joins, `norm/NormAnalyze.kt`). `MetricsAnalyzeTest` checks the list against the steps' SQL sources.
  */
 internal val ANALYZED_TABLES: List<String> = listOf(
     "metrics.dim_date", "metrics.dim_domain", "metrics.dim_task", "metrics.dim_epic", "metrics.dim_sprint",

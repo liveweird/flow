@@ -19,12 +19,13 @@ val CodeActivityStoreKey = AttributeKey<CodeActivityStore>("CodeActivityStore")
  *
  * - [CodeActivityWriter] - the PROCESS write path (the wholesale reference rebuilds, the commit upsert, the per-merge-request REPLACE);
  * - [CodeActivityReads] - the data profile's aggregates and the row readers the tests use;
- * - [CodeActivityPurge] - the PURGE step's batched deletes (`purgeAll`, in that file).
+ * - [CodeActivityPurge] - the PURGE step's batched deletes (`purgeAll`, in that file);
+ * - [analyzeAfterProcess] (`NormAnalyze.kt`) - the planner statistics of the tables a PROCESS has just filled.
  *
  * Every write opens its own `suspendTransaction`, which joins an enclosing one: the PROCESS stream wraps a page's write and the raw rows'
  * marks in ONE transaction. A `_counted` null means UNKNOWN, never zero (V44's header).
  */
-class CodeActivityStore(database: R2dbcDatabase) {
+class CodeActivityStore(private val database: R2dbcDatabase, private val analyzeSettings: NormAnalyzeSettings = NormAnalyzeSettings()) {
     private val writer = CodeActivityWriter(database)
     private val reads = CodeActivityReads(database)
     private val purge = CodeActivityPurge(database)
@@ -182,6 +183,13 @@ class CodeActivityStore(database: R2dbcDatabase) {
 
     suspend fun purgeCommitsBatch(connectionId: UInt, batchSize: Int = NORM_PURGE_BATCH_SIZE): Int =
         purge.purgeCommitsBatch(connectionId, batchSize)
+
+    /**
+     * GitLab PROCESS's closing step: `ANALYZE` the three `code_*` tables the PROFILE aggregates when the run for [connectionId] wrote
+     * rows ([rowsWritten] > 0) and their statistics are stale for it ([normAnalyzeReason]).
+     */
+    suspend fun analyzeAfterProcess(connectionId: UInt, rowsWritten: Long): NormAnalyzeResult =
+        analyzeIfMaterial(database, NORM_CODE_ANALYZED_TABLES, connectionId, rowsWritten, analyzeSettings)
 
     /** The two reference tables are rebuilt wholesale already: PURGE clears them outright. */
     suspend fun purgeReferenceRows(connectionId: UInt) = purge.purgeReferenceRows(connectionId)

@@ -68,7 +68,8 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   `insertRows` / `insertRowsIgnoringConflicts` build each row (run the caller's body) lazily, only while the statement that carries it is assembled, and plan the statements exactly as the payload split would over the whole list, so the rows in flight are one statement's cap, not the call's, and each body runs exactly once (`upsertRows` builds them all first: its collapse of repeated keys needs every key; `build-times.md` WHY 51). Exposed lists every statement a transaction ran until it ends (parsed SQL and encoded parameters included): `insertRows` clears the list after each statement, and `JiraRawBatchWrites` (`diffBatch`) after each key read, per-row UPDATE and touch chunk, so a 30,000-row flush keeps no read or update statement (`jira-integration.md` "Stored-size ceilings"); the worklog writer additionally hands in groups of at most 1,024 rows / 512 Ki characters, each normally one statement. **Statement timeouts: use the transaction's `queryTimeout`, nothing else.** Exposed's R2DBC executor *requests* the
   transaction's `queryTimeout` (whole seconds, default 0, never null) from the driver before EVERY statement. The reports use it
   through `ReportService.reportTransaction` (`reports.md` "Query budget"), the post-commit ANALYZE through
-  `MetricsStore.analyzeDerivedTables` (`SET LOCAL lock_timeout` is effective, the statement budget is the `queryTimeout`).
+  `MetricsStore.analyzeDerivedTables` and the post-PROCESS `norm` ANALYZE through `norm/NormAnalyze.kt` (`SET LOCAL lock_timeout`
+  is effective, the statement budget is the `queryTimeout`).
   **The per-connection cache (`infra/db/StatementTimeoutCache.kt`, `build-times.md` WHY 13).** r2dbc-postgresql answers each
   request with its own `SET STATEMENT_TIMEOUT` simple query that Exposed awaits — 43-49 % of all the round trips of a stub
   PROCESS or DERIVE. `connectPooledDatabase` therefore wraps the RAW connection factory (below the pool) in
@@ -592,6 +593,20 @@ work item's rows into, one issue at a time, keyed the same way `raw.jira_issues`
 `jira/JiraNormalizer.kt` is the Jira-specific parser that feeds it; `jira/JiraProcessStream.kt` is
 the PROCESS stream that drives the write. See `.claude/docs/ingestion.md` "Normalized layer" for
 the tiling invariants and stream mechanics — this section is the schema/persistence side only.
+
+**Planner statistics of `norm` (maintenance, build-times WHY 60).** `norm.*` is filled by PROCESS in many small committed page
+transactions, and nothing else maintains its statistics except autovacuum, which analyzes a table only after ~10 % of it changed and
+its naptime passed: a DERIVE that starts right behind a second connection's PROCESS plans that connection's rows from statistics that
+describe the first alone. So a PROCESS that wrote rows into the tables DERIVE joins ends with a bounded `ANALYZE` in its own
+short transaction when ANY of: a table was never analyzed (`reltuples < 0`); the tables' summed `pg_stat_user_tables.n_mod_since_analyze`
+is at least 10 % of their `pg_class.reltuples` sum (accumulating many small SYNCs and a failed attempt's committed rows); this connection
+is absent from `connection_id`'s `pg_stats.most_common_vals` on the first table (a tiny connection the sample misses pays about 0.35 s
+per SYNC, accepted) - `norm/NormAnalyze.kt` `analyzeIfMaterial`, which `check`s that no transaction is open so its `SET LOCAL` cannot
+leak into one; `SET LOCAL lock_timeout = 5000` plus a 30 s `queryTimeout`, never a `SET LOCAL statement_timeout`; a failure is
+one WARN with the SQLSTATE when there is one, and the job succeeds). Jira: `work_items`, `work_item_worklogs`, `work_item_field_intervals`; GitLab: `code_commits`,
+`code_merge_requests`, `code_mr_events`. The other `norm` tables are left to autovacuum (no statement DERIVE or the
+PROFILE runs over them plans badly on a stale estimate, or they are small and rebuilt wholesale). A new table that a DERIVE or PROFILE statement joins by `connection_id` goes into
+the matching list (`NORM_WORK_ITEM_ANALYZED_TABLES` / `NORM_CODE_ANALYZED_TABLES`); the `metrics` side is `MetricsAnalyzer`.
 
 - **`norm.work_items`** — PK `(connection_id, issue_id)`. Every column is the CURRENT snapshot
   only — history lives in the interval/change tables below, never here. `status_category` is one

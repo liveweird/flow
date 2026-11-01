@@ -328,7 +328,7 @@ class NormalizationPipelineTest {
             listOf(poisoned), store.issuesToProcess(connId, PROCESSING_VERSION, limit = 10),
             "only the failed issue stays flagged for the next PROCESS pass",
         )
-        assertEquals(mapOf("issuesProcessed" to total - 1, "issuesFailed" to 1L), context.progressSnapshot())
+        assertEquals(mapOf("issuesProcessed" to total - 1, "issuesFailed" to 1L), context.progressWithoutNormAnalyze())
     }
 
     @Test
@@ -493,7 +493,7 @@ class NormalizationPipelineTest {
         assertEquals(total - 1, items.countWorkItems(connId), "the page's other issues must still be written")
         assertNull(items.workItemRow(connId, poisoned), "the failing issue's own transaction rolls back")
         assertEquals(listOf(poisoned), store.issuesToProcess(connId, PROCESSING_VERSION, limit = 10))
-        assertEquals(mapOf("issuesProcessed" to total - 1, "issuesFailed" to 1L), context.progressSnapshot())
+        assertEquals(mapOf("issuesProcessed" to total - 1, "issuesFailed" to 1L), context.progressWithoutNormAnalyze())
     }
 
     @Test
@@ -514,7 +514,7 @@ class NormalizationPipelineTest {
             "the bad row stays flagged for the next pass",
         )
         assertNull(items.workItemRow(connId, poisoned))
-        assertEquals(mapOf("issuesProcessed" to 0L, "issuesFailed" to 1L), context.progressSnapshot())
+        assertEquals(mapOf("issuesProcessed" to 0L, "issuesFailed" to 1L), context.progressWithoutNormAnalyze())
     }
 
     @Test
@@ -545,7 +545,7 @@ class NormalizationPipelineTest {
                 listOf(poisoned), store.issuesToProcess(connId, PROCESSING_VERSION, limit = 10),
                 "the over-long row stays flagged for the next pass",
             )
-            assertEquals(mapOf("issuesProcessed" to 0L, "issuesFailed" to 1L), context.progressSnapshot())
+            assertEquals(mapOf("issuesProcessed" to 0L, "issuesFailed" to 1L), context.progressWithoutNormAnalyze())
         }
 
     @Test
@@ -577,7 +577,7 @@ class NormalizationPipelineTest {
                 listOf(poisoned), store.issuesToProcess(connId, PROCESSING_VERSION, limit = 10),
                 "the over-long row stays flagged for the next pass",
             )
-            assertEquals(mapOf("issuesProcessed" to 0L, "issuesFailed" to 1L), context.progressSnapshot())
+            assertEquals(mapOf("issuesProcessed" to 0L, "issuesFailed" to 1L), context.progressWithoutNormAnalyze())
         }
 
     @Test
@@ -634,7 +634,7 @@ class NormalizationPipelineTest {
 
         JiraProcessStream(store, items).run(context)
 
-        assertEquals(mapOf("issuesProcessed" to 1L), context.progressSnapshot())
+        assertEquals(mapOf("issuesProcessed" to 1L), context.progressWithoutNormAnalyze())
         assertEquals(0L, store.countNeedsProcessing(connId))
         assertEquals(digestBefore, normalizedDigest(connId), "the one-issue page must reproduce the same normalized rows")
     }
