@@ -6,10 +6,10 @@ import { personLabel } from "../utils/commitmentsReport";
 import { drillItemColumns, type DrillAnchor, type DrillUnit } from "../utils/reportDrill";
 import { formatMd } from "../utils/reportFormat";
 import classes from "../theme.module.css";
+import CodeItemKey from "./CodeItemKey";
 import ColumnTable from "./ColumnTable";
 import type { CodeActivityReport } from "../api/reports";
 import ErrorAlert from "./ErrorAlert";
-import GitLabKeyLink from "./GitLabKeyLink";
 import JiraKeyLink from "./JiraKeyLink";
 import LoadingBlock from "./LoadingBlock";
 import ScrollRegion from "./ScrollRegion";
@@ -67,8 +67,8 @@ export interface ReportDrillDrawerProps {
   /** Whether the person select offers "Everyone". Compare people's lists are always one person's (the API requires the segment), so it does not. */
   allowEveryone?: boolean;
   /**
-   * The list is Code activity's (commits and merge requests): its keys link to the GitLab of these report sources, not to Jira, and its
-   * people column is "Person".
+   * The list is Code activity's (commits and merge requests): its keys link to the GitLab of these report sources, a merge request's
+   * `linkedKeys` link to Jira beside it, and its people column is "Person".
    */
   codeSources?: CodeActivityReport["sources"];
 }
@@ -179,7 +179,7 @@ export default function ReportDrillDrawer({
                     showKind,
                     codeSources === undefined
                       ? (item) => <JiraKeyLink issueKey={item.issueKey} />
-                      : (item) => <GitLabKeyLink issueKey={item.issueKey} sources={codeSources} />,
+                      : (item) => <CodeItemKey item={item} sources={codeSources} />,
                     codeSources !== undefined,
                   )}
                   rows={data.items}

@@ -211,6 +211,9 @@ class ReportValidatorInputsTest {
             val db = sharedDatabaseForTests()
             val links = CodeIdentityLinkStore(db)
             val zone = ZoneId.of(DerivedStubFixture.metricsSettings().read().timeZone)
+            // The Jira source whose project list the `keys:` line carries: created BEFORE the baselines (its `connection:` line moves
+            // every tag).
+            val jiraId = SyncedStubFixture.createConnection(enabled = false, namePrefix = "etag-keys")
             withCodeWorld(zone) {
                 application.attributes[ReportServiceKey].clock = { now }
                 // Report 21 and every operation that reads the CODE rows (A50): Compare people and Person trend, and their drills.
@@ -274,6 +277,10 @@ class ReportValidatorInputsTest {
                     moved("a last successful sync")
                     suspendTransaction(db) { c.update({ c.id eq connId }) { it[name] = "etag-code-renamed-${System.nanoTime()}" } }
                     moved("a source rename")
+                    // `keys:<id>:<sha256 of the project keys>` (A51): the merge-request drills show the Jira keys of the known projects,
+                    // and a project-list edit bumps no revision a report stamps. It moves the code readers and no Jira report.
+                    SyncedStubFixture.putProjectKeys(jiraId, SyncedStubFixture.IN_SCOPE_PROJECT_KEYS + uniqueProjectKey())
+                    moved("a Jira source's project list edited")
                     // The negative control for the stamp itself: an unrelated write to the row moves nothing.
                     suspendTransaction(db) { c.update({ c.id eq connId }) { it[updatedAt] = nowPlus(1) } }
                     assertEquals(tags, codeReaders.map { client.etagOf(it) }, "updated_at is not stamped")
@@ -285,6 +292,7 @@ class ReportValidatorInputsTest {
                         }
                     }
                     TestUsers.softDelete(adminId)
+                    SyncedStubFixture.dataSources().delete(jiraId)
                 }
             }
         }

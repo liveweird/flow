@@ -1,6 +1,7 @@
 package ch.nokillswit.reports
 
 import ch.nokillswit.infra.paging.optionalString
+import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.norm.MrEventKind
 import io.ktor.http.Parameters
 import io.ktor.server.plugins.BadRequestException
@@ -204,7 +205,7 @@ private suspend fun ReportService.computeCodeActivityItems(
         return@reportTransaction ReportDrillItems(meta, ReportDrillBar(0, null, null, null), emptyList(), total = 0, truncated = false)
     }
     val selection = data.context.selectCodeDrill(query, segment, filter.tailPercent, data)
-    codeDrillItems(meta, checkNotNull(filter.teamId), selection, data.labels)
+    codeDrillItems(meta, checkNotNull(filter.teamId), selection, data.labels, deps.dataSources)
 }
 
 /**
@@ -218,17 +219,20 @@ private fun assigneeOf(member: CodeMember, names: Map<String, String>, unlinkedL
 
 /**
  * Sorts, cuts to [DRILL_MAX_ITEMS], labels ONLY the listed rows and assembles the response (`total` and `bar` cover every row). [teamId]
- * is the request's team, null where the figure belongs to no team (Compare people's code drill reads a person across teams).
+ * is the request's team, null where the figure belongs to no team (Compare people's code drill reads a person across teams). A merge
+ * request's item carries the Jira keys it names within the known projects (`linkedKeys`, `IssueKeyScope.kt`); [dataSources] reads them,
+ * and null (Compare people, whose drawer links no Jira key) leaves them null.
  */
 internal suspend fun codeDrillItems(
     meta: ReportMeta,
     teamId: UInt?,
     selection: DistributionSelection<CodeDrillRow>,
     unlinkedLabels: Map<Pair<String, String>, String>,
+    dataSources: DataSourceService?,
 ): ReportDrillItems {
     val rows = selection.rows
     val listed = rows.sortedWith(CODE_DRILL_ORDER).take(DRILL_MAX_ITEMS)
-    val labels = fetchCodeDrillLabels(listed)
+    val labels = fetchCodeDrillLabels(listed, dataSources)
     val names = accountDisplayNames(listed.mapNotNull { it.member.accountId }.distinct())
     val items = listed.map { row ->
         val member = row.member
@@ -241,6 +245,7 @@ internal suspend fun codeDrillItems(
             teamId = teamId,
             anchorAt = row.anchorAt,
             figure = row.figure,
+            linkedKeys = labels.linkedKeys(row),
         )
     }.sortedWith(
         compareByDescending<ReportDrillItem, Double?>(nullsFirst()) { it.figure }

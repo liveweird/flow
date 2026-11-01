@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.46.0",
+    date: "2026-11-01",
+    en: `**Code activity links merge requests to their Jira tasks.**
+
+- In the lists behind the Code activity figures (and the code lists on Home), each merge request now shows the Jira issues its title or branch names, as links to Jira.
+- Only keys of the Jira projects you have connected are shown. A key is shown even if Jira has no such issue, and then the link leads to Jira's "not found" page.`,
+    pl: `**Aktywność w kodzie łączy merge requesty z zadaniami w Jirze.**
+
+- W listach za wartościami raportu Aktywność w kodzie (oraz w listach kodu na stronie głównej) każdy merge request pokazuje teraz zadania z Jiry, które wskazuje jego tytuł lub gałąź, jako odnośniki do Jiry.
+- Pokazywane są tylko klucze z podłączonych projektów Jiry. Klucz jest widoczny także wtedy, gdy w Jirze nie ma takiego zadania, a odnośnik prowadzi wtedy na stronę „nie znaleziono”.`,
+  },
+  {
     version: "1.45.0",
     date: "2026-11-01",
     en: `**The data profile counts merge requests that name a Jira task.**

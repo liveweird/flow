@@ -54,3 +54,12 @@ private fun keysIn(text: String?): Set<String> {
     }
     return keys.filterTo(HashSet()) { it.length <= ISSUE_KEY_MAX_LENGTH }
 }
+
+/** mirrors `ingest/DataSource.kt`'s `PROJECT_KEY_PATTERN` plus the number: a full Jira issue key. */
+private val ISSUE_KEY_PROJECT_PATTERN = Regex("^([A-Z][A-Z0-9_]{1,9})-\\d+$")
+
+/**
+ * The project-key prefix of a full issue key (e.g. `"OPS-9001"` -> `"OPS"`); `null` for a malformed/missing key. The ONE helper: the
+ * DERIVE project-key timeline (`metrics/`) and the reports' known-project scope (`reports/IssueKeyScope.kt`) both read it.
+ */
+fun projectKeyFromIssueKey(issueKey: String?): String? = issueKey?.let { ISSUE_KEY_PROJECT_PATTERN.find(it)?.groupValues?.get(1) }

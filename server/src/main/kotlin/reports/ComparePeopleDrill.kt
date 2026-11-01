@@ -193,5 +193,6 @@ private suspend fun DrillContext.codeItems(view: CodeDrillView): ReportDrillItem
     val people = loadCodePeople(codeDeps, listOf(segment), window, zone, nowMs, withCommits = view == CodeDrillView.COMMITS)
     val data = people.dataOf(segment, window, scope.calendar, scope.settings.minSampleSize)
     val selection = data.context.selectCodeDrill(CodeDrillQuery(view, null, null, null), null, 0, data)
-    return codeDrillItems(meta, null, selection, emptyMap())
+    // No Jira keys here (`dataSources = null`): these pages' drawers print a key plain (the response names no GitLab host to link to).
+    return codeDrillItems(meta, null, selection, emptyMap(), dataSources = null)
 }

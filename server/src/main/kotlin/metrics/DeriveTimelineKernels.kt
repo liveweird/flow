@@ -1,6 +1,7 @@
 package ch.nokillswit.metrics
 
 import ch.nokillswit.norm.FieldChangeRow
+import ch.nokillswit.norm.projectKeyFromIssueKey
 
 data class EstimatePoint(val atMs: Long, val estimateMd: Double?)
 
@@ -108,12 +109,6 @@ fun mergeEstimateTimelines(timelines: List<List<EstimatePoint>>): List<EstimateP
     }
     return merged
 }
-
-/** `ingest/DataSource.kt`'s own `PROJECT_KEY_PATTERN`, duplicated here (pure-kernel package boundary) — a real Jira project key. */
-private val ISSUE_KEY_PROJECT_PATTERN = Regex("^([A-Z][A-Z0-9_]{1,9})-\\d+$")
-
-/** The project-key prefix of a full issue key (e.g. `"OPS-9001"` -> `"OPS"`); `null` for a malformed/missing key. */
-fun projectKeyFromIssueKey(issueKey: String?): String? = issueKey?.let { ISSUE_KEY_PROJECT_PATTERN.find(it)?.groupValues?.get(1) }
 
 /**
  * `task_domain`'s history (review round 2a): the project key active over time, tiled from the

@@ -133,6 +133,18 @@ class DataSourceService(
         }.toMap()
     }
 
+    /**
+     * The active (not soft-deleted, enabled or not) Jira data sources' ids and configured project keys, as stored: what the reports'
+     * issue-key scope (`reports/IssueKeyScope.kt`) and the `keys:` validator line read. Read the way [activeGitLabBaseUrls]
+     * reads: Jira rows only, and a row whose settings do not decode is skipped.
+     */
+    suspend fun activeJiraProjectKeys(): Map<UInt, List<String>> = suspendTransaction(database) {
+        Connections.selectAll().where { Connections.active() and Connections.isJira() }.toList().mapNotNull { row ->
+            catchingFailures({ (row.connectionSettings() as JiraConnectionSettings).projectKeys }) { null }
+                ?.let { row[Connections.id].value to it }
+        }.toMap()
+    }
+
     /** The kind of an active (not soft-deleted) data source, or null when there is none: what the routes branch on for a typed 409. */
     suspend fun kindOf(id: UInt): DataSourceKind? = suspendTransaction(database) { activeConnection(id)?.dataSourceKind() }
 

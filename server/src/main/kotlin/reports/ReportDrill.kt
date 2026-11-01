@@ -39,6 +39,11 @@ data class ReportDrillItem(
     val teamId: UInt?,
     val anchorAt: Long?,
     val figure: Double?,
+    /**
+     * The Jira issue keys a merge request names within the known Jira projects, sorted (A51; empty = it names none): set ONLY on the
+     * `MERGE_REQUEST` items of Report 21's drill and Home's `CODE_*` lists; null for every other kind and report.
+     */
+    val linkedKeys: List<String>? = null,
 )
 
 /**

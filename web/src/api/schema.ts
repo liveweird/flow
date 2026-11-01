@@ -2756,6 +2756,7 @@ export interface paths {
          *     values: no bar exists), a `bucketStart` that is missing for `WEEK`, sent with another view or not a week of the period,
          *     plus every 400 of the parent (the code-row budget one included: a selection over `reports.codeMaxRows` is refused, not cut), and the
          *     429 of the parent (a computation permit that did not free up within the statement budget). The merge requests and commits link to the GitLab host of `sources[].baseUrl` of the parent.
+         *     A `MERGE_REQUEST` item also carries `linkedKeys`: the Jira issue keys its title or source branch names within the known Jira projects (A51).
          */
         get: operations["getReportCodeActivityItems"];
         put?: never;
@@ -4887,6 +4888,13 @@ export interface components {
              * @description The bar's own per-item value (MD, days, a ratio, …); null = unestimated (counted as 0 MD).
              */
             figure: number | null;
+            /**
+             * @description The Jira issue keys a merge request names in its title or source branch, uppercased, sorted, and only those of a KNOWN Jira project
+             *     (a configured `projectKeys` entry of an active Jira data source, or an old project of a moved issue). Set only on the
+             *     `MERGE_REQUEST` items of Report 21's drill and of Home's `CODE_*` lists (which run its selection);
+             *     `[]` = it names none; null for every other kind and report. A key is listed whether or not Jira has such an issue.
+             */
+            linkedKeys?: string[] | null;
         };
         /**
          * @description A drill list: the report's `meta`, the recomputed `bar`, at most 500 `items` (largest figure first) and the `total` behind
