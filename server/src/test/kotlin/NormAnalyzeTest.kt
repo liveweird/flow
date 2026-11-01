@@ -28,6 +28,8 @@ import kotlin.test.assertTrue
 private const val LOGGER = "ch.nokillswit.norm.NormAnalyze"
 private const val PROBE = "public.norm_analyze_probe"
 private const val MILLIS_STATEMENT_BUDGET = 1_000L
+private const val WIRING_ISSUES = 150
+private const val SHORT_LOCK_WAIT_MS = 100L
 private val SYNC_TABLES = NORM_WORK_ITEM_ANALYZED_TABLES + "norm.work_item_status_intervals"
 
 /**
@@ -52,11 +54,16 @@ class NormAnalyzeTest {
         connections.clear()
     }
 
-    /** A clone of the fixture's raw rows with every issue flagged for PROCESS (a fresh sync's state, the norm layer empty). */
-    private suspend fun rawClone(): UInt {
+    /**
+     * A clone of the fixture's raw rows with every issue flagged for PROCESS (a fresh sync's state, the norm layer empty), or only
+     * the first [issueCount] of them: the ANALYZE wiring is the subject, not the volume, and a PROCESS of the fixture's 1,201 issues
+     * costs 0.7-1.0 s against 0.1 s for [WIRING_ISSUES].
+     */
+    private suspend fun rawClone(issueCount: Int? = null): UInt {
         val clone = SyncedStubFixture.createConnection(namePrefix = "norm-analyze", enabled = false).also { connections += it }
         SyncedStubFixture.cloneRawData(SyncedStubFixture.connectionId(), clone)
         SyncedStubFixture.rawStore().markAllNeedsProcessing(clone)
+        if (issueCount != null) flagOnly(clone, issueCount)
         return clone
     }
 
@@ -217,13 +224,13 @@ class NormAnalyzeTest {
 
     @Test
     fun `a Jira PROCESS that rewrites the connection ANALYZEs the work item tables once and records it in the progress`() = runBlocking {
-        val connId = rawClone()
+        val connId = rawClone(WIRING_ISSUES)
         settleStatistics()
         val before = NormAnalyzeSupport.analyzeCounts(SYNC_TABLES)
 
         val progress = process(connId)
 
-        assertTrue(progress.getValue("issuesProcessed") > 100, "the clone's issues were processed: $progress")
+        assertEquals(WIRING_ISSUES.toLong(), progress["issuesProcessed"], "the clone's flagged issues were processed: $progress")
         assertEquals(1L, progress["normAnalyzed"])
         assertTrue(progress.getValue("normAnalyzeMs") >= 0)
         assertTrue(
@@ -240,7 +247,7 @@ class NormAnalyzeTest {
 
     @Test
     fun `a Jira PROCESS that writes a few rows or none does not ANALYZE`() = runBlocking {
-        val connId = rawClone()
+        val connId = rawClone(WIRING_ISSUES)
         process(connId)
         settleStatistics(quiet = true)
         val before = NormAnalyzeSupport.analyzeCounts(SYNC_TABLES)
@@ -260,15 +267,15 @@ class NormAnalyzeTest {
 
     @Test
     fun `a lock another session holds makes the ANALYZE one WARN and the PROCESS still succeeds`() = runBlocking {
-        val connId = rawClone()
+        val connId = rawClone(WIRING_ISSUES)
         settleStatistics()
         val before = NormAnalyzeSupport.analyzeCounts(SYNC_TABLES)
-        val shortWait = storeWith(NormAnalyzeSettings(lockMs = 300, statementMs = 10_000))
+        val shortWait = storeWith(NormAnalyzeSettings(lockMs = SHORT_LOCK_WAIT_MS, statementMs = 10_000))
         val logs = LogCapture(LOGGER)
         try {
             val progress = NormAnalyzeSupport.holdingAnalyzeLock("norm.work_item_worklogs") { process(connId, shortWait) }
 
-            assertTrue(progress.getValue("issuesProcessed") > 100, "the PROCESS itself finished: $progress")
+            assertEquals(WIRING_ISSUES.toLong(), progress["issuesProcessed"], "the PROCESS itself finished: $progress")
             assertNull(progress["issuesFailed"])
             progressKeys.forEach { assertNull(progress[it], "the ANALYZE did not run: no $it") }
             val warn = logs.events.single { it.level == Level.WARN }
@@ -281,7 +288,7 @@ class NormAnalyzeTest {
                 before["norm.work_item_worklogs"], NormAnalyzeSupport.analyzeCounts(SYNC_TABLES)["norm.work_item_worklogs"],
                 "the table another session locked was never analyzed",
             )
-            assertTrue(SyncedStubFixture.workItems().profileWorkItems(connId).size > 100, "the norm rows are committed")
+            assertEquals(WIRING_ISSUES, SyncedStubFixture.workItems().profileWorkItems(connId).size, "the norm rows are committed")
         } finally {
             logs.detach()
         }

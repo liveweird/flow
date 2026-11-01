@@ -1,10 +1,12 @@
 package ch.nokillswit
 
 import ch.nokillswit.ingest.StreamContext
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * The run's progress without the closing ANALYZE's three keys (`normAnalyzed`, `normAnalyzeMs`, `normAnalyzeReason`): whether a
@@ -20,7 +22,8 @@ internal fun StreamContext.progressWithoutNormAnalyze(): Map<String, Long> =
  * manual-ANALYZE counter of a table set, a lock held from a second session. `pg_stat_user_tables.analyze_count` counts MANUAL analyzes
  * only (autovacuum has `autoanalyze_count`), so an autovacuum pass can never move what the tests compare.
  */
-private const val STATS_REPORT_INTERVAL_MS = 1_200L
+private const val FLUSH_TIMEOUT_MS = 10_000L
+/** The shared test pool's `maxSize` (`TestEnvironment.kt`). */
 private const val TEST_POOL_SIZE = 10
 
 internal object NormAnalyzeSupport {
@@ -41,15 +44,27 @@ internal object NormAnalyzeSupport {
 
     /**
      * PostgreSQL reports a session's table counters (`n_tup_*`, `n_mod_since_analyze`) at the end of a transaction only when a second has
-     * passed since its last report, else at the idle timeout, up to 10 s later. Waits out that second, then runs one transaction on every
-     * connection of the shared test pool at once (a held `pg_sleep` forces every one of its ten), so each reports what it holds.
+     * passed since its last report, else at the idle timeout, up to 10 s later. `pg_stat_force_next_flush()` (PostgreSQL 15+) makes the
+     * CALLING session report everything it holds at its next transaction end, whatever the interval, so no wait is needed: one
+     * transaction on every connection of the shared test pool calls it. A barrier holds all [TEST_POOL_SIZE] transactions open until
+     * each has started, which is what puts them on ten DISTINCT connections (a pool hands a free connection to the next acquirer, so
+     * without it one connection could serve them all), then they commit together and each reports.
      */
     private suspend fun flushPooledStatistics() {
-        delay(STATS_REPORT_INTERVAL_MS)
         val database = sharedDatabaseForTests()
-        coroutineScope {
-            repeat(TEST_POOL_SIZE) {
-                launch { suspendTransaction(database) { exec("DO \$\$ BEGIN PERFORM pg_sleep(0.3); END \$\$") } }
+        val started = AtomicInteger()
+        val allStarted = CompletableDeferred<Unit>()
+        withTimeout(FLUSH_TIMEOUT_MS) {
+            coroutineScope {
+                repeat(TEST_POOL_SIZE) {
+                    launch {
+                        suspendTransaction(database) {
+                            exec("DO \$\$ BEGIN PERFORM pg_stat_force_next_flush(); END \$\$")
+                            if (started.incrementAndGet() == TEST_POOL_SIZE) allStarted.complete(Unit)
+                            allStarted.await()
+                        }
+                    }
+                }
             }
         }
     }

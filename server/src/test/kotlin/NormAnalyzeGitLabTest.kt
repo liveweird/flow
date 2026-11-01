@@ -101,7 +101,7 @@ class NormAnalyzeGitLabTest {
         val connId = rawClone()
         settleStatistics()
         val before = NormAnalyzeSupport.analyzeCounts(CODE_TABLES)
-        val shortWait = storeWith(NormAnalyzeSettings(lockMs = 300, statementMs = 10_000))
+        val shortWait = storeWith(NormAnalyzeSettings(lockMs = 100, statementMs = 10_000))
         val logs = LogCapture(LOGGER)
         try {
             val progress = NormAnalyzeSupport.holdingAnalyzeLock("norm.code_mr_events") { process(connId, shortWait) }
