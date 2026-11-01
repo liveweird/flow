@@ -129,9 +129,12 @@ class CodeActivityReadsTest {
     fun `actor events are the dated acts of the scope's actors on live merge requests, review requests apart`() = withWorld {
         read {
             val ofB = fetchCodeActorEvents(listOf(connId), mapOf(connId to listOf(kB)), window)
-            // REVIEWED, COMMENT and two APPROVALs on merge request 1; the comment on the tombstoned 6 is not read.
-            assertEquals(listOf(MrEventKind.REVIEWED, MrEventKind.COMMENT, MrEventKind.APPROVAL, MrEventKind.APPROVAL), ofB.map { it.kind })
-            assertTrue(ofB.all { it.mr == CodeMrRef(connId, 1) && it.mrAuthorKey == kA })
+            // REVIEWED, COMMENT and two APPROVALs on merge request 1, and the comment AFTER the merge of 2 (an act is an act, whatever
+            // the merge request's state); the comment on the tombstoned 6 is not read.
+            val kinds = listOf(MrEventKind.REVIEWED, MrEventKind.COMMENT, MrEventKind.APPROVAL, MrEventKind.APPROVAL, MrEventKind.COMMENT)
+            assertEquals(kinds, ofB.map { it.kind })
+            assertEquals(listOf(1L, 1L, 1L, 1L, 2L), ofB.map { it.mr.mrId })
+            assertTrue(ofB.all { it.mrAuthorKey == kA })
             // An undated event is in no window.
             assertEquals(emptyList(), fetchCodeActorEvents(listOf(connId), mapOf(connId to listOf(kU)), window))
             // The requester's REVIEW_REQUESTED is not an act of review.
@@ -146,7 +149,10 @@ class CodeActivityReadsTest {
     @Test
     fun `the review summaries pair per actor the first dated review-kind event and whether they approved`() = withWorld {
         read {
-            val byActor = fetchCodeReviewSummaries(listOf(CodeMrRef(connId, 1), CodeMrRef(connId, 2))).associateBy { it.actorKey }
+            val all = fetchCodeReviewSummaries(listOf(CodeMrRef(connId, 1), CodeMrRef(connId, 2)))
+            // Merge request 2 (merged on day 8): kB's comment on day 10 is after the merge, so it is no first review and no approval.
+            assertEquals(listOf(CodeReviewSummary(CodeMrRef(connId, 2), kB, null, approved = false)), all.filter { it.mr.mrId == 2L })
+            val byActor = all.filter { it.mr.mrId == 1L }.associateBy { it.actorKey }
             // kB: REVIEWED on day 2 is the first signal (a REVIEWED-only first review reads the same), then a comment and two approvals.
             assertEquals(CodeReviewSummary(CodeMrRef(connId, 1), kB, at(2), approved = true), byActor.getValue(kB))
             assertEquals(at(2), byActor.getValue(kBot).firstReviewAt)
@@ -165,7 +171,7 @@ class CodeActivityReadsTest {
             val activity = fetchCodeKeyActivity(listOf(connId), window).associateBy { it.key }
             // Alice: a1, a2; merge requests created or merged in the window 1, 2, 3, 8; REVIEW_REQUESTED and COMMENT on 1.
             assertEquals(Triple(2L, 4L, 2L), activity.getValue(kA).let { Triple(it.commits, it.mergeRequests, it.events) })
-            assertEquals(Triple(1L, 0L, 4L), activity.getValue(kB).let { Triple(it.commits, it.mergeRequests, it.events) })
+            assertEquals(Triple(1L, 0L, 5L), activity.getValue(kB).let { Triple(it.commits, it.mergeRequests, it.events) })
             // kU: one commit, merge request 7, the dated REVIEW_REQUESTED on 2 (the undated comment is not counted).
             assertEquals(Triple(1L, 1L, 1L), activity.getValue(kU).let { Triple(it.commits, it.mergeRequests, it.events) })
             assertEquals(Triple(0L, 0L, 1L), activity.getValue(kBot).let { Triple(it.commits, it.mergeRequests, it.events) })
@@ -182,9 +188,13 @@ class CodeActivityReadsTest {
     @Test
     fun `identity labels are the display name, else the username`() = withWorld {
         read {
+            val wanted = listOf(kA, kU, "u1234567", "u9005", "u9006")
+            // An address is no label: the username stands in, and a key with only addresses has none.
             assertEquals(
-                mapOf(kA to "Alice A", kU to "unlinked-user"),
-                fetchCodeIdentityLabels(listOf(connId), listOf(kA, kU, "u1234567")),
+                mapOf(
+                    (connId to kA) to "Alice A", (connId to kU) to "unlinked-user", (connId to "u9005") to "dev.user",
+                ),
+                fetchCodeIdentityLabels(listOf(connId), wanted),
             )
             assertEquals(emptyMap(), fetchCodeIdentityLabels(listOf(connId), emptyList()))
         }
@@ -236,16 +246,17 @@ class CodeActivityReadsTest {
             loaded to codeActivityFigures(loaded)
         }
         val members = figures.members.associateBy { it.member }
-        assertEquals(setOf(CodeMember(null, kU), CodeMember(accB, null), CodeMember(null, null)), members.keys)
+        val host = source.host
+        assertEquals(setOf(CodeMember(null, kU, host), CodeMember(accB, null), CodeMember(null, null)), members.keys)
         // kU: the unlinked human's commit and merged merge request 7; labelled by the identity's username.
-        assertEquals(listOf(1, 1), members.getValue(CodeMember(null, kU)).let { listOf(it.commits, it.mrsMerged) })
-        assertEquals("unlinked-user", data.labels[kU])
-        assertNull(data.labels[kBot], "a decided key is not listed, so it needs no label")
-        // Bob is LINKED but in no team: his commit, one review of merge request 1 with ONE approval despite two events, the comment
-        // and the request.
+        assertEquals(listOf(1, 1), members.getValue(CodeMember(null, kU, host)).let { listOf(it.commits, it.mrsMerged) })
+        assertEquals("unlinked-user", data.labels[host to kU])
+        assertNull(data.labels[host to kBot], "a decided key is not listed, so it needs no label")
+        // Bob is LINKED but in no team: his commit, his reviews of merge requests 1 (ONE approval despite two events) and 2 (his comment
+        // after its merge is still an act of his), the two comments and the request.
         val bob = members.getValue(CodeMember(accB, null))
         assertEquals(
-            listOf(1, 1, 1, 1, 1),
+            listOf(1, 2, 1, 2, 1),
             listOf(bob.commits, bob.reviewsGiven, bob.approvalsGiven, bob.comments, bob.reviewRequestsReceived),
         )
         // The BOT's comment is in no volume; the author-less merge request 9 has a member of its own.

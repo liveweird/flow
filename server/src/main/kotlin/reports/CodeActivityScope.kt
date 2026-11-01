@@ -157,9 +157,12 @@ internal class CodeSelection(val teamId: UInt, val accounts: Set<String>?) {
         (if (teamId == UNASSIGNED_TEAM_ID) team == null else team == teamId) && (accounts == null || account in accounts)
 }
 
-/** Who a row is: the LINKED account, else (an unlinked identity) its key; both null for a row naming no identity at all. */
-internal data class CodeMember(val accountId: String?, val identityKey: String?)
+/** Who a row is: the LINKED account, else (an unlinked identity) its key on its host; all null for a row naming no identity at all. */
+internal data class CodeMember(val accountId: String?, val identityKey: String?, val host: String? = null)
 
-/** The [CodeMember] of a row whose key is [key] and LINKED account [account]. */
-internal fun codeMemberOf(account: String?, key: String?): CodeMember =
-    if (account != null) CodeMember(account, null) else CodeMember(null, key)
+/**
+ * The [CodeMember] of a row whose key is [key] and LINKED account [account]. An unlinked identity is qualified by its [host]: a key is
+ * only unique within one GitLab instance, so `u42` of two hosts are two people.
+ */
+internal fun codeMemberOf(account: String?, key: String?, host: String?): CodeMember =
+    if (account != null) CodeMember(account, null) else CodeMember(null, key, host.takeIf { key != null })

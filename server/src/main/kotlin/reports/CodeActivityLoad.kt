@@ -32,7 +32,7 @@ internal class CodeActivityData(
     /** The team's people (or the picks): listed in `groups` even with no row. Empty for `teamId=0`. */
     val roster: Set<String>,
     /** Display names of the unlinked identity keys of the rows, read for `teamId=0` only. */
-    val labels: Map<String, String>,
+    val labels: Map<Pair<String, String>, String>,
 )
 
 /** The figures of one request, ready for the wire mapping (part (b)). */
@@ -65,11 +65,13 @@ internal suspend fun loadCodeActivity(
     val connections = sources.map { it.connectionId }
     val window = request.window
     val unassignedAll = request.teamId == UNASSIGNED_TEAM_ID && request.picks.isEmpty()
-    // A mover's rows are attributed by anchor, and an open merge request by now: the roster spans the window and now.
+    // A mover's rows are attributed by anchor, and an open merge request by now: the roster is who belonged to the team at some point of
+    // the window, plus who belongs to it now (for the open merge requests) -- not everyone in between.
     val roster = when {
         request.picks.isNotEmpty() -> request.picks.toSet()
         unassignedAll -> emptySet()
-        else -> readTeamRoster(request.teamId, minOf(window.first, request.nowMs), maxOf(window.second, request.nowMs + 1))
+        else -> readTeamRoster(request.teamId, window.first, window.second) +
+            readTeamRoster(request.teamId, request.nowMs, request.nowMs + 1)
     }
     val scope: CodeKeyScope = if (unassignedAll) null else keysOfAccounts(resolver, sources, roster)
     val commits = fetchCodeCommits(connections, scope, window)
@@ -98,13 +100,21 @@ internal suspend fun loadCodeActivity(
         selection, CodeAttribution(loadCodeIdentities(resolver, sources, seen), memberships), window, request.nowMs, calendar, zone,
         minSample,
     )
-    val labels = if (request.teamId == UNASSIGNED_TEAM_ID) {
-        val identities = context.attribution.identities
-        fetchCodeIdentityLabels(connections, seen.flatMap { (id, keys) -> keys.filterNot { identities.isDecided(id, it) } })
-    } else {
-        emptyMap()
-    }
+    val labels = if (request.teamId == UNASSIGNED_TEAM_ID) undecidedLabels(context.attribution.identities, sources, seen) else emptyMap()
     return CodeActivityData(context, commits, mrs, events, requests, summaries, activity, qualityCounts, roster, labels)
+}
+
+/** The labels of the undecided keys of [seen], by (host, key): the lowest connection id of a host wins. */
+private suspend fun undecidedLabels(
+    identities: CodeIdentities,
+    sources: List<CodeSource>,
+    seen: Map<UInt, Set<String>>,
+): Map<Pair<String, String>, String> {
+    val keys = seen.flatMap { (id, keys) -> keys.filterNot { identities.isDecided(id, it) } }
+    val byConnection = fetchCodeIdentityLabels(sources.map { it.connectionId }, keys)
+    val hostOf = sources.associate { it.connectionId to it.host }
+    return byConnection.entries.sortedByDescending { it.key.first }
+        .associate { (id, label) -> (hostOf.getValue(id.first) to id.second) to label }
 }
 
 /** The figures of [data]: the flow, the open merge requests, the review concentration, the members and the `quality` block. */

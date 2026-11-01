@@ -23,6 +23,7 @@ import org.jetbrains.exposed.v1.core.intLiteral
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.less
+import org.jetbrains.exposed.v1.core.lessEq
 import org.jetbrains.exposed.v1.core.min
 import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.core.or
@@ -237,17 +238,25 @@ internal suspend fun fetchCodeReviewRequests(connections: Collection<UInt>, wind
 
 /**
  * Per (merged merge request, actor): the earliest dated review-kind event and whether the actor approved. ONE grouped statement per
- * chunk of merge requests, so the events themselves are never loaded. Which actors are another human, and which are BOT or IGNORED, is
- * decided afterwards (the kernel, with `IdentityResolver.decidedKeys`): an actor-less event is no one and is left out here.
+ * chunk of merge requests, so the events themselves are never loaded. A review counts only up to the MERGE: an event dated after
+ * `merged_at` is neither a first review nor a reviewer nor an approval (a comment on a merged merge request is not what held it up);
+ * an UNDATED APPROVAL still counts as an approval, as it always did. Per-member acts are NOT bounded (see [fetchCodeActorEvents]).
+ * Which actors are another human, and which are BOT or IGNORED, is decided afterwards (the kernel, with
+ * `IdentityResolver.decidedKeys`): an actor-less event is no one and is left out here.
  */
 internal suspend fun fetchCodeReviewSummaries(mrs: Collection<CodeMrRef>): List<CodeReviewSummary> {
     val e = CodeMrEvents
     val reviewKinds = REVIEW_KINDS.map { it.name }
-    val firstReview = valueWhen((e.kind inList reviewKinds) and e.eventAt.isNotNull(), e.eventAt).min()
-    val approvals = Count(valueWhen(e.kind eq MrEventKind.APPROVAL.name, intLiteral(1)))
+    val m = CodeMergeRequests
+    val beforeMerge = e.eventAt.isNotNull() and (e.eventAt lessEq m.mergedAt)
+    val firstReview = valueWhen((e.kind inList reviewKinds) and beforeMerge, e.eventAt).min()
+    val approvals = Count(
+        valueWhen((e.kind eq MrEventKind.APPROVAL.name) and (e.eventAt.isNull() or (e.eventAt lessEq m.mergedAt)), intLiteral(1)),
+    )
+    val source = e.join(m, JoinType.INNER, e.connectionId, m.connectionId, additionalConstraint = { e.mrId eq m.mrId })
     return mrs.groupBy({ it.connectionId }) { it.mrId }.flatMap { (connectionId, ids) ->
         ids.distinct().chunked(IN_CHUNK).flatMap { chunk ->
-            e.select(e.mrId, e.actorKey, firstReview, approvals)
+            source.select(e.mrId, e.actorKey, firstReview, approvals)
                 .where {
                     (e.connectionId eq connectionId) and (e.mrId inList chunk) and e.actorKey.isNotNull() and (e.kind inList reviewKinds)
                 }
@@ -258,16 +267,25 @@ internal suspend fun fetchCodeReviewSummaries(mrs: Collection<CodeMrRef>): List<
     }
 }
 
-/** The display name (else the username) of each of [keys] on [connections]; a ghost has none. The lowest connection id wins. */
-internal suspend fun fetchCodeIdentityLabels(connections: Collection<UInt>, keys: Collection<String>): Map<String, String> {
+/**
+ * The label of each (connection, key) among [keys] on [connections]: the display name, else the username; a name that contains an `@`
+ * is never a label (a git `user.name` set to an address must not reach the wire), and a ghost has none. Keys are per connection: the
+ * same key on another host is another identity.
+ */
+internal suspend fun fetchCodeIdentityLabels(
+    connections: Collection<UInt>,
+    keys: Collection<String>,
+): Map<Pair<UInt, String>, String> {
     if (connections.isEmpty() || keys.isEmpty()) return emptyMap()
     val i = CodeIdentities
-    val labels = LinkedHashMap<String, String>()
+    val labels = LinkedHashMap<Pair<UInt, String>, String>()
     keys.distinct().chunked(IN_CHUNK).forEach { chunk ->
-        i.select(i.identityKey, i.displayName, i.username)
+        i.select(i.connectionId, i.identityKey, i.displayName, i.username)
             .where { (i.connectionId inList connections) and (i.identityKey inList chunk) }
-            .orderBy(i.connectionId to SortOrder.DESC)
-            .toList().forEach { row -> (row[i.displayName] ?: row[i.username])?.let { labels[row[i.identityKey]] = it } }
+            .toList().forEach { row ->
+                listOf(row[i.displayName], row[i.username]).firstOrNull { it != null && '@' !in it }
+                    ?.let { labels[row[i.connectionId].value to row[i.identityKey]] = it }
+            }
     }
     return labels
 }
@@ -307,8 +325,8 @@ private fun periodOfMr(m: CodeMergeRequests, window: Pair<Long, Long>): Op<Boole
 
 /**
  * The window's connection-wide counts of rows that cannot enter a figure (`quality`): non-merge commits with an unknown counted figure,
- * merged merge requests (`merged_at` in the window) with an unknown total or with details not read, and undated events of the merge
- * requests created or merged in the window.
+ * merged merge requests (`merged_at` in the window) with an unknown total (lines OR file count) or with details not read, and undated
+ * events of the merge requests created or merged in the window. Three statements: one scan per table.
  */
 internal suspend fun fetchCodeQualityCounts(connections: Collection<UInt>, window: Pair<Long, Long>): CodeQualityCounts {
     if (connections.isEmpty()) return CodeQualityCounts(0, 0, 0, 0)
@@ -322,9 +340,12 @@ internal suspend fun fetchCodeQualityCounts(connections: Collection<UInt>, windo
         }.count()
     val merged = (m.connectionId inList connections) and m.deletedAt.isNull() and (m.state eq MR_MERGED) and
         inWindowOrNull(m.mergedAt, window)
-    val sizeUnknown = m.selectAll().where { merged and (m.additions.isNull() or m.deletions.isNull()) }.count()
-    val detailsNotRead = m.selectAll().where { merged and (m.detailsState neq DetailsState.READ.name) }.count()
+    // One scan of the merged merge requests for both counts. A size is unknown when ANY of its three totals is (the lines feed the
+    // line figures, the file count the file figure): never silently left out of one of them.
+    val sizeUnknown = Count(valueWhen(m.additions.isNull() or m.deletions.isNull() or m.fileCount.isNull(), intLiteral(1)))
+    val detailsNotRead = Count(valueWhen(m.detailsState neq DetailsState.READ.name, intLiteral(1)))
+    val mergedCounts = m.select(sizeUnknown, detailsNotRead).where { merged }.toList().single()
     val undated = e.join(m, JoinType.INNER, e.connectionId, m.connectionId, additionalConstraint = { e.mrId eq m.mrId }).selectAll()
         .where { (e.connectionId inList connections) and m.deletedAt.isNull() and e.eventAt.isNull() and periodOfMr(m, window) }.count()
-    return CodeQualityCounts(commitsUnknown, sizeUnknown, detailsNotRead, undated)
+    return CodeQualityCounts(commitsUnknown, mergedCounts[sizeUnknown], mergedCounts[detailsNotRead], undated)
 }

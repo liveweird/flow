@@ -5,6 +5,9 @@ import ch.nokillswit.identities.CodeIdentityConfirmResult
 import ch.nokillswit.identities.CodeIdentityDecision
 import ch.nokillswit.identities.CodeIdentityLinkStore
 import ch.nokillswit.identities.sourceHostOf
+import ch.nokillswit.ingest.SyncJobsService
+import ch.nokillswit.metrics.MetricsSettingsService
+import ch.nokillswit.metrics.TeamMembershipCreateRequest
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.reports.CodeActivityGroup
 import ch.nokillswit.reports.CodeActivityReport
@@ -24,10 +27,6 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
-import org.jetbrains.exposed.v1.core.inList
-import org.jetbrains.exposed.v1.r2dbc.deleteWhere
-import org.jetbrains.exposed.v1.r2dbc.insert
-import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.junit.AfterClass
 import org.junit.BeforeClass
 
@@ -164,7 +163,7 @@ class ReportCodeActivityFixtureTest {
         if (!flow.sizeFiles.hidden) close("sizeFiles p50", dbl(size[3]), flow.sizeFiles.p50)
 
         // Review coverage over the merged merge requests whose details were read: another human is an actor that is not the author and
-        // not decided BOT / IGNORED.
+        // not decided BOT / IGNORED, and only what happened up to the merge counts (an undated APPROVAL still does).
         val byHuman = { kinds: String, dated: String ->
             """SELECT count(*) FROM norm.code_merge_requests m WHERE m.connection_id = ? AND m.deleted_at IS NULL AND m.state = 'merged'
                  AND m.details_state = 'READ' AND m.merged_at >= ? AND m.merged_at < ? AND m.author_key IN $own
@@ -174,8 +173,9 @@ class ReportCodeActivityFixtureTest {
                                    AND b.decision IN ('BOT','IGNORED')))"""
         }
         val read = long(one("count(*)", "$merged AND details_state = 'READ'", *mergedP)[0])
-        val withoutReview = long(sql.rows(byHuman(reviewKinds, "AND e.event_at IS NOT NULL"), *p).single()[0])
-        val withoutApproval = long(sql.rows(byHuman("('APPROVAL')", ""), *p).single()[0])
+        val withoutReview = long(sql.rows(byHuman(reviewKinds, "AND e.event_at IS NOT NULL AND e.event_at <= m.merged_at"), *p).single()[0])
+        val approvalBound = "AND (e.event_at IS NULL OR e.event_at <= m.merged_at)"
+        val withoutApproval = long(sql.rows(byHuman("('APPROVAL')", approvalBound), *p).single()[0])
         assertEquals(withoutReview.toInt(), flow.mergedWithoutReview.count, "mergedWithoutReview")
         assertEquals(withoutApproval.toInt(), flow.mergedWithoutApproval.count, "mergedWithoutApproval")
         if (read == 0L) {
@@ -238,7 +238,7 @@ class ReportCodeActivityFixtureTest {
             count(
                 "norm.code_merge_requests",
                 "connection_id = ? AND deleted_at IS NULL AND state = 'merged' AND merged_at >= ? AND merged_at < ? AND " +
-                    "(additions IS NULL OR deletions IS NULL)",
+                    "(additions IS NULL OR deletions IS NULL OR file_count IS NULL)",
                 c, sql.from, sql.to,
             ),
             count(
@@ -276,25 +276,18 @@ class ReportCodeActivityFixtureTest {
         application.attributes[ReportServiceKey].clock = { REFERENCE_TIME }
         val zone = reportZone()
         val teamId = TestTeams.seed("code-fixture-${System.nanoTime()}")
-        var members = emptyList<String>()
+        val db = sharedDatabaseForTests()
+        val settings = MetricsSettingsService(db, dataSources, SyncJobsService(db, 3))
+        val memberships = TeamMembershipService(db, settings)
+        val membershipIds = mutableListOf<UInt>()
         try {
             // The proposals are the stub's email matches against the Jira stub's people; the linked humans are the team, from 1970 on.
             val confirmed = admin.post("/api/v1/data-sources/$ownId/code-identities/confirm-proposals").body<CodeIdentityConfirmResult>()
             assertEquals(CodeIdentityConfirmResult(linked = 6, bots = 1), confirmed)
             val linked = links.forHost(host).filter { it.decision == CodeIdentityDecision.LINKED }
-            members = linked.map { it.jiraAccountId!! }.distinct()
-            suspendTransaction(sharedDatabaseForTests()) {
-                members.forEach { account ->
-                    TeamMembershipService.TeamMembership.insert {
-                        it[accountId] = account
-                        it[TeamMembershipService.TeamMembership.teamId] = teamId
-                        it[validFrom] = 0L
-                        it[validTo] = null
-                        it[createdAt] = 1L
-                        it[updatedAt] = 1L
-                    }
-                }
-            }
+            val members = linked.map { it.jiraAccountId!! }.distinct()
+            // Through the service, as an admin would: it validates the person and bumps the settings revision.
+            members.forEach { membershipIds += memberships.create(teamId, TeamMembershipCreateRequest(it, validFrom = 0L)).id }
             val keysOf = linked.groupBy({ it.jiraAccountId!! }, { it.key })
             val allKeys = keysOf.values.flatten()
 
@@ -323,9 +316,7 @@ class ReportCodeActivityFixtureTest {
             user.code(url)
             println("in-test\tcode-activity-90d\t${(System.nanoTime() - started) / 1_000_000L}")
         } finally {
-            suspendTransaction(sharedDatabaseForTests()) {
-                TeamMembershipService.TeamMembership.deleteWhere { accountId inList members }
-            }
+            membershipIds.forEach { memberships.delete(teamId, it) }
             TestTeams.service.delete(teamId)
         }
     }

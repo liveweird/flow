@@ -33,7 +33,8 @@ internal class CodeKernelContext(
     fun memberAt(connectionId: UInt, key: String?, atMs: Long): CodeMember? {
         if (key != null && attribution.identities.isNonHuman(connectionId, key)) return null
         val account = attribution.accountOf(connectionId, key)
-        return if (selection.accepts(attribution.teamOf(connectionId, key, atMs), account)) codeMemberOf(account, key) else null
+        if (!selection.accepts(attribution.teamOf(connectionId, key, atMs), account)) return null
+        return codeMemberOf(account, key, attribution.identities.hostOf(connectionId))
     }
 }
 
@@ -52,8 +53,9 @@ internal fun CodeKernelContext.mergedInScope(mrs: List<CodeMrRow>): List<ScopedM
 internal class MrReview(val firstReviewAt: Long?, val approved: Boolean, val reviewers: Set<String>)
 
 /**
- * The review of [row] from its actors' [summaries]: an actor counts when it is not the author (the same key, or another key LINKED to the
- * author's account), and is not decided BOT or IGNORED; an unlinked HUMAN reviewer counts. [MrReview.reviewers] are the distinct people
+ * The review of [row] from its actors' [summaries] (already bounded at the merge, `fetchCodeReviewSummaries`): an actor counts when
+ * it is not the author (the same key, or another key LINKED to the author's account), and is not decided BOT or IGNORED; an
+ * unlinked HUMAN reviewer counts. [MrReview.reviewers] are the distinct people
  * with a dated review-kind event (the LINKED account, else the key).
  */
 internal fun CodeKernelContext.reviewOf(row: CodeMrRow, summaries: List<CodeReviewSummary>): MrReview {
@@ -61,8 +63,10 @@ internal fun CodeKernelContext.reviewOf(row: CodeMrRow, summaries: List<CodeRevi
     val others = summaries.filter {
         !identities.isNonHuman(row.connectionId, it.actorKey) && !identities.samePerson(row.connectionId, it.actorKey, row.authorKey)
     }
+    // An unlinked reviewer is told apart by host AND key: a key is only unique within one GitLab instance.
+    val host = identities.hostOf(row.connectionId)
     val reviewers = others.filter { it.firstReviewAt != null }
-        .map { attribution.accountOf(row.connectionId, it.actorKey) ?: "key:${it.actorKey}" }.toSet()
+        .map { attribution.accountOf(row.connectionId, it.actorKey) ?: "key:$host:${it.actorKey}" }.toSet()
     return MrReview(others.mapNotNull { it.firstReviewAt }.minOrNull(), others.any { it.approved }, reviewers)
 }
 

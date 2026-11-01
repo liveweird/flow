@@ -162,6 +162,8 @@ class CodeActivityKernelsTest {
 
     private fun member(account: String) = CodeMember(account, null)
 
+    private fun unlinked(key: String) = CodeMember(null, key, "gl.test")
+
     @Test
     fun `team 7 flow, attributed to the author's team at merged_at`() {
         val flow = flow(7u)
@@ -185,7 +187,7 @@ class CodeActivityKernelsTest {
         assertEquals(listOf(1.0, null, 1.0), flow.mrs.map { it.firstReviewWorkingDays })
         assertTrue(flow.mrs[1].review!!.firstReviewAt == null && !flow.mrs[1].review!!.approved && flow.mrs[1].review!!.reviewers.isEmpty())
         assertEquals(setOf("acc-b"), flow.mrs[0].review!!.reviewers)
-        assertEquals(setOf("key:u5"), flow.mrs[2].review!!.reviewers)
+        assertEquals(setOf("key:gl.test:u5"), flow.mrs[2].review!!.reviewers)
     }
 
     @Test
@@ -329,7 +331,7 @@ class CodeActivityKernelsTest {
 
         // Dave joined on day 10: his day-3 commit is not team 7's, but the roster keeps him visible with zeros.
         assertEquals(0, m.getValue(member("acc-d")).commits)
-        assertNull(m[CodeMember(null, "u5")])
+        assertNull(m[unlinked("u5")])
     }
 
     @Test
@@ -352,9 +354,9 @@ class CodeActivityKernelsTest {
         val t0 = members(0u)
         // u5 is unlinked; dave (u4) is linked but had no team on day 3.
         // The BOT u9 has a commit, two merge requests and a comment: a decision, so in no group and no figure.
-        assertEquals(setOf(CodeMember(null, "u5"), member("acc-d")), t0.keys)
-        assertEquals(1, t0.getValue(CodeMember(null, "u5")).commits)
-        assertEquals(1, t0.getValue(CodeMember(null, "u5")).mrsMerged)
+        assertEquals(setOf(unlinked("u5"), member("acc-d")), t0.keys)
+        assertEquals(1, t0.getValue(unlinked("u5")).commits)
+        assertEquals(1, t0.getValue(unlinked("u5")).mrsMerged)
         assertEquals(2L, t0.getValue(member("acc-d")).linesAdded)
         val flow = flow(0u)
         assertEquals(listOf(8L), flow.mrs.map { it.scoped.row.mrId })
@@ -378,6 +380,42 @@ class CodeActivityKernelsTest {
         assertEquals(3, quality.mrsSizeUnknown)
         assertEquals(2, quality.mrsDetailsNotRead)
         assertEquals(1, quality.eventsUndated)
+    }
+
+    @Test
+    fun `the same key on two hosts is two people - groups, quality and the busiest reviewer agree`() {
+        val twoHosts = CodeIdentities(
+            mapOf(1u to "h1", 2u to "h2"),
+            accountByHostKey = mapOf("h1" to mapOf("u1" to "acc-a"), "h2" to mapOf("u3" to "acc-c")),
+            decisionByHostKey = mapOf(
+                "h1" to mapOf("u1" to CodeIdentityDecision.LINKED), "h2" to mapOf("u3" to CodeIdentityDecision.LINKED),
+            ),
+        )
+        fun context(team: UInt) = CodeKernelContext(
+            CodeSelection(team, null), CodeAttribution(twoHosts, memberships), at(0) to at(21), at(21), calendar, zone, 1,
+        )
+        fun merged(connection: UInt, author: String) =
+            CodeMrRow(connection, 1, 1, 1, "merged", false, author, at(0), at(2), null, 1, 1, 1, true)
+        fun commit(connection: UInt, key: String) = CodeCommitRow(connection, 1, "s$connection", key, at(1), 1, 1, 1)
+        // The undecided "u42" reviewed one merge request on each host: two reviewers, each with one pair.
+        val mrs = listOf(merged(1u, "u1"), merged(2u, "u3"))
+        val summaries = listOf(
+            CodeReviewSummary(CodeMrRef(1u, 1), "u42", at(1), approved = false),
+            CodeReviewSummary(CodeMrRef(2u, 1), "u42", at(1), approved = false),
+        )
+        val flow = context(7u).flowFigures(mrs, summaries)
+        assertEquals(listOf(setOf("key:h1:u42"), setOf("key:h2:u42")), flow.mrs.map { it.review!!.reviewers })
+        assertEquals(0.5, reviewConcentration(flow, 1).topReviewerShare)
+
+        // In the UNASSIGNED bucket the two "u42" are two members, and two unlinked identities in the quality block.
+        val ctx = context(0u)
+        val commits = listOf(commit(1u, "u42"), commit(2u, "u42"))
+        val noFlow = ctx.flowFigures(emptyList(), emptyList())
+        val members = ctx.memberFigures(noFlow, commits, emptyList(), emptyList(), emptyList(), emptyList())
+        assertEquals(listOf(CodeMember(null, "u42", "h1"), CodeMember(null, "u42", "h2")), members.map { it.member })
+        assertEquals(listOf(1, 1), members.map { it.commits })
+        val activity = listOf(CodeKeyActivity(1u, "u42", 1, 0, 0), CodeKeyActivity(2u, "u42", 1, 0, 0))
+        assertEquals(2, codeQuality(activity, CodeQualityCounts(0, 0, 0, 0), twoHosts).unlinkedIdentities)
     }
 
     @Test

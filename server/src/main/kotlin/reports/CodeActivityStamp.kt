@@ -1,15 +1,16 @@
 package ch.nokillswit.reports
 
-import ch.nokillswit.identities.CodeIdentityLinkStore
 import ch.nokillswit.identities.sourceHostOf
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobsService
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.and
-import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.max
+import org.jetbrains.exposed.v1.core.statements.StatementType
+import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
 import org.jetbrains.exposed.v1.r2dbc.select
 
 /*
@@ -25,8 +26,9 @@ import org.jetbrains.exposed.v1.r2dbc.select
  *   appearance, rename, re-pointing or new backfill start);
  * - `code-ingest:<id>:<newest job id>:<last heartbeat>:<last finish>` over their SYNC / RECONCILE / REPROCESS / PURGE jobs: a PROCESS
  *   commits page by page inside a SYNC, and the heartbeat moves after each committed page (the Jira `ingest:` line's reasoning);
- * - `links:<host>:<count>:<newest decided_at>` per distinct host: a link PUT, DELETE or confirm-proposals moves the count or the newest
- *   instant, and nothing bumps a revision for it.
+ * - `links:<host>:<digest>` per distinct host, the md5 of the host's decisions in key order (key, decision, account, `decided_at`): a link
+ *   PUT, DELETE or confirm-proposals changes it, and nothing bumps a revision for it. Not a count and a newest instant: `decided_at` is
+ *   taken before the commit, so with several pods two different states can share both.
  */
 internal suspend fun ReportService.codeStamp(): List<String> = reportTransaction {
     val deps = codeDeps ?: return@reportTransaction emptyList()
@@ -43,17 +45,31 @@ internal suspend fun ReportService.codeStamp(): List<String> = reportTransaction
         .where { (j.kind inList ingestKinds) and (j.connectionId inList urls.keys) }
         .groupBy(j.connectionId).orderBy(j.connectionId).toList()
     val hosts = urls.values.map { sourceHostOf(it) }.distinct().sorted()
-    val l = CodeIdentityLinkStore.Links
-    val linkCount = l.identityKey.count()
-    val newestDecision = l.decidedAt.max()
-    val links = l.select(l.sourceHost, linkCount, newestDecision).where { l.sourceHost inList hosts }.groupBy(l.sourceHost).toList()
-        .associateBy { it[l.sourceHost] }
+    val links = linkDigests(hosts)
     buildList {
         sources.forEach {
             val id = it[c.id].value
             add("code:$id:${it[c.name]}:${sourceHostOf(urls.getValue(id))}:${it[c.lastSyncSucceededAt]}:${it[c.backfillFrom]}")
         }
         jobs.forEach { add("code-ingest:${it[j.connectionId].value}:${it[newestId]}:${it[lastHeartbeat]}:${it[lastFinish]}") }
-        hosts.forEach { host -> add("links:$host:${links[host]?.get(linkCount) ?: 0}:${links[host]?.get(newestDecision)}") }
+        hosts.forEach { host -> add("links:$host:${links[host] ?: "none"}") }
     }
+}
+
+/**
+ * The md5 of each of [hosts]' stored decisions (`public.code_identity_links`), in key order; a host with none is absent. One grouped
+ * statement. The hosts are canonical authorities (`sourceHostOf`) and are quoted all the same.
+ */
+private suspend fun R2dbcTransaction.linkDigests(hosts: List<String>): Map<String, String> {
+    val quoted = hosts.joinToString(",") { "'" + it.replace("'", "''") + "'" }
+    val rows: Flow<Pair<String, String>?>? = exec(
+        """
+        SELECT source_host,
+               md5(string_agg(identity_key || ':' || decision || ':' || coalesce(jira_account_id, '') || ':' || decided_at, ','
+                              ORDER BY identity_key))
+        FROM code_identity_links WHERE source_host IN ($quoted) GROUP BY source_host
+        """.trimIndent(),
+        explicitStatementType = StatementType.SELECT,
+    ) { row -> row.get(0, String::class.java)!! to row.get(1, String::class.java)!! }
+    return rows?.toList()?.filterNotNull().orEmpty().toMap()
 }

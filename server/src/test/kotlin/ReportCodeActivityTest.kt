@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.flowusers.FlowUserRole
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.metrics.MetricsSettingsService
+import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.reports.CodeActivityReport
 import ch.nokillswit.reports.ReportServiceKey
@@ -15,6 +16,8 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import java.time.ZoneId
+import org.jetbrains.exposed.v1.r2dbc.insert
+import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -97,6 +100,8 @@ class ReportCodeActivityTest {
             assertEquals(listOf(1, 1, 1, false, 24.0, 24.0), report.open.let {
                 listOf(it.count, it.drafts, it.age.n, it.age.hidden, it.age.p50, it.age.p85)
             })
+            // Merge request 2 stays merged-without-review: bob's comment on day 10 came after its merge (day 8), so it is no first
+            // review and he is not its reviewer (the p50 of reviewers per merge request is over 0 and 1).
             val review = assertNotNull(report.review)
             assertEquals(listOf(2, 0.5, 1.0), listOf(review.n, review.reviewersPerMergedMrP50, review.topReviewerShare))
 
@@ -161,9 +166,10 @@ class ReportCodeActivityTest {
             assertEquals(listOf(accB, "unlinked-user", null), report.groups.map { it.label })
             assertEquals(listOf(accB, null, null), report.groups.map { it.accountId })
             val (bob, unlinked, nobody) = report.groups
-            // Bob: b1; merge request 1 reviewed with ONE approval (two events); one comment; the request naming him.
+            // Bob: b1; merge requests 1 (ONE approval for two events) and 2 (his comment AFTER its merge is still an act of his) reviewed;
+            // two comments; the request naming him.
             assertEquals(
-                listOf(1, 1, 1, 1, 1),
+                listOf(1, 2, 1, 2, 1),
                 listOf(bob.commits, bob.reviewsGiven, bob.approvalsGiven, bob.comments, bob.reviewRequestsReceived),
             )
             // kU: u1, merge request 7 (created day 3 Thu, merged day 6 Sun: 2 working days; no size).
@@ -201,6 +207,32 @@ class ReportCodeActivityTest {
             assertEquals(listOf(2, 4), listOf(alice.mrsMerged, alice.mrsOpened))
             assertNull(alice.mrCycleWorkingDaysP50)
             assertNull(alice.mrSizeLinesP50)
+        }
+    }
+
+    @Test
+    fun `the roster is who belonged to the team in the window or belongs now, not everyone in between`() = testApplication {
+        usePostgresTestcontainer()
+        val client = seededClient("code-activity-roster")
+        inWorld {
+            pin(this)
+            val team = teamId
+            val account = accB
+            suspendTransaction(sharedDatabaseForTests()) {
+                TeamMembershipService.TeamMembership.insert {
+                    it[accountId] = account
+                    it[TeamMembershipService.TeamMembership.teamId] = team
+                    it[validFrom] = at(91)
+                    it[validTo] = at(183)
+                    it[createdAt] = 1L
+                    it[updatedAt] = 1L
+                }
+            }
+            // Bob was in the team from June to August: a zero group in a summer window, absent from a January one (and now is March).
+            val january = client.code("teamId=$teamId&from=2026-01-05&to=2026-01-18&connectionId=$connId")
+            assertEquals(listOf(accA), january.groups.map { it.accountId })
+            val summer = client.code("teamId=$teamId&from=2026-06-01&to=2026-08-31&connectionId=$connId")
+            assertEquals(setOf(accA, accB), summer.groups.map { it.accountId }.toSet())
         }
     }
 

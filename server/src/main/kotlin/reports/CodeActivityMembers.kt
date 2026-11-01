@@ -82,7 +82,7 @@ internal fun CodeKernelContext.memberFigures(
     events.forEach { event -> addAct(event, ::of) }
     requests.forEach { event -> addRequests(event, ::of) }
     return acc.map { (member, a) -> a.toFigures(member, minSample) }
-        .sortedWith(compareBy({ it.member.accountId ?: "" }, { it.member.identityKey ?: "" }))
+        .sortedWith(compareBy({ it.member.accountId ?: "" }, { it.member.host ?: "" }, { it.member.identityKey ?: "" }))
 }
 
 private fun CodeKernelContext.addCommit(commit: CodeCommitRow, of: (CodeMember) -> MemberAcc) {

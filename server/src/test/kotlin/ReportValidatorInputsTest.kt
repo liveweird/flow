@@ -231,6 +231,9 @@ class ReportValidatorInputsTest {
                     moved("a link written")
                     links.update(IdentityLink(source.host, kU, CodeIdentityDecision.BOT, null, adminId.toLong(), 7L))
                     moved("a link overwritten")
+                    // Same number of links, same newest decided_at (7), another decision: a count and a newest instant would miss it.
+                    links.update(IdentityLink(source.host, kU, CodeIdentityDecision.IGNORED, null, adminId.toLong(), 7L))
+                    moved("a link changed to another decision at the same instant, the count unchanged")
                     links.delete(source.host, kU)
                     moved("a link removed")
 

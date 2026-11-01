@@ -88,6 +88,9 @@ internal class CodeWorld(val zone: ZoneId, val source: CodeSource, val teamId: U
         identity(kB, 9002, "bob", "Bob B"),
         identity(kU, 9003, "unlinked-user", null),
         identity(kBot, 9004, "ci-bot", "CI Bot", bot = true),
+        // A git user.name set to an address must never be a label: the username is, else nothing.
+        identity("u9005", 9005, "dev.user", "dev@example.test"),
+        identity("u9006", 9006, "a@b.test", "x@y.test"),
     )
 
     val commits = listOf(
@@ -117,7 +120,8 @@ internal class CodeWorld(val zone: ZoneId, val source: CodeSource, val teamId: U
         ),
         mr(
             2, kA, 6, "merged", merged = 8, size = 1 to 1, files = 1,
-            events = listOf(event(1, MrEventKind.REVIEW_REQUESTED, kU, at(3), listOf(kA))),
+            // kB's comment on day 10 comes AFTER the merge (day 8): an act of his, but not a review of the merge request.
+            events = listOf(event(1, MrEventKind.REVIEW_REQUESTED, kU, at(3), listOf(kA)), event(2, MrEventKind.COMMENT, kB, at(10))),
         ),
         mr(3, kA, 7, "opened", draft = true),
         mr(4, kA, -20, "opened"),

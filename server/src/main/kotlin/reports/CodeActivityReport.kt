@@ -130,6 +130,9 @@ private fun CodeMemberFigures.toGroup(label: String?) = CodeActivityGroup(
     reviewRequestsReceived = reviewRequestsReceived,
 )
 
+private fun unlinkedLabel(member: CodeMember, labels: Map<Pair<String, String>, String>): String? =
+    if (member.host != null && member.identityKey != null) labels[member.host to member.identityKey] else null
+
 /**
  * The `groups`: TEAM level one per LINKED member (the roster is seeded with zeros), ordered like every report's org groups (display
  * name, then account id); USER level one per pick in that order; then, for `teamId=0`, one per undecided unlinked identity (named by
@@ -139,7 +142,7 @@ private fun CodeMemberFigures.toGroup(label: String?) = CodeActivityGroup(
 private suspend fun codeActivityGroups(
     members: List<CodeMemberFigures>,
     picked: PickedAccounts,
-    labels: Map<String, String>,
+    labels: Map<Pair<String, String>, String>,
 ): List<CodeActivityGroup> {
     val linked = members.filter { it.member.accountId != null }
     val ordered = if (picked.ids.isNotEmpty()) {
@@ -151,7 +154,7 @@ private suspend fun codeActivityGroups(
         (rows.singleOrNull() ?: zeroFigures(CodeMember(key.accountId, null))).toGroup(key.label)
     }
     val unlinked = members.filter { it.member.accountId == null }
-        .map { it to it.member.identityKey?.let(labels::get) }
+        .map { it to unlinkedLabel(it.member, labels) }
         .sortedWith(compareBy({ it.second == null }, { it.second }))
         .map { (figures, label) -> figures.toGroup(label) }
     return linkedGroups + unlinked
