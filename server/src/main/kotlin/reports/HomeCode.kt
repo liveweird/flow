@@ -131,5 +131,5 @@ internal suspend fun ReportService.homeCodeItems(ctx: HomeContext, teamId: UInt,
     )
     val data = loadCodeRows(deps.resolver, request, CodeRowBudget(deps.maxRows))
     val selection = data.context.selectCodeDrill(CodeDrillQuery(view.codeView(), null, null, null), null, DEFAULT_TAIL_PERCENT, data)
-    return codeDrillItems(ctx.meta(), teamId, selection, data.labels)
+    return codeDrillItems(ctx.meta(), teamId, selection, data.labels, deps.dataSources)
 }

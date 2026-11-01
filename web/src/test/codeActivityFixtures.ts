@@ -205,8 +205,8 @@ export function codeMrItems(count: number, over: Partial<ReportDrillItems> = {})
     meta: { ...META, level: "TEAM" },
     bar: { count, sumMd: null, from: null, to: null },
     items: [
-      { issueKey: "grp/app!12", summary: "Add the export", itemKind: "MERGE_REQUEST", accountId: "acc-ann", assignee: "Ann Author", teamId: 1, anchorAt: MERGED_AT, figure: 3 },
-      { issueKey: "grp/sub/api!7", summary: "Fix the retry", itemKind: "MERGE_REQUEST", accountId: "acc-bob", assignee: "Bob Builder", teamId: 1, anchorAt: MERGED_AT, figure: 2 },
+      { issueKey: "grp/app!12", summary: "Add the export", itemKind: "MERGE_REQUEST", accountId: "acc-ann", assignee: "Ann Author", teamId: 1, anchorAt: MERGED_AT, figure: 3, linkedKeys: ["FLO-3", "PLT-14"] },
+      { issueKey: "grp/sub/api!7", summary: "Fix the retry", itemKind: "MERGE_REQUEST", accountId: "acc-bob", assignee: "Bob Builder", teamId: 1, anchorAt: MERGED_AT, figure: 2, linkedKeys: [] },
       { issueKey: "grp/app!3", summary: null, itemKind: "MERGE_REQUEST", accountId: null, assignee: null, teamId: 1, anchorAt: MERGED_AT, figure: null },
     ],
     total: count,

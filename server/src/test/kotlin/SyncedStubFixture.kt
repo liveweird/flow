@@ -119,6 +119,31 @@ object SyncedStubFixture {
         )
     }
 
+    /**
+     * The data-source PUT that moves only [projectKeys] (everything else as stored): an ADMIN's project-list edit. It bumps the
+     * connection's own `config_revision` and no revision a report stamps, so only the code readers' `keys:` line carries it.
+     */
+    suspend fun putProjectKeys(connectionId: UInt, projectKeys: List<String>, dataSources: DataSourceService = dataSources()) {
+        val current = checkNotNull(dataSources.read(connectionId)) { "connection $connectionId" }
+        dataSources.update(
+            connectionId,
+            DataSourceRequest(
+                name = current.name,
+                enabled = current.enabled,
+                syncIntervalMinutes = current.syncIntervalMinutes,
+                backfillFrom = current.backfillFrom,
+                reconcileHourUtc = current.reconcileHourUtc,
+                jira = JiraConnectionRequest(
+                    siteUrl = current.jira!!.siteUrl,
+                    email = current.jira!!.email,
+                    apiToken = null,
+                    projectKeys = projectKeys,
+                    authScheme = current.jira!!.authScheme,
+                ),
+            ),
+        )
+    }
+
     fun buildJiraHttp(maxRetries: Int = 4, maxResponseBytes: Long = 33_554_432L): SourceHttp {
         val httpClient = HttpClient(OkHttp) {
             engine { preconfigured = okhttp3.OkHttpClient() }

@@ -28,7 +28,10 @@ import org.jetbrains.exposed.v1.r2dbc.select
  *   commits page by page inside a SYNC, and the heartbeat moves after each committed page (the Jira `ingest:` line's reasoning);
  * - `links:<host>:<digest>` per distinct host, the md5 of the host's decisions in key order (key, decision, account, `decided_at`): a link
  *   PUT, DELETE or confirm-proposals changes it, and nothing bumps a revision for it. Not a count and a newest instant: `decided_at` is
- *   taken before the commit, so with several pods two different states can share both.
+ *   taken before the commit, so with several pods two different states can share both;
+ * - `keys:<id>:<sha256 of the sorted projectKeys>` per ACTIVE Jira source (`IssueKeyScope.kt`): the merge-request drills show the Jira keys
+ *   a merge request names within the known projects (A51), and a project-list edit bumps no revision a report stamps. The issue-key
+ *   changes the known set also reads are the Jira star's, covered by the Jira `ingest:` and `run:` lines every report already carries.
  */
 internal suspend fun ReportService.codeStamp(): List<String> = reportTransaction {
     val deps = codeDeps ?: return@reportTransaction emptyList()
@@ -46,6 +49,7 @@ internal suspend fun ReportService.codeStamp(): List<String> = reportTransaction
         .groupBy(j.connectionId).orderBy(j.connectionId).toList()
     val hosts = urls.values.map { sourceHostOf(it) }.distinct().sorted()
     val links = linkDigests(hosts)
+    val keys = issueKeyScopeStamp(deps.dataSources)
     buildList {
         sources.forEach {
             val id = it[c.id].value
@@ -53,6 +57,7 @@ internal suspend fun ReportService.codeStamp(): List<String> = reportTransaction
         }
         jobs.forEach { add("code-ingest:${it[j.connectionId].value}:${it[newestId]}:${it[lastHeartbeat]}:${it[lastFinish]}") }
         hosts.forEach { host -> add("links:$host:${links[host] ?: "none"}") }
+        addAll(keys)
     }
 }
 

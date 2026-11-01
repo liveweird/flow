@@ -152,6 +152,11 @@ describe("ReportCodeActivity page - the drill to the commits and merge requests 
       "http://gitlab-stub:8080/grp/sub/api/-/merge_requests/7",
     );
     expect(within(drawer).getByRole("columnheader", { name: "Merged" })).toBeInTheDocument();
+    // The Jira keys a merge request names sit beside its GitLab key (plain text here: the fixture's connection has no site URL).
+    const named = within(drawer).getByRole("row", { name: /grp\/app!12/ });
+    expect(within(named).getByText("FLO-3")).toBeInTheDocument();
+    expect(within(named).getByText("PLT-14")).toBeInTheDocument();
+    expect(within(within(drawer).getByRole("row", { name: /grp\/sub\/api!7/ })).queryByText(/FLO|PLT/)).not.toBeInTheDocument();
     // An unlinked author has no name, a dash in the Person column.
     const unnamed = within(drawer).getByRole("row", { name: /grp\/app!3/ });
     expect(within(unnamed).getAllByRole("cell")[2]).toHaveTextContent("—");

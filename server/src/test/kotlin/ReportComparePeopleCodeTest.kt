@@ -263,7 +263,10 @@ class ReportComparePeopleCodeTest {
                 assertEquals(listOf("COMMIT", "COMMIT"), body.items.map { it.itemKind.name })
                 assertEquals(setOf(12.0, null), body.items.map { it.figure }.toSet())
                 val merged = client.get("/api/v1/reports/compare-people/items?${query("&segmentAccountId=$accA&view=MRS_MERGED")}")
-                assertEquals(setOf(3.0, 1.0), merged.body<ReportDrillItems>().items.map { it.figure }.toSet())
+                val mergedItems = merged.body<ReportDrillItems>().items
+                assertEquals(setOf(3.0, 1.0), mergedItems.map { it.figure }.toSet())
+                // This page's drawer links no Jira key: the merge request items carry no list at all (null, not []).
+                assertTrue(mergedItems.all { it.itemKind.name == "MERGE_REQUEST" && it.linkedKeys == null }, "no linkedKeys")
                 val own = "&segmentAccountId=$accA"
                 val refused = listOf("${own}&view=COMMITS&bucketIndex=0", "&view=COMMITS", "${own}&view=NOPE")
                 for (bad in refused) {
@@ -299,6 +302,11 @@ class ReportComparePeopleCodeTest {
             assertEquals(2 * bob.rows.size, bobTruth.cells)
             assertNotNull(trend.rows.single { it.key == "mrCycleWorkingDaysP50" }.points.last().value)
             assertNull(bob.rows.single { it.key == "mrCycleWorkingDaysP50" }.points.last().value, "bob merged nothing")
+            // Person trend's drill runs the same selection: its merge request items carry no Jira keys either (null, not []).
+            val trendMerged = client.get("/api/v1/reports/person-trend/items?$aliceQuery&view=MRS_MERGED&pointEnd=2026-03-16")
+            assertEquals(HttpStatusCode.OK, trendMerged.status)
+            val trendItems = trendMerged.body<ReportDrillItems>().items
+            assertTrue(trendItems.isNotEmpty() && trendItems.all { it.itemKind.name == "MERGE_REQUEST" && it.linkedKeys == null })
         }
     }
 }
