@@ -2780,25 +2780,27 @@ export interface paths {
          *     level-0 tasks (no sub-tasks) DONE in the period (`done_at`), team = the D5 credit team, domain per `domainView` (default TASK),
          *     `teamId` or `domain` required (`400` otherwise: a report is read per team or per domain, never for the whole unit); the period is
          *     dates (default the trailing 90 days) or the team's sprints (`lastSprints`, `sprintId`). There is no user level in this slice: an
-         *     `accountId` is a `400`. `connectionId` names one JIRA data source (a GitLab, deleted or unknown id is `400`); without it every
-         *     active Jira source is read, and the issue keys below are resolved among the sources the request reads. The merge requests are
+         *     `accountId` is a `400`. `connectionId` names one JIRA data source (a GitLab, deleted or unknown id is `400`) and narrows only the
+         *     tasks; without it every active Jira source's tasks are read. Whether a key names one issue is always decided over EVERY active
+         *     Jira source. The merge requests are
          *     those of EVERY active GitLab source, live ones only, linked to a task by the issue keys their title or source branch name
          *     (stored at PROCESS, scoped to the known Jira projects and resolved at read time): a key links to a task when it is the task's
-         *     current key or an old key from its `issuekey` changes AND names exactly one live issue; a key naming several issues is ambiguous
-         *     and links to none, a key naming none links to none. `meta` is the JIRA star's; the freshness of the merge requests is `sources[]`
+         *     current key or an old key from its `issuekey` changes AND names exactly one live issue (not deleted, not moved out) of the active
+         *     Jira sources; a key naming several issues is ambiguous and links to none, a key naming none links to none. `meta` is the JIRA star's; the freshness of the merge requests is `sources[]`
          *     (empty while no GitLab source is active: then no task has a merge request, which says nothing about the tasks).
          *     `tasks`: `done` tasks, of which `withMergeRequest` have at least one linked MERGED merge request (state `merged` with a date) and
          *     `withoutMergeRequest` have none (a task with only open, closed or locked merge requests is "without" and counted in
-         *     `quality.onlyUnmergedMrs`); `share` is `withoutMergeRequest` over `done` (absent when nothing is done), a NEUTRAL context figure with
+         *     `quality.onlyUnmergedMrs`); `withoutShare` is `withoutMergeRequest` over `done` (absent when nothing is done), a NEUTRAL context figure with
          *     no verdict. `codeLeadTimeWorkingDays` is a `Distribution` of the working days (the configured calendar) from the task's start
          *     (`started_at`, the cycle-time anchor) to its LAST linked merged merge request, over the tasks that started and have one (a merge
          *     before the start is 0); hidden below `meta.minSampleSize`. `mergedAfterDone` counts the done tasks whose last linked merge
          *     happened after `done_at` (`count`; `share` over `tasks.withMergeRequest`, absent when there is none; `lagWorkingDays` the working
          *     days from `done_at` to that merge). Lower is better for the lead time and the merged-after-done figures; the response carries no
-         *     verdict. `quality`: `neverStarted` done tasks with no `started_at` (no lead time), `onlyUnmergedMrs` (above), and, CONNECTION-WIDE for
-         *     the GitLab sources whatever the period, `keysUnresolved` (distinct issue keys of a known Jira project named by a live merge request
-         *     that name no live issue) and `keysAmbiguous` (those that name more than one). The merge requests are read by the keys of the
-         *     done tasks and charged to `reports.codeMaxRows` (a selection over it is a `400` that says to narrow the period, never a cut figure).
+         *     verdict. `quality`, all counts of done tasks of the period: `neverStarted` (no `started_at`, so no lead time), `onlyUnmergedMrs` (linked
+         *     merge requests, none merged: open, closed unmerged, locked, or `merged` with no date; counted in `tasks.withoutMergeRequest`) and
+         *     `tasksWithAmbiguousKey` (a key of the task names more than one live issue, so it linked nothing through that key). The merge
+         *     requests are read by the keys of the done tasks and charged to `reports.codeMaxRows` (a selection over it is a `400` that says to
+         *     narrow the period, never a cut figure).
          */
         get: operations["getReportTaskCode"];
         put?: never;
@@ -5951,7 +5953,7 @@ export interface components {
              * Format: double
              * @description `withoutMergeRequest` over `done`; absent when nothing is done. NEUTRAL: no verdict (a task may need no code).
              */
-            share?: number;
+            withoutShare?: number;
         };
         TaskCodeMergedAfterDone: {
             /**
@@ -5974,19 +5976,14 @@ export interface components {
             neverStarted: number;
             /**
              * Format: int32
-             * @description Done tasks with linked merge requests, none of them merged (open, closed unmerged or locked); counted in `tasks.withoutMergeRequest`.
+             * @description Done tasks with linked merge requests, none of them merged (open, closed unmerged, locked, or `merged` with no date); counted in `tasks.withoutMergeRequest`.
              */
             onlyUnmergedMrs: number;
             /**
              * Format: int32
-             * @description CONNECTION-WIDE, whatever the period: distinct issue keys of a known Jira project named by a live merge request of an active GitLab source that name no live issue (a typo, a deleted or moved-out issue, a renamed project).
+             * @description Done tasks one of whose keys (current or old) names more than one live issue across the active Jira sources (the key was reused, or two sources hold it): it links no merge request through that key.
              */
-            keysUnresolved: number;
-            /**
-             * Format: int32
-             * @description CONNECTION-WIDE like `keysUnresolved`: distinct such keys that name more than one live issue (across the Jira sources the request reads); linked to none.
-             */
-            keysAmbiguous: number;
+            tasksWithAmbiguousKey: number;
         };
         TaskCodeReport: {
             /** @description The JIRA star's (`derivedAt`, `configRevision`): the tasks, roster, names and sprints come from it. The merge requests' freshness is `sources`. */

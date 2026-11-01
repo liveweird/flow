@@ -11,6 +11,7 @@ import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import java.time.Instant
+import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -25,8 +26,10 @@ import org.junit.BeforeClass
  * and branches; read through an own clone, the shared one being soft-deleted), both read and never mutated. Every figure is compared
  * with an INDEPENDENT re-derivation in plain JDBC and plain loops (never the report's code; only the working calendar's day arithmetic
  * is shared, as the cycle-time fixture reads `cycle_working_days`).
- * The report names the derived connection (`connectionId`), so the synced fixture's clone of the same keys is not a second source of the
- * same issues; the GitLab side is every active source, as in production. Prints `in-test<TAB>task-code-90d<TAB><ms>`.
+ * Every ACTIVE Jira source decides whether a key is ambiguous (`connectionId` narrows only the tasks), and the synced fixture is a second
+ * active source holding the derived one's very keys: the test first pins that state (every key is ambiguous, nothing links), then
+ * deactivates every other Jira source for the comparison (restored in a `finally`). The comparison runs under `minSampleSize` 1, so the
+ * lead-time and lag VALUES are compared, not just their counts. Prints `in-test<TAB>task-code-90d<TAB><ms>`.
  *
  * **What overlaps.** The Jira stub's done tasks end at the derive's pinned 2026-03-05 and the GitLab stub's merge requests are dated
  * after it, so the stub keys hit done tasks (a title names `FLO-<n>` of the Jira stub's dense numbering) but nearly every linked merge
@@ -69,21 +72,47 @@ class ReportTaskCodeFixtureTest {
         }
     }
 
-    /** Keys that name exactly ONE live issue of [jira]; the oracle ignores `issuekey` moves, which [assertNoLiveMoves] pins as absent. */
-    private fun uniqueKeys(jira: UInt, keys: Collection<String>): Set<String> = jdbcRows(
-        "SELECT issue_key FROM norm.work_items WHERE connection_id = ? AND deleted_at IS NULL AND moved_out_at IS NULL " +
-            "AND issue_key IN ${placeholders(keys.size)} GROUP BY issue_key HAVING count(*) = 1",
-        jira.toInt(), *keys.toTypedArray(),
-    ).map { it[0] as String }.toSet()
+    /** The ids of the active Jira sources: the ones that decide whether a key names one issue. */
+    private fun activeJiraIds(): List<Int> = jdbcRows(
+        "SELECT id FROM source_connections WHERE kind = ? AND NOT marked_as_deleted ORDER BY id", DataSourceKind.JIRA_CLOUD.name,
+    ).map { (it[0] as Number).toInt() }
 
-    private fun assertNoLiveMoves(jira: UInt) {
+    /** How many live issues of the active Jira sources carry each of [keys] as their current key; the oracle ignores `issuekey` moves. */
+    private fun issuesPerKey(keys: Collection<String>): Map<String, Int> {
+        val jira = activeJiraIds()
+        if (keys.isEmpty() || jira.isEmpty()) return emptyMap()
+        return jdbcRows(
+            "SELECT issue_key, count(*) FROM norm.work_items WHERE connection_id IN ${placeholders(jira.size)} AND deleted_at IS NULL " +
+                "AND moved_out_at IS NULL AND issue_key IN ${placeholders(keys.size)} GROUP BY issue_key",
+            *jira.toTypedArray(), *keys.toTypedArray(),
+        ).associate { it[0] as String to (it[1] as Number).toInt() }
+    }
+
+    /**
+     * No live issue of an active Jira source has an `issuekey` change naming a key of the stub's projects (other classes' hand-written
+     * sources may hold moves of their own projects, which meet no stub key): the oracle needs no old-key resolution.
+     */
+    private fun assertNoLiveMovesOfStubKeys() {
+        val jira = activeJiraIds()
+        val stub = SyncedStubFixture.IN_SCOPE_PROJECT_KEYS.joinToString("|")
+        val named = listOf("from_value", "from_text", "to_value", "to_text").joinToString(" OR ") { "f.$it ~ '^($stub)-'" }
         val moved = jdbcRows(
             "SELECT count(*) FROM norm.work_item_field_changes f JOIN norm.work_items w ON w.connection_id = f.connection_id " +
-                "AND w.issue_id = f.issue_id WHERE f.connection_id = ? AND f.field_id = 'issuekey' AND w.deleted_at IS NULL " +
-                "AND w.moved_out_at IS NULL",
-            jira.toInt(),
+                "AND w.issue_id = f.issue_id WHERE f.connection_id IN ${placeholders(jira.size)} AND f.field_id = 'issuekey' " +
+                "AND w.deleted_at IS NULL AND w.moved_out_at IS NULL AND ($named)",
+            *jira.toTypedArray(),
         ).single()[0] as Number
         assertEquals(0L, moved.toLong(), "the stub's one move leaves its scope: the oracle needs no old-key resolution")
+    }
+
+    private fun setDeleted(ids: List<Int>, deleted: Boolean) = PostgresTestSupport.connect().use { conn ->
+        conn.prepareStatement("UPDATE source_connections SET marked_as_deleted = ? WHERE id = ?").use { st ->
+            ids.forEach {
+                st.setBoolean(1, deleted)
+                st.setInt(2, it)
+                st.executeUpdate()
+            }
+        }
     }
 
     private class Expected(
@@ -91,15 +120,16 @@ class ReportTaskCodeFixtureTest {
         val withMr: Int,
         val onlyUnmerged: Int,
         val neverStarted: Int,
+        val ambiguous: Int,
         val late: Int,
         val leads: List<Double>,
         val lags: List<Double>,
     )
 
-    private fun expected(jira: UInt, population: List<OracleTask>, calendar: WorkingCalendar): Expected {
+    private fun expected(population: List<OracleTask>, calendar: WorkingCalendar): Expected {
         val keys = population.map { it.key }.distinct()
-        val unique = if (keys.isEmpty()) emptySet() else uniqueKeys(jira, keys)
-        val byKey = links(keys.filter { it in unique }).groupBy { it.key }
+        val perKey = issuesPerKey(keys)
+        val byKey = links(keys.filter { perKey[it] == 1 }).groupBy { it.key }
         var withMr = 0
         var onlyUnmerged = 0
         var late = 0
@@ -116,24 +146,8 @@ class ReportTaskCodeFixtureTest {
                 lags += calendar.workingDaysBetween(task.doneAt, last)
             }
         }
-        return Expected(population.size, withMr, onlyUnmerged, population.count { it.startedAt == null }, late, leads, lags)
-    }
-
-    /** The key quality over the known projects (the connection's configured ones): unresolved = no live issue of [jira] has the key. */
-    private fun unresolved(jira: UInt, known: Set<String>): Int {
-        val gitlab = gitlabIds()
-        val candidates = jdbcRows(
-            "SELECT DISTINCT k.issue_key FROM norm.code_mr_issue_keys k JOIN norm.code_merge_requests m " +
-                "ON m.connection_id = k.connection_id AND m.mr_id = k.mr_id " +
-                "WHERE m.deleted_at IS NULL AND k.connection_id IN ${placeholders(gitlab.size)}",
-            *gitlab.toTypedArray(),
-        ).map { it[0] as String }.filter { it.substringBefore('-') in known }
-        val live = jdbcRows(
-            "SELECT issue_key FROM norm.work_items WHERE connection_id = ? AND deleted_at IS NULL AND moved_out_at IS NULL " +
-                "AND issue_key IN ${placeholders(candidates.size)}",
-            jira.toInt(), *candidates.toTypedArray(),
-        ).map { it[0] as String }.toSet()
-        return candidates.count { it !in live }
+        val ambiguous = population.count { (perKey[it.key] ?: 0) > 1 }
+        return Expected(population.size, withMr, onlyUnmerged, population.count { it.startedAt == null }, ambiguous, late, leads, lags)
     }
 
     private suspend fun HttpClient.taskCode(query: String): TaskCodeReport {
@@ -148,10 +162,12 @@ class ReportTaskCodeFixtureTest {
         assertEquals(listOf(want.done, want.withMr, want.done - want.withMr), counts, "$label tasks")
         assertEquals(want.onlyUnmerged, quality.onlyUnmergedMrs, "$label only unmerged")
         assertEquals(want.neverStarted, quality.neverStarted, "$label never started")
+        assertEquals(want.ambiguous, quality.tasksWithAmbiguousKey, "$label tasks with an ambiguous key")
         assertEquals(want.late, mergedAfterDone.count, "$label merged after done")
         assertDistribution("$label code lead time", want.leads, codeLeadTimeWorkingDays, min)
         assertDistribution("$label merge lag", want.lags, mergedAfterDone.lagWorkingDays, min)
-        println("fixture\ttask-code\t$label\t${want.done}/${want.withMr}/${want.onlyUnmerged}/${want.late}/${want.leads.size}")
+        val figures = listOf(want.done, want.withMr, want.onlyUnmerged, want.ambiguous, want.late, want.leads.size)
+        println("fixture\ttask-code\t$label\t${figures.joinToString("/")}")
     }
 
     @Test
@@ -163,23 +179,41 @@ class ReportTaskCodeFixtureTest {
         val team = DerivedStubFixture.teamId()
         val calendar = calendar()
         val zone = reportZone()
-        assertNoLiveMoves(jira)
+        assertNoLiveMovesOfStubKeys()
         assertTrue(gitlabIds().isNotEmpty(), "the clone of the processed GitLab fixture is an active source")
-        val known = SyncedStubFixture.IN_SCOPE_PROJECT_KEYS.toSet()
+        val whole = windowBounds(zone, "2024-01-01", "2026-12-31")
 
+        withMinSampleSize(1) {
+            // The synced fixture is a second ACTIVE Jira source with the derived one's keys: every key names two issues, so nothing links
+            // although `connectionId` names the derived source alone.
+            val doubled = client.taskCode("connectionId=$jira&domain=${DerivedStubFixture.DOMAIN}&from=2024-01-01&to=2026-12-31")
+            val everyTask = tasks(jira, whole.first, whole.second, "domain_key = ?", DerivedStubFixture.DOMAIN)
+            doubled.assertMatches("every Jira source decides", expected(everyTask, calendar))
+            assertTrue(activeJiraIds().size > 1 && doubled.tasks.withMergeRequest == 0, "two active sources: nothing links")
+            assertEquals(everyTask.size, doubled.quality.tasksWithAmbiguousKey, "every done task's key names two issues")
+
+            val others = activeJiraIds().filter { it != jira.toInt() }
+            setDeleted(others, deleted = true)
+            try {
+                compareWindows(client, jira, team, calendar, zone)
+            } finally {
+                setDeleted(others, deleted = false)
+            }
+        }
+    }
+
+    private suspend fun compareWindows(client: HttpClient, jira: UInt, team: UInt, calendar: WorkingCalendar, zone: ZoneId) {
         var linkedSomewhere = false
         for ((from, to) in listOf("2024-01-01" to "2026-12-31", "2025-06-01" to "2025-12-31", "2026-01-01" to "2026-03-05")) {
             val (fromMs, toMs) = windowBounds(zone, from, to)
             val query = "connectionId=$jira&from=$from&to=$to"
             val domain = client.taskCode("$query&domain=${DerivedStubFixture.DOMAIN}")
             val inDomain = tasks(jira, fromMs, toMs, "domain_key = ?", DerivedStubFixture.DOMAIN)
-            domain.assertMatches("$from..$to domain", expected(jira, inDomain, calendar))
+            domain.assertMatches("$from..$to domain", expected(inDomain, calendar))
             val teamReport = client.taskCode("$query&teamId=$team")
             val inTeam = tasks(jira, fromMs, toMs, "credit_team_id = ?", team.toInt())
-            teamReport.assertMatches("$from..$to team", expected(jira, inTeam, calendar))
-            // The key quality is connection-wide: the same whatever the slice and the period.
-            assertEquals(unresolved(jira, known), domain.quality.keysUnresolved, "$from..$to unresolved keys")
-            assertEquals(0, domain.quality.keysAmbiguous, "one Jira source: nothing is ambiguous")
+            teamReport.assertMatches("$from..$to team", expected(inTeam, calendar))
+            assertEquals(0, domain.quality.tasksWithAmbiguousKey, "one active Jira source: nothing is ambiguous")
             linkedSomewhere = linkedSomewhere || domain.tasks.withMergeRequest > 0
         }
         assertTrue(linkedSomewhere, "the stub's keys must hit the done tasks, or this test pins nothing")

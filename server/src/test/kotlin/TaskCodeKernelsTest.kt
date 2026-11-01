@@ -3,10 +3,8 @@ package ch.nokillswit
 import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.reports.CodeMrRef
 import ch.nokillswit.reports.IssueRef
-import ch.nokillswit.reports.KeyQuality
 import ch.nokillswit.reports.TaskCodeLink
 import ch.nokillswit.reports.TaskCodeTask
-import ch.nokillswit.reports.keyQuality
 import ch.nokillswit.reports.linkTasks
 import ch.nokillswit.reports.taskCodeFigures
 import java.time.LocalDate
@@ -117,28 +115,30 @@ class TaskCodeKernelsTest {
     }
 
     @Test
-    fun `an ambiguous key and a key naming no live issue link to no task`() {
+    fun `an ambiguous key links to no task and is counted, a key naming no live issue links to none and is not`() {
         val tasks = listOf(task(1, 0, 8), task(2, 0, 8))
         val other = IssueRef(2u, 1L)
         val links = listOf(merged("FLO-1", 10, 3), merged("FLO-2", 11, 3))
-        // FLO-1 also names an issue of another Jira source: ambiguous, linked to none. FLO-2 names nobody live: unresolved.
+        // FLO-1 also names an issue of another Jira source: ambiguous, linked to none. FLO-2 names nobody live: linked to none.
         val resolution = mapOf("FLO-1" to setOf(ref(1), other), "FLO-2" to emptySet())
         val rows = link(tasks, links, resolution)
         assertTrue(rows.none { it.hasMerged || it.merged + it.unmerged > 0 })
-        val quality = keyQuality(listOf("FLO-1", "FLO-2", "FLO-3"), resolution + ("FLO-3" to setOf(ref(3))))
-        assertEquals(KeyQuality(unresolved = 1, ambiguous = 1), quality)
+        assertEquals(listOf(true, false), rows.map { it.ambiguousKey })
+        assertEquals(1, taskCodeFigures(rows, calendar).ambiguousKeys)
     }
 
     @Test
-    fun `an old key links only while it names the one issue and a key unknown to the resolution is unresolved`() {
+    fun `an old key links only while it names the one issue, and is ambiguous once another issue has it`() {
         val tasks = listOf(task(1, 0, 8, key = "NEW-5"))
         val keysOf = mapOf(ref(1) to setOf("NEW-5", "OLD-5"))
         val links = listOf(merged("OLD-5", 10, 3)).groupBy { it.key }
-        assertEquals(1, linkTasks(tasks, keysOf, links, mapOf("NEW-5" to setOf(ref(1)), "OLD-5" to setOf(ref(1)))).single().merged)
-        // The old key was reused by another issue: ambiguous, so it links to none.
-        assertEquals(0, linkTasks(tasks, keysOf, links, mapOf("OLD-5" to setOf(ref(1), ref(2)))).single().merged)
-        // A key absent from the resolution map is unresolved (zero issues).
-        assertEquals(KeyQuality(1, 0), keyQuality(listOf("GONE-1"), emptyMap()))
+        val unique = linkTasks(tasks, keysOf, links, mapOf("NEW-5" to setOf(ref(1)), "OLD-5" to setOf(ref(1)))).single()
+        assertEquals(1, unique.merged)
+        assertTrue(!unique.ambiguousKey)
+        // The old key was reused by another issue: ambiguous, so it links to none (the current key alone would still link).
+        val reused = linkTasks(tasks, keysOf, links, mapOf("OLD-5" to setOf(ref(1), ref(2)))).single()
+        assertEquals(0, reused.merged)
+        assertTrue(reused.ambiguousKey)
     }
 
     @Test

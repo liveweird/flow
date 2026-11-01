@@ -6,6 +6,7 @@ import ch.nokillswit.norm.DetailsState
 import ch.nokillswit.norm.FieldChangeFact
 import ch.nokillswit.norm.NormCodeMergeRequest
 import ch.nokillswit.norm.StatusCategory
+import ch.nokillswit.norm.TombstoneKind
 import ch.nokillswit.norm.extractIssueKeyCandidates
 import ch.nokillswit.norm.purgeAll
 import java.time.LocalDate
@@ -30,7 +31,8 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
  *  - `TCA-6` (T6): 2 - 11; only a DELETED merge request (MR 13) names it.
  *  - `TCA-11` (T10, [teamB]): 1 - 3; MR 15 d3. `TCA-13` (T11, no credit team): 1 - 4; MR 18 d4.
  *  - Never counted: `TCA-10` done on day 40 (MR 16), a sub-task `TCA-12` (MR 17).
- * Candidates that name no task: `TCA-999` (a known project, no such issue: unresolved), `TCZ-3` (an unknown project) and `UTF-8`.
+ *  - Two tombstoned issues (ids 901 deleted, 902 moved out) also have the key `TCA-1`: not live, so `TCA-1` still names T1 alone.
+ * Candidates that name no task: `TCA-999` (a known project, no such issue), `TCZ-3` (an unknown project) and `UTF-8`.
  */
 internal class TaskCodeWorld(
     val zone: ZoneId,
@@ -77,6 +79,12 @@ internal class TaskCodeWorld(
                 issueId, started?.let { at(it) }, done?.let { at(it) }, creditTeamId = team, domain = domain, subtask = subtask,
             ).copy(issueKey = key)
         }
+    }
+
+    /** A tombstoned `norm.work_items` row ([TombstoneKind.DELETED] or [TombstoneKind.MOVED_OUT]) with [key]: no fact row, never live. */
+    suspend fun ghost(issueId: Long, key: String, kind: TombstoneKind, connId: UInt = jiraA) {
+        val steps = listOf(StatusStep("1", "To Do", StatusCategory.TODO, at(-30)))
+        seedItem(connId, issueId, key, 0, null, at(-30), steps, "{}", tombstone = kind)
     }
 
     /** Writes the queued fact rows (a full replace of [jiraA]'s: call it after every [task] of the batch). */
@@ -128,6 +136,9 @@ internal suspend fun <T> withTaskCodeWorld(zone: ZoneId, body: suspend TaskCodeW
             task(111, "TCA-13", 1, 4, team = null)
             task(109, "TCA-10", 1, 40)
             task(112, "TCA-12", 1, 5, subtask = true)
+            // Tombstoned issues sharing TCA-1's key (a deleted one, a moved-out one): not live, so they must not make it ambiguous.
+            ghost(901, "TCA-1", TombstoneKind.DELETED)
+            ghost(902, "TCA-1", TombstoneKind.MOVED_OUT)
             publish()
             write(
                 glA,

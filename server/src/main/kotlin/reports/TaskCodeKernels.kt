@@ -4,9 +4,9 @@ import ch.nokillswit.metrics.WorkingCalendar
 
 /*
  * Report 22's figures (`.claude/docs/measures.md` "Report 22", domain-model A51), pure: no database, no clock. The reads
- * (`TaskCodeReads.kt`) hand over the done tasks, the live merge requests that name one of their keys and what each key names in Jira;
- * everything below decides which merge request belongs to which task and computes the numbers. The verdicts (lower is better) are the
- * page's.
+ * (`TaskCodeReads.kt`) hand over the done tasks, the live merge requests that name one of their keys and what each of those keys
+ * names in Jira; everything below decides which merge request belongs to which task and computes the numbers. The verdicts (lower
+ * is better) are the page's.
  */
 
 /** A Jira issue: its connection and id. */
@@ -18,8 +18,17 @@ internal data class TaskCodeTask(val ref: IssueRef, val issueKey: String, val st
 /** One live merge request that names [key]; [mergedAt] is set exactly when the merge request is MERGED (state `merged` with a date). */
 internal data class TaskCodeLink(val key: String, val mr: CodeMrRef, val mergedAt: Long?)
 
-/** A done task and the distinct merge requests linked to it: [merged] and [unmerged] of them, [lastMergedAt] the latest merge. */
-internal data class TaskMergeRequests(val task: TaskCodeTask, val merged: Int, val unmerged: Int, val lastMergedAt: Long?) {
+/**
+ * A done task and the distinct merge requests linked to it: [merged] and [unmerged] of them, [lastMergedAt] the latest merge.
+ * [ambiguousKey] says one of the task's keys names more than one live issue, so it could link nothing through that key.
+ */
+internal data class TaskMergeRequests(
+    val task: TaskCodeTask,
+    val merged: Int,
+    val unmerged: Int,
+    val lastMergedAt: Long?,
+    val ambiguousKey: Boolean = false,
+) {
     /** At least one linked merge request is merged: the task is "with a merge request". */
     val hasMerged: Boolean get() = merged > 0
 
@@ -61,7 +70,8 @@ internal fun linkTasks(
         .flatMap { linksByKey[it].orEmpty() }
         .associateBy { it.mr }.values
     val merged = linked.mapNotNull { it.mergedAt }
-    TaskMergeRequests(task, merged.size, linked.size - merged.size, merged.maxOrNull())
+    val ambiguous = keysOf[task.ref].orEmpty().any { (resolution[it]?.size ?: 0) > 1 }
+    TaskMergeRequests(task, merged.size, linked.size - merged.size, merged.maxOrNull(), ambiguous)
 }
 
 /** The counts and the raw values behind Report 22's figures; the distributions are built from [leadTimes] and [lags]. */
@@ -70,6 +80,7 @@ internal class TaskCodeFigures(
     val withMergeRequest: Int,
     val onlyUnmerged: Int,
     val neverStarted: Int,
+    val ambiguousKeys: Int,
     val mergedAfterDone: Int,
     val leadTimes: List<Double>,
     val lags: List<Double>,
@@ -88,15 +99,8 @@ internal fun taskCodeFigures(rows: List<TaskMergeRequests>, calendar: WorkingCal
     withMergeRequest = rows.count { it.hasMerged },
     onlyUnmerged = rows.count { it.onlyUnmerged },
     neverStarted = rows.count { it.task.startedAt == null },
+    ambiguousKeys = rows.count { it.ambiguousKey },
     mergedAfterDone = rows.count { it.mergedAfterDone },
     leadTimes = rows.mapNotNull { it.codeLeadWorkingDays(calendar) },
     lags = rows.mapNotNull { it.mergeLagWorkingDays(calendar) },
 )
-
-/** How many of the distinct [candidates] name no issue ([unresolved]) and how many name more than one ([ambiguous]). */
-internal data class KeyQuality(val unresolved: Int, val ambiguous: Int)
-
-internal fun keyQuality(candidates: Collection<String>, resolution: Map<String, Set<IssueRef>>): KeyQuality {
-    val sizes = candidates.map { resolution[it]?.size ?: 0 }
-    return KeyQuality(unresolved = sizes.count { it == 0 }, ambiguous = sizes.count { it > 1 })
-}

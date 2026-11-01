@@ -329,7 +329,7 @@ class ReportValidatorsTest {
     /** The operations whose figures move with `now` inside a day (reports.md "Cache validators"): only they use the 5-minute clock. */
     private val fiveMinuteOperations = setOf(
         "filters", "home", "home/items", "aging-wip", "data-quality", "throughput", "throughput/items", "costs", "costs/items",
-        "code-activity", "code-activity/items", "task-code",
+        "code-activity", "code-activity/items",
     ).map { "/api/v1/reports/$it" }.toSet()
 
     @Test

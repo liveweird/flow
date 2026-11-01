@@ -1,6 +1,5 @@
 package ch.nokillswit.reports
 
-import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.metrics.ISSUE_KEY_FIELD_ID
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.norm.CodeActivityStore.CodeMergeRequests
@@ -18,22 +17,23 @@ import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.less
+import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.r2dbc.select
 
 /*
- * Report 22's SQL reads (`.claude/docs/reports.md` "Report 22", A51/D3-D4), read-only inside the caller's report transaction. The merge
- * requests are read in the TASK -> merge request direction: the keys the done tasks have are looked up on the V46 index
- * `(connection_id, issue_key)`, never a scan of the merge requests; only those link rows are budgeted rows ([CodeRowBudget]). The one
- * connection-wide read is the DISTINCT candidate keys of the live merge requests (strings, not rows: the quality counts and the
- * ambiguity check need them). Tombstoned merge requests (`deleted_at`) and tombstoned Jira issues (`deleted_at` / `moved_out_at`, the
- * rows DERIVE skips) are never read.
+ * Report 22's SQL reads (`.claude/docs/reports.md` "Report 22", A51/D3-D4), read-only inside the caller's report transaction. Everything
+ * here is bounded by the done tasks (the population): their keys, old and current, are resolved to the live issues that name them
+ * (across EVERY active Jira source, `connectionId` narrows only the population) and looked up on the V46 index
+ * `(connection_id, issue_key)`; the merge requests are never scanned, and only the link rows are budgeted rows ([CodeRowBudget]).
+ * Tombstoned merge requests (`deleted_at`) and tombstoned Jira issues (`deleted_at` / `moved_out_at`, the rows DERIVE skips) are
+ * never read.
  */
 
 /** `IN` lists are cut into statements of at most this many values (well under the driver's bind limit). */
 private const val IN_CHUNK = 5_000
 
-/** What the `issuekey` changes of the live issues say: [issuesByKey] every key (old or new) to its issues, [keysByIssue] the inverse. */
-internal class IssueKeyHistory(val issuesByKey: Map<String, Set<IssueRef>>, val keysByIssue: Map<IssueRef, Set<String>>)
+/** The historic-key read repeats the chunk in four columns, so its chunks are a quarter as long. */
+private const val HISTORIC_CHUNK = 1_000
 
 /** The DONE level-0 tasks of the period credited to the request's team / domain slice (the cycle-time population, with key and start). */
 internal suspend fun fetchTaskCodePopulation(
@@ -51,41 +51,49 @@ internal suspend fun fetchTaskCodePopulation(
 }
 
 /**
- * Every key a live issue of [jiraIds] had or has by its `issuekey` changes (a move to another project; real Jira sends the keys in the
- * `*_text` columns, the stub in the value columns too). Small by nature: moves are rare, and the read rides
- * `idx_norm_work_item_field_changes_field`.
+ * Every key the [issues] had or have by their `issuekey` changes (a move to another project; real Jira sends the keys in the `*_text`
+ * columns, the stub in the value columns too): the OLD keys a merge request may still name. One statement per connection and chunk,
+ * on `idx_norm_work_item_field_changes_field`; bounded by the population.
  */
-internal suspend fun fetchIssueKeyHistory(jiraIds: Collection<UInt>): IssueKeyHistory {
-    if (jiraIds.isEmpty()) return IssueKeyHistory(emptyMap(), emptyMap())
+internal suspend fun fetchKeysOfIssues(issues: Collection<IssueRef>): Map<IssueRef, Set<String>> {
     val f = FieldChanges
-    val w = WorkItems
-    val rows = f.join(w, JoinType.INNER, f.connectionId, w.connectionId, additionalConstraint = { f.issueId eq w.issueId })
-        .select(f.connectionId, f.issueId, f.fromValue, f.fromText, f.toValue, f.toText)
-        .where { (f.connectionId inList jiraIds) and (f.fieldId eq ISSUE_KEY_FIELD_ID) and w.deletedAt.isNull() and w.movedOutAt.isNull() }
-        .toList()
-    val pairs = rows.flatMap { row ->
-        val ref = IssueRef(row[f.connectionId].value, row[f.issueId])
-        listOf(row[f.fromValue], row[f.fromText], row[f.toValue], row[f.toText]).filter { projectKeyFromIssueKey(it) != null }
-            .map { key -> key!! to ref }
+    val result = HashMap<IssueRef, MutableSet<String>>()
+    issues.groupBy({ it.connectionId }) { it.issueId }.forEach { (connectionId, ids) ->
+        ids.chunked(IN_CHUNK).forEach { chunk ->
+            f.select(f.issueId, f.fromValue, f.fromText, f.toValue, f.toText)
+                .where { (f.connectionId eq connectionId) and (f.fieldId eq ISSUE_KEY_FIELD_ID) and (f.issueId inList chunk) }
+                .toList().forEach { row ->
+                    val keys = listOf(row[f.fromValue], row[f.fromText], row[f.toValue], row[f.toText]).filterNotNull()
+                    result.getOrPut(IssueRef(connectionId, row[f.issueId])) { HashSet() }
+                        .addAll(keys.filter { projectKeyFromIssueKey(it) != null })
+                }
+        }
     }
-    return IssueKeyHistory(
-        issuesByKey = pairs.groupBy({ it.first }) { it.second }.mapValues { it.value.toSet() },
-        keysByIssue = pairs.groupBy({ it.second }) { it.first }.mapValues { it.value.toSet() },
-    )
+    return result
 }
 
 /**
- * The distinct candidate keys the LIVE merge requests of [gitlabIds] name (`norm.code_mr_issue_keys`): strings, not rows, so not charged
- * to the row budget. Every candidate the extractor admits is in it (`UTF-8` too); the caller scopes it to the known Jira projects.
+ * The live issues of [jiraIds] that had or have one of [keys] by an `issuekey` change (the OLD keys of moved issues), by key. A moved
+ * issue's old key is not its `issue_key` any more, so the current-key read does not see it. The `issuekey` range is small by nature.
  */
-internal suspend fun fetchCandidateKeys(gitlabIds: Collection<UInt>): Set<String> {
-    if (gitlabIds.isEmpty()) return emptySet()
-    val k = CodeMrIssueKeys
-    val m = CodeMergeRequests
-    return k.join(m, JoinType.INNER, k.connectionId, m.connectionId, additionalConstraint = { k.mrId eq m.mrId })
-        .select(k.issueKey).withDistinct()
-        .where { (k.connectionId inList gitlabIds) and m.deletedAt.isNull() }
-        .map { it[k.issueKey] }.toList().toSet()
+internal suspend fun fetchIssuesByHistoricKey(jiraIds: Collection<UInt>, keys: Collection<String>): Map<String, Set<IssueRef>> {
+    if (jiraIds.isEmpty() || keys.isEmpty()) return emptyMap()
+    val f = FieldChanges
+    val w = WorkItems
+    val source = f.join(w, JoinType.INNER, f.connectionId, w.connectionId, additionalConstraint = { f.issueId eq w.issueId })
+    val found = keys.toSet()
+    return keys.distinct().chunked(HISTORIC_CHUNK).flatMap { chunk ->
+        source.select(f.connectionId, f.issueId, f.fromValue, f.fromText, f.toValue, f.toText)
+            .where {
+                (f.connectionId inList jiraIds) and (f.fieldId eq ISSUE_KEY_FIELD_ID) and w.deletedAt.isNull() and w.movedOutAt.isNull() and
+                    ((f.fromValue inList chunk) or (f.fromText inList chunk) or (f.toValue inList chunk) or (f.toText inList chunk))
+            }
+            .toList().flatMap { row ->
+                val ref = IssueRef(row[f.connectionId].value, row[f.issueId])
+                val named = listOf(row[f.fromValue], row[f.fromText], row[f.toValue], row[f.toText]).filterNotNull()
+                named.filter { it in found }.map { it to ref }
+            }
+    }.groupBy({ it.first }) { it.second }.mapValues { it.value.toSet() }
 }
 
 /** The live issues of [jiraIds] whose CURRENT key is one of [keys] (the `(connection_id, issue_key)` index), by key. */
@@ -116,10 +124,4 @@ internal suspend fun fetchTaskLinks(gitlabIds: Collection<UInt>, keys: Collectio
                 TaskCodeLink(it[k.issueKey], CodeMrRef(it[k.connectionId].value, it[k.mrId]), if (merged) it[m.mergedAt] else null)
             }
     }
-}
-
-/** The known Jira projects of the request's Jira sources: their configured `projectKeys` plus the prefixes of their `issuekey` moves. */
-internal suspend fun knownProjectsOf(dataSources: DataSourceService, jiraIds: Collection<UInt>, history: IssueKeyHistory): Set<String> {
-    val configured = dataSources.activeJiraProjectKeys().filterKeys { it in jiraIds }.values.flatten()
-    return configured.toSet() + history.issuesByKey.keys.mapNotNull(::projectKeyFromIssueKey)
 }

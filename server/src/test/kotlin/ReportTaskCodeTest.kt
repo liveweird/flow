@@ -50,7 +50,7 @@ class ReportTaskCodeTest {
 
     private fun TaskCodeReport.counts() = listOf(tasks.done, tasks.withMergeRequest, tasks.withoutMergeRequest)
 
-    private fun TaskCodeQuality.asList() = listOf(neverStarted, onlyUnmergedMrs, keysUnresolved, keysAmbiguous)
+    private fun TaskCodeQuality.asList() = listOf(neverStarted, onlyUnmergedMrs, tasksWithAmbiguousKey)
 
     @Test
     fun `a team's figures are the hand-computed ones - the last merge, an old key, two sources, a deleted and an unmerged merge request`() =
@@ -65,7 +65,7 @@ class ReportTaskCodeTest {
                 // (its one merge request is deleted). The other team's task, the credit-less one, the one done on day 40 and the sub-task
                 // are not in the team's population.
                 assertEquals(listOf(6, 4, 2), report.counts())
-                assertEquals(2.0 / 6.0, assertNotNull(report.tasks.share), 1e-12)
+                assertEquals(2.0 / 6.0, assertNotNull(report.tasks.withoutShare), 1e-12)
                 // Code lead time = start -> LAST merge, in working days: TCA-1 d0 -> d3 12:00 (the glB merge request, the same mr id as
                 // glA's first) = 3.5; TCA-2 d1 -> d8 over the weekend = 5; TCB-7 d7 -> d10 12:00 (the merge request naming its OLD key,
                 // TCA-50, is the last) = 3.5. TCA-4 never started: no lead time.
@@ -75,9 +75,10 @@ class ReportTaskCodeTest {
                 assertEquals(2, report.mergedAfterDone.count)
                 assertEquals(0.5, assertNotNull(report.mergedAfterDone.share), 1e-12)
                 assertDistribution("lag", listOf(3.0, 0.5), report.mergedAfterDone.lagWorkingDays, 3)
-                // Quality: TCA-4 never started; TCA-3 has only unmerged merge requests; TCA-999 names a known project and no issue (TCA-50
-                // resolves through the move; TCZ-3 and UTF-8 are not of a known project); nothing is ambiguous in one Jira source.
-                assertEquals(listOf(1, 1, 1, 0), report.quality.asList())
+                // Quality: TCA-4 never started; TCA-3 has only unmerged merge requests; no task has an ambiguous key: the deleted and the
+                // moved-out issues that also carry TCA-1 are not live, so TCA-1 still names its task alone (and its three merge requests
+                // link: the lead time above is 3.5).
+                assertEquals(listOf(1, 1, 0), report.quality.asList())
                 // Both GitLab sources are printed (others of the shared database may be too).
                 val sources = report.sources.associateBy { it.connectionId }
                 assertTrue(glA in sources && glB in sources)
@@ -104,32 +105,36 @@ class ReportTaskCodeTest {
             val unassigned = client.taskCode(team(0u))
             assertEquals(listOf(1, 1, 0), unassigned.counts())
             assertDistribution("unassigned lead", listOf(3.0), unassigned.codeLeadTimeWorkingDays, 3)
-            assertEquals(0.0, assertNotNull(unassigned.tasks.share), 1e-12)
+            assertEquals(0.0, assertNotNull(unassigned.tasks.withoutShare), 1e-12)
         }
     }
 
     @Test
-    fun `a key naming issues of two Jira sources links to none and is counted, while one source alone links it`() = testApplication {
-        usePostgresTestcontainer()
-        val client = seededClient("task-code-ambiguous", FlowUserRole.USER)
-        inWorld {
-            pin(this)
-            task(107, "TCA-9", 1, 4)
-            publish()
-            write(glA, mr(19, "TCA-9: shared", 2))
-            val all = "teamId=$teamA&$period"
-            val before = client.taskCode(all)
-            assertEquals(listOf(7, 5, 2), before.counts(), "TCA-9 links while only one source names it")
-            val second = withSecondJira()
-            task(207, "TCA-9", null, null, connId = second)
-            val after = client.taskCode(all)
-            assertEquals(listOf(7, 4, 3), after.counts(), "TCA-9 now names two issues: it links to none")
-            assertEquals(before.quality.keysAmbiguous + 1, after.quality.keysAmbiguous)
-            assertEquals(before.quality.keysUnresolved, after.quality.keysUnresolved)
-            // The request reads one Jira source when it names it: the key is that source's alone.
-            assertEquals(listOf(7, 5, 2), client.taskCode("teamId=$teamA&$period&connectionId=$jiraA").counts())
+    fun `a key naming issues of two Jira sources links to none and is counted, whatever connectionId narrows the tasks to`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val client = seededClient("task-code-ambiguous", FlowUserRole.USER)
+            inWorld {
+                pin(this)
+                task(107, "TCA-9", 1, 4)
+                publish()
+                write(glA, mr(19, "TCA-9: shared", 2))
+                val all = "teamId=$teamA&$period"
+                val scoped = "teamId=$teamA&$period&connectionId=$jiraA"
+                val before = client.taskCode(all)
+                assertEquals(listOf(7, 5, 2), before.counts(), "TCA-9 links while only one source names it")
+                assertEquals(0, before.quality.tasksWithAmbiguousKey)
+                val second = withSecondJira()
+                task(207, "TCA-9", null, null, connId = second)
+                // Every active Jira source decides ambiguity: `connectionId` narrows only the tasks, so naming one changes nothing.
+                for (query in listOf(all, scoped)) {
+                    val after = client.taskCode(query)
+                    assertEquals(listOf(7, 4, 3), after.counts(), "TCA-9 now names two issues: it links to none ($query)")
+                    assertEquals(1, after.quality.tasksWithAmbiguousKey, query)
+                    assertDistribution("lead", listOf(3.5, 5.0, 3.5), after.codeLeadTimeWorkingDays, 3)
+                }
+            }
         }
-    }
 
     @Test
     fun `a selection over the code-row budget is a 400 that says to narrow it, and one under it answers`() = testApplication {
@@ -166,10 +171,10 @@ class ReportTaskCodeTest {
                 // A sprint period with no sprint to resolve reads nothing: every figure is empty, the quality included.
                 val empty = client.taskCode("teamId=$teamA&lastSprints=1&connectionId=$jiraA")
                 assertEquals(listOf(0, 0, 0), empty.counts())
-                assertNull(empty.tasks.share)
+                assertNull(empty.tasks.withoutShare)
                 assertNull(empty.mergedAfterDone.share)
                 assertTrue(empty.codeLeadTimeWorkingDays.hidden && empty.mergedAfterDone.lagWorkingDays.hidden)
-                assertEquals(listOf(0, 0, 0, 0), empty.quality.asList())
+                assertEquals(listOf(0, 0, 0), empty.quality.asList())
             }
         }
 

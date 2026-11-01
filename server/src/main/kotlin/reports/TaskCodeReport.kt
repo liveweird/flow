@@ -10,8 +10,8 @@ import ch.nokillswit.norm.projectKeyFromIssueKey
  * task population is the cycle-time one (`taskFactSlice`, level-0 tasks by `done_at`, the D5 credit team).
  */
 
-/** What [loadTaskCode] read: each done task with its merge requests, and the connection-wide key quality. */
-internal class TaskCodeData(val rows: List<TaskMergeRequests>, val keys: KeyQuality)
+/** What [loadTaskCode] read: each done task with its merge requests. */
+internal class TaskCodeData(val rows: List<TaskMergeRequests>)
 
 internal suspend fun ReportService.taskCode(filter: ReportFilter, nowMs: Long): TaskCodeReport = reportTransaction {
     val deps = checkNotNull(codeDeps) { "the tasks and code report is not configured on this service" }
@@ -19,7 +19,7 @@ internal suspend fun ReportService.taskCode(filter: ReportFilter, nowMs: Long): 
     val minSample = scope.settings.minSampleSize
     val sources = resolveCodeSources(deps.dataSources, null)
     // A sprint period with no sprint to resolve reads nothing: every figure is empty, like the other reports'.
-    val data = scope.window?.let { loadTaskCode(deps, filter, scope, sources, it) } ?: TaskCodeData(emptyList(), KeyQuality(0, 0))
+    val data = scope.window?.let { loadTaskCode(deps, filter, scope, sources, it) } ?: TaskCodeData(emptyList())
     val figures = taskCodeFigures(data.rows, scope.calendar)
     TaskCodeReport(
         meta = scope.meta,
@@ -29,15 +29,16 @@ internal suspend fun ReportService.taskCode(filter: ReportFilter, nowMs: Long): 
         mergedAfterDone = TaskCodeMergedAfterDone(
             figures.mergedAfterDone, figures.mergedAfterDoneShare, buildDistribution(figures.lags, minSample, filter.tailPercent),
         ),
-        quality = TaskCodeQuality(figures.neverStarted, figures.onlyUnmerged, data.keys.unresolved, data.keys.ambiguous),
+        quality = TaskCodeQuality(figures.neverStarted, figures.onlyUnmerged, figures.ambiguousKeys),
     )
 }
 
 /**
- * The read plan, in the task -> merge request direction: the done tasks; what the `issuekey` changes say (old keys); the distinct
- * candidate keys of the live merge requests within the known Jira projects, each resolved to the live issues it names (current key or
- * old key, across every Jira source of the request) - which gives the connection-wide quality and decides ambiguity; then the link
- * rows of ONLY the keys the done tasks have, charged to the row budget. Without a GitLab source nothing is linked.
+ * The read plan, in the task -> merge request direction and bounded by the done tasks: the tasks; their old keys (`issuekey` changes);
+ * each task's keys cut to the KNOWN Jira projects ([knownProjectKeys], one definition with Report 21's drill) and resolved to the live
+ * issues that name them - current key or old key, across EVERY active Jira source whatever `connectionId` says (it narrows the
+ * population only), which decides ambiguity; then the link rows of the keys that name their task alone, charged to the row budget.
+ * Without a GitLab source nothing is linked.
  */
 private suspend fun ReportService.loadTaskCode(
     deps: CodeActivityDeps,
@@ -48,14 +49,18 @@ private suspend fun ReportService.loadTaskCode(
 ): TaskCodeData {
     val tasks = fetchTaskCodePopulation(filter, scope.connectionIds, window)
     val gitlabIds = sources.map { it.connectionId }
-    if (gitlabIds.isEmpty()) return TaskCodeData(linkTasks(tasks, emptyMap(), emptyMap(), emptyMap()), KeyQuality(0, 0))
-    val history = fetchIssueKeyHistory(scope.connectionIds)
-    val known = knownProjectsOf(deps.dataSources, scope.connectionIds, history)
-    val candidates = fetchCandidateKeys(gitlabIds).filterTo(HashSet()) { projectKeyFromIssueKey(it) in known }
-    val current = fetchLiveIssuesByKey(scope.connectionIds, candidates)
-    val resolution = candidates.associateWith { current[it].orEmpty() + history.issuesByKey[it].orEmpty() }
-    val keysOf = tasks.associate { it.ref to (setOf(it.issueKey) + history.keysByIssue[it.ref].orEmpty()) }
-    val wanted = keysOf.values.flatten().filterTo(HashSet()) { it in candidates }
+    if (gitlabIds.isEmpty() || tasks.isEmpty()) return TaskCodeData(linkTasks(tasks, emptyMap(), emptyMap(), emptyMap()))
+    val known = knownProjectKeys(deps.dataSources)
+    val oldKeys = fetchKeysOfIssues(tasks.map { it.ref })
+    val keysOf = tasks.associate { task ->
+        task.ref to (setOf(task.issueKey) + oldKeys[task.ref].orEmpty()).filterTo(HashSet()) { projectKeyFromIssueKey(it) in known }
+    }
+    val everyJira = deps.dataSources.activeJiraProjectKeys().keys
+    val lookup = keysOf.values.flatten().toSet()
+    val current = fetchLiveIssuesByKey(everyJira, lookup)
+    val historic = fetchIssuesByHistoricKey(everyJira, lookup)
+    val resolution = lookup.associateWith { current[it].orEmpty() + historic[it].orEmpty() }
+    val wanted = tasks.flatMap { task -> keysOf.getValue(task.ref).filter { resolution[it] == setOf(task.ref) } }.toSet()
     val links = fetchTaskLinks(gitlabIds, wanted, CodeRowBudget(deps.maxRows)).groupBy { it.key }
-    return TaskCodeData(linkTasks(tasks, keysOf, links, resolution), keyQuality(candidates, resolution))
+    return TaskCodeData(linkTasks(tasks, keysOf, links, resolution))
 }
