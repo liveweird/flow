@@ -1,6 +1,6 @@
 # Product backlog
 
-Updated 2026-10-31. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
+Updated 2026-11-01. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
 - [README.md](README.md);
 - the [application changelog](web/src/changelog/entries.ts);
 - the topic guides under `.claude/docs/`.
@@ -95,13 +95,19 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     (`gitlab-integration.md` "Outbound calls", Memory) does not cover, so it needs the fit extended and a re-measure beside a Jira job
     (the worker's old generation peaked at 86 of 448 MiB in the pair).
   - Wait for the real-instance smoke run's per-call cost before deciding: at 12 ms it is minutes, at 100 ms it is hours.
-- [next] **Reports over `norm.code_*`.** The later plan the GitLab work left open (`gitlab-integration.md` "Status"): nothing derives
-  metrics from the code layer yet.
-  - The entry point is `identities/IdentityResolver` (`accountsByKey` / `keysByAccount`, LINKED decisions only); the team at an instant is
-    `metrics/`'s `teamAt`, which `identities/` must not import.
-  - A reports plan must count approvals as distinct merge requests per person (an approve / unapprove / approve leaves two `APPROVAL` events).
-  - Inputs measured 2026-10-31: 15k commits, 3k merge requests and 20.7k events are about 68 MB a source; the identities list answers in
-    4-8 ms at 72 identities.
+- [next] **Reports over `norm.code_*`: Report 21 "Code activity".** Planned and agreed 2026-11-01; the design is in the docs (PR 1 of 7), not here:
+  `domain-model.md` A50, `reports.md` "Report 21", `measures.md` "Report 21" (rows marked `planned`), `web-features.md` "Code activity".
+  - Query time over `norm.code_*`, attributed by LINKED identity, then account, then team at the row's anchor; the flow figures (merge-request
+    cycle time, time to first review, open merge requests waiting, size, review coverage) carry the cues, the per-member volumes are NEUTRAL context.
+  - PRs: (2) the endpoint, 1.39.0; (3) the page and its e2e, 1.40.0; (4) the drill, 1.41.0; (5) the `CODE` rows in Compare people and Person
+    trend, 1.42.0; (6) the performance run, `build-times.md` WHY 61 (V46 only if it shows a statement over budget); (7) a Home section, 1.43.0, optional,
+    tracked as its own item below.
+- [new] **Jira<->GitLab linking (issue keys in MR titles and branches).** Deliberately left out of Report 21 (A50). It needs a per-source project-key
+  seam, a `norm.code_*` column with a `CODE_PROCESSING_VERSION` bump (or a migration), and stub support (`sample-data/gitlab/generate.mjs` embeds no
+  keys today). It opens different questions: code lead time per task, tasks without a merge request, a merge request merged after the task is done.
+- [new] **Home: a Code section.** Per picked team, from Report 21's own fetch and value functions (Home defines no figure of its own, so it follows
+  the report): merged merge requests (90 days against the 90 before, higher is better), merge-request cycle p50 (lower), open merge requests now with
+  their age, merged without review (lower); `home/items` views `CODE_*`, `HomeOracle` extended. Decide after the Report 21 page has been in use.
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 
