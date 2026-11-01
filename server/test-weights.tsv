@@ -188,6 +188,8 @@ ch.nokillswit.MultiRowInsertPayloadTest	2.0
 ch.nokillswit.MultiRowInsertRetentionTest	0.0
 ch.nokillswit.MultiRowInsertTest	2.3
 ch.nokillswit.NarrowIdMigrationScanTest	0.0
+ch.nokillswit.NormAnalyzeGitLabTest	0.8
+ch.nokillswit.NormAnalyzeTest	4.7
 ch.nokillswit.NormDerivationReadsTest	0.0
 ch.nokillswit.NormalizationPipelineTest	14.3
 ch.nokillswit.NumericConfigBoundsTest	2.5
