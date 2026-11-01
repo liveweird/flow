@@ -1675,7 +1675,7 @@
   },
   "taskCode": {
     "title": "Tasks and code",
-    "description": "How the tasks done in the period line up with the code that delivered them, from the connected GitLab. A merge request belongs to a task when its title or branch names the task's issue key. The page shows how many done tasks have a merged merge request and how many have none, how long it takes from a task's start to the merge of its last merge request, and how often code is merged after the task was already done. The share of tasks without a merge request is context, not a verdict: a task may need no code. Lower is better for the code lead time and for code merged after done.",
+    "description": "How the tasks done in the period line up with the code that delivered them, from the connected GitLab. A merge request belongs to a task when its title or branch names the task's issue key. The page shows how many done tasks have a merged merge request and how many have none merged, how long it takes from a task's start to the merge of its last merge request, and how often code is merged after the task was already done. The share of tasks without a merge request is context, not a verdict: a task may need no code. Lower is better for the code lead time and for code merged after done.",
     "noTeams": "Tasks and code are read for one team or one domain, and there is neither yet. An administrator adds teams on the Teams page.",
     "pickScope": "Pick a team or a domain to read tasks and code for.",
     "noSources": "No GitLab data source is active.",
@@ -1710,10 +1710,10 @@
       "title": "Code merged after the task was done",
       "caption": "Tasks whose last merge request merged after the task was marked done. Lower is better: code should be merged before the task is closed.",
       "tile": "Merged after done",
-      "share": "{{share}} of the tasks with a merged merge request. Lower is better.",
-      "noShare": "No done task has a merged merge request. Lower is better.",
+      "share": "{{share}} of the tasks with a merged merge request.",
+      "noShare": "No done task has a merged merge request.",
       "lagTitle": "Done to last merge, working days",
-      "lagCaption": "Working days between the task being done and the merge of its last merge request. Lower is better.",
+      "lagCaption": "Working days between the task being done and the merge of its last merge request.",
       "axis": "working days"
     }
   },

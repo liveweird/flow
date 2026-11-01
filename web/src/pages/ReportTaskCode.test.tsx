@@ -120,7 +120,7 @@ describe("ReportTaskCode page", () => {
     await screen.findByRole("heading", { level: 3, name: "Code merged after the task was done" });
     const merged = tile("Merged after done");
     expect(within(merged).getByText("6")).toBeInTheDocument();
-    expect(merged).toHaveTextContent("25% of the tasks with a merged merge request. Lower is better.");
+    expect(merged).toHaveTextContent("25% of the tasks with a merged merge request.");
     expect(screen.getByText(/Lower is better: code should be merged before the task is closed\./)).toBeInTheDocument();
     expect(await screen.findByRole("heading", { level: 5, name: "Done to last merge, working days" })).toBeInTheDocument();
     expect(screen.getByRole("table", { name: "Histogram, as a table — Done to last merge, working days" })).toBeInTheDocument();
@@ -190,7 +190,7 @@ describe("ReportTaskCode page", () => {
     serve(mockFetch, () => jsonResponse(200, TASK_CODE_NO_MERGES));
     renderPage();
     await screen.findByRole("heading", { level: 3, name: "Code merged after the task was done" });
-    expect(tile("Merged after done")).toHaveTextContent("No done task has a merged merge request. Lower is better.");
+    expect(tile("Merged after done")).toHaveTextContent("No done task has a merged merge request.");
     expect(tile("Without a merged merge request")).toHaveTextContent("100% of the done tasks.");
   });
 

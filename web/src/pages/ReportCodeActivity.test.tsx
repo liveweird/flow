@@ -97,6 +97,16 @@ describe("ReportCodeActivity page", () => {
     expect(calls(mockFetch)).toEqual([TEAM]);
   });
 
+  test("the Code group's two tabs are there: Code activity selected, Tasks and code linking the report with the team and period kept", async () => {
+    serve(mockFetch);
+    renderPage("/reports/code-activity?teamId=1&from=2026-07-01&to=2026-09-30&accountId=acc-ann");
+    const tabs = within(await screen.findByRole("tablist", { name: "Reports in this group" })).getAllByRole("tab");
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Code activity", "Tasks and code"]);
+    expect(tabs.map((tab) => tab.getAttribute("aria-selected"))).toEqual(["true", "false"]);
+    // The members have no place on Tasks and code (no person level): the link drops them and keeps the team and the period.
+    expect(tabs[1].getAttribute("href")).toBe("/reports/task-code?teamId=1&from=2026-07-01&to=2026-09-30");
+  });
+
   test("the flow: the merged count, the two review counts with their rule and share, and five distributions with their own numbers", async () => {
     serve(mockFetch);
     renderPage();

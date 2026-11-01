@@ -21,6 +21,7 @@ import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
 import { CODE_FLOW_ANCHOR, type CodeDrill } from "../utils/codeActivityDrill";
 import { CODE_ACTIVITY_CONTROLS, normalizeCodeActivityFilter } from "../utils/codeActivityReport";
+import { CODE_TABS } from "../utils/reportLinks";
 
 /**
  * Report 21 — Code activity: the flow of ONE team's merge requests over the connected GitLab (cycle time, time to first review, size, merged per
@@ -56,7 +57,7 @@ export default function ReportCodeActivity() {
         controls={CODE_ACTIVITY_CONTROLS}
         tail
       />
-      <ReportPageShell filtersQuery={filtersQuery} filters={filters} noTeamsLabel={t("reports.codeActivity.noTeams")}>
+      <ReportPageShell tabs={CODE_TABS} filtersQuery={filtersQuery} filters={filters} noTeamsLabel={t("reports.codeActivity.noTeams")}>
         {(loaded) => (
           <>
             <ReportFilterBar storageKey={storageKey} filters={loaded} filter={filter} onChange={setFilter} controls={CODE_ACTIVITY_CONTROLS} />

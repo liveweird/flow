@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { SimpleGrid, Stack } from "@mantine/core";
+import { Box, SimpleGrid, Stack } from "@mantine/core";
 import type { TaskCodeReport } from "../api/reports";
 import { formatDays, formatPercent } from "../utils/reportFormat";
 import DistributionPanel from "./DistributionPanel";
@@ -41,7 +41,8 @@ export default function TaskCodeFigures({ report, isRefreshing }: { report: Task
       </ReportChartCard>
       <ReportChartCard title={t("reports.taskCode.mergedAfter.title")} caption={t("reports.taskCode.mergedAfter.caption")} isPending={false} isRefreshing={isRefreshing} empty={nothingDone}>
         <Stack gap="lg">
-          <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+          {/* One tile: a width of its own, not a third of a grid with two empty cells. */}
+          <Box maw={360}>
             <ReportTile
               label={t("reports.taskCode.mergedAfter.tile")}
               value={String(mergedAfterDone.count)}
@@ -51,7 +52,7 @@ export default function TaskCodeFigures({ report, isRefreshing }: { report: Task
                   : t("reports.taskCode.mergedAfter.share", { share: formatPercent(mergedAfterDone.share) })
               }
             />
-          </SimpleGrid>
+          </Box>
           <DistributionPanel
             title={t("reports.taskCode.mergedAfter.lagTitle")}
             caption={t("reports.taskCode.mergedAfter.lagCaption")}

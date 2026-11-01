@@ -336,7 +336,7 @@ test("a regular user reads Tasks and code for a domain: the done tasks with and 
   let userId: number | null = null;
   try {
     await sweepLeftoverGitLabSources();
-    await sharedFixtureReady(api);
+    const fixture = await sharedFixtureReady(api);
     const source = await syncGitLabStubDataSourceViaApi(api, OWN_PREFIX);
     dataSourceId = source.id;
 
@@ -347,7 +347,7 @@ test("a regular user reads Tasks and code for a domain: the done tasks with and 
     userId = ((await createdUser.json()) as { id: number }).id;
 
     // The oracle: the report's own answer for each domain of the Jira fixture over the whole history. The domain with the most done tasks that have a merged merge
-    // request is read (the first one on a tie), so the page meets real links wherever the stub has them; nothing is asserted as "above zero", only equal to the API.
+    // request is read (a tie goes to the one with more done tasks, then the first), so the page meets real links wherever the stub has them; nothing is asserted as "above zero", only equal to the API.
     const filtersAnswer = await api.get("/api/v1/reports/filters");
     expect(filtersAnswer.ok(), await filtersAnswer.text()).toBeTruthy();
     const domains = ((await filtersAnswer.json()) as { domains: { domainKey: string }[] }).domains.map((domain) => domain.domainKey);
@@ -357,7 +357,9 @@ test("a regular user reads Tasks and code for a domain: the done tasks with and 
       const answer = await api.get(`/api/v1/reports/task-code?domain=${encodeURIComponent(domain)}&${TASK_WINDOW}`);
       expect(answer.ok(), await answer.text()).toBeTruthy();
       const candidate = (await answer.json()) as TaskCodeBody;
-      if (chosen === undefined || candidate.tasks.withMergeRequest > chosen.report.tasks.withMergeRequest) chosen = { domain, report: candidate };
+      const linkGap = chosen === undefined ? 1 : candidate.tasks.withMergeRequest - chosen.report.tasks.withMergeRequest;
+      const doneGap = chosen === undefined ? 1 : candidate.tasks.done - chosen.report.tasks.done;
+      if (linkGap > 0 || (linkGap === 0 && doneGap > 0)) chosen = { domain, report: candidate };
     }
     if (chosen === undefined) throw new Error("no domain to read");
     const { report } = chosen;
@@ -367,6 +369,17 @@ test("a regular user reads Tasks and code for a domain: the done tasks with and 
     test.info().annotations.push({ type: "oracle", description: `domain ${chosen.domain}: ${report.tasks.done} done, ${report.tasks.withMergeRequest} with a merged merge request` });
 
     await login(page, reader.email, reader.password);
+    // The way in from the sidebar's Code group: Code activity draws the tab list, and its second tab opens Tasks and code with the team and the period kept.
+    await page.goto(`/reports/code-activity?teamId=${fixture.teamId}&${TASK_WINDOW}`);
+    await expect(page.getByRole("heading", { level: 2, name: "Code activity", exact: true })).toBeVisible();
+    await page.getByRole("tablist", { name: "Reports in this group" }).getByRole("tab", { name: "Tasks and code", exact: true }).click();
+    await expect(page.getByRole("heading", { level: 2, name: "Tasks and code", exact: true })).toBeVisible();
+    const arrived = new URL(page.url());
+    expect(arrived.pathname).toBe("/reports/task-code");
+    expect([arrived.searchParams.get("teamId"), arrived.searchParams.get("from"), arrived.searchParams.get("to")]).toEqual([String(fixture.teamId), "2025-09-01", "2026-09-30"]);
+    await expect(page.getByRole("tablist", { name: "Reports in this group" }).getByRole("tab", { name: "Tasks and code", exact: true })).toHaveAttribute("aria-selected", "true");
+
+    // The figures are read for the oracle's domain, by deep link.
     await page.goto(`/reports/task-code?domain=${encodeURIComponent(chosen.domain)}&${TASK_WINDOW}`);
     await expect(page.getByRole("heading", { level: 2, name: "Tasks and code", exact: true })).toBeVisible();
     for (const title of ["Done tasks and their merge requests", "Code lead time", "Code merged after the task was done"]) {

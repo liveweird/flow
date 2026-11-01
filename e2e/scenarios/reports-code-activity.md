@@ -62,10 +62,12 @@
 
 1. Through the API, leftover GitLab-stub sources of earlier runs are deleted, the shared Jira fixture is made ready, a GitLab-stub source is created and synced, and a
    reader is created. The test reads `GET /api/v1/reports/task-code?domain=<domain>&from=2025-09-01&to=2026-09-30` (the whole history of the Jira stub) for every domain
-   in `GET /api/v1/reports/filters` and keeps the answer of the domain with the most done tasks that have a merged merge request (the first on a tie) as the oracle.
+   in `GET /api/v1/reports/filters` and keeps the answer of the domain with the most done tasks that have a merged merge request (a tie goes to the one with more done tasks, then the first) as the oracle.
    - *Expected*: the sources list is exactly the spec's own source, there are done tasks, and `withMergeRequest + withoutMergeRequest` equals `done`. Nothing is asserted as
      "above zero" for the links (the stub's dates are fixed but another Jira source could make a key ambiguous); the oracle is recorded as a test annotation.
-2. The reader signs in and opens `/reports/task-code?domain=<domain>&from=2025-09-01&to=2026-09-30`.
+2. The reader signs in and opens `/reports/code-activity?teamId=<the shared fixture's team>&from=2025-09-01&to=2026-09-30`, then presses the **Tasks and code** tab of the Code group.
+   - *Expected*: the heading "Tasks and code" is shown, the address is `/reports/task-code` with the same `teamId`, `from` and `to`, and the tab is selected.
+   They then open `/reports/task-code?domain=<domain>&from=2025-09-01&to=2026-09-30` (the oracle's domain) by deep link.
    - *Expected*: the heading "Tasks and code" and three level-3 cards — "Done tasks and their merge requests", "Code lead time", "Code merged after the task was done"; the
      address keeps the domain and the period and has no `teamId` (a domain stands in for the team).
 3. They read the Code group's tabs.
