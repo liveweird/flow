@@ -57,7 +57,8 @@
       "QUALITY_EPICS_ESTIMATE_GAP": "Epiki, których szacunek rozjeżdża się z zadaniami",
       "CODE_MERGED": "Scalone merge requesty",
       "CODE_OPEN": "Otwarte merge requesty czekające na przegląd",
-      "CODE_MERGED_WITHOUT_REVIEW": "Merge requesty scalone bez przeglądu"
+      "CODE_MERGED_WITHOUT_REVIEW": "Merge requesty scalone bez przeglądu",
+      "CODE_TASKS_WITHOUT_MR": "Zakończone zadania bez scalonego merge requestu"
     }
   },
   "sprints": {
@@ -160,13 +161,20 @@
   },
   "code": {
     "title": "Kod",
-    "caption": "Merge requesty z podłączonego GitLaba, według zespołu autora: scalone {{from}} – {{to}} i otwarte właśnie teraz. Więcej scalonych jest lepsze; krótszy czas cyklu i mniej scalonych bez przeglądu jest lepsze; otwarte to stan na teraz, bez strzałki. Strzałka porównuje z {{previousFrom}} – {{previousTo}}. Liczymy tylko osoby, które administrator/ka połączył/a z kontem w Jirze.",
+    "caption": "Merge requesty z podłączonego GitLaba, według zespołu autora: scalone {{from}} – {{to}} i otwarte właśnie teraz. Więcej scalonych jest lepsze; krótszy czas cyklu i mniej scalonych bez przeglądu jest lepsze; otwarte to stan na teraz, bez strzałki. Strzałka porównuje z {{previousFrom}} – {{previousTo}}. Liczymy tylko osoby, które administrator/ka połączył/a z kontem w Jirze. Ostatnia kolumna to kontekst, nie ocena: liczy zadania zespołu zakończone w tym samym okresie, których nie wymienia żaden scalony merge request (po kluczu zadania, bez względu na autora kodu), a zadanie może nie wymagać kodu.",
     "tableAria": "Merge requesty według zespołów",
     "merged": "Scalone",
     "cycle": "Czas cyklu, p50 (dni robocze)",
     "open": "Otwarte teraz",
     "age": "Wiek otwartych, p50 (dni robocze)",
     "withoutReview": "Scalone bez przeglądu",
+    "tasksWithoutMr": "Zakończone zadania bez scalonego merge requestu",
+    "tasksShare_one": "{{share}} z {{count}} zakończonego",
+    "tasksShare_few": "{{share}} z {{count}} zakończonych",
+    "tasksShare_many": "{{share}} z {{count}} zakończonych",
+    "tasksShare_other": "{{share}} z {{count}} zakończonych",
+    "tasksNoneDone": "Brak zakończonych zadań w okresie",
+    "tasksUnavailable": "Za dużo, by je tu policzyć",
     "drafts_one": "+{{count}} wersja robocza",
     "drafts_few": "+{{count}} wersje robocze",
     "drafts_many": "+{{count}} wersji roboczych",

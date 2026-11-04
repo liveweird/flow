@@ -50,7 +50,7 @@
    (the remembered pick, `showTeamsOnHome`). Home's window is the moving 90 days ending today while the stub's dates are fixed, so nothing is asserted as "above zero":
    every expectation is equal to the API, and the drill is exercised only when the API's merged count is above zero.
    - *Expected*: the overview reports no over-budget code read, the spec's own source as the only code source and exactly one linked member for the team; the
-     freshness shows "<source> (GitLab): synced …"; a "Code" card with the table "Merge requests per team" has one row for the team with five figures whose Merged, Open now and
+     freshness shows "<source> (GitLab): synced …"; a "Code" card with the table "Merge requests per team" has one row for the team with six figures (the last, the done tasks without a merged merge request, is the API's count or the sentence saying there is none) whose Merged, Open now and
      Merged without review cells start with the API's counts (`merged.n`, `openCount.n`, `mergedWithoutReview.numerator`); the card's title links to
      `/reports/code-activity` with exactly the overview's `from`/`to` and the team.
    - They press the Merged figure (only when its count is above zero; otherwise it is plain text, no button).

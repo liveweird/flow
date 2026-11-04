@@ -232,6 +232,8 @@ class ReportValidatorInputsTest {
                     // Home's Code section reads the same rows (1.44.0): the overview and its CODE_* drills carry the stamp lines too.
                     "/api/v1/reports/home",
                     "/api/v1/reports/home/items?view=CODE_MERGED&teamId=$teamId",
+                    // 1.53.0: the tasks without a merge request join Jira tasks to the merge requests that name them.
+                    "/api/v1/reports/home/items?view=CODE_TASKS_WITHOUT_MR&teamId=$teamId",
                 )
                 // The Jira-only reports read no GitLab row: not one of them may move (the cycle-time report is a team report).
                 val cycle = "/api/v1/reports/cycle-time?teamId=$teamId&$period"

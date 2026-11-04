@@ -109,6 +109,12 @@ data class HomeTeamCode(
     val openDrafts: Int,
     val openAgeP50: HomeFigure,
     val mergedWithoutReview: HomeFigure,
+    /**
+     * Report 22's `tasks` of the team over the CURRENT window alone (`GET /task-code?teamId&from&to`, `HomeTaskCode.kt`): the done tasks
+     * and how many have no MERGED merge request naming them. Neutral context, no trend and no verdict. It does not depend on the
+     * team's linked people. `null` = that read was over `reports.codeMaxRows` (the rest of the section is intact).
+     */
+    val tasks: TaskCodeTasks?,
 )
 
 /**
@@ -162,5 +168,5 @@ enum class HomeDrillView {
     TASK_ESTIMATE, TASK_CYCLE, TASK_COST, TASK_PRED10, TASK_PRED25, TASK_PRED50, EPIC_PRED10, EPIC_PRED25, EPIC_PRED50,
     WIP_TASKS, WIP_EPICS, QUALITY_TASKS_NO_ESTIMATE, QUALITY_TASKS_UNASSIGNED, QUALITY_TASKS_ESTIMATED_LATE,
     QUALITY_EPICS_NO_ESTIMATE, QUALITY_EPICS_NO_DATES, QUALITY_EPICS_ESTIMATE_GAP,
-    CODE_MERGED, CODE_OPEN, CODE_MERGED_WITHOUT_REVIEW,
+    CODE_MERGED, CODE_OPEN, CODE_MERGED_WITHOUT_REVIEW, CODE_TASKS_WITHOUT_MR,
 }

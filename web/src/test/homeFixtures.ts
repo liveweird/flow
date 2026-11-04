@@ -95,6 +95,7 @@ const ALPHA: HomeTeam = {
     openDrafts: 1,
     openAgeP50: figure(4.2, 3, { hidden: false }),
     mergedWithoutReview: figure(0.25, 8, { numerator: 2, previous: previous(0.5, 6, "BETTER", -0.25) }),
+    tasks: { done: 40, withMergeRequest: 30, withoutMergeRequest: 10, withoutShare: 0.25 },
   },
 };
 
@@ -160,6 +161,8 @@ const BETA: HomeTeam = {
     openDrafts: 0,
     openAgeP50: figure(null, 1, { hidden: true }),
     mergedWithoutReview: figure(null, 4, { hidden: true, numerator: 1, previous: previous(null, 4, null, null, true) }),
+    // Every done task has a merged merge request: a zero count of a real sample.
+    tasks: { done: 3, withMergeRequest: 3, withoutMergeRequest: 0, withoutShare: 0 },
   },
 };
 
@@ -199,6 +202,8 @@ const GAMMA: HomeTeam = {
     openDrafts: 0,
     openAgeP50: figure(null, 0, { hidden: true }),
     mergedWithoutReview: figure(null, 0, { hidden: true, numerator: 0, previous: previous(null, 0, null, null, true) }),
+    // No task done in the window: no share (never "0 %"). The figure does not depend on the team's linked people.
+    tasks: { done: 0, withMergeRequest: 0, withoutMergeRequest: 0 },
   },
 };
 

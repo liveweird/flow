@@ -57,7 +57,8 @@
       "QUALITY_EPICS_ESTIMATE_GAP": "Epics whose estimate differs from their tasks",
       "CODE_MERGED": "Merge requests merged",
       "CODE_OPEN": "Merge requests open now, waiting for review",
-      "CODE_MERGED_WITHOUT_REVIEW": "Merge requests merged without review"
+      "CODE_MERGED_WITHOUT_REVIEW": "Merge requests merged without review",
+      "CODE_TASKS_WITHOUT_MR": "Done tasks without a merged merge request"
     }
   },
   "sprints": {
@@ -158,13 +159,18 @@
   },
   "code": {
     "title": "Code",
-    "caption": "Merge requests from the connected GitLab, by their author's team: merged {{from}} – {{to}} and open right now. More merged is better; a shorter cycle time and fewer merged without review are better; the open ones are a snapshot of now, with no arrow. The arrow compares with {{previousFrom}} – {{previousTo}}. Only people an administrator has linked to a Jira account are counted.",
+    "caption": "Merge requests from the connected GitLab, by their author's team: merged {{from}} – {{to}} and open right now. More merged is better; a shorter cycle time and fewer merged without review are better; the open ones are a snapshot of now, with no arrow. The arrow compares with {{previousFrom}} – {{previousTo}}. Only people an administrator has linked to a Jira account are counted. The last column is context, not a verdict: it counts the team's tasks done in the same window that no merged merge request names (by issue key, whoever wrote the code), and a task may need no code.",
     "tableAria": "Merge requests per team",
     "merged": "Merged",
     "cycle": "Cycle time, p50 (working days)",
     "open": "Open now",
     "age": "Open age, p50 (working days)",
     "withoutReview": "Merged without review",
+    "tasksWithoutMr": "Done tasks without a merged merge request",
+    "tasksShare_one": "{{share}} of {{count}} done",
+    "tasksShare_other": "{{share}} of {{count}} done",
+    "tasksNoneDone": "No task done in the window",
+    "tasksUnavailable": "Too many to count here",
     "drafts_one": "+{{count}} draft",
     "drafts_other": "+{{count}} drafts",
     "share": "{{share}} of {{n}} read",

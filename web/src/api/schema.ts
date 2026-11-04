@@ -1342,8 +1342,9 @@ export interface paths {
          *     review), read once for all picked teams from the GitLab code layer and attributed through the admin's identity links;
          *     `code.sources` is Report 21's `sources[]` (empty = no active GitLab source, the section is absent and every team's `code`
          *     is null) and `code.overBudget` says the read exceeded `reports.codeMaxRows`, in which case the page degrades rather than
-         *     fails (200, every team's `code` null, the Jira sections intact). The ETag also carries Report 21's GitLab stamp lines
-         *     (empty while no GitLab source is active).
+         *     fails (200, every team's `code` null, the Jira sections intact). Each team's `code.tasks` (1.53.0) is Report 22's own
+         *     `tasks` block over the CURRENT window (done tasks, those with no merged merge request, their share), neutral context with no
+         *     trend. The ETag also carries Report 21's GitLab stamp lines (empty while no GitLab source is active).
          */
         get: operations["getReportHome"];
         put?: never;
@@ -1378,6 +1379,10 @@ export interface paths {
          *     (`figure` = the cycle). Their `itemKind` is `MERGE_REQUEST` and `issueKey` is `<project path>!<iid>`; the SPA links them with
          *     the overview's `code.sources[].baseUrl`. With no active GitLab source the list is empty; a read over `reports.codeMaxRows` is
          *     a 400 (the overview itself degrades instead).
+         *     `CODE_TASKS_WITHOUT_MR` (1.53.0) lists the TASKS behind the team's `code.tasks.withoutMergeRequest`: Report 22's own
+         *     `TASKS_WITHOUT_MR` list over the current window (the done tasks with no linked MERGED merge request). Its `itemKind` is
+         *     `TASK`, `issueKey` the Jira key, `anchorAt` the task's `done_at`, `figure` is absent, and `linkedKeys` are the task's linked
+         *     merge requests that are NOT merged, `<project path>!<iid>` (`[]` for a task no merge request names). `bar.count` equals the figure.
          */
         get: operations["getReportHomeItems"];
         put?: never;
@@ -5119,7 +5124,7 @@ export interface components {
             epicsNoDates: components["schemas"]["HomeFigure"];
             epicsEstimateGap: components["schemas"]["HomeFigure"];
         };
-        /** @description One team's Code figures (Report 21's own): the merge requests merged in the window, their cycle p50 in working days, the open ones now (`openCount` waiting for review, `openDrafts` beside, no trend) with their age p50 in working days, and the merged merge requests with no review by another human. `mergedWithoutReview.numerator` is Report 21's count, `n` the merged merge requests whose details were read (the share's denominator); the share (`value`) is hidden under `meta.minSampleSize`, the count never is. */
+        /** @description One team's Code figures (Report 21's own): the merge requests merged in the window, their cycle p50 in working days, the open ones now (`openCount` waiting for review, `openDrafts` beside, no trend) with their age p50 in working days, and the merged merge requests with no review by another human. `mergedWithoutReview.numerator` is Report 21's count, `n` the merged merge requests whose details were read (the share's denominator); the share (`value`) is hidden under `meta.minSampleSize`, the count never is. `tasks` (1.53.0) is Report 22's own `tasks` block for the team over the current window alone. */
         HomeTeamCode: {
             /** @description The team's people (both windows and now) with at least one linked GitLab identity. */
             linkedMembers: number;
@@ -5129,6 +5134,8 @@ export interface components {
             openDrafts: number;
             openAgeP50: components["schemas"]["HomeFigure"];
             mergedWithoutReview: components["schemas"]["HomeFigure"];
+            /** @description The team's done tasks of the window and how many have no MERGED merge request naming them (`GET /reports/task-code` for the same team and window prints the same block). NEUTRAL context: no trend and no verdict, and independent of the team's linked people. Null = that read was over `reports.codeMaxRows` (the other figures stay). */
+            tasks: components["schemas"]["TaskCodeTasks"] | null;
         };
         /** @description The code layer's side of the overview. */
         HomeCode: {
@@ -9996,7 +10003,7 @@ export interface operations {
         parameters: {
             query: {
                 /** @description Which figure's items. */
-                view: "TASK_ESTIMATE" | "TASK_CYCLE" | "TASK_COST" | "TASK_PRED10" | "TASK_PRED25" | "TASK_PRED50" | "EPIC_PRED10" | "EPIC_PRED25" | "EPIC_PRED50" | "WIP_TASKS" | "WIP_EPICS" | "QUALITY_TASKS_NO_ESTIMATE" | "QUALITY_TASKS_UNASSIGNED" | "QUALITY_TASKS_ESTIMATED_LATE" | "QUALITY_EPICS_NO_ESTIMATE" | "QUALITY_EPICS_NO_DATES" | "QUALITY_EPICS_ESTIMATE_GAP" | "CODE_MERGED" | "CODE_OPEN" | "CODE_MERGED_WITHOUT_REVIEW";
+                view: "TASK_ESTIMATE" | "TASK_CYCLE" | "TASK_COST" | "TASK_PRED10" | "TASK_PRED25" | "TASK_PRED50" | "EPIC_PRED10" | "EPIC_PRED25" | "EPIC_PRED50" | "WIP_TASKS" | "WIP_EPICS" | "QUALITY_TASKS_NO_ESTIMATE" | "QUALITY_TASKS_UNASSIGNED" | "QUALITY_TASKS_ESTIMATED_LATE" | "QUALITY_EPICS_NO_ESTIMATE" | "QUALITY_EPICS_NO_DATES" | "QUALITY_EPICS_ESTIMATE_GAP" | "CODE_MERGED" | "CODE_OPEN" | "CODE_MERGED_WITHOUT_REVIEW" | "CODE_TASKS_WITHOUT_MR";
                 /** @description The team the figure belongs to (a real, active team). */
                 teamId: number;
             };
