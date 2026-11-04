@@ -157,7 +157,7 @@ class ReportCodeActivityDrillKeysTest {
                 )
                 // A commit is linked through its merge request only: no list at all.
                 val commits = client.items("teamId=$teamId&from=2026-03-02&to=2026-03-15&connectionId=$connId&view=COMMITS")
-                assertTrue(commits.items.isNotEmpty() && commits.items.all { it.linkedKeys == null })
+                assertTrue(commits.items.isNotEmpty() && commits.items.all { it.linkedKeys == null && it.measuredKey == null })
                 // The stored candidates are the full set: a project that becomes known later links retroactively.
                 assertTrue(
                     jdbcRows("SELECT issue_key FROM norm.code_mr_issue_keys WHERE connection_id = ? AND mr_id = 33", connId.toInt())
@@ -270,7 +270,7 @@ class ReportCodeActivityDrillKeysTest {
         assertEquals(HttpStatusCode.OK, drill.status)
         val items = drill.body<ReportDrillItems>().items
         assertTrue(items.isNotEmpty())
-        assertTrue(items.all { it.linkedKeys == null && it.itemKind.name == "TASK" })
+        assertTrue(items.all { it.linkedKeys == null && it.measuredKey == null && it.itemKind.name == "TASK" })
     }
 
     @Test

@@ -104,6 +104,29 @@ internal suspend fun fetchMergeRequestKeys(refs: Collection<CodeMrRef>): Map<Cod
     }
 }
 
+/**
+ * The order of `<project path>!<iid>` keys: by path, then NUMERIC iid (`!2` before `!10`), then the plain string. A key that does not
+ * parse (the `#mr-<id>` of a vanished row, or any text without a numeric iid after the last `!`) sorts after every parsed one, among
+ * its kind by plain string, so the order is total and deterministic.
+ */
+internal val MERGE_REQUEST_KEY_ORDER: Comparator<String> = Comparator { a, b ->
+    val pa = parseMergeRequestKey(a)
+    val pb = parseMergeRequestKey(b)
+    when {
+        pa != null && pb != null -> compareValuesBy(pa, pb, { it.first }, { it.second }).takeIf { it != 0 } ?: a.compareTo(b)
+        pa != null -> -1
+        pb != null -> 1
+        else -> a.compareTo(b)
+    }
+}
+
+private fun parseMergeRequestKey(key: String): Pair<String, Long>? {
+    val bang = key.lastIndexOf('!')
+    if (bang <= 0) return null
+    val iid = key.substring(bang + 1)
+    return if (iid.isNotEmpty() && iid.all { it in '0'..'9' }) iid.toLongOrNull()?.let { key.substring(0, bang) to it } else null
+}
+
 private suspend fun fetchMrLabels(refs: List<CodeMrRef>): Map<CodeMrRef, CodeDrillLabels.MrLabel> {
     if (refs.isEmpty()) return emptyMap()
     val m = CodeMergeRequests

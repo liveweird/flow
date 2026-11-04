@@ -29,7 +29,9 @@ internal data class TaskCodeTask(
 internal data class TaskCodeLink(val key: String, val mr: CodeMrRef, val mergedAt: Long?)
 
 /**
- * A done task and the distinct merge requests linked to it: the [mergedMrs] and the [unmergedMrs], [lastMergedAt] the latest merge.
+ * A done task and the distinct merge requests linked to it: the [mergedMrs] and the [unmergedMrs], [lastMergedAt] the latest merge and
+ * [lastMergedMr] the merge request that merge belongs to (the one every figure measures; of several merged at the very same instant the
+ * greatest `(connectionId, mrId)`, so the pick is deterministic).
  * [ambiguousKey] says one of the task's keys names more than one live issue, so it could link nothing through that key. The drill lists
  * the merge requests themselves; the figures count them.
  */
@@ -39,6 +41,7 @@ internal data class TaskMergeRequests(
     val unmergedMrs: List<CodeMrRef>,
     val lastMergedAt: Long?,
     val ambiguousKey: Boolean = false,
+    val lastMergedMr: CodeMrRef? = null,
 ) {
     val merged: Int get() = mergedMrs.size
     val unmerged: Int get() = unmergedMrs.size
@@ -68,6 +71,13 @@ internal data class TaskMergeRequests(
 }
 
 /**
+ * The "last merge" rule: the latest `mergedAt`, ties to the greatest `(connectionId, mrId)`. [TaskMergeRequests.lastMergedAt] and
+ * [TaskMergeRequests.lastMergedMr] both come from it.
+ */
+private val LAST_MERGE_ORDER: Comparator<TaskCodeLink> =
+    compareBy<TaskCodeLink> { it.mergedAt }.thenBy { it.mr.connectionId }.thenBy { it.mr.mrId }
+
+/**
  * The distinct merge requests of each task. A merge request belongs to a task through a key the task has ([keysOf]: its key and every
  * old or new key of its `issuekey` changes) that names THAT task alone: a key naming several issues ([resolution], across Jira sources or
  * after a project reused a key) is ambiguous and links to none, and a key that names no live issue links to none. A merge request that
@@ -85,7 +95,8 @@ internal fun linkTasks(
         .associateBy { it.mr }.values
     val (merged, unmerged) = linked.partition { it.mergedAt != null }
     val ambiguous = keysOf[task.ref].orEmpty().any { (resolution[it]?.size ?: 0) > 1 }
-    TaskMergeRequests(task, merged.map { it.mr }, unmerged.map { it.mr }, merged.mapNotNull { it.mergedAt }.maxOrNull(), ambiguous)
+    val last = merged.maxWithOrNull(LAST_MERGE_ORDER)
+    TaskMergeRequests(task, merged.map { it.mr }, unmerged.map { it.mr }, last?.mergedAt, ambiguous, last?.mr)
 }
 
 /** The counts and the raw values behind Report 22's figures; the distributions are built from [leadTimes] and [lags]. */

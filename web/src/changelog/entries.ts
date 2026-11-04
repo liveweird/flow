@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.50.0",
+    date: "2026-11-04",
+    en: `**Tasks and code: see which merge request a figure measured.**
+
+- When a task has several merged merge requests, the list now marks the one that counts: its last merge, the one the code lead time and the merge lag are measured to.
+- Merge requests in the list are ordered by project and then by number, so !2 comes before !10.`,
+    pl: `**Zadania i kod: zobacz, który merge request mierzy liczba.**
+
+- Gdy zadanie ma kilka scalonych merge requestów, lista oznacza ten, który się liczy: jego ostatnie scalenie, do którego mierzony jest czas realizacji kodu i opóźnienie scalenia.
+- Merge requesty na liście są uporządkowane według projektu, a potem numeru, więc !2 jest przed !10.`,
+  },
+  {
     version: "1.49.0",
     date: "2026-11-01",
     en: `**Tasks and code: open the tasks behind a figure.**
