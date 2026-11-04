@@ -4,8 +4,8 @@ import { reportSpecificKeep, taskCodePath } from "./reportLinks";
 /**
  * Tasks and code (report 22): the done tasks of a team or a domain (Cycle time's population, so its slices: the domain and its view, activity type,
  * work category) joined to the GitLab merge requests that name them. The bar offers a team (required, the way Cycle time has it) that a domain may narrow
- * (the server's team x domain read, so the domain does not exclude the team); a domain-wide link with no team (`teamOrDomain`) is still read, for the domain, the whole period
- * (dates and sprints) and the Jira connection that narrows the tasks. There is NO member control (`noMember`): the endpoint has no person level and
+ * (the server's team x domain read, so the domain does not exclude the team); once a domain is set the team can be cleared (`teamClearableUnderDomain`), and a domain with no team
+ * (`teamOrDomain`; a `?domain=` link too) is read for the domain across the whole unit, the whole period (dates and sprints) and the Jira connection that narrows the tasks. There is NO member control (`noMember`): the endpoint has no person level and
  * answers an `accountId` with a `400`. The team may also be "Unassigned" (`teamUnassigned`, `teamId=0`): the done tasks with no credit team, which the server
  * answers like a team (a domain and every other slice still apply). A module-level constant: the hook reads its identity.
  */

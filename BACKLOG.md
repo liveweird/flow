@@ -105,16 +105,19 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   issue's key (and its old keys), from `norm.code_mr_issue_keys` by the same resolution as Report 22, to debug a missing or ambiguous link.
 - [new] **Commit-title keys (A51/D5 alternative).** Also extract keys from `norm.code_commits.title` into a sibling table, so direct-to-default commits that
   bypass a merge request link to their task; a later PR with no schema conflict, plus a "commits with no merge request" figure on Report 21.
+- [new] **Cycle time: a domain across every team.** The API answers a domain with no team, but the page is `teamRequired` without `teamOrDomain`, so a `?domain=` link gets a
+  team swapped in and the page cannot read a domain-wide figure at all. Other `teamRequired` pages with a domain control (Throughput, Task accuracy and more) behave the same way.
+  Tasks and code has this since 1.52.0 (`teamClearableUnderDomain`); decide which of the others should have it.
 - [new] **A scaled measurement of Report 22's reads at plan density.** The 90-day request is measured on the base stub (15 ms in-test); measure the
   four-step read (population, old keys, key resolution, link rows) at 21k merge requests and a whole-domain period, and record it in `build-times.md`.
-- [new] **A domain-wide read from the filter bar.** Cycle time and Tasks and code accept a domain with no team (a `?domain=` link works), but when teams
-  exist the bar always holds a team (`teamRequired`, not clearable) and picking a domain keeps it, so "a domain across the whole unit" is only reachable by
-  link. Make the team clearable on `teamOrDomain` pages once a domain is set, or say so in the bar.
 - [new] **Tests leave their Jira sources behind, and every report request pays for them.** About 300 per fork at the end of a full run (304 counted 2026-11-04; about
   80 enabled, `jira-raw-store` and `metrics-config-conn` the most), against `testing.md`'s "remove their own". `dataStamp` reads all of them on each report request:
   `ReportDrillSprintScopeTest` is +36 % with 300 extra rows (build-times WHY 63); the whole-suite effect is not measured. Production holds a handful of sources.
   Clean up per class (dozens of classes), or correct the doc if that is not worth it. The `FLO-366` row that once tripped `ReportTaskCodeFixtureTest`'s guard is not
   reproduced: sampling both forks every 15 s for a full run found none, and the guard now runs after the other sources are deactivated.
+- [new] **The Tasks and code e2e test races other specs' Jira sources.** `reports-code-activity.spec.ts`'s Tasks and code test reads the report's API as its oracle, then the page. Specs running
+  beside it create a second active Jira source holding the same keys, which makes every key ambiguous, so nothing links and the figures change under it. It failed once in the last 6 nightly runs
+  (passed on retry, so reported as flaky) and in one full local run on 2026-11-04 (retries are 0 locally). Needs its own scope for the fixture's keys, or a spec order that keeps it apart; relaxing the assertions would lose what it pins.
 - [new] **The `keys:` stamp line invalidates readers that show no keys.** It rides the ONE `codeStamp`, so a Jira source's project-list edit also moves
   Compare people's, Person trend's (and its peer-cell cache generation) and the Home overview's tags; split the stamp if that churn ever shows.
 

@@ -281,6 +281,9 @@ class ReportTaskCodeFixtureTest {
             linkedSomewhere = linkedSomewhere || domain.tasks.withMergeRequest > 0
         }
         assertTrue(linkedSomewhere, "the stub's keys must hit the done tasks, or this test pins nothing")
+        // A domain with no team and a sprint period (what clearing the team leaves in the bar): every team's last sprints, one window.
+        val bySprints = client.taskCode("connectionId=$jira&domain=${DerivedStubFixture.DOMAIN}&lastSprints=3")
+        assertTrue(bySprints.tasks.withMergeRequest + bySprints.tasks.withoutMergeRequest > 0, "the window holds done tasks")
         // What overlaps (measured 2026-11-01): of the 246 done tasks of the whole history 4 have a merged merge request, 3 only unmerged
         // ones and 3 of the 4 merged after done. The figures above are the oracle's; these keep the overlap from silently vanishing.
         val whole = client.taskCode("connectionId=$jira&domain=${DerivedStubFixture.DOMAIN}&from=2024-01-01&to=2026-12-31")
