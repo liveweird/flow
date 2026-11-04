@@ -187,7 +187,7 @@ export function useReportFilter(
     const current = liveFilter.current;
     const merged = rebaseReportFilter(filter, next, current);
     liveFilter.current = normalize(merged);
-    // A domain standing in for the team (`teamOrDomain`) does not wipe the memory: clearing the domain returns to that team.
+    // A domain standing in for the team (`teamOrDomain`, whether picked on a `domainExcludesTeam` page or reached by clearing the team under a domain, `teamClearableUnderDomain`) does not wipe the memory: clearing the domain returns to that team.
     const teamTouched = merged.teamId !== current.teamId && !domainStandsForTeam(controls, merged);
     // "Unassigned" (`teamId=0`) is no team to come back to: it leaves the shared remembered team as it was.
     if (teamTouched && merged.teamId !== 0) setRememberedTeam(merged.teamId !== undefined && merged.teamId > 0 ? merged.teamId : null);

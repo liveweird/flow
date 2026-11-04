@@ -298,6 +298,37 @@ describe("ReportFilterBar", () => {
   });
 });
 
+describe("ReportFilterBar team control on a teamRequired report", () => {
+  test("a teamRequired report with no teamOrDomain cannot clear its team, domain or not", async () => {
+    await renderOpen(<Harness controls={{ teamRequired: true, domain: true }} />, { route: "/reports/commitments?teamId=1&domain=FLO" });
+    expect(screen.queryByLabelText("Clear Team")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Clear Domain")).toBeInTheDocument();
+  });
+
+  test("a teamRequired + teamOrDomain report whose domain excludes the team cannot clear its team either", async () => {
+    await renderOpen(<Harness controls={{ teamRequired: true, teamOrDomain: true, domainExcludesTeam: true, domain: true }} />, {
+      route: "/reports/commitments?teamId=1&domain=FLO",
+    });
+    expect(screen.queryByLabelText("Clear Team")).not.toBeInTheDocument();
+  });
+
+  test("a teamRequired + teamOrDomain report that keeps both clears the team under a domain only, and the domain stays", async () => {
+    const user = userEvent.setup();
+    const controls = { teamRequired: true, teamOrDomain: true, domain: true } as const;
+    await renderOpen(<Harness controls={controls} />, { route: "/reports/commitments?teamId=1&domain=FLO" });
+    await user.click(screen.getByLabelText("Clear Team"));
+    await waitFor(() => expect(search().has("teamId")).toBe(false));
+    expect(search().get("domain")).toBe("FLO");
+    expect(screen.getByRole("combobox", { name: "Team" })).toHaveAttribute("placeholder", "No team: a domain is picked");
+    expect(screen.queryByLabelText("Clear Team")).not.toBeInTheDocument();
+  });
+
+  test("with no domain the same report keeps its team too", async () => {
+    await renderOpen(<Harness controls={{ teamRequired: true, teamOrDomain: true, domain: true }} />, { route: "/reports/commitments?teamId=1" });
+    expect(screen.queryByLabelText("Clear Team")).not.toBeInTheDocument();
+  });
+});
+
 describe("ReportFilterBar panel", () => {
   const toggle = () => screen.getByRole("button", { name: /^Filters/ });
 

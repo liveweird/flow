@@ -17,6 +17,7 @@ import {
   reportQuery,
   requiredTeamId,
   serializeReportFilter,
+  teamClearableUnderDomain,
   wipColumnAvailable,
   withFilterKey,
   withPeriod,
@@ -404,6 +405,29 @@ describe("domainStandsForTeam", () => {
     // WIP and the backlog do not read an epic: it never replaces their team.
     expect(domainStandsForTeam({ teamOrDomain: true }, { epicId: "FLO-33" })).toBe(false);
     expect(domainStandsForTeam({ epicScope: true }, { epicId: "FLO-33" })).toBe(false);
+  });
+});
+
+describe("teamClearableUnderDomain", () => {
+  const taskCode = { teamRequired: true, teamOrDomain: true } as const;
+
+  test("a teamRequired + teamOrDomain report without domainExcludesTeam may clear a held team once a domain is set", () => {
+    expect(teamClearableUnderDomain(taskCode, { teamId: 1, domain: "FLO" })).toBe(true);
+    // "Unassigned" is a held team too.
+    expect(teamClearableUnderDomain(taskCode, { teamId: 0, domain: "FLO" })).toBe(true);
+  });
+
+  test("no domain, or no team held, is nothing to clear", () => {
+    expect(teamClearableUnderDomain(taskCode, { teamId: 1 })).toBe(false);
+    expect(teamClearableUnderDomain(taskCode, { domain: "FLO" })).toBe(false);
+    expect(teamClearableUnderDomain(taskCode, {})).toBe(false);
+  });
+
+  test("every other teamRequired report keeps its team: no teamOrDomain, or a domain that excludes the team", () => {
+    expect(teamClearableUnderDomain({ teamRequired: true }, { teamId: 1, domain: "FLO" })).toBe(false);
+    expect(teamClearableUnderDomain({ teamRequired: true, teamOrDomain: true, domainExcludesTeam: true }, { teamId: 1, domain: "FLO" })).toBe(false);
+    expect(teamClearableUnderDomain({ teamOrDomain: true }, { teamId: 1, domain: "FLO" })).toBe(false);
+    expect(teamClearableUnderDomain({}, { teamId: 1, domain: "FLO" })).toBe(false);
   });
 });
 

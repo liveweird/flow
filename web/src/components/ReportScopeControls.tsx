@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import type { ReportFilters } from "../api/reports";
-import { domainStandsForTeam, withFilterKey, withPeriod, type ReportControls, type ReportFilterState } from "../utils/reportFilter";
+import { domainStandsForTeam, teamClearableUnderDomain, withFilterKey, withPeriod, type ReportControls, type ReportFilterState } from "../utils/reportFilter";
 import ReportFilterMultiSelect from "./ReportFilterMultiSelect";
 import ReportFilterSelect from "./ReportFilterSelect";
 
@@ -31,7 +31,8 @@ export default function ReportScopeControls({
   const memberOptions = (team?.members ?? []).map((member) => ({ value: member.accountId, label: member.displayName }));
 
   const changeTeam = (value: string | null) => {
-    if (value === null && controls.teamRequired) return;
+    // A required team stays held, except under a domain on a page that reads a domain across the unit (`teamClearableUnderDomain`).
+    if (value === null && controls.teamRequired && !teamClearableUnderDomain(controls, filter)) return;
     const next: ReportFilterState = { ...filter };
     delete next.accountId;
     delete next.accountIds;
@@ -58,7 +59,7 @@ export default function ReportScopeControls({
     onChange(next);
   };
 
-  // A `teamOrDomain` report read for a domain alone (or, with `epicScope`, one epic): the team control shows no team (and still no "All teams", nothing to clear).
+  // A `teamOrDomain` report read for a domain alone (or, with `epicScope`, one epic): the team control shows no team (and still no "All teams"; with a team held, `teamClearableUnderDomain` is how it got here).
   const byDomain = domainStandsForTeam(controls, filter);
 
   return (
@@ -72,7 +73,7 @@ export default function ReportScopeControls({
           value={filter.teamId === undefined ? null : String(filter.teamId)}
           onChange={changeTeam}
           required={controls.teamRequired && !byDomain}
-          clearable={!controls.teamRequired}
+          clearable={!controls.teamRequired || teamClearableUnderDomain(controls, filter)}
         />
       )}
       {team && !controls.noMember && !controls.peopleOnly && (
