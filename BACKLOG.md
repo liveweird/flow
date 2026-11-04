@@ -47,7 +47,11 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   (a fetch size < ~250 rows) costs a round trip per statement and is not taken.
 - [todo] **CI duration: check the trend at every milestone.** Run `node scripts/timings/ci-times.mjs --branch master`.
   A trend jump gets an investigation, never a raised budget.
-  - Last checked 2026-10-31 (1.38.0, the GitLab plan's end): `server` median-5 18m15s (prev-5 16m35s; 30 master runs 10-29..10-31; min
+  - Last checked 2026-11-04 (1.49.0): `server` median-5 19m51s (prev-5 14m52s, a TREND +34 % flag; 30 master runs 10-30..11-01; min 10m58s,
+    max 20m17s), `web` 4m48s (TREND +26 %), `images` 3m30s, `e2e-static` 1m09s — no new jump, the runner draw: `server` fast 699-790 s, slow
+    1083-1201 s, four of the last five runs slow; `web` fast 159-229 s, slow 281-313 s. `server`, `web` and `e2e-static` over their alarms; nightly
+    `e2e` median-5 13m38s, the last 14 runs green.
+    2026-10-31 (1.38.0, the GitLab plan's end): `server` median-5 18m15s (prev-5 16m35s; 30 master runs 10-29..10-31; min
     10m29s, max 19m10s), `web` 4m00s (TREND +38 % flag: the runner draw, 149-285 s run to run, the last two 169-181 s), `images` 4m10s — no
     new jump: the fast mode is unchanged (658-715 s against 629-773 s) and the slow mode moved from 981-1084 s to 1095-1150 s as the suite
     grew from ~2,280 to 2,831 tests over the GitLab PRs (each measured locally in WHY 55-58); `server`, `web`, `images` and `e2e-static` over
@@ -110,12 +114,11 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   treats 0 as an unknown team and swaps in the default; offer the "Unassigned" choice there too (`ReportControls.teamUnassigned`).
 - [new] **Tasks and code drill: show which merge request made a task late.** The "merged after done" and lead-time lists show ALL of a task's merged merge
   requests; mark (or list only) the last merge the figure measured. Also sort `<path>!<iid>` keys numerically by iid (`!10` sorts before `!2` today).
-- [new] **A test class leaves a live Jira source behind.** In a full run some class in the fork leaves an active Jira source whose live moved issue names
-  the stub's `FLO-366` (`ReportTaskCodeFixtureTest`'s guard now names the `connection:issue` pairs; it was moved after the other sources are deactivated).
-  Find it (print `source_connections.name` for the moved rows in a failing run) and make it clean up in a `finally`.
-- [new] **The local server gate runs over its 6-minute alarm.** `scripts/gates.sh` server-build medians 6m32s over 152 runs (6m18s-7m10s tonight, under
-  parallel load); investigate WHY (build-times.md, `local-times.mjs slow-tests`) before touching the alarm, and refresh `server/test-weights.tsv` after a
-  quiet full run (the new Report 21/22 classes are hand-weighted).
+- [new] **Tests leave their Jira sources behind, and every report request pays for them.** About 300 per fork at the end of a full run (304 counted 2026-11-04; about
+  80 enabled, `jira-raw-store` and `metrics-config-conn` the most), against `testing.md`'s "remove their own". `dataStamp` reads all of them on each report request:
+  `ReportDrillSprintScopeTest` is +36 % with 300 extra rows (build-times WHY 63); the whole-suite effect is not measured. Production holds a handful of sources.
+  Clean up per class (dozens of classes), or correct the doc if that is not worth it. The `FLO-366` row that once tripped `ReportTaskCodeFixtureTest`'s guard is not
+  reproduced: sampling both forks every 15 s for a full run found none, and the guard now runs after the other sources are deactivated.
 - [new] **The `keys:` stamp line invalidates readers that show no keys.** It rides the ONE `codeStamp`, so a Jira source's project-list edit also moves
   Compare people's, Person trend's (and its peer-cell cache generation) and the Home overview's tags; split the stamp if that churn ever shows.
 
@@ -142,7 +145,9 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [todo] **Atlassian API-token quota: re-check developer.atlassian.com/changelog before releases.**
   - API-token traffic is excluded from the 2026 points-based rate limits.
   - Atlassian is evaluating a quota for tokens "with advance notice".
-  - Last checked 2026-10-31 (1.38.0): no token quota announced (the only entry since 10-29, the Forge custom-field UI RFC-154, does not touch
+  - Last checked 2026-11-04 (1.49.0): no token quota announced (entries through 11-03; the 11-02 draft-workflow removal from the Workflow Rules APIs does not
+    touch Flow's endpoints).
+    2026-10-31 (1.38.0): no token quota announced (the only entry since 10-29, the Forge custom-field UI RFC-154, does not touch
     Flow).
     2026-10-30 (1.31.0): no token quota announced (the only new entry, a Forge custom-field UI RFC, does not touch Flow).
     2026-10-30 (1.28.0): no token quota announced (entries through 10-28: Bitbucket SSH, Confluence byline, org-level app
