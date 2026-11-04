@@ -113,9 +113,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   `ReportDrillSprintScopeTest` is +36 % with 300 extra rows (build-times WHY 63); the whole-suite effect is not measured. Production holds a handful of sources.
   Clean up per class (dozens of classes), or correct the doc if that is not worth it. The `FLO-366` row that once tripped `ReportTaskCodeFixtureTest`'s guard is not
   reproduced: sampling both forks every 15 s for a full run found none, and the guard now runs after the other sources are deactivated.
-- [new] **The Tasks and code e2e test races other specs' Jira sources.** `reports-code-activity.spec.ts`'s Tasks and code test reads the report's API as its oracle, then the page. Specs running
-  beside it create a second active Jira source holding the same keys, which makes every key ambiguous, so nothing links and the figures change under it. It failed once in the last 6 nightly runs
-  (passed on retry, so reported as flaky) and in one full local run on 2026-11-04 (retries are 0 locally). Needs its own scope for the fixture's keys, or a spec order that keeps it apart; relaxing the assertions would lose what it pins.
 - [new] **The `keys:` stamp line invalidates readers that show no keys.** It rides the ONE `codeStamp`, so a Jira source's project-list edit also moves
   Compare people's, Person trend's (and its peer-cell cache generation) and the Home overview's tags; split the stamp if that churn ever shows.
 

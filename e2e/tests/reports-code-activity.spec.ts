@@ -29,7 +29,9 @@ import {
 } from "./helpers";
 
 // Never beside `data-sources.spec.ts` or `code-identities.spec.ts` (helpers.ts, `REPORTS_EXCLUSIVE_LOCKS`): all put an ACTIVE GitLab source with the same groups on the stub host.
-test.describe.configure({ lock: REPORTS_EXCLUSIVE_LOCKS.dataSources });
+// And never beside a spec that syncs a second Jira source (`capacity`, `public-holidays`, `metrics-config`): Tasks and code resolves a key across every active Jira source,
+// so the same stub key in two of them is ambiguous and links nothing, and the figures change between the API's answer and the page. So it holds all four, like `reports`.
+test.describe.configure({ lock: Object.values(REPORTS_EXCLUSIVE_LOCKS) });
 
 const OWN_PREFIX = "e2e-code";
 

@@ -118,7 +118,7 @@ from Lettuce, that any new or edited spec must satisfy:
   derived since) and drills them against the figure it just read, so another spec's DERIVE finishing mid-test, a holiday or a
   settings edit fails it ("the data changed since the chart was drawn" - it did, twice in nine runs, before the locks). `capacity`,
   `data-sources`, `public-holidays` and `metrics-config` each hold one lock, `reports` holds all four (the four stay free to overlap each
-  other). A new spec that keeps a live synced connection, or edits the holiday dictionary or `metrics.settings`, takes the same
+  other), and so does `reports-code-activity`: its Tasks and code test resolves a key across every active Jira source, so a second synced stub source beside it makes every key ambiguous. A new spec that keeps a live synced connection, or edits the holiday dictionary or `metrics.settings`, takes the same
   treatment. Beside it, `reports`' `beforeAll` runs the shared fixture's preparation (`sharedFixtureReady`, a no-op once done) before it
   puts its roster person on its team, so the shared connection is paused before that credit exists.
 - **The Teams registry is shared, append-only state.** Several specs create teams concurrently
