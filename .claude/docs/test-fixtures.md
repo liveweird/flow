@@ -318,7 +318,7 @@ actuals are noted in a comment beside them); run `cd web && npm run test:coverag
 
 Backend tests live flat in `server/src/test/kotlin/` (kotlin.test + `io.ktor.server.testing.testApplication`)
 and override the `postgres.*` config keys via `MapApplicationConfig` to point at a Testcontainers
-`PostgreSQLContainer("postgres:18.6-alpine@sha256:77f58511…")` (the same digest `docker-compose.yaml` and
+`PostgreSQLContainer("postgres:18.6-alpine@sha256:10a5c69a…")` (the same digest `docker-compose.yaml` and
 `k8s/postgres-deployment.yaml` pin — `PostgresImagePinTest`) started lazily by `PostgresTestSupport` and **shared
 across the whole suite within a JVM fork** (one container per fork — "Parallel forks" below) (test-side direct database access, `sharedDatabaseForTests()`, goes through a small
 r2dbc-pool built by production's own `connectPooledDatabase` — an unpooled connect paid ~4 ms of backend
