@@ -1,0 +1,50 @@
+{
+  "priority": 6,
+  "request": {
+    "method": "GET",
+    "urlPath": "/api/v4/projects/1/merge_requests/4/notes",
+    "queryParameters": {
+      "sort": {
+        "equalTo": "asc"
+      },
+      "order_by": {
+        "equalTo": "created_at"
+      },
+      "per_page": {
+        "equalTo": "100"
+      },
+      "page": {
+        "or": [
+          {
+            "absent": true
+          },
+          {
+            "equalTo": "1"
+          }
+        ]
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json",
+      "RateLimit-Limit": "2000",
+      "RateLimit-Observed": "10",
+      "RateLimit-Remaining": "1990",
+      "RateLimit-Reset": "1788220860",
+      "RateLimit-ResetTime": "Tue, 01 Sep 2026 00:01:00 GMT",
+      "X-Next-Page": "",
+      "X-Page": "1",
+      "X-Per-Page": "100",
+      "X-Prev-Page": "",
+      "X-Total": "7",
+      "X-Total-Pages": "1",
+      "Link": "<{{request.baseUrl}}/api/v4/projects/1/merge_requests/4/notes?id=1&merge_request_iid=4&order_by=created_at&page=1&per_page=100&sort=asc>; rel=\"first\", <{{request.baseUrl}}/api/v4/projects/1/merge_requests/4/notes?id=1&merge_request_iid=4&order_by=created_at&page=1&per_page=100&sort=asc>; rel=\"last\""
+    },
+    "bodyFileName": "p1-mr-4-notes-page-1.json",
+    "transformers": [
+      "response-template"
+    ]
+  }
+}

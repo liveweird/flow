@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.flowusers.FlowUserRole
 import ch.nokillswit.ingest.CeilingTripException
+import ch.nokillswit.ingest.ConnectionTarget
 import ch.nokillswit.ingest.ConnectionTestResult
 import ch.nokillswit.ingest.Connector
 import ch.nokillswit.ingest.DataSourceKind
@@ -63,13 +64,7 @@ class ReconcilePauseTest {
     /** What a scripted run does: throw the given failure, or return (succeed). */
     private class Scripted(private val outcomes: ArrayDeque<Exception?>) : Connector {
         override val kind = DataSourceKind.JIRA_CLOUD
-        override suspend fun testConnection(
-            siteUrl: String,
-            email: String,
-            apiToken: String,
-            projectKeys: List<String>,
-            authScheme: JiraAuthScheme,
-        ): ConnectionTestResult = error("not used")
+        override suspend fun testConnection(target: ConnectionTarget): ConnectionTestResult = error("not used")
 
         override suspend fun run(context: SyncJobRunContext) {
             outcomes.removeFirst()?.let { throw it }
@@ -286,7 +281,7 @@ class ReconcilePauseTest {
             name = assertNotNull(ds().read(connId)).name, enabled = false, syncIntervalMinutes = 60, backfillFrom = defaultBackfillFrom(),
             reconcileHourUtc = 3,
             jira = JiraConnectionRequest(
-                TEST_JIRA_SITE_URL, assertNotNull(ds().read(connId)).jira.email, null, listOf("ENG"), JiraAuthScheme.BASIC,
+                TEST_JIRA_SITE_URL, assertNotNull(ds().read(connId)).jira!!.email, null, listOf("ENG"), JiraAuthScheme.BASIC,
             ),
         )
         assertNotNull(ds().update(connId, put))
@@ -397,7 +392,8 @@ class ReconcilePauseTest {
                 "/api/v1/data-sources/${created.id}",
                 DataSourceRequest(
                     created.name, true, 60, created.backfillFrom, 3,
-                    JiraConnectionRequest(created.jira.siteUrl, created.jira.email, null, created.jira.projectKeys, JiraAuthScheme.BASIC),
+                    JiraConnectionRequest(created.jira!!.siteUrl, created.jira!!.email, null, created.jira!!.projectKeys,
+                        JiraAuthScheme.BASIC),
                 ),
             )
             assertEquals(HttpStatusCode.NoContent, put.status)

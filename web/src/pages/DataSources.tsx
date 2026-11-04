@@ -23,6 +23,7 @@ import RowActionsMenu from "../components/RowActionsMenu";
 import SortHeader from "../components/SortHeader";
 import { useDeleteConfirm } from "../hooks/useDeleteConfirm";
 import { useRegistryListControls } from "../hooks/useRegistryListControls";
+import { dataSourceHost, dataSourceScope } from "../utils/dataSourceForm";
 import { dataSourcePath } from "../utils/dataSourceLinks";
 import { dataSourceStateColor, formatEpochMillis } from "../utils/dataSourceState";
 import { saveErrorMessage } from "../utils/saveError";
@@ -88,7 +89,7 @@ export default function DataSources() {
   });
 
   const total = data?.total ?? 0;
-  const columnCount = 7;
+  const columnCount = 8;
 
   return (
     <Stack gap="md">
@@ -131,17 +132,16 @@ export default function DataSources() {
         header={
           <Table.Tr>
             <SortHeader field="name" label={t("common.field.name")} activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
+            <Table.Th>{t("dataSources.column.kind")}</Table.Th>
             <Table.Th>{t("dataSources.column.site")}</Table.Th>
-            <Table.Th>{t("dataSources.column.projects")}</Table.Th>
+            <Table.Th>{t("dataSources.column.scope")}</Table.Th>
             <Table.Th>{t("dataSources.column.enabled")}</Table.Th>
             <Table.Th>{t("dataSources.column.lastSuccess")}</Table.Th>
             <Table.Th>{t("dataSources.column.state")}</Table.Th>
             <Table.Th aria-label={t("common.table.operations")} style={{ width: 1 }} />
           </Table.Tr>
         }
-        rows={data?.items.map((dataSource) => {
-          const host = new URL(dataSource.jira.siteUrl).host;
-          return (
+        rows={data?.items.map((dataSource) => (
             <Table.Tr key={dataSource.id}>
               <Table.Td>
                 {/* The name is the way into the details page — a real link (the detail-link rule). */}
@@ -156,11 +156,16 @@ export default function DataSources() {
                 </Anchor>
               </Table.Td>
               <Table.Td>
-                <Text size="sm">{host}</Text>
+                <Badge variant="light" color="gray">
+                  {t(`dataSources.kind.${dataSource.kind}`)}
+                </Badge>
+              </Table.Td>
+              <Table.Td>
+                <Text size="sm">{dataSourceHost(dataSource)}</Text>
               </Table.Td>
               <Table.Td>
                 <Text size="sm" lineClamp={1}>
-                  {dataSource.jira.projectKeys.join(", ")}
+                  {dataSourceScope(dataSource).join(", ")}
                 </Text>
               </Table.Td>
               <Table.Td>
@@ -216,8 +221,7 @@ export default function DataSources() {
                 </RowActionsMenu>
               </Table.Td>
             </Table.Tr>
-          );
-        })}
+        ))}
         total={total}
         page={page}
         pageSize={pageSize}

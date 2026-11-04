@@ -44,7 +44,7 @@ function union(counts: number[], step: number, a: number[], b: number[], stats: 
 }
 
 /**
- * The rows every caller gets (24), in the server's table order, then the four capacity rows (an editor of both teams only). Verdicts, by
+ * The rows every caller gets (32), in the server's table order, then the four capacity rows (an editor of both teams only). Verdicts, by
  * row: delivered MD and items (higher: A), task size (lower: A) and reopened share (lower: A), cycle p50 (lower: A by 1.4 days), p90 (a tie), elapsed p50 (B), flow efficiency (A),
  * reported time (target 1: A is closer), PRED(25) at start (a tie) and at done (B), re-estimated share (neutral), the median change (B
  * withheld), average WIP (lower: A), WIP at the end (A) and its age (B), the blocked shares (a tie, then A), logged (neutral), foreign
@@ -166,6 +166,20 @@ const BASE_ROWS: CompareRow[] = [
     cell(0, 14),
     cell(0, 10),
   ),
+  // The CODE group (A50, Report 21's member cells): the volumes are NEUTRAL (a difference, never a side), the two p50s LOWER. Ann has merged merge requests and
+  // reviewed none, Cy none merged (his p50s are withheld: no sample) and a few reviewed.
+  row({ key: "commits", group: "CODE", unit: "ITEMS", direction: "NEUTRAL", tolerance: 0, drill: "COMMITS", difference: -20 }, cell(52, 52), cell(32, 32)),
+  row({ key: "linesChanged", group: "CODE", unit: "LINES", direction: "NEUTRAL", tolerance: 1, drill: "COMMITS", difference: -1200 }, cell(3400, 52), cell(2200, 32)),
+  row({ key: "mrsMerged", group: "CODE", unit: "ITEMS", direction: "NEUTRAL", tolerance: 0, drill: "MRS_MERGED", difference: -9 }, cell(14, 14), cell(5, 5)),
+  row(
+    { key: "mrCycleWorkingDaysP50", group: "CODE", unit: "DAYS", direction: "LOWER", tolerance: 0.05, drill: "MR_CYCLE_WORKING_DAYS", better: "B", difference: -1.5, margin: 1.5 },
+    cell(3, 14),
+    cell(1.5, 5),
+  ),
+  row({ key: "mrSizeLinesP50", group: "CODE", unit: "LINES", direction: "LOWER", tolerance: 1, drill: "MR_SIZE_LINES" }, cell(120, 14), cell(null, 3, true)),
+  row({ key: "reviewsGiven", group: "CODE", unit: "ITEMS", direction: "NEUTRAL", tolerance: 0, drill: "REVIEWS_GIVEN", difference: 7 }, cell(0, 0), cell(7, 7)),
+  row({ key: "approvalsGiven", group: "CODE", unit: "ITEMS", direction: "NEUTRAL", tolerance: 0, drill: "APPROVALS_GIVEN", difference: 4 }, cell(0, 0), cell(4, 4)),
+  row({ key: "comments", group: "CODE", unit: "ITEMS", direction: "NEUTRAL", tolerance: 0, drill: "COMMENTS", difference: 12 }, cell(3, 3), cell(15, 15)),
 ];
 
 const CAPACITY_ROWS: CompareRow[] = [
@@ -266,6 +280,29 @@ export const COMPARE_PEOPLE_THIN: ComparePeopleReport = {
   workMix: { activityType: [], workCategory: [], domain: [] },
   note: "No day has been derived yet for the work in progress.",
 };
+
+/**
+ * [count] GitLab items of one person (the CODE rows' lists, A50): commits (`group/app@3f9a1c2b4d5e`) or merge requests (`group/app!12`), no team, and
+ * [figure] (a commit's counted lines, a merge request's cycle or size; null for a review act).
+ */
+export function codeCompareItems(kind: "COMMIT" | "MERGE_REQUEST", count: number, figure: number | null = null): ReportDrillItems {
+  return {
+    meta: META,
+    bar: { count, sumMd: null, from: null, to: null },
+    items: Array.from({ length: count }, (_, index) => ({
+      issueKey: kind === "COMMIT" ? `group/app@3f9a1c2b4d${String(index).padStart(2, "0")}` : `group/app!${index + 1}`,
+      summary: kind === "COMMIT" ? `Commit ${index + 1}` : `Merge request ${index + 1}`,
+      itemKind: kind,
+      accountId: "acc-ann",
+      assignee: "Ann Author",
+      teamId: null,
+      anchorAt: Date.UTC(2026, 8, 9, 10),
+      figure,
+    })),
+    total: count,
+    truncated: false,
+  };
+}
 
 /** [count] items of one person, each with [figure], the drill's `bar` recomputed over them (the shape every compare-people view answers). */
 export function compareItems(count: number, sumMd: number | null = null, figure: number | null = 1): ReportDrillItems {

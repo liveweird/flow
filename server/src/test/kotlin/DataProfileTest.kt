@@ -141,6 +141,7 @@ class DataProfileTest {
             val admin = seededClient("profilefull-read", FlowUserRole.ADMIN)
             val profile = admin.get("/api/v1/data-sources/$connId/profile").body<DataProfile>()
             assertTrue(profile.computedAt != null, "PROFILE must run after PROCESS in a SYNC job")
+            assertNull(profile.gitlab, "a Jira source carries no GitLab section")
             assertTrue(profile.workflowStatusIds.isNotEmpty(), "the in-scope projects' reference workflows list statuses")
             assertEquals(profile.workflowStatusIds.distinct().sorted(), profile.workflowStatusIds, "sorted and distinct")
             val schemeFieldIds = assertNotNull(profile.schemeFieldIds, "the stub serves projects/fields, so the scheme is known")

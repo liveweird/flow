@@ -3,6 +3,8 @@ package ch.nokillswit.jira
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.json.canonicalJson
 import ch.nokillswit.infra.json.sha256Hex
+import ch.nokillswit.ingest.RawUpsertOutcome
+import ch.nokillswit.ingest.classifyUpsert
 import ch.nokillswit.jira.JiraRawStore.Changelogs
 import ch.nokillswit.jira.JiraRawStore.Entities
 import ch.nokillswit.jira.JiraRawStore.Issues
@@ -235,19 +237,6 @@ internal class JiraRawWrites(private val database: R2dbcDatabase, private val ce
 
 /** [classifyUpsert] only classifies a stored row against a new hash; a refusal happens before it, so it never returns REFUSED. */
 internal const val NEVER_REFUSES = "classifyUpsert never refuses"
-
-/**
- * The ONE diff rule of every raw upsert (issue, entity, worklog), shared by the single-row methods above and the batch writers
- * ([JiraRawBatchWrites]): no stored row inserts; the same sha256 on a live row is unchanged; a tombstoned row seen again is
- * resurrected whatever its hash; any other difference is a change. [tombstoned] is the stored row's own notion (an issue: deleted
- * OR moved out; an entity/worklog: deleted).
- */
-internal fun classifyUpsert(storedHash: String?, newHash: String, tombstoned: Boolean): RawUpsertOutcome = when {
-    storedHash == null -> RawUpsertOutcome.INSERTED
-    tombstoned -> RawUpsertOutcome.RESURRECTED
-    storedHash == newHash -> RawUpsertOutcome.UNCHANGED
-    else -> RawUpsertOutcome.CHANGED
-}
 
 /** A genuine change of an issue row (or its resurrection): refresh the payload/key/project columns, flag it, clear the tombstones. */
 internal suspend fun changeIssueRow(

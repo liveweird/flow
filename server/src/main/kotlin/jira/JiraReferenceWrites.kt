@@ -1,6 +1,8 @@
 package ch.nokillswit.jira
 
+import ch.nokillswit.ingest.RawUpsertOutcome
 import ch.nokillswit.ingest.StreamContext
+import ch.nokillswit.ingest.isChange
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 

@@ -4,6 +4,7 @@
 
 import { jsonRequest } from "./http";
 import type { paths } from "./schema";
+import type { CodeDrillTarget } from "../utils/codeActivityDrill";
 import type {
   ActualCostBucketTarget,
   ActualCostSprintTarget,
@@ -15,6 +16,7 @@ import type {
   MixDrillTarget,
 } from "../utils/reportDrill";
 import { reportQuery, type ReportFilterState } from "../utils/reportFilter";
+import type { TaskCodeDrillTarget } from "../utils/taskCodeDrill";
 import { sprintDrillFilter } from "../utils/sprintDrill";
 
 export type ReportDrillItems = paths["/api/v1/reports/throughput/items"]["get"]["responses"]["200"]["content"]["application/json"];
@@ -160,4 +162,32 @@ export async function getCostsItems(filter: ReportFilterState, target: CostDrill
     appendEpicSegment(params, target);
   }
   return jsonRequest<ReportDrillItems>(`/api/v1/reports/costs/items?${params.toString()}`);
+}
+
+/**
+ * The commits or merge requests behind one figure of Code activity: a histogram bar (`hist`: its `view` and `bucketIndex`) or a tile, a member's
+ * cell or a weekly bar (`code`). The page's own filter travels with it. A member's cell at TEAM level (no picked member) is asked as the USER
+ * level with that member as the only pick — the same rows, attributed by the same anchors; at USER level the picks stay and the member is the
+ * `segmentAccountId` that narrows them.
+ */
+export async function getCodeActivityItems(filter: ReportFilterState, target: HistDrillTarget | CodeDrillTarget): Promise<ReportDrillItems> {
+  const member = target.kind === "code" && (filter.accountIds ?? []).length === 0 ? target.segmentAccountId : undefined;
+  const scoped = member === undefined ? filter : { ...filter, accountIds: [member] };
+  const params = new URLSearchParams(reportQuery(scoped));
+  params.set("view", target.view);
+  if (target.kind === "hist") params.set("bucketIndex", String(target.bucketIndex));
+  else if (target.bucketStart !== undefined) params.set("bucketStart", target.bucketStart);
+  if (target.segmentAccountId && member === undefined) params.set("segmentAccountId", target.segmentAccountId);
+  return jsonRequest<ReportDrillItems>(`/api/v1/reports/code-activity/items?${params.toString()}`);
+}
+
+/**
+ * The done tasks behind one figure of Tasks and code: a histogram bar (`hist`: its `view` and `bucketIndex`) or a count (`taskcode`). The page's own filter travels
+ * with it; the report has no person level, so there is no segment. Each task lists the merge requests linked to it (`linkedKeys`, GitLab keys).
+ */
+export async function getTaskCodeItems(filter: ReportFilterState, target: HistDrillTarget | TaskCodeDrillTarget): Promise<ReportDrillItems> {
+  const params = new URLSearchParams(reportQuery(filter));
+  params.set("view", target.view);
+  if (target.kind === "hist") params.set("bucketIndex", String(target.bucketIndex));
+  return jsonRequest<ReportDrillItems>(`/api/v1/reports/task-code/items?${params.toString()}`);
 }

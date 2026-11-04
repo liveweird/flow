@@ -1,9 +1,10 @@
 package ch.nokillswit
 
+import ch.nokillswit.fetch.FetchException
 import ch.nokillswit.ingest.StreamContext
+import ch.nokillswit.jira.JIRA_SOURCE
 import ch.nokillswit.jira.JiraClient
 import ch.nokillswit.jira.JiraEntityKind
-import ch.nokillswit.jira.JiraFetchException
 import ch.nokillswit.jira.JiraProjectFields
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraReferenceStream
@@ -125,7 +126,7 @@ class JiraProjectFieldsScriptedTest {
         )
         bad.forEach { badRow ->
             val client = scripted { _, _, _ -> fieldsPage(listOf(fieldRowOf("summary"), badRow), total = 2, isLast = true) }
-            val failure = assertFailsWith<JiraFetchException>("$badRow") { JiraProjectFields.fetchScheme(client, 7L, listOf(1L)) }
+            val failure = assertFailsWith<FetchException>("$badRow") { JiraProjectFields.fetchScheme(client, 7L, listOf(1L)) }
             assertEquals("INVALID_RESPONSE", failure.code, "$badRow")
         }
     }
@@ -205,7 +206,7 @@ class JiraProjectFieldsScriptedTest {
         val codes = listOf("UPSTREAM_UNAVAILABLE", "TIMEOUT", "REDIRECT", "LIMIT_EXCEEDED", "RATE_LIMITED", "CURSOR_EXPIRED", "NOT_FOUND")
         codes.forEach { code ->
             val connId = SyncedStubFixture.createConnection(namePrefix = "jira-fields-code")
-            val progress = run(connId, scripted { _, _, _ -> throw JiraFetchException(code, null, "/rest/api/3/projects/fields") })
+            val progress = run(connId, scripted { _, _, _ -> throw FetchException(JIRA_SOURCE, code, null, "/rest/api/3/projects/fields") })
 
             assertEquals(KEYS.size.toLong(), progress["projectFieldsSkipped"], code)
             assertNull(SyncedStubFixture.cursors().get(connId, "reference"), "$code: the pass completed")
@@ -214,9 +215,11 @@ class JiraProjectFieldsScriptedTest {
 
     @Test
     fun `a blocked host, a cancellation and a non-Jira failure still stop the pass`(): Unit = runBlocking {
-        val blocked = scripted { _, _, _ -> throw JiraFetchException("BLOCKED_HOST", null, "https://x/rest/api/3/projects/fields") }
+        val blocked = scripted { _, _, _ ->
+            throw FetchException(JIRA_SOURCE, "BLOCKED_HOST", null, "https://x/rest/api/3/projects/fields")
+        }
         val blockedConn = SyncedStubFixture.createConnection(namePrefix = "jira-fields-blocked")
-        val failure = assertFailsWith<JiraFetchException> { run(blockedConn, blocked) }
+        val failure = assertFailsWith<FetchException> { run(blockedConn, blocked) }
         assertEquals("BLOCKED_HOST", failure.code)
 
         val cancelled = scripted { _, _, _ -> throw CancellationException("stop") }

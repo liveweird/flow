@@ -101,11 +101,12 @@ describe("DataSourceEditorModal", () => {
   describe("the history horizon floor", () => {
     const SETTINGS = { historyHorizonFrom: "2025-06-15" };
 
-    /** Serves the metrics settings GET and answers every write with 204; returns the writes seen. */
+    /** Serves the metrics settings and kinds GETs and answers every write with 204; returns the writes seen. */
     function serveSettings() {
       const writes: string[] = [];
       mockFetch.mockImplementation((url: string, init?: RequestInit) => {
         if (url.includes("/api/v1/metrics-settings")) return Promise.resolve(jsonResponse(200, SETTINGS));
+        if (url.includes("/api/v1/data-sources/kinds")) return Promise.resolve(jsonResponse(200, { items: [] }));
         writes.push(`${init?.method ?? "GET"} ${init?.body ?? ""}`);
         return Promise.resolve(new Response(null, { status: 204 }));
       });
@@ -114,6 +115,7 @@ describe("DataSourceEditorModal", () => {
 
     const STORED = {
       id: 7,
+      kind: "JIRA_CLOUD",
       name: "Existing",
       enabled: true,
       syncIntervalMinutes: 60,

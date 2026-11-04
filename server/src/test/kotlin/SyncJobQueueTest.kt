@@ -590,7 +590,7 @@ class SyncJobQueueTest {
                 backfillFrom = defaultBackfillFrom(),
                 reconcileHourUtc = 3,
                 jira = JiraConnectionRequest(
-                    siteUrl = ds.read(connId)!!.jira.siteUrl,
+                    siteUrl = ds.read(connId)!!.jira!!.siteUrl,
                     email = "changed-${unique("acct")}@example.com",
                     apiToken = null,
                     projectKeys = listOf("ENG"),

@@ -37,14 +37,16 @@ class PersonTrendKernelsTest {
         CuePoint(end, coverage, CompareCell(value, n, hidden))
 
     @Test
-    fun `the rows are the fourteen Compare people rows in the display order, none of them a capacity row`() {
-        assertEquals(14, TREND_ROW_KEYS.size)
+    fun `the rows are Compare people rows in the display order, none of them a capacity row`() {
+        assertEquals(17, TREND_ROW_KEYS.size)
         assertEquals(TREND_ROW_KEYS, TREND_ROWS.map { it.key })
         assertEquals(TREND_ROW_KEYS.size, TREND_ROW_KEYS.toSet().size, "no key twice")
         assertTrue(TREND_ROWS.none { it.requiresCapacity })
         assertTrue(TREND_ROWS.all { row -> COMPARE_ROWS.any { it === row } }, "each row IS Compare people's spec, not a copy")
         assertEquals("cycleWorkingDaysP50", TREND_ROW_KEYS.first())
-        assertEquals("taskSizeP50", TREND_ROW_KEYS.last())
+        assertEquals("taskSizeP50", TREND_ROW_KEYS[13])
+        val code = listOf("mrsMerged", "mrCycleWorkingDaysP50", "reviewsGiven")
+        assertEquals(code, TREND_ROW_KEYS.takeLast(3), "the CODE rows close the list")
     }
 
     @Test

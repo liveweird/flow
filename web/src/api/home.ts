@@ -9,6 +9,7 @@ export type HomeOverview = paths["/api/v1/reports/home"]["get"]["responses"]["20
 export type HomeTeam = HomeOverview["teams"][number];
 export type HomeSprint = NonNullable<HomeTeam["lastSprint"]>;
 export type HomeFigure = HomeTeam["granularity"]["estimateMd"];
+export type HomeTeamCode = NonNullable<HomeTeam["code"]>;
 export type HomePrevious = NonNullable<HomeFigure["previous"]>;
 export type HomeWip = HomeTeam["wipTasks"];
 export type HomeWeek = HomeTeam["throughput"]["weeks"][number];
@@ -33,6 +34,10 @@ export const HOME_DRILL_VIEWS: readonly HomeDrillView[] = [
   "QUALITY_EPICS_NO_ESTIMATE",
   "QUALITY_EPICS_NO_DATES",
   "QUALITY_EPICS_ESTIMATE_GAP",
+  "CODE_MERGED",
+  "CODE_OPEN",
+  "CODE_MERGED_WITHOUT_REVIEW",
+  "CODE_TASKS_WITHOUT_MR",
 ];
 
 /** The overview of the given teams (1 to 3 ids; `teamId` repeated); no ids = the bare URL, the server's caller-agnostic default. */

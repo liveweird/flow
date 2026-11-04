@@ -32,7 +32,7 @@ const EPIC_FINDINGS: readonly Finding[] = [
 ];
 
 /**
- * Section 7 — what is missing from the data, per team: ONE table of counts (a row per team, a column per finding, the three on tasks
+ * Section 8 — what is missing from the data, per team: ONE table of counts (a row per team, a column per finding, the three on tasks
  * under one group header and the three on epics under another). The three on tasks count the tasks done in the window and carry a
  * trend (fewer is better; the verdict is a word beside the arrow); the three on epics count the Data quality report's own population
  * (open now or done in the window) and have none. A non-zero count is the button that opens the items behind it, a zero is dimmed

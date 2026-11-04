@@ -1,0 +1,91 @@
+{
+  "title": "Tożsamości",
+  "intro": "Powiąż użytkowników GitLab i adresy commitów z osobami z Jiry. Propozycje dopasowują po adresie e-mail; tylko potwierdzone decyzje przypisują aktywność w kodzie.",
+  "tab": {
+    "PROPOSED": "Proponowane",
+    "UNMAPPED": "Niedopasowane",
+    "LINKED": "Powiązane",
+    "IGNORED_OR_BOT": "Ignorowane i boty"
+  },
+  "column": {
+    "identity": "Tożsamość GitLab",
+    "emails": "Adresy",
+    "state": "Stan",
+    "person": "Osoba w Jirze",
+    "decidedAt": "Zdecydowano"
+  },
+  "kind": {
+    "email": "Tylko adres e-mail commitu"
+  },
+  "ghost": "Użytkownik GitLab #{{id}}",
+  "state": {
+    "deleted": "Usunięty",
+    "bot": "Bot",
+    "unseen": "Niewidziana",
+    "unseenHint": "Żadne źródło danych z tej instancji GitLab nie ma już tej tożsamości.",
+    "value": {
+      "active": "Aktywny",
+      "blocked": "Zablokowany",
+      "deactivated": "Dezaktywowany",
+      "banned": "Zbanowany",
+      "ldap_blocked": "Zablokowany (LDAP)"
+    }
+  },
+  "person": {
+    "bot": "Bot",
+    "ignored": "Ignorowane",
+    "proposedHint": "Propozycja na podstawie e-maila",
+    "proposedInstead": "Propozycja: {{what}}",
+    "none": "—"
+  },
+  "search": "Szukaj po nazwie, loginie lub adresie",
+  "clearSearch": "Wyczyść wyszukiwanie",
+  "action": {
+    "confirm": "Potwierdź propozycję",
+    "link": "Powiąż z osobą z Jiry…",
+    "bot": "Oznacz jako bota",
+    "ignore": "Ignoruj",
+    "remove": "Usuń decyzję"
+  },
+  "confirmAll": "Potwierdź wszystkie propozycje ({{count}})",
+  "confirmAllTitle": "Potwierdź wszystkie propozycje",
+  "confirmAllBody": "Powiąż każdą proponowaną tożsamość z pasującą osobą z Jiry i oznacz proponowane boty — {{count}} decyzji. Każdą można później zmienić lub usunąć.",
+  "confirmAllFilterHint": "Wyczyść wyszukiwanie, aby potwierdzić wszystkie propozycje.",
+  "toast": {
+    "confirmed": "Powiązano: {{linked}}, oznaczono jako boty: {{bots}}",
+    "linked": "Powiązano",
+    "ignored": "Zignorowano",
+    "bot": "Oznaczono jako bota",
+    "removed": "Usunięto decyzję"
+  },
+  "removeTitle": "Usuń decyzję",
+  "removeBody": "Usunąć decyzję dla {{name}}? Tożsamość wróci do proponowanych lub niedopasowanych.",
+  "removeFailed": "Nie udało się usunąć decyzji",
+  "actionFailed": "Operacja nie powiodła się",
+  "error": {
+    "notFound": "Tożsamość lub jej decyzja już nie istnieje. Odśwież listę.",
+    "invalid": "Żądanie zostało odrzucone. Sprawdź osobę z Jiry i spróbuj ponownie.",
+    "conflict": "To źródło danych nie jest źródłem GitLab.",
+    "sourceGone": "To źródło danych już nie istnieje.",
+    "failedStatus": "Operacja nie powiodła się ({{status}})",
+    "failed": "Operacja nie powiodła się. Sprawdź połączenie i spróbuj ponownie."
+  },
+  "modal": {
+    "title": "Powiąż z osobą z Jiry",
+    "person": "Osoba w Jirze",
+    "pick": "Wybierz osobę",
+    "hint": "Cały katalog witryny; wpisz, aby szukać.",
+    "nothingFound": "Brak pasujących osób",
+    "loading": "Wyszukiwanie osób"
+  },
+  "empty": {
+    "PROPOSED": "Brak propozycji — każdy pasujący adres ma decyzję.",
+    "UNMAPPED": "Nic niedopasowanego.",
+    "LINKED": "Brak powiązanych tożsamości.",
+    "IGNORED_OR_BOT": "Nic nie jest ignorowane.",
+    "search": "Żadna tożsamość nie pasuje do wyszukiwania."
+  },
+  "loadFailed": "Nie udało się wczytać tożsamości",
+  "notFound": "To źródło danych nie istnieje albo nie jest źródłem GitLab.",
+  "back": "Wróć do źródła danych"
+}

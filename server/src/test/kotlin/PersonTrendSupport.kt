@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.reports.CompareGroup
 import ch.nokillswit.reports.ComparePeopleReport
 import ch.nokillswit.reports.CompareMixRow
 import ch.nokillswit.reports.MIN_REFERENCE_PEERS
@@ -120,7 +121,8 @@ internal fun ComparePeopleReport.hasActivity(): Boolean {
 /**
  * THE one-truth gate of the team reference. [peers] is, per window, the account ids of the team's OTHER members the TEST expects (`null` =
  * the point has no team). For every window it asks `GET /compare-people` for each peer against the person over the window, drops the
- * peers with no activity ([hasActivity]: they contribute to no row), and requires, for every row, that `reference.peers` is how many of
+ * peers with no activity ([hasActivity]: they contribute to no Jira row; the CODE rows read the LINKED peers instead), and requires,
+ * for every row, that `reference.peers` is how many of
  * the rest show a value (side A not hidden, with a value) and that `reference.value` is their median -- absent under
  * [MIN_REFERENCE_PEERS] -- and that a window with no team (`null`) carries neither `team` nor `reference`. [slice] is the connection
  * (and any slices) the trend was asked with. Returns how many references were compared.
@@ -130,6 +132,7 @@ internal suspend fun HttpClient.assertReferenceIsPeerMedian(
     person: String,
     peers: List<List<String>?>,
     slice: String,
+    linked: Set<String> = emptySet(),
 ): Int {
     var compared = 0
     trend.windows.forEachIndexed { i, window ->
@@ -144,8 +147,12 @@ internal suspend fun HttpClient.assertReferenceIsPeerMedian(
             comparePeopleReport("$slice&from=${window.from}&to=${window.end}&accountId=$peer&accountId=$person")
         }
         val rowsOfPeer = reports.filter { it.hasActivity() }.map { report -> report.rows.associateBy { it.key } }
+        // The CODE rows' pool is the peers with a LINKED GitLab identity ([linked]; none by default), active in Jira or not.
+        val linkedReports = mine.zip(reports).filter { (peer, _) -> peer in linked }.map { it.second }
+        val rowsOfLinked = linkedReports.map { report -> report.rows.associateBy { it.key } }
         for (row in trend.rows) {
-            val shown = rowsOfPeer.mapNotNull { rows -> rows.getValue(row.key).a.takeIf { !it.hidden }?.value }
+            val pool = if (row.group == CompareGroup.CODE) rowsOfLinked else rowsOfPeer
+            val shown = pool.mapNotNull { rows -> rows.getValue(row.key).a.takeIf { !it.hidden }?.value }
             val reference = assertNotNull(row.points[i].reference, "${row.key} @ ${window.end}: a reference")
             assertEquals(shown.size, reference.peers, "${row.key} @ ${window.end} peers")
             if (shown.size < MIN_REFERENCE_PEERS) {

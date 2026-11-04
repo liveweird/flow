@@ -53,6 +53,8 @@ r2dbc-postgresql internals not found` once at boot (pool setup), if a driver upg
 the server ends under `idle_in_transaction_session_timeout` surfaces in Flow only as a generic connection-closed error on its next
 statement (in its own request or job); the `FATAL 25P03` naming the idle timeout is in the PostgreSQL log alone.
 
+**Code-read refusals (no audit event, no log line of their own; `reports.md` "Row budget and permits").** A Code activity / Compare people / Person trend request over `reports.codeMaxRows` rows is a plain 400 and a Code activity request that finds no free `reports.codeReadPermits` permit within the statement budget is a plain 429 (`TooManyRequestsException`, NOT the `rate_limit.exceeded` bucket event). Neither is a security event: the caller is an authenticated reader asking for a read that is too large or too busy for the process, nothing was denied by policy, nothing changed, and the per-USER `reports` bucket already bounds the stream of attempts. An audit line per refusal would let the same loop write the log instead of the heap. Home's overview does not refuse: over the budget it degrades the Code section (200, `code.overBudget`), and says so with ONE INFO line in logger `ch.nokillswit.reports.HomeCode` (the budget and the listed team ids, no names), also no audit event; its `CODE_*` drill is the plain 400 above.
+
 **Audit trail.** Security-relevant events are structured INFO logs on the dedicated
 `ch.nokillswit.audit` logger with the `AUDIT` marker, emitted via `audit("area.event", "key" to value, …)`
 (`audit/Audit.kt`) — they ride the same Logback→OTel pipeline, so shipping them to a
@@ -130,21 +132,22 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   (it is `X-Forwarded-For`-derived behind a proxy, i.e. attacker-chosen text; the ingress log has it), and neither is the
   query string. The per-account lockout's 429s are their own `login.lockout`/`login.rejected_locked` events and do not
   emit this),
-- `data_source.created` (byUserId/dataSourceId/name/siteHost — HOST only, never the full
-  `siteUrl`, and never the API token) / `.updated` (byUserId/dataSourceId/name/siteHost) /
+- `data_source.created` (byUserId/dataSourceId/kind `JIRA_CLOUD`|`GITLAB`/name/host — HOST only (Jira's site host, the GitLab origin's host),
+  never the full URL, and never the token; renamed from `siteHost` in 1.34.0 when GitLab joined) / `.updated` (byUserId/dataSourceId/kind/name/host) /
   `.token_rotated` (byUserId/dataSourceId — its own event, separate from `.updated`, so the audit
   trail can tell a credential rotation from an ordinary settings edit without ever naming the
   token) / `.deleted` (byUserId/dataSourceId) — the v0.2.0 data-sources CRUD (V8) /
-  `.scope_rejected` (byUserId/dataSourceId - null on a create/reason `OTHER_SITE`|`PROJECT_OVERLAP`/
-  conflictingDataSourceId/siteHost - the REQUESTED site's host/projectKeys - the shared keys, empty for `OTHER_SITE`; emitted when
-  the scope rules 409 a create or update, `ingest/DataSourceScope.kt`, never a token) /
+  `.scope_rejected` (byUserId/dataSourceId - null on a create/kind/reason `OTHER_SITE`|`PROJECT_OVERLAP`|`OTHER_INSTANCE`|`GROUP_OVERLAP`/
+  conflictingDataSourceId/host - the REQUESTED site's or instance's host/projectKeys - the shared keys, empty for a GitLab reason and
+  for `OTHER_SITE`/groupPaths - the clashing group paths, empty for a Jira reason and for `OTHER_INSTANCE`; emitted when
+  the scope rules 409 a create or update, `ingest/DataSourceScope.kt`, `GitLabScope.kt`, never a token) /
   `.paused` (dataSourceId/jobId/job `SYNC`|`RECONCILE`/reason - the trip code `LIMIT_EXCEEDED`|`TIME_EXCEEDED`/limitTrips - emitted by the worker once, when the Nth
   consecutive SYNC ceiling trip without progress, or the Nth consecutive RECONCILE ceiling trip without a durable change, pauses that job's scheduling, `ingest/SyncPauseAnnouncement.kt`; one event name for both, told apart by `job`; with it ONE
   ERROR line in logger `ch.nokillswit.ingest.SyncPause`, constant text plus the data source id, the code, the count and the threshold - never
   exception or host text) /
   `.resumed` (byUserId/dataSourceId/via `SYNC_NOW`|`RECONCILE_NOW`|`UPDATE`/job `SYNC`|`RECONCILE`/reason/limitTrips - an ADMIN's "Sync now" (the SYNC pause), "Reconcile now" (the RECONCILE pause) or config PUT (each pause it lifted, one event per `job`) lifted a pause; nothing is
   emitted when that job was not paused) /
-  `.tested` (byUserId/siteHost/ok/failedEndpoints — emitted by both `POST /api/v1/data-sources/test`
+  `.tested` (byUserId/kind/host/ok/failedEndpoints — emitted by both `POST /api/v1/data-sources/test`
   and `.../{id}/test`; `ok` is true when every REQUIRED probe row passed, as the UI shows it, an optional row failing never clears it;
   `failedEndpoints` names every probe row that failed, optional ones included, never a token or the
   full request),
@@ -153,7 +156,7 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   (byUserId/dataSourceId/jobId — `POST .../sync-jobs/{jobId}/cancel`) — the web-role surface
   (`ingest/SyncJobRoutes.kt`); `.started` (jobId/dataSourceId/kind/attempt/workerId — a job the
   worker just claimed) / `.succeeded` (jobId/dataSourceId/kind) / `.failed`
-  (jobId/dataSourceId/kind/errorCode — `RUN_FAILED`, or the ceiling-trip code `LIMIT_EXCEEDED`/`TIME_EXCEEDED` (`ingestion.md` "Ceiling trips and the pause"), plus `resumable = true` ONLY on a SYNC wall-clock stop that stored pages (no failure was recorded and the log line is an INFO without a stack trace; the job row is still `FAILED`, so the telemetry panel's `sync.failures` series counts it - tell it apart by `error_code`), plus `hardStop = true` ONLY on a `TIME_EXCEEDED` where the hard stop cancelled the run in flight rather than the graceful check between pages (`ingestion.md` "Ceiling trips and the pause"); the exception message itself
+  (jobId/dataSourceId/kind/errorCode — `RUN_FAILED`, `CONNECTOR_UNAVAILABLE` (the job's kind has no registered connector), `TOKEN_SCOPE_TOO_BROAD`/`TOKEN_INACTIVE` (a GitLab token with a non-`read_` scope, or an inactive one, `JobRefusedException`), or the ceiling-trip code `LIMIT_EXCEEDED`/`TIME_EXCEEDED` (`ingestion.md` "Ceiling trips and the pause"), plus `resumable = true` ONLY on a SYNC wall-clock stop that stored pages (no failure was recorded and the log line is an INFO without a stack trace; the job row is still `FAILED`, so the telemetry panel's `sync.failures` series counts it - tell it apart by `error_code`), plus `hardStop = true` ONLY on a `TIME_EXCEEDED` where the hard stop cancelled the run in flight rather than the graceful check between pages (`ingestion.md` "Ceiling trips and the pause"); the exception message itself
   goes to `error_detail` on the row as `<ExceptionClass>: <message>` (U+0000 replaced by U+FFFD: PostgreSQL `text` cannot store it), not the audit line; the worker also logs a
   WARN `Sync job {id} ({kind}) for data source {id} failed` with the stack trace, each cause reduced to its class name
   by `LoggedFailure`, because a transport cause's message can embed a request URL with its query string) / `.released`
@@ -171,7 +174,8 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   exception's message inlines its statement's bound values). The `sync_job.failed`/`.released` audit follows the write that finally lands.
 - `outbound.blocked` (scheme/host ONLY — never the full URL) — a rejection by `infra/outbound/OutboundGuard.kt`'s host
   allow-list or address-range check ONLY, emitted by `GuardedDns` on the Jira HTTP client's every outbound call
-  (`.claude/docs/jira-integration.md`). A DNS failure (the resolver throwing, or an empty answer, for an allow-listed host) is
+  (`.claude/docs/jira-integration.md`) and on the GitLab client's (`gitlab/GitLab.kt`; there also by the request-origin check - an
+  IP-literal URL, another port of a listed host, plain `http` - which names the URL's own scheme and host). A DNS failure (the resolver throwing, or an empty answer, for an allow-listed host) is
   not a rejection and emits no audit event: `GuardedDns` logs a WARN per attempt, `DNS resolution failed for allow-listed outbound host
   <host>` (logger `ch.nokillswit.outbound`, host only) and the call is retried like any other IO failure.
 - `metrics_settings.updated` (byUserId/configRevision) — the global `metrics.settings` singleton's
@@ -203,6 +207,16 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   `metrics/MetricsConfigRoutes.kt`); a no-op re-PUT (byte-for-byte identical to what is already
   stored) emits nothing, the features-PUT precedent. `GET .../metrics-config` and `GET
   .../metrics-config/options` are read-only, so they emit nothing.
+- `code_identity.decided` (byUserId/dataSourceId/host/identityKey/decision/jiraAccountId (nullable)/decisionFrom (nullable)/jiraAccountIdFrom (nullable)/via
+  `PUT`|`CONFIRM_PROPOSALS`) - an ADMIN's decision about a GitLab identity, stored by the instance's `host`
+  (`identities/CodeIdentityRoutes.kt`, V45): `PUT .../code-identities/{identityKey}` when the stored decision is new or CHANGED
+  (`decisionFrom`/`jiraAccountIdFrom` are the values actually overwritten, null on a first decision; an identical re-PUT writes and audits
+  nothing), and `POST .../code-identities/confirm-proposals` ONCE PER LINK it wrote (a decision stored meanwhile is not written, so not
+  audited; a second call audits nothing). It decides whose work an identity is in every later report, so the trail answers who linked what.
+  `identityKey` is `u<id>` or the unsalted `e<hash>` of a commit address: never an address, a name or a username.
+- `code_identity.decision_removed` (byUserId/dataSourceId/host/identityKey/decision/jiraAccountId (nullable)) - `DELETE .../code-identities/{identityKey}`
+  that removed a row (the values of the row removed, from `DELETE ... RETURNING`); a `404` audits nothing. The GET is read-only and emits
+  nothing; a denied call is the generic `authz.denied`.
 
 Field-naming convention: the acting caller is `byUserId` everywhere except the auth lifecycle
 events (`login.*`, `logout`, `refresh.rejected`, `access.rejected`, `password_reset.*`), where `userId` identifies the account being
@@ -335,6 +349,6 @@ lives entirely in `sync_jobs.progress`/`current_stream`** (`StreamContext.increm
 `GET …/{id}/status` — see `.claude/docs/ingestion.md` "Progress counters"/"Sync status endpoint"),
 **not the audit trail**: it is a best-effort operational signal (a page count, which stream is
 active), not a security-relevant event, so it deliberately does not go through `audit(...)`. PROCESS
-and PROFILE follow the same rule (`issuesProcessed`/`issuesFailed`, `profileComputed`), and so does the ISSUES stream's skip of a bad
+and PROFILE follow the same rule (`issuesProcessed`/`issuesFailed`, `profileComputed`; PROCESS's closing ANALYZE adds `normAnalyzed`/`normAnalyzeMs`/`normAnalyzeReason`, and its failure is ONE WARN from the `ch.nokillswit.norm.NormAnalyze` logger naming the constant tables, the exception's class and its SQLSTATE when it has one, never its message — no audit event, `ingestion.md` "The closing `ANALYZE`"), and so does the ISSUES stream's skip of a bad
 issue (`issuesSkipped` plus a WARN naming the issue key and id, never the payload — `ingestion.md` "ISSUES: a bad issue is skipped, loudly"). Any FUTURE stream-level
 audit trail (as opposed to progress) arrives with a later commit and gets its own paragraph here.

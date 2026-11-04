@@ -16,8 +16,12 @@ import kotlin.test.assertTrue
  * - every `*Test.kt` that calls `SyncedStubFixture.connectionId()`/`assertUnchanged()`, the `DerivedStubFixture` pair, or
  *   `FrozenScopeFixtures.derivedDisabledClone` (which clones the shared connection) declares `warmStubFixtures()` inside a
  *   `@BeforeClass` method;
+ * - the GitLab twin: every `*Test.kt` that calls `SyncedGitLabFixture.connectionId()`/`assertUnchanged()` declares
+ *   `warmGitLabFixture()` in a `@BeforeClass` (its own call, so the Jira-fixture classes do not pay for the GitLab SYNC); a class
+ *   must warm EVERY fixture it triggers;
  * - a helper file (not `*Test.kt`) may not hide such a call, except the fixtures themselves, `TestEnvironment.kt` (which holds
- *   [warmStubFixtures]) and `FrozenScopeFixtures` (whose entry point is itself a trigger above) — otherwise its callers
+ *   [warmStubFixtures] and [warmGitLabFixture]) and `FrozenScopeFixtures` (whose entry point is itself a trigger above) — otherwise
+ *   its callers
  *   would escape the first rule.
  */
 class StubFixtureWarmupGuardTest {
@@ -28,40 +32,44 @@ class StubFixtureWarmupGuardTest {
             .associate { it.relativeTo(root).invariantSeparatorsPath to it.readLines() }
     }
 
-    private fun triggers(lines: List<String>) = lines.any { !COMMENT.matches(it) && TRIGGER.containsMatchIn(it) }
+    private fun triggers(lines: List<String>, trigger: Regex) = lines.any { !COMMENT.matches(it) && trigger.containsMatchIn(it) }
 
-    private fun warmsInBeforeClass(lines: List<String>): Boolean = lines.indices.any { i ->
+    private fun warmsInBeforeClass(lines: List<String>, warmCall: Regex): Boolean = lines.indices.any { i ->
         !COMMENT.matches(lines[i]) && BEFORE_CLASS.containsMatchIn(lines[i]) &&
-            lines.subList(i, minOf(i + WINDOW, lines.size)).any { WARM_CALL.containsMatchIn(it) && !COMMENT.matches(it) }
+            lines.subList(i, minOf(i + WINDOW, lines.size)).any { warmCall.containsMatchIn(it) && !COMMENT.matches(it) }
     }
+
+    /** The fixtures a file triggers whose own warm-up call it does not make in a `@BeforeClass`: the missing calls, by name. */
+    private fun missingWarmUps(lines: List<String>): List<String> =
+        FIXTURES.filter { (_, trigger, warm) -> triggers(lines, trigger) && !warmsInBeforeClass(lines, warm) }.map { it.first }
 
     @Test
     fun `a class that reads a shared stub fixture warms it in a BeforeClass`() {
         val sources = sources()
         assertTrue(sources.size > MIN_FILES, "expected the server test sources, found ${sources.size} files")
-        val unwarmed = sources.filter { (path, lines) ->
-            path.endsWith("Test.kt") && path != THIS_FILE && triggers(lines) && !warmsInBeforeClass(lines)
-        }.keys.sorted()
+        val unwarmed = sources.filter { (path, _) -> path.endsWith("Test.kt") && path != THIS_FILE }
+            .mapValues { (_, lines) -> missingWarmUps(lines) }.filterValues { it.isNotEmpty() }
         assertTrue(
             unwarmed.isEmpty(),
-            "these classes read SyncedStubFixture/DerivedStubFixture but do not warm them in a @BeforeClass, so their first test in a " +
-                "fork pays the one-time Postgres + SYNC + DERIVE cost INSIDE testApplication's hard 60 s limit " +
-                "(UncompletedCoroutinesError on a slow CI runner) — add to the class: " +
-                "companion object { @JvmStatic @BeforeClass fun warmFixtures() = warmStubFixtures() } " +
-                "(import org.junit.BeforeClass): $unwarmed",
+            "these classes read a shared stub fixture but do not warm it in a @BeforeClass, so their first test in a fork pays the " +
+                "one-time Postgres + SYNC (+ DERIVE) cost INSIDE testApplication's hard 60 s limit (UncompletedCoroutinesError on a " +
+                "slow CI runner) — add to the class: companion object { @JvmStatic @BeforeClass fun warmFixtures() = <call> } " +
+                "(import org.junit.BeforeClass), with the call named here per fixture (SyncedStubFixture/DerivedStubFixture: " +
+                "warmStubFixtures(); SyncedGitLabFixture: warmGitLabFixture()): ${unwarmed.toSortedMap()}",
         )
     }
 
     @Test
     fun `a helper file does not hide a fixture trigger from the classes that use it`() {
         val hidden = sources().filter { (path, lines) ->
-            !path.endsWith("Test.kt") && path !in HELPERS_ALLOWED_TO_TRIGGER && triggers(lines)
+            !path.endsWith("Test.kt") && path !in HELPERS_ALLOWED_TO_TRIGGER && FIXTURES.any { triggers(lines, it.second) }
         }.keys.sorted()
         assertTrue(
             hidden.isEmpty(),
-            "these helper files call SyncedStubFixture/DerivedStubFixture.connectionId()/assertUnchanged(), so every test class using " +
+            "these helper files call SyncedStubFixture/DerivedStubFixture/SyncedGitLabFixture.connectionId()/assertUnchanged(), " +
+                "so every test class using " +
                 "them would trigger the one-time SYNC unwarmed and escape the BeforeClass rule: expose the helper through a " +
-                "pattern in TRIGGER (as derivedDisabledClone is) and list the file in HELPERS_ALLOWED_TO_TRIGGER: $hidden",
+                "pattern in FIXTURES (as derivedDisabledClone is) and list the file in HELPERS_ALLOWED_TO_TRIGGER: $hidden",
         )
     }
 
@@ -70,10 +78,23 @@ class StubFixtureWarmupGuardTest {
         const val WINDOW = 4
         const val THIS_FILE = "StubFixtureWarmupGuardTest.kt"
         val HELPERS_ALLOWED_TO_TRIGGER =
-            setOf("SyncedStubFixture.kt", "DerivedStubFixture.kt", "FrozenScopeFixtures.kt", "TestEnvironment.kt")
+            setOf(
+                "SyncedStubFixture.kt", "DerivedStubFixture.kt", "SyncedGitLabFixture.kt", "FrozenScopeFixtures.kt", "TestEnvironment.kt",
+            )
         val COMMENT = Regex("""^\s*(?:\*|//|/\*).*""")
-        val TRIGGER = Regex("""\b(?:SyncedStubFixture|DerivedStubFixture)\.(?:connectionId|assertUnchanged)\b|\bderivedDisabledClone\(""")
+        /** (name, trigger, the warm-up call that satisfies it): a class must warm EVERY fixture it triggers. */
+        val FIXTURES = listOf(
+            Triple(
+                "Jira (SyncedStubFixture/DerivedStubFixture)",
+                Regex("""\b(?:SyncedStubFixture|DerivedStubFixture)\.(?:connectionId|assertUnchanged)\b|\bderivedDisabledClone\("""),
+                Regex("""\bwarmStubFixtures\(\)"""),
+            ),
+            Triple(
+                "GitLab (SyncedGitLabFixture)",
+                Regex("""\bSyncedGitLabFixture\.(?:connectionId|assertUnchanged)\b"""),
+                Regex("""\bwarmGitLabFixture\(\)"""),
+            ),
+        )
         val BEFORE_CLASS = Regex("""@(?:[\w.]+\.)?BeforeClass\b""")
-        val WARM_CALL = Regex("""\bwarmStubFixtures\(\)""")
     }
 }

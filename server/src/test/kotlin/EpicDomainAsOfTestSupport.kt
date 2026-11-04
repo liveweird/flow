@@ -24,7 +24,8 @@ internal data class StatusStep(val statusId: String, val name: String, val categ
 
 /**
  * One hand-built item; [steps] is its status path from creation (the last is the current one); [custom] its `custom_fields` JSON;
- * [keyChange] its `issuekey` change and [laterKeyChanges] any further ones (a project moved more than once).
+ * [keyChange] its `issuekey` change and [laterKeyChanges] any further ones (a project moved more than once); [tombstone] a deleted or
+ * moved-out issue (`deleted_at` / `moved_out_at` set).
  */
 internal suspend fun seedItem(
     connId: UInt,
@@ -38,6 +39,7 @@ internal suspend fun seedItem(
     keyChange: FieldChangeFact? = null,
     worklogs: List<WorklogFact> = emptyList(),
     laterKeyChanges: List<FieldChangeFact> = emptyList(),
+    tombstone: TombstoneKind = TombstoneKind.NONE,
 ) {
     val current = steps.last()
     val facts = WorkItemFacts(
@@ -65,7 +67,8 @@ internal suspend fun seedItem(
         rank = null,
         hierarchyLevel = level,
         customFieldsJson = custom,
-        tombstone = TombstoneKind.NONE,
+        tombstone = tombstone,
+        tombstoneAtMs = createdAt.takeIf { tombstone != TombstoneKind.NONE },
     )
     val intervals = steps.mapIndexed { index, step ->
         val source = if (index == 0) IntervalSource.CREATED else IntervalSource.CHANGE

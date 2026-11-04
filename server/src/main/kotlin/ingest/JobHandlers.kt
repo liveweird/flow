@@ -79,6 +79,20 @@ class JobHandlerRegistry {
         check(backfillFloorSource == null) { "A backfill floor source is already registered" }
         backfillFloorSource = source
     }
+
+    /**
+     * The GitLab base-URL allow-list `configureGitLab` registers (always, even when GitLab is off: the policy then answers
+     * `gitlab-disabled`). `null` only in a registry nobody filled (a direct test construction): every GitLab write is then refused,
+     * fail-closed.
+     */
+    @Volatile
+    var gitLabBaseUrlPolicy: GitLabBaseUrlPolicy? = null
+        private set
+
+    fun registerGitLabBaseUrlPolicy(policy: GitLabBaseUrlPolicy) {
+        check(gitLabBaseUrlPolicy == null) { "A GitLab base-URL policy is already registered" }
+        gitLabBaseUrlPolicy = policy
+    }
 }
 
 val JobHandlerRegistryKey = AttributeKey<JobHandlerRegistry>("JobHandlerRegistry")

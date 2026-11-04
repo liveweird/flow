@@ -22,6 +22,12 @@ checks**:
   values and applies the normal account password length and bcrypt byte limits. Covered by
   `BootstrapTest`; seed-mutating tests restore state via `TestSeedState.restoreSeedAccounts()`
   (`TestEnvironment.kt`).
+- **GitLab outbound** (`gitlab/GitLabConfig.kt`, `infra/outbound/SelfManagedHosts.kt`, `CaBundle.kt`): `gitlab.stubBaseUrl` must be blank in
+  production; in **any** mode a malformed `gitlab.allowedHosts` entry (wildcard, IP literal, scheme/path/credentials), a malformed or
+  too-wide `gitlab.allowedCidrs` entry (`/0`, IPv4 wider than /8, IPv6 wider than /32, anything overlapping loopback, link-local, any-local,
+  multicast, 6to4, Teredo, mapped or NAT64), CIDRs or a `gitlab.caBundle` without hosts, an unreadable or certificate-less CA bundle, an
+  out-of-range `gitlab.requestTimeoutSeconds`/`gitlab.maxRetries`/`gitlab.requestDeadlineSeconds`/`gitlab.usersRefreshHours`/`gitlab.commitFilesPerRun`/`gitlab.maxResponseBytes`, or an explicit `gitlab.maxResponseBytes` above
+  `jira.maxResponseBytes` refuse startup. See "Outbound HTTP calls" below; covered by `GitLabBootTest`.
 - **Mail transport** (`infra/mail/Mail.kt`): `mail.transport=log` writes outbound email (including
   password-reset links and MFA codes) into the application log — permitted with a warning in development,
   **refuse to start** in production; `smtp` with a blank host refuses to start in **any** mode.
@@ -278,6 +284,8 @@ e2e global setup every 2 s (30/min), so probers stay far under it; `/api/v1/heal
 `RateLimitResponseTest` and `LoginTest` pin the value to `10` explicitly, since tests run in
 development mode.
 
+**Code-read budget and permits** (`reports.codeMaxRows`, `reports.codeReadPermits`, `reports/CodeActivityBudget.kt`). The statement timeout bounds a query's time, not the rows the JVM then holds, and Report 21's `teamId=0` bucket reads every key of the sources, so any signed-in user could heap-exhaust a `web` process with a few concurrent whole-history requests. Two server-side bounds, neither trusting the client: a per-request ROW budget (default 100 000; every row statement is limited to one row past what is left, so an over-budget read is refused with a 400, never silently cut) on every GitLab code read (Report 21 and its drill, Compare people, its drill, Person trend), and a per-process pair of permits around Report 21 and its drill (a waiter holds no pooled connection and gets a 429 after the statement budget). For Report 21 and its drill the heap bound is the product, `permits x rows`; Compare people, its drill and Person trend take no permit, so they are bounded per request only (they read one or two people, or a team's peers, never every key of a source). Both are boot-validated (`requireConfigInt`, a malformed value refuses startup); the refusals are ordinary `ProblemDetail`s that carry no data, and raise no audit event (`observability.md`).
+
 **Per-USER reports bucket** (`reports`, `security.rateLimit.reportsPerMinute`, `$REPORT_RATE_LIMIT_PER_MINUTE`) -- the one bucket keyed by
 the authenticated caller's user id (the JWT `userId` claim) instead of the client IP, so a NAT'd office is not one bucket and changing IP
 dodges nothing. The statement timeout bounds ONE query; this bounds the stream of them. ONE bucket per user covers every
@@ -386,37 +394,43 @@ resolved-address guard below is defense in depth once the Jira client actually c
 commit 4).
 
 **Outbound HTTP calls (SSRF posture — implemented, v0.2.0 plan commit 4).**
-`infra/outbound/OutboundGuard.kt` ports Toadie's `UrlFetch.kt` `isBlockedAddress` VERBATIM (loopback,
+`infra/outbound/OutboundGuard.kt` ports Toadie's `UrlFetch.kt` `isBlockedAddress` (loopback,
 site-local, link-local, any-local, multicast, IPv6 unique-local `fc00::/7`, CGNAT `100.64.0.0/10`,
 `192.0.0.0/24`, benchmarking `198.18.0.0/15`, a NAT64 `64:ff9b::/96` address embedding a
-non-public IPv4 — JDK auto-folds an IPv4-mapped IPv6 literal into an `Inet4Address`, so the plain
-IPv4 checks cover that case too, pinned by `OutboundGuardTest`) as defense in depth. The PRIMARY
+non-public IPv4), adding two things: an IPv4-mapped IPv6 address is unwrapped to its IPv4 form first, and 6to4 `2002::/16`
+and Teredo `2001:0::/32` are blocked (both pinned by `OutboundGuardTest`), as defense in depth. The PRIMARY
 boundary is the host allow-list (`isAllowedJiraHost`): exactly `api.atlassian.com`, a genuine
 `*.atlassian.net` tenant per the SAME shape/reserved-label check (`infra/outbound/AtlassianSites.kt`) `ingest/DataSource.kt` enforces at
 create/update time (one source of truth), or — development mode ONLY — the configured
 `jira.stubBaseUrl` host. `GuardedDns` (an `okhttp3.Dns`) re-checks the allow-list and re-resolves +
 re-checks addresses on every NEW connection (not just once per request, since the Jira `HttpClient`
 is long-lived and shared across every connection — pooled connections REUSE an already-checked
-address rather than re-resolving on every call); a `skipAddressCheck` predicate exempts ONLY the
-already-allow-listed stub host from the address-range check, since the dev/compose/in-JVM stub is,
-by construction, a loopback or docker-network-private address — the allow-list still gates it
-unconditionally, this only skips the address-SHAPE check for that one host. The guarded
+address rather than re-resolving on every call); the address rule is an injectable `addressAllowed(host, address)`
+(default `publicAddressesOnly`, i.e. `!isBlockedAddress()`; the lookup is all-or-nothing, one refused answer fails it): the Jira
+wiring answers `true` for the already-allow-listed stub host ONLY (the dev/compose/in-JVM stub is, by construction, a
+loopback or docker-network-private address) and `publicAddressesOnly` for everything else — the allow-list still gates the stub
+unconditionally, this only skips the address-SHAPE check for that one host. `isBlockedAddress` first unwraps an IPv4-mapped IPv6
+address (`::ffff:a.b.c.d`, also an unfolded `Inet6Address`) to its IPv4 form, pinned by `OutboundGuardTest`. The Jira client also
+checks every request's origin (`isAllowedJiraOrigin`: `https` on 443 to an allowed Jira host, or - development only - exactly the stub's
+origin) and refuses a request carrying a caller-set `Host` header; this closes the IP-literal gap (OkHttp never hands a literal host
+to `GuardedDns`) at the transport level, pinned by `JiraOriginGuardTest` through the client `configureJira` publishes. The guarded
 `OkHttpClient` (`guardedOkHttpClient`) sets `Proxy.NO_PROXY`, `followRedirects(false)` (both at the
-OkHttp engine level AND Ktor's own client-side `HttpRedirect` plugin — `HttpClient { followRedirects
-= false }` in `jira/Jira.kt` — checking-then-following would defeat the address check either way),
-`retryOnConnectionFailure(false)`, no cookies, no proxy authenticator. `jira/JiraHttp.kt` layers a
+OkHttp engine level AND Ktor's own client-side `HttpRedirect` plugin — `followRedirects = false` and the
+`HttpTimeout` in `infra/outbound/GuardedKtorClient.kt`, shared by the Jira and GitLab clients — checking-then-following would defeat the
+address check either way),
+`retryOnConnectionFailure(false)`, no cookies, no proxy authenticator. `fetch/SourceHttp.kt` layers a
 bounded response read (Covenant's `ToadieGraphqlClient` shape, capped at `jira.maxResponseBytes`, default 8 MiB: "Response size cap" - wire bytes, plus a structural node ceiling (1/8 token per byte) and a depth ceiling (512 levels) checked before the parse, "Node and depth ceiling": a dense document's tree is at most ~108 MiB per response (it was ~230-300 MiB) and a deep one is a typed refusal, not a `StackOverflowError`; big parses are serialised, but several hostile trees can still pressure a 512 MiB worker whose OOM exits the process - narrowed, not closed; that bounds one PAGE — a stream
 that holds several pages of one answer, or follows a host's paging, bounds the whole of it too: CHANGELOGS' and WORKLOGS' answer
 ceilings, `jira-integration.md` "Oversized changelog/worklog batch" and "Worklog answer ceilings"; the REFERENCE, PROJECT_FIELDS, ISSUES and
 RECONCILE loops carry page/row ceilings and a `nextPageToken` guard too, "Paging ceilings" - the shared `BoundedAnswer`/`PageCeiling`/`RunBudget`
-lever in `JiraOversized.kt`) and exponential backoff with jitter (`JiraBackoff`) on top. Every guard rejection is audited as
+lever in `fetch/Ceilings.kt`) and exponential backoff with jitter (`Backoff`) on top. Every guard rejection is audited as
 `outbound.blocked` (scheme + host ONLY — never the full URL, which may embed a token). **A DNS failure is NOT a guard
 rejection**: when the resolver throws `UnknownHostException` or answers with no address for an ALREADY allow-listed host,
 `GuardedDns` throws a plain `UnknownHostException(host)` (never a `BlockedHostException`), audits nothing and logs ONE WARN
 (host only, no stack trace). No security property is in play (the host passed the allow-list, no blocked address was seen), and
 a lost DNS answer is routine on a VPN/forwarding resolver — reporting it as a block made one transient lookup a fatal,
 unretried `BLOCKED_HOST` that failed a 17-minute SYNC and sent whoever read the audit stream chasing a block that never
-happened. It is an `IOException`, so `JiraHttp` retries it with the normal backoff, and every retry re-runs the allow-list
+happened. It is an `IOException`, so `SourceHttp` retries it with the normal backoff, and every retry re-runs the allow-list
 check and the resolve-check-connect sequence. The allow-list check still runs BEFORE any resolution, so a disallowed host is
 never resolved. Pinned by `OutboundGuardTest`.
 `jira.stubBaseUrl` is fail-closed: production startup refuses a non-blank value (`jira/Jira.kt`,
@@ -434,8 +448,56 @@ ceiling (`jira.maxStoredPayloadBytes`, a history, a worklog; measured as the ren
 bloat), PROCESS claims pages by stored bytes (`jira.processPageBytes`), whole entity kinds are read only in chunks of that size, and the `web` role's
 raw-issue inspector answers 413 for an issue over it, embeds stored text unparsed and serves two issues at a time.
 
+**A self-managed GitLab host (operator-only allowance, `infra/outbound/SelfManagedHosts.kt`, `Cidr.kt`, `CaBundle.kt`; `gitlab/GitLab.kt`).**
+A self-managed GitLab usually lives on a private address, which the guard above refuses by design, so two operator settings widen
+it for that one connector. Nothing a user or an admin types can widen them: a data source's base URL is validated against them
+(`gitlab/GitLabBaseUrl.kt`), never the reverse. The rule, in `SelfManagedHosts.addressAllowed`:
+
+- `GITLAB_ALLOWED_HOSTS` (`gitlab.allowedHosts`): exact lowercase DNS names, `host` or `host:port` (no port = 443). No wildcard (a
+  wildcard turns a typo or a subdomain takeover into an allowed internal target), no IP literal in any notation (the JDK reads
+  `2130706433` or `0x7f.1` as an address, and OkHttp never consults the DNS guard for a literal), no scheme/path/query/userinfo
+  (credentials must never sit in a config value that can reach a log). Empty = the GitLab kind is off and no client is built.
+- `GITLAB_ALLOWED_CIDRS` (`gitlab.allowedCidrs`): the private ranges a LISTED host may resolve to. Boot refuses `/0`, IPv4 wider than /8
+  and IPv6 wider than /32 (a typo cannot open a whole private class), any range that overlaps loopback (`127/8`, `::1`), link-local
+  (`169.254/16`, which holds the cloud metadata address `169.254.169.254`, and `fe80::/10`), any-local (`0/8`, `::`, `::/96`), multicast
+  (`224/4`, `ff00::/8`), 6to4 (`2002::/16`) or Teredo (`2001:0::/32`) space, an IPv4-mapped range (`::ffff:0:0/96`: write the IPv4 range)
+  or a NAT64 range (`64:ff9b::/96`: NAT64 addresses are never admitted), a range with host bits
+  set, a malformed entry (the address part is matched against a literal-only grammar before it reaches the JDK, so a typo is never a DNS
+  lookup), and CIDRs without hosts. Every error names the key and the entry, except an entry that is not strictly host-shaped
+  (`host`, `host:port`) or CIDR-shaped (hex digits, `.`, `:`, `/length`) - an `@`, `?`, `#`, `*`, a path, a space, a `%` - which is named by
+  position only so `user:secret@host` never reaches a log.
+- Per lookup: loopback, link-local, any-local, multicast, `0.0.0.0/8`, `::/96`, 6to4 and Teredo are refused for EVERY host whatever the CIDRs say;
+  any other address that is not blocked today (public) is allowed for every host as before; any other blocked address (private,
+  unique-local, CGNAT, ...) is allowed only for a listed host and only inside a CIDR. An IPv4-mapped address is judged as its IPv4 form.
+  Unlisted hosts keep exactly the Jira rule. A mixed answer (one allowed address, one refused) fails the whole lookup, audited
+  `outbound.blocked`; every NEW connection resolves and checks afresh, so a DNS-rebinding answer is judged when it arrives.
+- Request origin (`guardedOkHttpClient(originAllowed = ...)`): DNS only sees a hostname, and OkHttp skips DNS for an IP-literal URL, so the
+  GitLab client also checks every request's (scheme, host, port) against the list before sending: `https` to a listed `host[:port]` only
+  (an entry with a port means that port). Plain `http`, another port, any IP literal and any request carrying a caller-set `Host` header
+  (it would name one host to the guard and another to the server) are `outbound.blocked`.
+- `GITLAB_CA_BUNDLE`: a PEM file of X.509 certificates added to the GitLab client's trust store ALONGSIDE the JVM default CAs (a fresh
+  in-memory KeyStore holding both, a standard PKIX trust manager over it). The Jira client keeps the platform trust. Boot refuses an
+  unreadable, over-1-MiB, malformed or certificate-less file, and a bundle without listed hosts. There is no skip-TLS, trust-all or hostname-verifier switch anywhere
+  (`GitLabCaBundleTest` pins the `gitlab.*` key set and scans the client code).
+- **What the commit streams store (PR 7).** `raw.gitlab_commits`: the commit's first line (`title`, <=255), author name and email, authored/committed
+  time, parent count and the `stats` totals; `raw.gitlab_commit_files`: the path, old path (renames), lines and flags. No message body, committer, diff text or
+  payload is stored, and the diff is counted inside the response transform and dropped. The ref of a commit listing goes out as a query value and a commit
+  SHA as a path segment only after it matches `^[0-9a-f]{40}$|^[0-9a-f]{64}$`, never as concatenated text.
+- Kept from the Jira client: no redirects (OkHttp and Ktor), no proxy, no connection-failure retry. `gitlab.stubBaseUrl` (`GITLAB_STUB_BASE_URL`)
+  is development-only and production refuses a non-blank value. `gitlab.maxResponseBytes` defaults to `min(8 MiB, jira.maxResponseBytes)` and an
+  explicit value may not exceed `jira.maxResponseBytes`. That keeps a GitLab response tree inside the per-slot tree `JiraHeapFit` sizes
+  from the Jira ceiling. In-flight GitLab bodies need no term of their own: GitLab's `SourceHttp` draws on the SAME permit pool as Jira's
+  (`fetch/OutboundPermits.kt`, published by `configureJira`), so the fit's `jira.maxConcurrentRequests x jira.maxResponseBytes` term already
+  covers them (`gitlab-integration.md` "Outbound calls"). In k8s the egress NetworkPolicy still excludes the private ranges: a private GitLab needs its own
+  additional egress rule (the policy is the second layer; the guard is the first). The merge-request diff stats are the ONE `POST` a GitLab connection makes
+  (`<origin>/api/graphql`, a fixed read-only query whose only inputs are a project path and at most 50 iids, sent as variables): it goes through the same guard, permit and ceilings as
+  every GET, which is method-agnostic. What the merge-request streams keep is a whitelist - title, branch names, ids, times, action codes - never a description or a note body (`GitLabMrStoreTest`, `GitLabMrStreamsTest`).
+- Pinned by `SelfManagedHostsTest` (parsing, every boot refusal, the address matrix), `GitLabOutboundGuardTest` (rebinding, mixed answers,
+  redirect, unlisted host audit, IP literal, port, proxy, Host header), `GitLabBaseUrlTest`, `GitLabCaBundleTest`, `GitLabBootTest` and the
+  `PackageBoundaryTest` rules (`gitlab` never imports `jira`, `metrics` or `reports`; `infra/outbound` imports no feature).
+
 What pins the transport (beyond the allow-list/address tests above): `OutboundTransportTest` runs against a LOCAL
-socket server only. The response/connection release in `jira/JiraHttp.kt` (`prepareRequest {}.execute {}`) is
+socket server only. The response/connection release in `fetch/SourceHttp.kt` (`prepareRequest {}.execute {}`) is
 pinned with the leak window forced open — the server sends headers plus a first chunk and HOLDS the rest of a
 10 MB body, so a 503 must surface as `UPSTREAM_UNAVAILABLE (503)` and an oversized body as `LIMIT_EXCEEDED`
 (the old `client.request()` buffers the whole body and ends in `TIMEOUT`), and the server must see the client
@@ -614,7 +676,12 @@ API token is the first consumer, landed**: `source_connections.secret` (V8,
 `ingest/DataSourceService.kt` implements `EncryptedAtRest`, registered in
 `infra/db/Bootstrap.kt`'s `encryptedAtRestServices()`) — write-only end to end: `POST`/`PUT
 /api/v1/data-sources` accept `jira.apiToken` but no response, and no audit event, ever returns it;
-every response instead carries `jira.hasApiToken`. Tests: `FieldCipherTest` (roundtrip, fresh
+every response instead carries `jira.hasApiToken`. **The GitLab personal access token is the second consumer** (PR 6, the same
+`secret` column and the same service, no new registration): `gitlab.token` is write-only the same way (`gitlab.hasToken` in responses, never in
+an audit line, masked in `GitLabConnectionRequest`/`StoredGitLabConnection`/`ConnectionTarget.GitLab` `toString`, pinned by
+`SecretToStringTest`), decrypted only for the connector and sent as the `PRIVATE-TOKEN` header; a token is refused unless every scope starts with `read_` or is `admin_mode` (an allow-list: `api`, `sudo`, `write_*`, `create_runner`, `k8s_proxy`, ... are all
+too broad) at Test connection and at every SYNC (`TOKEN_SCOPE_TOO_BROAD`; an inactive one is `TOKEN_INACTIVE`; a token-info answer missing a field is
+`INVALID_RESPONSE`, never a pass). Tests: `FieldCipherTest` (roundtrip, fresh
 nonces, legacy passthrough, tamper, wrong key, rotation, malformed keys), `CryptoBootTest`,
 `EncryptedAtRestBootTest` (seeds a connection, boots again with a rotated key, the token still
 decrypts under the new key alone).
@@ -638,7 +705,7 @@ uniform `403`; the worker role serves no API at all):
 - **Data-source names and health:** every not-yet-purged connection's id, name (including soft-deleted ones awaiting their PURGE), enabled flag,
   size estimate, issue count, last-sync freshness and error code, queue depth, Jira 429 / back-off figures and DERIVE timings - read through
   `DataSourceService.connectionHealth()`, which selects those columns ONLY (never the site URL, email, project keys, token or profile).
-  `last_sync_error_code` is a closed vocabulary (`RUN_FAILED`, `RETRIES_EXHAUSTED`, and the ceiling-trip codes `LIMIT_EXCEEDED`, `TIME_EXCEEDED`; anything else is stored as `RUN_FAILED`), never free text; so is `pause_reason` (the two trip codes, a CHECK), which the panel shows with `pausedAt`.
+  `last_sync_error_code` is a closed vocabulary (`RUN_FAILED`, `RETRIES_EXHAUSTED`, `CONNECTOR_UNAVAILABLE`, `TOKEN_SCOPE_TOO_BROAD`, `TOKEN_INACTIVE`, and the ceiling-trip codes `LIMIT_EXCEEDED`, `TIME_EXCEEDED`; anything else is stored as `RUN_FAILED`), never free text; so is `pause_reason` (the two trip codes, a CHECK), which the panel shows with `pausedAt`.
 - **Route usage:** the normalised report routes (`/api/v1/reports/...`, path parameters as written, never an identifier) with their request counts,
   latencies and 5xx / 429 counts. The telemetry routes themselves and the probes are excluded.
 

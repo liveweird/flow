@@ -7,18 +7,27 @@ import kotlin.test.assertTrue
 
 /**
  * The one-way package layering (CLAUDE.md "Package layout", `.claude/docs/ingestion.md` "The DERIVE job kind", checkup D5):
- * the connector side (`ingest`, `norm`, `jira`) never references `metrics` or `reports`, and `metrics` never references
+ * the connector side (`ingest`, `norm`, `jira`, `gitlab`) never references `metrics` or `reports` (and `jira` and `gitlab` never
+ * reference each other), and `metrics` never references
  * `reports`. `metrics/` reaches the worker only by registering on `ingest/JobHandlers.kt`'s `JobHandlerRegistry`, so the
  * ingestion core stays connector- and metrics-agnostic. A plain source scan (no Docker, no classpath tricks): any non-comment
  * line of a file declaring the lower package that mentions an upper package by its qualified name (an import, a wildcard
  * import or an inline reference) is a violation.
  *
  * The same rule holds from the bottom (checkup-3 D2-13/D9-6): everything under `infra/` is the foundation every feature
- * builds on, so it never references a feature package (`ingest`, `norm`, `jira`, `metrics`, `reports`, `teams`, `flowusers`,
+ * builds on, so it never references a feature package (`ingest`, `norm`, `jira`, `gitlab`, `metrics`, `reports`, `teams`, `flowusers`,
  * `auth`, `authz`). `audit` (the cross-cutting audit trail) and `plugins` (Ktor wiring: `respondProblem`) are not features and
  * stay open to `infra`. The composition root is the one documented exception ([infraCompositionRoot]): the DB/bootstrap
  * wiring MUST construct the feature services it publishes on `Application.attributes`, so exactly those two files may name
  * exactly those packages.
+ *
+ * `identities/` is read by `reports/` (Report 21, A50) and by nothing else ([`only reports references identities`]).
+ *
+ * `fetch/` is the hardened HTTP transport every connector shares (`SourceHttp`, the backoff, the call tally, the ceilings). It sits
+ * between `infra` and the connectors: it may use `infra` (the outbound guard's `BlockedHostException`, `sha256Hex`) and nothing above
+ * it, `ingest` included (a connector hands it everything it needs as plain parameters, and `ingest` already imports `jira`, so an
+ * `ingest` import would close a cycle). The two connectors, `jira` and the later `gitlab`, never reference each other: each reaches
+ * the shared machinery only through `fetch` and the registries of `ingest`.
  */
 class PackageBoundaryTest {
     private val mainSources: List<File> by lazy {
@@ -38,7 +47,10 @@ class PackageBoundaryTest {
         "Bootstrap.kt" to setOf("auth", "ingest", "flowusers"),
     )
 
-    private val featurePackages = listOf("ingest", "norm", "jira", "metrics", "reports", "teams", "flowusers", "auth", "authz", "telemetry")
+    private val featurePackages = listOf(
+        "ingest", "norm", "fetch", "jira", "gitlab", "metrics", "reports", "teams", "flowusers", "auth", "authz", "telemetry",
+        "identities",
+    )
 
     private fun packageOf(text: String): String? =
         text.lineSequence().firstOrNull { it.startsWith("package ") }?.removePrefix("package ")?.trim()
@@ -61,11 +73,70 @@ class PackageBoundaryTest {
     }
 
     @Test
-    fun `ingest, norm and jira never reference metrics or reports`() {
-        val lower = setOf("ch.nokillswit.ingest", "ch.nokillswit.norm", "ch.nokillswit.jira")
+    fun `ingest, norm, fetch, jira and gitlab never reference metrics or reports`() {
+        val lower = setOf(
+            "ch.nokillswit.ingest", "ch.nokillswit.norm", "ch.nokillswit.fetch", "ch.nokillswit.jira", "ch.nokillswit.gitlab",
+        )
         // The scan must actually see those packages, or an empty result proves nothing (a moved directory, a renamed package).
         for (pkg in lower) assertTrue(mainSources.any { packageOf(it.readText()) == pkg }, "no source declares $pkg")
         assertEquals(emptyList(), violations(lower, listOf("metrics", "reports")))
+    }
+
+    @Test
+    fun `fetch references no connector and no feature package`() {
+        val lower = setOf("ch.nokillswit.fetch")
+        // The scan must actually see the package, or an empty result proves nothing (a moved directory, a renamed package).
+        assertTrue(mainSources.any { packageOf(it.readText()) in lower }, "no source declares ch.nokillswit.fetch")
+        assertEquals(emptyList(), violations(lower, featurePackages - "fetch"))
+    }
+
+    @Test
+    fun `jira and gitlab never reference each other`() {
+        // Each connector reaches the other's world only through ingest/ (the registry) and the shared infra; the scan must see both.
+        for (pkg in listOf("ch.nokillswit.jira", "ch.nokillswit.gitlab")) {
+            assertTrue(mainSources.any { packageOf(it.readText()) == pkg }, "no source declares $pkg")
+        }
+        assertEquals(emptyList(), violations(setOf("ch.nokillswit.jira"), listOf("gitlab")))
+        assertEquals(emptyList(), violations(setOf("ch.nokillswit.gitlab"), listOf("jira")))
+    }
+
+    @Test
+    fun `norm never references jira or gitlab`() {
+        // The normalized layer is connector-agnostic: a connector writes into it, never the other way round (`norm/` imports `infra/` and
+        // `ingest/` only). The scan must see the package, or an empty result proves nothing.
+        val lower = setOf("ch.nokillswit.norm")
+        assertTrue(mainSources.any { packageOf(it.readText()) in lower }, "no source declares ch.nokillswit.norm")
+        assertEquals(emptyList(), violations(lower, listOf("jira", "gitlab")))
+    }
+
+    @Test
+    fun `identities references no feature package but norm, ingest and authz`() {
+        // An ALLOWLIST: the identity mapping sits above the connectors and `norm/` and BELOW `metrics/`/`reports/` (which will read the
+        // resolver). Of the feature packages it may use `norm/` (the code layer), `ingest/` (the data-source reads) and `authz/` (guards,
+        // typed exceptions); a new feature package is forbidden to it until listed here. `infra`, `audit` and `plugins` are not feature
+        // packages. The scan must see the package.
+        val lower = setOf("ch.nokillswit.identities")
+        assertTrue(mainSources.any { packageOf(it.readText()) in lower }, "no source declares ch.nokillswit.identities")
+        val allowed = setOf("identities", "norm", "ingest", "authz")
+        assertEquals(emptyList(), violations(lower, featurePackages - allowed))
+    }
+
+    @Test
+    fun `only reports references identities`() {
+        // The "one entry point" promise (`IdentityResolver`, gitlab-integration.md "Identity"): the identity mapping is read by the
+        // reports layer and by nothing else, so no connector, `norm`, `metrics`, `infra` (the composition root included: the routes are
+        // wired from application.yaml, not from Kotlin) or feature package names it. The scan must see both ends, or an empty result
+        // proves nothing (a moved directory, a stale permission).
+        val allowed = setOf("ch.nokillswit.identities", "ch.nokillswit.reports")
+        for (pkg in allowed) assertTrue(mainSources.any { packageOf(it.readText()) == pkg }, "no source declares $pkg")
+        val violations = mainSources.flatMap { file ->
+            val text = file.readText()
+            if (packageOf(text) in allowed) emptyList() else forbiddenReferences(text, listOf("identities")).map { "${file.name} $it" }
+        }
+        assertEquals(emptyList(), violations)
+        val reportsUse = mainSources.filter { packageOf(it.readText()) == "ch.nokillswit.reports" }
+            .any { forbiddenReferences(it.readText(), listOf("identities")).isNotEmpty() }
+        assertTrue(reportsUse, "reports/ no longer references identities: drop it from the allowance")
     }
 
     @Test

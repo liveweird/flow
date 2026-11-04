@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.ingest.JiraAuthScheme
+import ch.nokillswit.ingest.RawUpsertOutcome
 import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.jira.HttpJiraClient
 import ch.nokillswit.jira.IssuesCursor
@@ -16,10 +17,9 @@ import ch.nokillswit.jira.JiraWorklogStream
 import ch.nokillswit.jira.RawChangelogInput
 import ch.nokillswit.jira.RawEntityInput
 import ch.nokillswit.jira.RawIssueInput
-import ch.nokillswit.jira.RawUpsertOutcome
 import ch.nokillswit.jira.RawWorklogInput
 import ch.nokillswit.infra.json.canonicalJson
-import ch.nokillswit.jira.backfillFromEpochMillis
+import ch.nokillswit.ingest.backfillFromEpochMillis
 import ch.nokillswit.jira.renderedBytes
 import ch.nokillswit.jira.trimIssue
 import ch.nokillswit.jira.storeEntities

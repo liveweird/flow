@@ -60,6 +60,11 @@ export function isEpicView(view: HomeDrillView): boolean {
   return view.startsWith("EPIC_") || view === "WIP_EPICS" || view.startsWith("QUALITY_EPICS");
 }
 
+/** Whether the Code section is drawn at all: only while a GitLab source is active (the server sends no `code` figure without one). */
+export function hasCodeSection(overview: HomeOverview): boolean {
+  return overview.code.sources.length > 0;
+}
+
 /** The height of a small multiple's chart: a fixed chrome and a band per team, so the page does not jump when a chart mounts. */
 export function teamBarsHeight(teams: number): number {
   return Math.max(110, 56 + teams * 30);
@@ -247,10 +252,31 @@ export const HOME_VIEWS: Record<HomeDrillView, ViewSpec> = {
   QUALITY_EPICS_NO_ESTIMATE: { unit: "estimateMd", anchor: "done", count: (team) => team.quality.epicsNoEstimate.n },
   QUALITY_EPICS_NO_DATES: { unit: "estimateMd", anchor: "done", count: (team) => team.quality.epicsNoDates.n },
   QUALITY_EPICS_ESTIMATE_GAP: { unit: "gapMd", anchor: "done", count: (team) => team.quality.epicsEstimateGap.n },
+  // The code views list merge requests (`GitLabKeyLink`s): the merged ones with their cycle, the waiting open ones with their age.
+  CODE_MERGED: { unit: "wd", anchor: "merged", count: (team) => team.code?.merged.n ?? 0 },
+  CODE_OPEN: { unit: "ageWd", anchor: "created", count: (team) => team.code?.openCount.n ?? 0 },
+  CODE_MERGED_WITHOUT_REVIEW: { unit: "wd", anchor: "merged", count: (team) => team.code?.mergedWithoutReview.numerator ?? 0 },
+  // The one code view that lists TASKS (Report 22's): the done tasks with no merged merge request, each with its unmerged merge requests; no figure column.
+  CODE_TASKS_WITHOUT_MR: { unit: "none", anchor: "done", count: (team) => team.code?.tasks?.withoutMergeRequest ?? 0 },
 };
 
+/** Whether a view belongs to the Code section (the overview drew no figure for a team without `code`, so such a link is stale). */
+export function isCodeView(view: HomeDrillView): boolean {
+  return view.startsWith("CODE_");
+}
+
+/** Whether a view lists TASKS joined to their merge requests (Report 22's list): the drawer then links the Jira key and the merge requests beside it. */
+export function isTaskCodeView(view: HomeDrillView): boolean {
+  return view === "CODE_TASKS_WITHOUT_MR";
+}
+
+/** Whether a view lists merge requests of the GitLab code layer (the drawer then links their keys to GitLab). */
+export function isMergeRequestView(view: HomeDrillView): boolean {
+  return isCodeView(view) && !isTaskCodeView(view);
+}
+
 /** The section a view belongs to — the card focus returns to after a pointer double-click, and a deep link's default. */
-export type HomeSection = "sprints" | "granularity" | "accuracy" | "wipEpics" | "wipTasks" | "throughput" | "quality";
+export type HomeSection = "sprints" | "granularity" | "accuracy" | "wipEpics" | "wipTasks" | "throughput" | "code" | "quality";
 
 const SECTION_OF_VIEW: Record<HomeDrillView, HomeSection> = {
   TASK_ESTIMATE: "granularity",
@@ -270,6 +296,10 @@ const SECTION_OF_VIEW: Record<HomeDrillView, HomeSection> = {
   QUALITY_EPICS_NO_ESTIMATE: "quality",
   QUALITY_EPICS_NO_DATES: "quality",
   QUALITY_EPICS_ESTIMATE_GAP: "quality",
+  CODE_MERGED: "code",
+  CODE_OPEN: "code",
+  CODE_MERGED_WITHOUT_REVIEW: "code",
+  CODE_TASKS_WITHOUT_MR: "code",
 };
 
 /** The `data-drill-anchor` of a section's card. */
@@ -290,7 +320,12 @@ export function drillAnchorOf(target: DrillTarget): string {
  * a week of the window). A hand-edited or stale link names a bar that does not exist — it is closed, never a drawer that answers a 400.
  */
 export function drillDrawn(target: DrillTarget, overview: HomeOverview): boolean {
-  if (target.kind === "home") return overview.teams.some((team) => team.teamId === target.teamId);
+  // A code view of a team the overview drew no Code figures for (no GitLab source, over the row budget) is a stale link too, and so is
+  // the tasks list of a team whose tasks figure the server left out (that read was over the row budget).
+  if (target.kind === "home") {
+    const hasFigure = (team: HomeTeam) => (isTaskCodeView(target.view) ? team.code?.tasks != null : team.code !== null);
+    return overview.teams.some((team) => team.teamId === target.teamId && (!isCodeView(target.view) || hasFigure(team)));
+  }
   const team = "teamId" in target ? overview.teams.find((candidate) => candidate.teamId === target.teamId) : undefined;
   if (target.kind === "sprint") return team?.lastSprint?.sprintId === target.sprintId;
   if (target.kind === "week") return team?.throughput.weeks.some((week) => week.bucketStart === target.bucketStart) ?? false;

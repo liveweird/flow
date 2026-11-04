@@ -6,7 +6,7 @@ import org.slf4j.LoggerFactory
 /**
  * A failed job's exception as logged: [message] (the bounded `<Class>: <message>` text `sync_jobs.error_detail` stores)
  * and every stack frame, but each CAUSE reduced to its class name. A transport cause's message can embed the full
- * request URL with its query string (Ktor's connect-timeout `IOException`, wrapped by `JiraFetchException`), which is
+ * request URL with its query string (Ktor's connect-timeout `IOException`, wrapped by `FetchException`), which is
  * never logged (`.claude/docs/jira-integration.md`); the top message is bounded because a database exception's message
  * inlines every bound value of its statement (a page of whole issue documents). At most [MAX_LOGGED_CAUSES] causes.
  */

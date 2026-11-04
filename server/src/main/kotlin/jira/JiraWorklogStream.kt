@@ -1,7 +1,14 @@
 package ch.nokillswit.jira
 
+import ch.nokillswit.fetch.BoundedAnswer
+import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.fetch.PageCeiling
+import ch.nokillswit.fetch.SkipBudget
+import ch.nokillswit.fetch.halvedBatchSize
+import ch.nokillswit.fetch.isOversized
 import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.ingest.CeilingTripException
+import ch.nokillswit.ingest.RawUpsertOutcome
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
 import kotlinx.serialization.Serializable
@@ -54,7 +61,7 @@ private const val WORKLOG_LIST_MAX_IDS = 1000
 /** The run-local (never persisted) size of a `worklog/list` id batch (starts at [WORKLOG_LIST_MAX_IDS], only shrinks) and skip budget. */
 private class ListAsk(var size: Int = WORKLOG_LIST_MAX_IDS) {
     /** Listed worklogs skipped vs. asked over the whole run (the threshold is per run, across the feed's pages). */
-    val skips = SkipBudget("WORKLOGS", "listed worklogs")
+    val skips = SkipBudget(JIRA_SOURCE, "WORKLOGS", "listed worklogs")
 }
 
 /**
@@ -132,7 +139,7 @@ class JiraWorklogStream internal constructor(
     private suspend fun backfillPerIssue(context: StreamContext) {
         // Run-local: issues whose own response is over the cap stay unsynced for the next run but are not re-claimed here.
         val gaveUp = mutableSetOf<Long>()
-        val skips = SkipBudget("WORKLOGS", "issues")
+        val skips = SkipBudget(JIRA_SOURCE, "WORKLOGS", "issues")
         while (true) {
             val batch = rawStore.staleWorklogIssueIds(context.connectionId, BACKFILL_BATCH_SIZE, gaveUp)
             if (batch.isEmpty()) break
@@ -150,7 +157,7 @@ class JiraWorklogStream internal constructor(
      * at position N, after issues 1..N-1 were stored; issues after N may already have been fetched, and are discarded (stamped
      * nowhere, left for the next run).
      *
-     * The limit it rides is the client's own: every call still goes through `JiraHttp`'s `jira.maxConcurrentRequests` semaphore
+     * The limit it rides is the client's own: every call still goes through `SourceHttp`'s `jira.maxConcurrentRequests` semaphore
      * (shared by the whole process), so at most that many GETs are ever in flight, with the same backoff, `Retry-After` and
      * guarded-client path as before. The look-ahead window IS that number (so a limit of 1 is the sequential loop) and adds no
      * limit of its own; on top of it no fetch starts while the finished-but-unstored issues already hold more than
@@ -173,7 +180,7 @@ class JiraWorklogStream internal constructor(
                 fetched.add(issueId, worklogs)
                 if (fetched.full()) wrote = flushBackfill(context, fetched) || wrote
             }
-        } catch (cause: JiraFetchException) {
+        } catch (cause: FetchException) {
             keepFetched(context, fetched, cause)
         } catch (cause: CeilingTripException) {
             keepFetched(context, fetched, cause) // the wall clock stopped the run: what was already fetched is stored first
@@ -212,7 +219,7 @@ class JiraWorklogStream internal constructor(
         skips: SkipBudget,
     ): List<RawWorklogInput>? {
         val worklogs = outcome.getOrElse { cause ->
-            if (cause !is JiraFetchException || !cause.isOversized()) throw cause
+            if (cause !is FetchException || !cause.isOversized()) throw cause
             log.warn(
                 "WORKLOGS issue {} over the response cap or an answer ceiling, data source {}: skipped this run ({})",
                 issueId, context.connectionId, cause.message,
@@ -232,7 +239,7 @@ class JiraWorklogStream internal constructor(
      * that never stops (a `total` it never reaches) or packs a giant answer is `LIMIT_EXCEEDED`, the issue skipped for the run.
      */
     private suspend fun fetchIssueWorklogPages(issueId: Long): List<RawWorklogInput> {
-        val answer = BoundedAnswer<RawWorklogInput>(ISSUE_WORKLOG_ENDPOINT, ceilings.backfill, "worklogs")
+        val answer = BoundedAnswer<RawWorklogInput>(JIRA_SOURCE, ISSUE_WORKLOG_ENDPOINT, ceilings.backfill, "worklogs")
         var startAt = 0
         while (true) {
             answer.nextPage()
@@ -263,7 +270,7 @@ class JiraWorklogStream internal constructor(
         var since = existing?.updatedSince ?: runStartedAt
         val deletedSince = existing?.deletedSince ?: runStartedAt
         val listAsk = ListAsk()
-        val pages = PageCeiling(WORKLOG_UPDATED_ENDPOINT, ceilings.maxFeedPages, "feed pages in one run")
+        val pages = PageCeiling(JIRA_SOURCE, WORKLOG_UPDATED_ENDPOINT, ceilings.maxFeedPages, "feed pages in one run")
         while (true) {
             pages.next()
             val page = client.worklogUpdated(since)
@@ -304,13 +311,13 @@ class JiraWorklogStream internal constructor(
      * response, is too big, and a truncated page must not advance the cursor).
      */
     private suspend fun listWorklogs(context: StreamContext, ids: List<Long>, ask: ListAsk): List<FeedWorklog> {
-        val answer = BoundedAnswer<FeedWorklog>(WORKLOG_LIST_ENDPOINT, ceilings.feedAnswer, "worklogs")
+        val answer = BoundedAnswer<FeedWorklog>(JIRA_SOURCE, WORKLOG_LIST_ENDPOINT, ceilings.feedAnswer, "worklogs")
         var remaining = ids
         while (remaining.isNotEmpty()) {
             val chunk = remaining.take(ask.size)
             val listed = try {
                 client.worklogListAs(chunk, ::feedWorklogsOf)
-            } catch (cause: JiraFetchException) {
+            } catch (cause: FetchException) {
                 if (!cause.isOversized()) throw cause
                 if (chunk.size > 1) {
                     val halved = halvedBatchSize(ask.size, chunk.size)
@@ -346,7 +353,7 @@ class JiraWorklogStream internal constructor(
     private suspend fun runIncrementalDeleted(context: StreamContext, runStartedAt: Long, updatedSinceFinal: Long) {
         val existing = loadCursor(context)
         var since = existing?.deletedSince ?: runStartedAt
-        val pages = PageCeiling(WORKLOG_DELETED_ENDPOINT, ceilings.maxFeedPages, "feed pages in one run")
+        val pages = PageCeiling(JIRA_SOURCE, WORKLOG_DELETED_ENDPOINT, ceilings.maxFeedPages, "feed pages in one run")
         while (true) {
             pages.next()
             val page = client.worklogDeleted(since)

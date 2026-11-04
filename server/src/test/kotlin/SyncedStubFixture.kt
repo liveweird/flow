@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.fetch.SourceHttp
 import ch.nokillswit.infra.crypto.DEV_DATA_ENCRYPTION_KEY
 import ch.nokillswit.infra.crypto.FieldCipher
 import ch.nokillswit.ingest.DataSourceKind
@@ -16,20 +17,17 @@ import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.jira.HttpJiraClient
 import ch.nokillswit.jira.JiraClient
 import ch.nokillswit.jira.JiraConnector
-import ch.nokillswit.jira.JiraHttp
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraSyncDependencies
+import ch.nokillswit.jira.createJiraHttp
 import ch.nokillswit.norm.WorkItemStore
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import java.security.MessageDigest
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.jetbrains.exposed.v1.core.AutoIncColumnType
-import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.selectAll
@@ -111,17 +109,42 @@ object SyncedStubFixture {
                 backfillFrom = backfillFrom,
                 reconcileHourUtc = current.reconcileHourUtc,
                 jira = JiraConnectionRequest(
-                    siteUrl = current.jira.siteUrl,
-                    email = current.jira.email,
+                    siteUrl = current.jira!!.siteUrl,
+                    email = current.jira!!.email,
                     apiToken = null,
-                    projectKeys = current.jira.projectKeys,
-                    authScheme = current.jira.authScheme,
+                    projectKeys = current.jira!!.projectKeys,
+                    authScheme = current.jira!!.authScheme,
                 ),
             ),
         )
     }
 
-    fun buildJiraHttp(maxRetries: Int = 4, maxResponseBytes: Long = 33_554_432L): JiraHttp {
+    /**
+     * The data-source PUT that moves only [projectKeys] (everything else as stored): an ADMIN's project-list edit. It bumps the
+     * connection's own `config_revision` and no revision a report stamps, so only the code readers' `keys:` line carries it.
+     */
+    suspend fun putProjectKeys(connectionId: UInt, projectKeys: List<String>, dataSources: DataSourceService = dataSources()) {
+        val current = checkNotNull(dataSources.read(connectionId)) { "connection $connectionId" }
+        dataSources.update(
+            connectionId,
+            DataSourceRequest(
+                name = current.name,
+                enabled = current.enabled,
+                syncIntervalMinutes = current.syncIntervalMinutes,
+                backfillFrom = current.backfillFrom,
+                reconcileHourUtc = current.reconcileHourUtc,
+                jira = JiraConnectionRequest(
+                    siteUrl = current.jira!!.siteUrl,
+                    email = current.jira!!.email,
+                    apiToken = null,
+                    projectKeys = projectKeys,
+                    authScheme = current.jira!!.authScheme,
+                ),
+            ),
+        )
+    }
+
+    fun buildJiraHttp(maxRetries: Int = 4, maxResponseBytes: Long = 33_554_432L): SourceHttp {
         val httpClient = HttpClient(OkHttp) {
             engine { preconfigured = okhttp3.OkHttpClient() }
             expectSuccess = false
@@ -131,7 +154,7 @@ object SyncedStubFixture {
                 connectTimeoutMillis = 10_000
             }
         }
-        return JiraHttp(httpClient, maxRetries, maxResponseBytes, maxConcurrentRequests = 4)
+        return createJiraHttp(httpClient, maxRetries, maxResponseBytes, maxConcurrentRequests = 4)
     }
 
     /** A ready [JiraClient] (its ONE unauthenticated `resolveCloudId()` call already made) against [JiraStubServer]. */
@@ -281,82 +304,18 @@ object SyncedStubFixture {
         WorkItemStore.Sprints,
     )
 
-    private const val CONNECTION_ID_COLUMN = "connection_id"
-
-    /** Tables whose Exposed column set has already been proven equal to the database's (once per JVM fork). */
-    private val verifiedColumnSets = ConcurrentHashMap.newKeySet<String>()
-
-    private fun quoted(column: Column<*>) = "\"${column.name}\""
-
-    /**
-     * ONE `INSERT ... SELECT` for [table]: every column the Exposed object declares is copied
-     * verbatim from [fromConnectionId]'s rows, except `connection_id` (rewritten to [toConnectionId])
-     * and the surrogate SERIAL `id` (auto-increment columns get fresh values in the clone). The
-     * column list comes from the table object, and [assertColumnSetMatchesDatabase] proves it equals
-     * the database's own, so a column added by a migration but forgotten in the Exposed object (or
-     * the reverse) fails the clone instead of being silently dropped.
-     */
-    private fun cloneTableSql(table: Table, fromConnectionId: UInt, toConnectionId: UInt): String {
-        val copied = table.columns.filter { it.columnType !is AutoIncColumnType<*> && it.name != CONNECTION_ID_COLUMN }
-        val targetList = (listOf("\"$CONNECTION_ID_COLUMN\"") + copied.map(::quoted)).joinToString(", ")
-        val selectList = (listOf("$toConnectionId") + copied.map(::quoted)).joinToString(", ")
-        return "INSERT INTO ${table.tableName} ($targetList) SELECT $selectList " +
-            "FROM ${table.tableName} WHERE $CONNECTION_ID_COLUMN = $fromConnectionId"
-    }
-
-    private fun assertColumnSetMatchesDatabase(conn: java.sql.Connection, table: Table) {
-        if (table.tableName in verifiedColumnSets) return
-        val (schema, name) = table.tableName.split('.')
-        val sql = "SELECT column_name FROM information_schema.columns WHERE table_schema = ? AND table_name = ?"
-        val database = conn.prepareStatement(sql).use { st ->
-            st.setString(1, schema)
-            st.setString(2, name)
-            st.executeQuery().use { rs -> buildSet { while (rs.next()) add(rs.getString(1)) } }
-        }
-        assertEquals(
-            database,
-            table.columns.map { it.name }.toSet(),
-            "${table.tableName}: the Exposed columns must equal the database's, or the SQL clone would drop one",
-        )
-        verifiedColumnSets += table.tableName
-    }
-
     /** `table name -> row count` for [connId] over every table [cloneRawData]/[cloneProcessedData] copy (raw and norm). */
     internal fun cloneTableRowCounts(connId: UInt): Map<String, Long> =
         PostgresTestSupport.connect().use { conn ->
             conn.createStatement().use { st ->
                 (RAW_CLONE_TABLES + PROCESSED_CLONE_TABLES).associate { table ->
-                    table.tableName to st.executeQuery("SELECT COUNT(*) FROM ${table.tableName} WHERE $CONNECTION_ID_COLUMN = $connId")
+                    table.tableName to st.executeQuery(
+                        "SELECT COUNT(*) FROM ${table.tableName} WHERE ${CloneSupport.CONNECTION_ID_COLUMN} = $connId",
+                    )
                         .use { rs -> rs.next(); rs.getLong(1) }
                 }
             }
         }
-
-    /** Runs one `INSERT ... SELECT` per table (plus [extra]) in ONE database transaction on a plain JDBC connection. */
-    private fun cloneInTransaction(
-        tables: List<Table>,
-        fromConnectionId: UInt,
-        toConnectionId: UInt,
-        extra: (java.sql.Statement) -> Unit = {},
-    ) {
-        PostgresTestSupport.connect().use { conn ->
-            conn.autoCommit = false
-            try {
-                conn.createStatement().use { st ->
-                    for (table in tables) {
-                        assertColumnSetMatchesDatabase(conn, table)
-                        st.executeUpdate(cloneTableSql(table, fromConnectionId, toConnectionId))
-                    }
-                    extra(st)
-                }
-                conn.commit()
-            } catch (failure: Throwable) {
-                // A failing rollback must never mask the failure that caused it.
-                runCatching { conn.rollback() }.onFailure(failure::addSuppressed)
-                throw failure
-            }
-        }
-    }
 
     /**
      * Copies one connection's `raw.jira_issues`/`raw.jira_entities`/`raw.jira_changelogs`/
@@ -370,7 +329,7 @@ object SyncedStubFixture {
      * (`JiraRawStore.markAllNeedsProcessing`).
      */
     suspend fun cloneRawData(fromConnectionId: UInt, toConnectionId: UInt) {
-        cloneInTransaction(RAW_CLONE_TABLES, fromConnectionId, toConnectionId)
+        CloneSupport.cloneInTransaction(RAW_CLONE_TABLES, fromConnectionId, toConnectionId)
     }
 
     /**
@@ -387,7 +346,7 @@ object SyncedStubFixture {
      * connection's.
      */
     suspend fun cloneProcessedData(fromConnectionId: UInt, toConnectionId: UInt) {
-        cloneInTransaction(RAW_CLONE_TABLES + PROCESSED_CLONE_TABLES, fromConnectionId, toConnectionId) { st ->
+        CloneSupport.cloneInTransaction(RAW_CLONE_TABLES + PROCESSED_CLONE_TABLES, fromConnectionId, toConnectionId) { st ->
             val connections = DataSourceService.Connections.tableName
             val updated = st.executeUpdate(
                 "UPDATE $connections SET profile = src.profile, profile_at = src.profile_at " +

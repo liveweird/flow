@@ -31,9 +31,9 @@ esac
 
 record=(node "$root/scripts/timings/local-times.mjs" record)
 
-# The fork count the server gate runs with (-Pforks; default 2 = CI's, build-times.md WHY 44: one fork outgrew the
-# 6-min alarm; FLOW_FORKS=1 for the single-JVM run). Past 1 the fork-balance report follows the gate (WHY 18).
-server_forks="${FLOW_FORKS:-2}"
+# The fork count the server gate runs with (-Pforks; default 3, build-times.md WHY 63: two outgrew the 6-min alarm;
+# FLOW_FORKS=2 reproduces CI's class layout, FLOW_FORKS=1 the single-JVM run). Past 1 the fork-balance report follows the gate (WHY 18).
+server_forks="${FLOW_FORKS:-3}"
 
 server_build() {
   if [ -z "${JAVA_HOME:-}" ] && command -v mise > /dev/null 2>&1; then
@@ -65,7 +65,7 @@ web_gates() {
 
 e2e_static() {
   "${record[@]}" e2e-static -- bash -c \
-    'cd "$1/e2e" && npm run lint && npm run knip && npm run typecheck && npm run check:scenarios && npm run test:setup && node "$1/scripts/check-toolchain-pins.mjs" && node --test "$1/sample-data/jira/hostile.test.mjs"' \
+    'cd "$1/e2e" && npm run lint && npm run knip && npm run typecheck && npm run check:scenarios && npm run test:setup && node "$1/scripts/check-toolchain-pins.mjs" && node --test "$1/sample-data/jira/hostile.test.mjs" "$1/sample-data/gitlab/generate.test.mjs"' \
     _ "$root"
 }
 

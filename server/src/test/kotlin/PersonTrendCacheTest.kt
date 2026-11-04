@@ -56,7 +56,7 @@ class PersonTrendCacheTest {
             spec.key to CompareCell(if (row in missing) null else seed + row / 7.0, seed + row, row in hidden)
         }.toMap()
 
-    private fun entry(seed: Int = 1, active: Boolean = true) = PeerCellEntry.of(cells(seed), active)
+    private fun entry(seed: Int = 1, active: Boolean = true) = PeerCellEntry.of(cells(seed), active, linked = true)
 
     private fun key(account: String, end: String, slice: String = "s") = PeerCellKey(account, LocalDate.parse(end), slice)
 
@@ -89,15 +89,16 @@ class PersonTrendCacheTest {
             }
             spec.key to CompareCell(value, row * 11, hidden = row % 3 == 0)
         }.toMap()
-        for (active in listOf(true, false)) {
-            val made = PeerCellEntry.of(tricky, active)
+        for ((active, linked) in listOf(true to false, false to true, true to true, false to false)) {
+            val made = PeerCellEntry.of(tricky, active, linked)
             assertEquals(active, made.active)
+            assertEquals(linked, made.linked, "the two flags are independent")
             TREND_ROWS.forEachIndexed { row, spec ->
                 assertEquals(tricky.getValue(spec.key), made.cell(row), "row ${spec.key}")
             }
         }
         val plain = cells(7)
-        val round = PeerCellEntry.of(plain, true)
+        val round = PeerCellEntry.of(plain, active = true, linked = false)
         TREND_ROWS.forEachIndexed { row, spec -> assertEquals(plain.getValue(spec.key), round.cell(row)) }
     }
 
@@ -266,7 +267,8 @@ class PersonTrendCacheTest {
         val before = used()
         val generation = PeerCellCache(MAX_PEER_CELL_CACHE_MAX_ENTRIES).open(listOf("g"))
         repeat(count) {
-            generation.store(PeerCellKey("712020:" + "%038d".format(it), ends[it % 79], slice), PeerCellEntry.of(sample, true))
+            val key = PeerCellKey("712020:" + "%038d".format(it), ends[it % 79], slice)
+            generation.store(key, PeerCellEntry.of(sample, active = true, linked = true))
         }
         val after = used()
         val perEntry = (after - before) / count

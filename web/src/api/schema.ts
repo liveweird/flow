@@ -746,8 +746,9 @@ export interface paths {
         };
         /**
          * List data sources
-         * @description ADMIN only. An ADMIN-managed connection to an external issue tracker — Jira Cloud today
-         *     (`kind: JIRA_CLOUD`).
+         * @description ADMIN only. An ADMIN-managed connection to an external system — Jira Cloud (`kind: JIRA_CLOUD`, the `jira` block)
+         *     or a self-managed GitLab instance (`kind: GITLAB`, the `gitlab` block). Rows of both kinds are listed, whether or not
+         *     the kind is enabled on this server (`GET /api/v1/data-sources/kinds`).
          *
          *     - Sortable fields: `id`, `name`, `createdAt`, `updatedAt`. Default `id` ascending.
          *     - Filters: `name` (case- and accent-insensitive substring).
@@ -769,8 +770,44 @@ export interface paths {
          *     (`/api/v1/data-sources/{id}`) as `instance`; a soft-deleted source holds nothing. A
          *     `backfillFrom` before the history horizon's first day (`historyHorizonFrom` on the metrics
          *     settings) is `400`; a blank one becomes today minus 24 months, or that day when it is later.
+         *
+         *     **GitLab.** Exactly one of `jira` and `gitlab` is present (anything else is `400`); the block sets the kind, which
+         *     never changes. `gitlab.baseUrl` is the instance origin (`https://host[:port]`, no path, query or credentials):
+         *     it is canonicalised (lowercase host, default port dropped) and must be on the operator's `GITLAB_ALLOWED_HOSTS`
+         *     (`400` whose `detail` names the refusal code `gitlab-host-not-allowed`, or `gitlab-disabled` when the kind is off on
+         *     this server). `gitlab.token` is the read-only personal access token, required here, write-only, never echoed
+         *     (the response carries `gitlab.hasToken` only). `gitlab.groupPaths` are 1-10 full group paths, trimmed, stripped of
+         *     leading/trailing `/`, lowercased and de-duplicated; a path equal to or nested in another of the same request is `400`.
+         *     Two scope rules are `409` as well: every active GitLab data source reads the SAME instance (a different `baseUrl`
+         *     answers `urn:flow:problem:data-source-other-instance`), and no group path equals, sits under or contains one of
+         *     another active GitLab data source (`urn:flow:problem:data-source-group-overlap`). Jira and GitLab sources never
+         *     conflict with each other.
          */
         post: operations["createDataSource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources/kinds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The data-source kinds this server can create
+         * @description ADMIN only. One entry per `DataSourceKind`, in enum order, so the editor can offer only kinds that can work: Jira Cloud
+         *     is always enabled; GitLab is enabled when the operator listed at least one host in `GITLAB_ALLOWED_HOSTS` (or runs
+         *     a development stub). `allowedOrigins` are the origins a GitLab `baseUrl` may name (`https://host[:port]`, port
+         *     omitted when 443; the development stub's origin too), empty when the kind is disabled and for Jira. A bounded,
+         *     operator-curated set, so the plain `{items}` wrapper (no paging).
+         */
+        get: operations["listDataSourceKinds"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -787,12 +824,17 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Test a Jira connection before saving it
+         * Test a connection before saving it
          * @description ADMIN only (guarded before the body decodes), rate-limited (10/min per IP, bucket
-         *     `data-source-test`). Probes each Jira endpoint the ingestion pipeline needs in sequence
+         *     `data-source-test`). Exactly one of `jira` and `gitlab` (else `400`; a GitLab block is validated like a create,
+         *     so a base URL off the operator's list is `400`). Probes each endpoint the ingestion pipeline needs in sequence
          *     (at most 10s each, 30s total) and NEVER answers `502` — every probe outcome is a row in
-         *     the response, `ok: false` included. `jira.apiToken` is required here (an ad-hoc test
-         *     before the connection is saved).
+         *     the response, `ok: false` included. The block's token (`jira.apiToken`, `gitlab.token`) is required here (an
+         *     ad-hoc test before the connection is saved). GitLab's rows, in order: `version`, `user`, `user_admin` (optional;
+         *     `code` `NOT_ADMIN` when the token's owner is no admin, so user emails will be hidden), `token_scopes` (a token with any scope that does not start
+         *     with `read_` and is not `admin_mode` fails it with `TOKEN_SCOPE_TOO_BROAD`, an inactive one with `TOKEN_INACTIVE`; an answer missing `scopes` or `active` is `INVALID_RESPONSE`),
+         *     then `group:<path>` and `group_projects:<path>` per configured path, `users` and `user_emails` (optional). A GitLab
+         *     result carries no `cloudId`.
          */
         post: operations["testDataSourceAdHoc"];
         delete?: never;
@@ -815,8 +857,10 @@ export interface paths {
         /**
          * Test a saved data source's connection
          * @description ADMIN only, rate-limited (10/min per IP, bucket `data-source-test`). Uses the STORED,
-         *     decrypted token — no request body. A successful `tenant_info` probe persists the
-         *     resolved `cloudId` on the connection.
+         *     decrypted token — no request body — and probes the data source's own kind (see the ad-hoc test for GitLab's rows). A
+         *     successful `tenant_info` probe persists the resolved `cloudId` on a Jira connection. A GitLab data source whose kind is
+         *     switched off on this server (no `GITLAB_ALLOWED_HOSTS`) answers `409`
+         *     `urn:flow:problem:data-source-kind-unsupported`.
          */
         post: operations["testDataSourceStored"];
         delete?: never;
@@ -841,10 +885,14 @@ export interface paths {
         get: operations["getDataSource"];
         /**
          * Update a data source (full replace)
-         * @description ADMIN only, guard before the id lookup (uniform 403). A changed `jira.siteUrl` is `409`
-         *     — it is the connection's identity; create a new data source instead. Omitting OR
-         *     blanking `jira.apiToken` keeps the current token; any other value rotates it (audited
-         *     separately as `data_source.token_rotated`). Any successful update bumps
+         * @description ADMIN only, guard before the id lookup (uniform 403). A changed `jira.siteUrl` (or, for GitLab, a `gitlab.baseUrl`
+         *     whose canonical origin differs from the stored one) is `409`
+         *     — it is the connection's identity; create a new data source instead. So is a block of the other kind: the kind is fixed
+         *     at create. Omitting OR
+         *     blanking the token (`jira.apiToken`, `gitlab.token`) keeps the current token; any other value rotates it (audited
+         *     separately as `data_source.token_rotated`). A GitLab update is validated like a create (`400` for a base URL off the
+         *     operator's list or while the kind is off on this server, `gitlab-disabled`); a `gitlab.groupPaths` entry equal to, under or
+         *     above a group path of ANOTHER active GitLab data source is `409` `urn:flow:problem:data-source-group-overlap`. Any successful update bumps
          *     `configRevision`. A case-insensitive name clash with another active data source is `409`.
          *     So is a `jira.projectKeys` entry already in ANOTHER active data source (`type`
          *     `urn:flow:problem:data-source-project-overlap`; `detail` names that data source and the
@@ -996,7 +1044,8 @@ export interface paths {
          *     once — its `norm.*` shape (`workItem`, `statusIntervals`, `fieldIntervals`, `anomalies`). A
          *     tombstoned issue (`deletedAt`/`movedOutAt` set) is still returned, never `404`. The stored text is
          *     embedded as it is stored (no tree is built); an issue whose stored text exceeds `jira.processPageBytes`
-         *     (the figure PROCESS refuses an issue at, default 8 MiB) is `413`, answered before any of it is read.
+         *     (the figure PROCESS refuses an issue at, default 8 MiB) is `413`, answered before any of it is read. An existing
+         *     data source that is not a Jira connection (GitLab) is `409` with `type` `urn:flow:problem:data-source-kind-unsupported`.
          */
         get: operations["getRawIssue"];
         put?: never;
@@ -1032,6 +1081,100 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/data-sources/{id}/code-identities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a GitLab data source's identities with their mapping status
+         * @description ADMIN only (guard first: a non-admin gets `403` whatever the id). The GitLab identities of this data source (the `norm`
+         *     code layer's users and commit-only author addresses) beside the ADMIN decisions stored for its instance and the proposals
+         *     computed at read time, `.claude/docs/gitlab-integration.md` "Identity". **The page carries the GitLab addresses**
+         *     (`emails`), to ADMIN only, so an admin can judge a match. A `status` is never stored: `LINKED` (decided and linked),
+         *     `IGNORED_OR_BOT` (decided ignored or bot), `PROPOSED` (no decision, but an address matches exactly one Jira person, or the
+         *     identity is a bot) and `UNMAPPED` (neither). A decision whose identity no active GitLab data source on the instance still has
+         *     (`seen: false`) is listed on its decided status, with no name, username or address; a key only another source of the instance has is not
+         *     listed here. Sortable fields are `displayName` (the default), `username` and `id`, where `id`
+         *     is the identity key; an absent name or username sorts last. `q` is a case- and accent-insensitive substring over the
+         *     display name, username and addresses (at most 100 characters, else `400`; an unseen decision never matches). Filtered, sorted and paged in memory over one
+         *     connection's identities (`list-endpoints.md`). A data source that is not a GitLab connection is `409` with `type`
+         *     `urn:flow:problem:data-source-kind-unsupported`.
+         */
+        get: operations["listCodeIdentities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources/{id}/code-identities/{identityKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description `u<GitLab user id>` or `e<32 hex digits>` (a commit author address that matches no user). */
+                identityKey: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Decide what a GitLab identity is
+         * @description ADMIN only, guard before everything else. Stores the decision for this identity on the data source's INSTANCE (the host),
+         *     so it survives a re-created data source and a purge. Order of checks: `403`, `404` data source, `409` not a GitLab source,
+         *     `400` malformed key or body, `404` the identity (none in this data source's code layer and no decision stored for the key
+         *     either; an unseen identity with a decision may be changed), `400` unknown Jira account (`jiraAccountId` must be a person of
+         *     an active Jira data source; a re-PUT of the account already stored is accepted). `LINKED` requires `jiraAccountId`;
+         *     `IGNORED` and `BOT` forbid it. Answers the row as the list would now show it. An identical re-PUT is a `200` that writes
+         *     and audits nothing; a change is audited `code_identity.decided`. A change that loses a race with a concurrent delete is `409`.
+         */
+        put: operations["decideCodeIdentity"];
+        post?: never;
+        /**
+         * Remove the decision about a GitLab identity
+         * @description ADMIN only, guard first. Removes the stored decision for the key on the data source's instance (the identity becomes
+         *     `PROPOSED` or `UNMAPPED` again), whether or not the identity is still in this data source's code layer. Audited
+         *     `code_identity.decision_removed`. `404` when no decision is stored for the key.
+         */
+        delete: operations["removeCodeIdentityDecision"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources/{id}/code-identities/confirm-proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm every current proposal of a GitLab data source
+         * @description ADMIN only, guard first, no request body. Stores a `LINKED` decision for every identity whose address matches exactly one
+         *     Jira person and a `BOT` decision for every bot, that has no stored decision yet. A decision stored meanwhile wins. The
+         *     counts are of the decisions actually written, each audited as one `code_identity.decided` (`via` `CONFIRM_PROPOSALS`); a
+         *     second call writes nothing, answers zeros and audits nothing.
+         */
+        post: operations["confirmCodeIdentityProposals"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/data-sources/{id}/metrics-config": {
         parameters: {
             query?: never;
@@ -1048,11 +1191,13 @@ export interface paths {
          *     status category; the profile-detected story-points field for both estimate roles;
          *     `duedate` for the epic due date; 1:1 project → domain and issue type → activity type; no
          *     board → team mappings or work categories; no status defaults to WAITING or BLOCKED, which an admin maps by hand).
+         *     An existing data source whose kind derives no metrics (GitLab) is `409` with `type`
+         *     `urn:flow:problem:data-source-kind-unsupported`.
          */
         get: operations["getDataSourceMetricsConfig"];
         /**
          * Replace a data source's metrics configuration
-         * @description ADMIN only, guard before the body decode. A full replace over all seven per-connection config tables in one transaction — every id is validated against this connection's own `norm` reference rows (statuses, boards, project keys, issue types) and its stored data profile (field ids), else `400`; a board mapped to a team already mapped elsewhere is `409` (D10: one board per team); a `domainStatusStages` override must name a domain the same request defines and a known status, once per (domain, status). Bumps the shared `configRevision` unless the request is byte-for-byte identical to what is already stored.
+         * @description ADMIN only, guard before the body decode. A full replace over all seven per-connection config tables in one transaction — every id is validated against this connection's own `norm` reference rows (statuses, boards, project keys, issue types) and its stored data profile (field ids), else `400`; a board mapped to a team already mapped elsewhere is `409` (D10: one board per team); a `domainStatusStages` override must name a domain the same request defines and a known status, once per (domain, status). Bumps the shared `configRevision` unless the request is byte-for-byte identical to what is already stored. A data source whose kind derives no metrics (GitLab) is `409` with `type` `urn:flow:problem:data-source-kind-unsupported`, answered before the body is read.
          */
         put: operations["updateDataSourceMetricsConfig"];
         post?: never;
@@ -1078,7 +1223,8 @@ export interface paths {
          *     the metrics-config editor uses. `workCategoryValues` is populated only when
          *     `?workCategoryField=` names a field id, from that field's own distinct observed values
          *     across this connection's live work items, capped at 200 (`workCategoryValuesTruncated:
-         *     true` when more exist).
+         *     true` when more exist). A data source whose kind derives no metrics (GitLab) is `409` with `type`
+         *     `urn:flow:problem:data-source-kind-unsupported`.
          */
         get: operations["getDataSourceMetricsConfigOptions"];
         put?: never;
@@ -1191,7 +1337,14 @@ export interface paths {
          *     against it (Compare people's rule: sample-gated, a tie within the unit's tolerance reads as none). `unassigned` counts
          *     the work of NO active team (no team, or a soft-deleted one) — computed against every active team, never against the
          *     picked subset. `freshness` is each active connection's last successful ingest and DERIVE. Nothing derived reads as an
-         *     empty overview with a null `meta.derivedAt`.
+         *     empty overview with a null `meta.derivedAt`. The Code section (`code`, 1.44.0) is Report 21's own figures for each team
+         *     over the same two windows (merged merge requests, their cycle p50, the open ones now with their age p50, merged without
+         *     review), read once for all picked teams from the GitLab code layer and attributed through the admin's identity links;
+         *     `code.sources` is Report 21's `sources[]` (empty = no active GitLab source, the section is absent and every team's `code`
+         *     is null) and `code.overBudget` says the read exceeded `reports.codeMaxRows`, in which case the page degrades rather than
+         *     fails (200, every team's `code` null, the Jira sections intact). Each team's `code.tasks` (1.53.0) is Report 22's own
+         *     `tasks` block over the CURRENT window (done tasks, those with no merged merge request, their share), neutral context with no
+         *     trend. The ETag also carries Report 21's GitLab stamp lines (empty while no GitLab source is active).
          */
         get: operations["getReportHome"];
         put?: never;
@@ -1219,6 +1372,17 @@ export interface paths {
          *     `QUALITY_EPICS_ESTIMATE_GAP`, otherwise the estimate), `anchorAt` its `done_at` (`started_at` for `WIP_*`); epic views are
          *     `itemKind` `EPIC`. A figure hidden under `minSampleSize` still lists its items. Sorted by `figure` descending, newest
          *     `anchorAt`, then issue key; at most 500 listed — `total` (equal to `bar.count`) says how many are behind the figure.
+         *     The `CODE_*` views (1.44.0) list the team's merge requests behind the Code section, by Report 21's own drill over the current
+         *     window: `CODE_MERGED` the merged ones (the merged count and the cycle p50; `figure` = the cycle in working days, `anchorAt` =
+         *     `merged_at`), `CODE_OPEN` the open ones waiting for review (the open count and the age p50; drafts excluded, `figure` = the age
+         *     in working days, `anchorAt` = `created_at`), `CODE_MERGED_WITHOUT_REVIEW` the merged ones with no review by another human
+         *     (`figure` = the cycle). Their `itemKind` is `MERGE_REQUEST` and `issueKey` is `<project path>!<iid>`; the SPA links them with
+         *     the overview's `code.sources[].baseUrl`. With no active GitLab source the list is empty; a read over `reports.codeMaxRows` is
+         *     a 400 (the overview itself degrades instead).
+         *     `CODE_TASKS_WITHOUT_MR` (1.53.0) lists the TASKS behind the team's `code.tasks.withoutMergeRequest`: Report 22's own
+         *     `TASKS_WITHOUT_MR` list over the current window (the done tasks with no linked MERGED merge request). Its `itemKind` is
+         *     `TASK`, `issueKey` the Jira key, `anchorAt` the task's `done_at`, `figure` is absent, and `linkedKeys` are the task's linked
+         *     merge requests that are NOT merged, `<project path>!<iid>` (`[]` for a task no merge request names). `bar.count` equals the figure.
          */
         get: operations["getReportHomeItems"];
         put?: never;
@@ -2344,6 +2508,13 @@ export interface paths {
          *     read at query time, the plan's days cut off at the last derived day), the items still in progress at the last listed day and
          *     their median age (11), the share of done tasks that were blocked and the blocked share of the cycle (12), logged MD (16), the
          *     foreign share of it (A21) and the data-quality shares of report 14 (worklog coverage, late logging over a day, no estimate).
+         *     The `CODE` group (A50, Report 21's member cells, computed by the very same functions) holds the person's GitLab activity over
+         *     the period: `commits`, `linesChanged` (counted lines added + deleted; a commit with unknown counted lines adds nothing and is
+         *     listed with no figure), `mrsMerged`, `mrCycleWorkingDaysP50` and `mrSizeLinesP50` (the p50 of the person's merged merge requests,
+         *     working days and lines, lower is better, hidden under `minSampleSize`), `reviewsGiven` and `approvalsGiven` (DISTINCT merge
+         *     requests) and `comments` (acts); the volumes are NEUTRAL (no `better`). They are attributed by the identity key LINKED to the
+         *     person on every ACTIVE GitLab source, whatever the team (a person with no link has 0 in every count, never hidden), and the
+         *     slices (`domain`/`domainView`/`activityType`/`workCategory`/`connectionId`) do not apply to them.
          *     Each cell is `{value, n, hidden}`: `n` the cell's sample, `hidden` true (value null) when a distribution-shaped figure has
          *     fewer than `minSampleSize` measured items. `direction` says which side is better (HIGHER, LOWER, TARGET — the value closer to
          *     `target` — or NEUTRAL: no side); `difference` is B minus A (both values present); `better` (A or B) is absent for a NEUTRAL
@@ -2359,7 +2530,8 @@ export interface paths {
          *     person belonged to, a transfer day counted once), `loggedPerAvailableMd` (logged MD ÷ available MD; target 1.0),
          *     `deliveredMdPerAvailableMd` and `deliveredItemsPerAvailableMd`. For every other caller those keys are ABSENT — all or nothing
          *     for the pair. `wipDays` names the working days the WIP rows were averaged over; `note` says why they are empty or partial.
-         *     400: a malformed parameter (see above), `from` after `to`, a span over 1100 days, an unknown connection (never 404).
+         *     400: a malformed parameter (see above), `from` after `to`, a span over 1100 days, an unknown connection (never 404), and a selection whose
+         *     `CODE` rows read more than `reports.codeMaxRows` GitLab rows (default 100000; the `detail` says to narrow the period or pick fewer people).
          */
         get: operations["getReportComparePeople"];
         put?: never;
@@ -2397,7 +2569,9 @@ export interface paths {
          *     `bar.sumMd` is their MD (for `DELIVERED` the estimate at done; a task without one is listed with a null `figure`, an item worth
          *     0 MD). `bucketIndex` — the cycle-time views (`CYCLE_WORKING_DAYS`, `CYCLE_ELAPSED_DAYS`) only, 0-based into the matching
          *     `cycleTime` histogram (the open tail last) — narrows the list to that bar's share of the person (the histogram's `byUser`
-         *     count) and sets `bar.from`/`bar.to`; without it the cell's whole measured set. A cell hidden under `minSampleSize` still lists
+         *     count) and sets `bar.from`/`bar.to`; without it the cell's whole measured set. The `CODE` rows' views (`COMMITS`, `MRS_MERGED`,
+         *     `MR_CYCLE_WORKING_DAYS`, `MR_SIZE_LINES`, `REVIEWS_GIVEN`, `APPROVALS_GIVEN`, `COMMENTS`) are `GET /api/v1/reports/code-activity/items`'
+         *     own selection for the person in any team: `itemKind` `COMMIT` or `MERGE_REQUEST`, `bar.count` equals the cell's `n`, no `teamId`. A cell hidden under `minSampleSize` still lists
          *     its items (the histogram bar of a hidden distribution is 400). Sorted by `figure` descending, newest `anchorAt`, then issue key;
          *     at most 500 listed — `total` (equal to `bar.count`) says how many are behind the cell. 400: a missing or unknown `view`, a
          *     missing `segmentAccountId` or one outside the picks, a `bucketIndex` on another view, not a non-negative integer or outside the
@@ -2430,8 +2604,9 @@ export interface paths {
          *     `GET /api/v1/reports/compare-people` over `from=windows[].from&to=windows[].end` (same `key`, `unit`, `direction`, `target`,
          *     `tolerance`, `drill` and the same `{value, n, hidden}`; `value` is absent when hidden or undefined) — the rows are
          *     `cycleWorkingDaysP50`/`P90`, `flowEfficiencyP50`, `deliveredItems`, `deliveredMd`, `accuracyAtStartPred25`, `avgWip`,
-         *     `wipAtEndMedianAgeWd`, `blockedItemsShare`, `worklogCoverage`, `lateLoggingShare`, `noEstimateShare`, `reopenedShare` and
-         *     `taskSizeP50`, in that order; no capacity row (A39) is ever present. `domain`/`domainView`/`activityType`/`workCategory`/
+         *     `wipAtEndMedianAgeWd`, `blockedItemsShare`, `worklogCoverage`, `lateLoggingShare`, `noEstimateShare`, `reopenedShare`,
+         *     `taskSizeP50` and the three `CODE` rows `mrsMerged`, `mrCycleWorkingDaysP50` and `reviewsGiven` (A50, from the person's linked GitLab
+         *     identities in any team; the Jira slices do not apply to them), in that order; no capacity row (A39) is ever present. `domain`/`domainView`/`activityType`/`workCategory`/
          *     `connectionId` slice every window alike (the WIP rows ignore the slices, like report 9). `windows[].coverage` says how much data
          *     backs a window: `FULL`; `PARTIAL` when it starts before the latest `backfillFrom` of the connections in scope or before the history
          *     horizon's first day (`meta.historyHorizon`, A48: the figures read from that day, and the points of a `from` before it start at it) or
@@ -2452,7 +2627,8 @@ export interface paths {
          *     peer at all, for any row; a peer whose cell is hidden or has no value is left out of that row, and with fewer than 3 peers contributing `reference.value` is absent (`reference.peers`
          *     is the number that contributed). The work mix has no reference, and the cue (`trend`) is the person's own first-against-last,
          *     unaffected. Same visibility as the figures (D12). 400: a missing or repeated `accountId`, a
-         *     malformed parameter, `from` after `to`, a span over 1100 days, an unknown connection (never 404).
+         *     malformed parameter, `from` after `to`, a span over 1100 days, an unknown connection (never 404), and a range whose
+         *     `CODE` rows read more than `reports.codeMaxRows` GitLab rows (default 100000; the `detail` says to narrow the period or pick fewer people).
          */
         get: operations["getReportPersonTrend"];
         put?: never;
@@ -2486,6 +2662,190 @@ export interface paths {
          *     a `bucketIndex`, plus every 400 of the parent.
          */
         get: operations["getReportPersonTrendItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/code-activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 21 — code activity (a team's merge-request flow over the GitLab code layer, with per-member volumes as neutral context)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 21", domain-model A50. Read per team: `teamId` is
+         *     required (`400` otherwise; `0` is the UNASSIGNED bucket — the work of identities with no decision at all and of linked people
+         *     with no membership at the anchor); there is no domain slice, so `domain`, `domainView`, `activityType` and `workCategory` are
+         *     not accepted parameters (ignored like any unknown name). The period is dates (default the trailing 90 days) or the team's
+         *     sprints (`lastSprints`, `sprintId`); `accountId` repeats 1 to 8 and sets the USER level, where every distribution splits per
+         *     picked person. `connectionId` names one ACTIVE GITLAB data source (a Jira, deleted or unknown one is `400`); without it every
+         *     active GitLab source is read. The report is computed at request time from the stored code layer and attributed through the
+         *     administrators' identity links (A50): a row belongs to the person its identity key is LINKED to and to the team that person's
+         *     dated membership covers at the row's anchor (a commit by `committed_at`, a merged merge request by `merged_at`, an opened one by
+         *     `created_at`, an open one by now, an act by `event_at`); an identity an administrator decided BOT or IGNORED is in no figure and in
+         *     no unlinked count. `meta` is the JIRA star's (the roster, names and sprints come from it): the freshness of the code figures is
+         *     `sources[]` (`lastSyncAt`, and the commits whose files and the merge requests whose details were still unread at the last data
+         *     profile). `quality` counts, connection-wide for the period, what no figure can use: `unlinkedIdentities` / `unlinkedCommits` /
+         *     `unlinkedMergeRequests` / `unlinkedEvents` (undecided identities and their activity), `commitsLinesUnknown`, `mrsSizeUnknown`,
+         *     `mrsDetailsNotRead`, `eventsUndated`. `flow` is the merge-request FLOW of the team over the period: `merged` and `closedUnmerged`;
+         *     `cycleWorkingDays` / `cycleElapsedDays` (created to merged); `timeToFirstReviewWorkingDays` (created to the first event of kind
+         *     COMMENT, DIFF_COMMENT, APPROVAL, REVIEWED or CHANGES_REQUESTED by another human — REVIEWED is approximate — over the merged merge
+         *     requests whose details were read); `sizeLines` (`additions + deletions`, exclusion-blind GraphQL totals) and `sizeFiles`;
+         *     `mergedWithoutReview` / `mergedWithoutApproval` (counts and shares against the merged merge requests whose details were read);
+         *     `weekly` (Monday-started weeks of the configured zone, zero-filled). The figures here may be coloured by a client (lower is better
+         *     for the cycle, first review, size and merged without review); the response carries no verdict. `open` is the open merge requests
+         *     now: `count` the non-draft ones, `drafts` counted apart, `age` the waiting ones' age in working days. `review` (absent while no
+         *     merged merge request has its details read) is the review concentration: reviewers per merged merge request (p50) and the share of
+         *     the distinct (merge request, reviewer) pairs the busiest reviewer holds. `groups` are the per-member volumes — NEUTRAL context,
+         *     never a performance verdict: commits (non-merge), counted files and lines (exclusion-aware; commits with an unknown count are left
+         *     out and counted in `commitsLinesUnknown`), merge requests merged / opened / open now, the p50 of the member's cycle and size,
+         *     and the distinct merge requests reviewed / approved / with changes requested, the comments (acts) and the review requests
+         *     received. TEAM level lists every member of the team (zeros kept); `teamId=0` lists the undecided unlinked identities (named by
+         *     their GitLab display name or username) and the linked people with no membership. Counts are never hidden; the distributions
+         *     and p50 cells are hidden under `meta.minSampleSize`. 400: a missing or malformed `teamId`, a malformed or conflicting
+         *     period, more than 8 `accountId`, a bad `tailPercent`, an unknown or inactive team, an unknown or non-GitLab `connectionId`, and a
+         *     selection that reads more than `reports.codeMaxRows` code rows (commits, merge requests and review events; default 100000, env
+         *     `REPORTS_CODE_MAX_ROWS`) — answered with a `detail` that names the budget and says to narrow the period or pick fewer people,
+         *     never with a silently cut figure. 429: besides the per-user rate limit, at most `reports.codeReadPermits` (default 2, env
+         *     `REPORTS_CODE_READ_PERMITS`) Code activity computations run at once in a web process; a request waits up to the statement budget
+         *     (`reports.statementTimeoutSeconds`) for a permit and is then refused with a `detail` asking to retry in a moment.
+         */
+        get: operations["getReportCodeActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/code-activity/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The commits or merge requests behind one figure of the code activity report (drill to items)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 21". Takes the parent report's parameters
+         *     (`GET /api/v1/reports/code-activity`: a REQUIRED `teamId`, the period, up to 8 `accountId`, `connectionId`, `tailPercent`, so the
+         *     same 400s) plus the figure's identity: `view` (REQUIRED) and, for the histogram views, an optional `bucketIndex`; for `WEEK` the
+         *     REQUIRED `bucketStart`. The list is read from the SAME rows by the report's own attribution and value functions, so
+         *     `bar.count` equals the figure it stands behind: `COMMITS` a member's `commits`; `MRS_MERGED` `flow.merged` / `mrsMerged`;
+         *     `MRS_OPENED` `mrsOpened`; `OPEN_MRS` the member's `openMrs` (drafts included) and `OPEN_MRS_WAITING` `open.count` (the
+         *     non-draft ones; `figure` is the age in working days); the five histogram views `MR_CYCLE_WORKING_DAYS`, `MR_CYCLE_ELAPSED_DAYS`,
+         *     `TIME_TO_FIRST_REVIEW`, `MR_SIZE_LINES`, `MR_SIZE_FILES` the merged merge requests the distribution measures — with a
+         *     `bucketIndex` (0-based into that distribution's `histogram`, the open tail last) the bar's own items (`bar.count` equals
+         *     `histogram[bucketIndex].count`, `bar.from`/`bar.to` its range, `to` null = the open tail; the layout is the union's and
+         *     `segmentAccountId` narrows to a person's share, the `byUser` count), without one the whole measured set (a member's p50 cell);
+         *     `MERGED_WITHOUT_REVIEW` / `MERGED_WITHOUT_APPROVAL` the numerators of the two shares; `REVIEWS_GIVEN`, `APPROVALS_GIVEN`,
+         *     `CHANGES_REQUESTED_GIVEN` and `REVIEW_REQUESTS_RECEIVED` the DISTINCT merge requests behind a member's cell (one row per member
+         *     and merge request, anchored by the earliest such act); `COMMENTS` one row per comment ACT (the cell counts acts); `WEEK` the
+         *     merge requests merged in the weekly bar that starts on `bucketStart` (one of the report's `flow.weekly[].bucketStart`, else 400).
+         *     `itemKind` is `COMMIT` or `MERGE_REQUEST`; `issueKey` is `<project path>@<sha12>` / `<project path>!<iid>`, `summary` the first
+         *     line of the message / the title, `accountId` the author or actor's linked account (null for an unlinked identity, whose
+         *     `assignee` is its display name or username under `teamId=0` and null otherwise — never its key), `teamId` the request's team,
+         *     `anchorAt` the figure's anchor (`committed_at`, `merged_at`, `created_at`, `event_at`) and `figure` the figure's own value (a
+         *     commit's counted lines, a merge request's cycle in working days / size in lines / age; null where the list has none). Sorted by
+         *     `figure` descending, newest `anchorAt`, then key; at most 500 listed — `total` (equal to `bar.count`) says how many are behind the
+         *     figure. `segmentAccountId` needs USER level and must be one of the picked `accountId`s, else 400 (a TEAM-level member's cell is the
+         *     request with that member as the only `accountId`). 400: a missing or unknown `view`, a `bucketIndex` that is not a non-negative
+         *     integer, is sent with a non-histogram view or lies outside the histogram, a hidden distribution (fewer than `meta.minSampleSize`
+         *     values: no bar exists), a `bucketStart` that is missing for `WEEK`, sent with another view or not a week of the period,
+         *     plus every 400 of the parent (the code-row budget one included: a selection over `reports.codeMaxRows` is refused, not cut), and the
+         *     429 of the parent (a computation permit that did not free up within the statement budget). The merge requests and commits link to the GitLab host of `sources[].baseUrl` of the parent.
+         *     A `MERGE_REQUEST` item also carries `linkedKeys`: the Jira issue keys its title or source branch names within the known Jira projects (A51).
+         */
+        get: operations["getReportCodeActivityItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/task-code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 22 — tasks and code (the done tasks of a team or domain and the GitLab merge requests that name them by issue key)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 22", domain-model A51. Population as cycle time (Report 7):
+         *     level-0 tasks (no sub-tasks) DONE in the period (`done_at`), team = the D5 credit team, domain per `domainView` (default TASK),
+         *     `teamId` or `domain` required (`400` otherwise: a report is read per team or per domain, never for the whole unit); the period is
+         *     dates (default the trailing 90 days) or the team's sprints (`lastSprints`, `sprintId`). There is no user level in this slice: an
+         *     `accountId` is a `400`. `connectionId` names one JIRA data source (a GitLab, deleted or unknown id is `400`) and narrows only the
+         *     tasks; without it every active Jira source's tasks are read. Whether a key names one issue is always decided over EVERY active
+         *     Jira source. The merge requests are
+         *     those of EVERY active GitLab source, live ones only, linked to a task by the issue keys their title or source branch name
+         *     (stored at PROCESS, scoped to the known Jira projects and resolved at read time): a key links to a task when it is the task's
+         *     current key or an old key from its `issuekey` changes AND names exactly one live issue (not deleted, not moved out) of the active
+         *     Jira sources; a key naming several issues is ambiguous and links to none, a key naming none links to none. `meta` is the JIRA star's; the freshness of the merge requests is `sources[]`
+         *     (empty while no GitLab source is active: then no task has a merge request, which says nothing about the tasks).
+         *     `tasks`: `done` tasks, of which `withMergeRequest` have at least one linked MERGED merge request (state `merged` with a date) and
+         *     `withoutMergeRequest` have none (a task with only open, closed or locked merge requests is "without" and counted in
+         *     `quality.onlyUnmergedMrs`); `withoutShare` is `withoutMergeRequest` over `done` (absent when nothing is done), a NEUTRAL context figure with
+         *     no verdict. `codeLeadTimeWorkingDays` is a `Distribution` of the working days (the configured calendar) from the task's start
+         *     (`started_at`, the cycle-time anchor) to its LAST linked merged merge request, over the tasks that started and have one (a merge
+         *     before the start is 0); hidden below `meta.minSampleSize`. `mergedAfterDone` counts the done tasks whose last linked merge
+         *     happened after `done_at` (`count`; `share` over `tasks.withMergeRequest`, absent when there is none; `lagWorkingDays` the working
+         *     days from `done_at` to that merge). Lower is better for the lead time and the merged-after-done figures; the response carries no
+         *     verdict. `quality`, all counts of done tasks of the period: `neverStarted` (no `started_at`, so no lead time), `onlyUnmergedMrs` (linked
+         *     merge requests, none merged: open, closed unmerged, locked, or `merged` with no date; counted in `tasks.withoutMergeRequest`) and
+         *     `tasksWithAmbiguousKey` (a key of the task names more than one live issue, so it linked nothing through that key). The merge
+         *     requests are read by the keys of the done tasks and charged to `reports.codeMaxRows` (a selection over it is a `400` that says to
+         *     narrow the period, never a cut figure).
+         */
+        get: operations["getReportTaskCode"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/task-code/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The done tasks behind one figure of the tasks and code report (drill to items)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 22". Takes the parent report's parameters
+         *     (`GET /api/v1/reports/task-code`: `teamId` or `domain`, the period, the slices, `connectionId`, `tailPercent`, so the same 400s,
+         *     an `accountId` included) plus the figure's identity: `view` (REQUIRED) and, for the two histogram views, a REQUIRED `bucketIndex`.
+         *     The list is read by the report's own plan and per-task properties, so `bar.count` equals the figure it stands behind:
+         *     `TASKS_WITH_MR` `tasks.withMergeRequest` (`figure` the task's code lead time in working days, null if it never started),
+         *     `TASKS_WITHOUT_MR` `tasks.withoutMergeRequest` (no `figure`), `MERGED_AFTER_DONE` `mergedAfterDone.count` (`figure` the lag in
+         *     working days) and, with a `bucketIndex` (0-based into that distribution's `histogram`, the open tail last), `CODE_LEAD_TIME` a bar of
+         *     `codeLeadTimeWorkingDays` and `MERGED_AFTER_DONE_LAG` a bar of `mergedAfterDone.lagWorkingDays` (`bar.count` equals
+         *     `histogram[bucketIndex].count`, `bar.from`/`bar.to` its range, `to` null = the open tail). `itemKind` is `TASK`; `issueKey` and
+         *     `summary` are the Jira task's, `accountId`/`assignee` its assignee at done, `teamId` its credit team and `anchorAt` its `done_at`.
+         *     The item's `linkedKeys` are the GitLab merge requests linked to the task, `<project path>!<iid>`, sorted by path then
+         *     numeric iid (`!2` before `!10`): ALL its MERGED ones for every view but `TASKS_WITHOUT_MR`, which lists the task's linked merge requests that are NOT merged (open, closed, locked;
+         *     `[]` for a task no merge request names). They link to the GitLab host of `sources[].baseUrl` of the parent. The item's `measuredKey` names
+         *     the one of them whose merge the `figure` measured (the task's last merge); null on `TASKS_WITHOUT_MR`. Sorted by `figure`
+         *     descending (nulls last), newest `anchorAt`, then key; at most 500 listed — `total` (equal to `bar.count`) says how many are behind
+         *     the figure. 400: a missing or unknown `view`, a `bucketIndex` that is missing for a histogram view, is sent with another view, is
+         *     not a non-negative integer or lies outside the histogram, a hidden distribution (fewer than `meta.minSampleSize` values: no bar
+         *     exists), plus every 400 of the parent (the code-row budget one included: a selection over `reports.codeMaxRows` is refused, not
+         *     cut).
+         */
+        get: operations["getReportTaskCodeItems"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2875,6 +3235,29 @@ export interface components {
          * @enum {string}
          */
         JiraAuthScheme: "BASIC" | "BEARER";
+        /**
+         * @description The connector kind; fixed at create by which request block is present.
+         * @enum {string}
+         */
+        DataSourceKind: "JIRA_CLOUD" | "GITLAB";
+        GitLabConnectionRequest: {
+            /** @description The GitLab instance origin, `https://host[:port]` (no path, query, fragment or credentials; a trailing `/` is dropped). It must be on the operator's `GITLAB_ALLOWED_HOSTS`, or the development stub's origin. Stored canonical; fixed at create (a PUT naming another origin is `409`). */
+            baseUrl: string;
+            /** @description Write-only personal access token, sent as `PRIVATE-TOKEN`; Flow needs `read_api` only and refuses a token with any scope that does not start with `read_` (`api`, `sudo`, `write_*`, `create_runner`, ...), `admin_mode` aside (an Admin-Mode instance needs it for emails). Required (non-blank) on create. On update, omitted OR blank keeps the current token; any other value rotates it. Never echoed back in any response. */
+            token?: string | null;
+            /** @description Full group paths whose projects (subgroups included, archived and shared ones not) are read. Trimmed, stripped of leading/trailing `/`, lowercased and de-duplicated before validation (so the request accepts any case); each normalised path must then be `/`-separated segments of `[a-z0-9_][a-z0-9_.-]*` (else `400`), and none may equal or nest in another. */
+            groupPaths: string[];
+            /** @description Gitignore-like globs of files whose lines a commit does not count. A pattern without `/` matches the file name at any depth (`package-lock.json`, `*.min.js`); one with `/` matches the whole path (`**` crosses `/`, `*` and `?` stay inside a segment, `[...]` is a class); case-sensitive. Trimmed and de-duplicated, order kept; each must be a valid glob (else `400`). Omitted or null on create = the built-in defaults (`GET /data-sources/kinds`), which the source then keeps following; omitted or null on update = unchanged; a list replaces the stored one and an empty list excludes nothing. Applied when commits are processed into the code layer (a later release), never at fetch: until then the list is stored and echoed only. */
+            pathExclusions?: string[] | null;
+        };
+        GitLabConnectionResponse: {
+            baseUrl: string;
+            /** @description The token itself is never returned. */
+            hasToken: boolean;
+            groupPaths: string[];
+            /** @description The EFFECTIVE path-exclusion globs: the stored list, or the built-in defaults while the source never set its own. Not applied until commits are processed into the code layer (a later release). */
+            pathExclusions: string[];
+        };
         DataSourceRequest: {
             name: string;
             /** @default true */
@@ -2887,7 +3270,10 @@ export interface components {
             backfillFrom?: string | null;
             /** @default 3 */
             reconcileHourUtc: number;
-            jira: components["schemas"]["JiraConnectionRequest"];
+            /** @description The Jira Cloud connection. Exactly one of `jira` and `gitlab` must be present (else `400`); it sets the kind. */
+            jira?: components["schemas"]["JiraConnectionRequest"] | null;
+            /** @description The self-managed GitLab connection. Exactly one of `jira` and `gitlab` must be present (else `400`); it sets the kind. */
+            gitlab?: components["schemas"]["GitLabConnectionRequest"] | null;
         };
         JiraConnectionResponse: {
             siteUrl: string;
@@ -2942,8 +3328,7 @@ export interface components {
         DataSourceResponse: {
             /** Format: int32 */
             id: number;
-            /** @enum {string} */
-            kind: "JIRA_CLOUD";
+            kind: components["schemas"]["DataSourceKind"];
             name: string;
             enabled: boolean;
             syncIntervalMinutes: number;
@@ -2952,7 +3337,10 @@ export interface components {
             reconcileHourUtc: number;
             /** Format: int64 */
             configRevision: number;
-            jira: components["schemas"]["JiraConnectionResponse"];
+            /** @description Present exactly for a `JIRA_CLOUD` data source, null otherwise. */
+            jira?: components["schemas"]["JiraConnectionResponse"] | null;
+            /** @description Present exactly for a `GITLAB` data source, null otherwise. */
+            gitlab?: components["schemas"]["GitLabConnectionResponse"] | null;
             status: components["schemas"]["DataSourceStatus"];
             /**
              * Format: int64
@@ -2972,27 +3360,41 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        DataSourceKindInfo: {
+            kind: components["schemas"]["DataSourceKind"];
+            /** @description Whether a data source of this kind can be created on this server. */
+            enabled: boolean;
+            /** @description The path-exclusion globs a source of this kind follows until it sets its own (GitLab's built-ins; empty for Jira Cloud). The editor prefills and restores them; they are not applied until commits are processed into the code layer (a later release). */
+            defaultPathExclusions: string[];
+            /** @description The origins a `baseUrl` of this kind may name (`https://host[:port]`); empty for Jira Cloud (its allow-list is the Atlassian site shape) and for a disabled kind. */
+            allowedOrigins: string[];
+        };
+        DataSourceKindsResponse: {
+            items: components["schemas"]["DataSourceKindInfo"][];
+        };
+        /** @description Exactly one of `jira` and `gitlab` must be present (else `400`); the token inside it is required. */
         DataSourceTestRequest: {
-            jira: components["schemas"]["JiraConnectionRequest"];
+            jira?: components["schemas"]["JiraConnectionRequest"] | null;
+            gitlab?: components["schemas"]["GitLabConnectionRequest"] | null;
         };
         ConnectionTestRow: {
             /** @description The probe's short identifier (e.g. myself, project_statuses:ENG). */
             name: string;
-            /** @description The Jira endpoint path probed. */
+            /** @description The endpoint path probed. */
             path: string;
             /** @description Whether a real sync depends on this endpoint. */
             required: boolean;
             ok: boolean;
             /** @description The upstream HTTP status, when the probe ran. */
             status?: number | null;
-            /** @description A `JiraFetchException` code on failure (e.g. `AUTHENTICATION_FAILED`, `FORBIDDEN_SCOPE`). */
+            /** @description A `FetchException` code on failure (e.g. `AUTHENTICATION_FAILED`, `FORBIDDEN_SCOPE`). */
             code?: string | null;
             /** @description The Jira OAuth/API-token scope this endpoint likely needs, for a failed optional/required row. */
             scopeHint?: string | null;
         };
         ConnectionTestResult: {
             rows: components["schemas"]["ConnectionTestRow"][];
-            /** @description Resolved once the `tenant_info` probe succeeds. */
+            /** @description Jira only - resolved once the `tenant_info` probe succeeds; null for a GitLab result. */
             cloudId?: string | null;
         };
         /** @enum {string} */
@@ -3091,7 +3493,91 @@ export interface components {
              */
             lastCompletedAt?: number | null;
         };
+        GitLabSyncCounts: {
+            /**
+             * Format: int64
+             * @description Live projects of the configured groups.
+             */
+            projects: number;
+            /**
+             * Format: int64
+             * @description Projects no longer listed under any configured group (rows kept).
+             */
+            projectsMovedOut: number;
+            /**
+             * Format: int64
+             * @description Projects marked deleted by a reconcile.
+             */
+            projectsDeleted: number;
+            /**
+             * Format: int64
+             * @description Live users of the instance.
+             */
+            users: number;
+            /**
+             * Format: int64
+             * @description Users no longer listed.
+             */
+            usersDeleted: number;
+            /**
+             * Format: int64
+             * @description Live default-branch commits (merge commits included).
+             */
+            commits: number;
+            /**
+             * Format: int64
+             * @description Live merge commits (two or more parents), a subset of `commits`.
+             */
+            commitsMerge: number;
+            /**
+             * Format: int64
+             * @description Commits tombstoned because they left the default branch (rows kept).
+             */
+            commitsDeleted: number;
+            /**
+             * Format: int64
+             * @description Live non-merge commits whose per-file diff has not been read yet.
+             */
+            commitFilesPending: number;
+            /**
+             * Format: int64
+             * @description Live merge requests of the configured groups' projects.
+             */
+            mergeRequests: number;
+            /**
+             * Format: int64
+             * @description Live merge requests in the merged state, a subset of `mergeRequests`.
+             */
+            mergeRequestsMerged: number;
+            /**
+             * Format: int64
+             * @description Stored review events: notes as action codes, approvals and reviewer states.
+             */
+            mrEvents: number;
+            /**
+             * Format: int64
+             * @description Live merge requests whose notes, approvals, reviewers and diff stats are not read yet, or are older than the merge request's last change.
+             */
+            mrDetailsPending: number;
+            /**
+             * Format: int64
+             * @description Live merge requests whose details were read but whose diff stats GraphQL did not answer.
+             */
+            mrDiffStatsMissing: number;
+            /**
+             * Format: int64
+             * @description Merge requests marked deleted by a reconcile (rows and events kept).
+             */
+            mergeRequestsDeleted: number;
+            /**
+             * Format: int64
+             * @description Live merge requests of live projects whose details could not be read: the notes answered 404, a page was over the response ceiling, or the read kept failing (`NOT_FOUND` / `LIMIT_EXCEEDED` / `FETCH_FAILED`).
+             */
+            mrDetailsUnread: number;
+        };
+        /** @description Raw-layer row counts. For a `GITLAB` connection the Jira integers are 0 and `gitlab` carries its counts (null when this process has no GitLab store, i.e. the kind is off here). */
         SyncCounts: {
+            gitlab?: components["schemas"]["GitLabSyncCounts"] | null;
             /** Format: int64 */
             rawIssues: number;
             /** Format: int64 */
@@ -3345,6 +3831,143 @@ export interface components {
             /** Format: double */
             unassignedPercent: number;
         };
+        /** @description The GitLab projects by marker. `live` is neither moved out nor deleted; `archived` counts among the live ones. */
+        GitLabProjectsProfile: {
+            /** Format: int64 */
+            live: number;
+            /** Format: int64 */
+            movedOut: number;
+            /** Format: int64 */
+            deleted: number;
+            /** Format: int64 */
+            archived: number;
+        };
+        /** @description The live commits. `count` is non-merge commits; the commit-time range covers all live commits. */
+        GitLabCommitsProfile: {
+            /** Format: int64 */
+            count: number;
+            /** Format: int64 */
+            merges: number;
+            /**
+             * Format: int64
+             * @description Epoch millis; null when there is no live commit.
+             */
+            earliestCommittedAt?: number | null;
+            /**
+             * Format: int64
+             * @description Epoch millis; null when there is no live commit.
+             */
+            latestCommittedAt?: number | null;
+            /**
+             * Format: int64
+             * @description Commits whose diff has not been read yet (the COMMIT FILES backlog).
+             */
+            filesPending: number;
+            /**
+             * Format: int64
+             * @description Live commits whose diff ended in a terminal error.
+             */
+            filesUnavailable: number;
+            /**
+             * Format: int64
+             * @description Non-merge commits with more files than were stored (the first 1,000).
+             */
+            filesCapped: number;
+            /**
+             * Format: int64
+             * @description Non-merge commits whose counted lines (after the path exclusions) are known.
+             */
+            commitsWithCounts: number;
+        };
+        /** @description The live merge requests. */
+        GitLabMergeRequestsProfile: {
+            /** @description Keyed by GitLab's merge request state (`opened`, `merged`, `closed`, `locked`). */
+            byState: {
+                [key: string]: number;
+            };
+            /**
+             * Format: int64
+             * @description Merge requests whose diff stats are not a gap.
+             */
+            withDiffStats: number;
+            /**
+             * Format: double
+             * @description One decimal.
+             */
+            withDiffStatsPercent: number;
+            /**
+             * Format: int64
+             * @description Merge requests whose details (events, stats) are stale.
+             */
+            detailsPending: number;
+            /**
+             * Format: int64
+             * @description Merge requests whose details read ended in a terminal error.
+             */
+            detailsUnreadable: number;
+            /**
+             * Format: int64
+             * @description Merge requests whose title or source branch names at least one Jira issue-key CANDIDATE (a KEY-123 token); candidates are not yet matched to a Jira task.
+             */
+            withIssueKeyCandidates: number;
+            /**
+             * Format: int64
+             * @description The distinct (merge request, key) candidate rows of the live merge requests, junk tokens (UTF-8, V2-3) included; not yet matched to a Jira task.
+             */
+            issueKeyCandidates: number;
+        };
+        /** @description The review events of the live merge requests. */
+        GitLabEventsProfile: {
+            /** @description Keyed by event kind (`COMMENT`, `DIFF_COMMENT`, `APPROVAL`, `REVIEW_REQUESTED`, `REVIEWED`, `CHANGES_REQUESTED`); every kind is present. */
+            byKind: {
+                [key: string]: number;
+            };
+        };
+        /** @description Counts of the people the code layer names. No name, address or key. */
+        GitLabIdentitiesProfile: {
+            /**
+             * Format: int64
+             * @description Listed, live GitLab users (bots included).
+             */
+            users: number;
+            /** Format: int64 */
+            bots: number;
+            /** Format: int64 */
+            usersDeleted: number;
+            /**
+             * Format: int64
+             * @description Live users with at least one known address.
+             */
+            usersWithEmail: number;
+            /**
+             * Format: double
+             * @description Share of `users`, one decimal.
+             */
+            usersWithEmailPercent: number;
+            /**
+             * Format: int64
+             * @description User ids the facts name that the users listing never returned.
+             */
+            ghosts: number;
+            /**
+             * Format: int64
+             * @description Commit author addresses matching no GitLab user.
+             */
+            emailOnly: number;
+            /**
+             * Format: int64
+             * @description Live non-merge commits authored by those addresses.
+             */
+            commitsUnmatched: number;
+        };
+        /** @description The GitLab section of the data profile - facts about the stored code layer, counts only. */
+        GitLabDataProfile: {
+            projects: components["schemas"]["GitLabProjectsProfile"];
+            commits: components["schemas"]["GitLabCommitsProfile"];
+            mergeRequests: components["schemas"]["GitLabMergeRequestsProfile"];
+            events: components["schemas"]["GitLabEventsProfile"];
+            identities: components["schemas"]["GitLabIdentitiesProfile"];
+        };
         DataProfile: {
             /**
              * Format: int64
@@ -3377,6 +4000,84 @@ export interface components {
             schemeEpicFieldIds?: string[] | null;
             /** @description The `schemeFieldIds` union restricted to the issue types at hierarchy level 0 or below (sub-tasks count with tasks; a type of unknown level counts as a task type); null under the same rule as `schemeFieldIds`. */
             schemeTaskFieldIds?: string[] | null;
+            /** @description Present for a GITLAB data source once its PROFILE ran; null for a Jira source and before the first PROFILE. */
+            gitlab?: components["schemas"]["GitLabDataProfile"] | null;
+        };
+        /**
+         * @description `LINKED` names a Jira person (`jiraAccountId` set); `IGNORED` and `BOT` name nobody.
+         * @enum {string}
+         */
+        CodeIdentityDecision: "LINKED" | "IGNORED" | "BOT";
+        /**
+         * @description Read-time, never stored - see `listCodeIdentities`.
+         * @enum {string}
+         */
+        CodeIdentityStatus: "PROPOSED" | "UNMAPPED" | "LINKED" | "IGNORED_OR_BOT";
+        /** @description What confirming would store. `decision` is `LINKED` or `BOT`; `jiraAccountId` is null for a bot. */
+        CodeIdentityProposal: {
+            decision: components["schemas"]["CodeIdentityDecision"];
+            jiraAccountId?: string | null;
+            jiraDisplayName?: string | null;
+        };
+        /** @description A stored decision. `jiraDisplayName` is null for `IGNORED`/`BOT` and for a person no active Jira data source lists any more. */
+        CodeIdentityDecisionView: {
+            decision: components["schemas"]["CodeIdentityDecision"];
+            jiraAccountId?: string | null;
+            jiraDisplayName?: string | null;
+            /**
+             * Format: int64
+             * @description The deciding Flow user's id (an id only).
+             */
+            decidedByUserId: number;
+            /** Format: date-time */
+            decidedAt: string;
+        };
+        CodeIdentityResponse: {
+            identityKey: string;
+            /** @enum {string} */
+            kind: "USER" | "EMAIL";
+            /**
+             * Format: int64
+             * @description The GitLab user id (null for an `EMAIL` identity).
+             */
+            userId?: number | null;
+            /** @description Null for a ghost (a user id the facts name that the users listing never returned). */
+            username?: string | null;
+            displayName?: string | null;
+            /** @description The GitLab account state, as listed. */
+            state?: string | null;
+            bot: boolean;
+            deleted: boolean;
+            /** @description The identity's canonical addresses (lower-case). ADMIN only. */
+            emails: string[];
+            status: components["schemas"]["CodeIdentityStatus"];
+            /** @description False for an orphaned decision: one stored for this instance whose key has no identity row in any active GitLab data source of the instance (carries no name, username or address, `userId` null). */
+            seen: boolean;
+            /** @description Computed at read time; present on decided rows too, while one would still be made. Null for an orphan. */
+            proposal?: components["schemas"]["CodeIdentityProposal"] | null;
+            /** @description The stored ADMIN decision; null when none. */
+            decision?: components["schemas"]["CodeIdentityDecisionView"] | null;
+        };
+        CodeIdentityDecisionRequest: {
+            decision: components["schemas"]["CodeIdentityDecision"];
+            /** @description Required (1-100 characters, no control characters) for `LINKED`, forbidden for `IGNORED` and `BOT`. */
+            jiraAccountId?: string | null;
+        };
+        CodeIdentityConfirmResult: {
+            /** @description `LINKED` decisions written. */
+            linked: number;
+            /** @description `BOT` decisions written. */
+            bots: number;
+        };
+        CodeIdentityPage: {
+            items: components["schemas"]["CodeIdentityResponse"][];
+            page: number;
+            pageSize: number;
+            /**
+             * Format: int64
+             * @description Row count after filters, before pagination.
+             */
+            total: number;
         };
         MetricsStatusStage: {
             statusId: string;
@@ -4253,8 +4954,11 @@ export interface components {
         ReportDrillItem: {
             issueKey: string;
             summary: string | null;
-            /** @enum {string} */
-            itemKind: "TASK" | "EPIC" | "WORKLOG";
+            /**
+             * @description `COMMIT` / `MERGE_REQUEST` are Report 21's (the GitLab code drill): `issueKey` is then `<project path>@<sha12>` / `<project path>!<iid>`.
+             * @enum {string}
+             */
+            itemKind: "TASK" | "EPIC" | "WORKLOG" | "COMMIT" | "MERGE_REQUEST";
             /** @description The item's account (assignee, or the one author); null when there is none, and for the cost drill when the slice has several authors. */
             accountId: string | null;
             /** @description Display name of `accountId` (the id itself when no name is known). For the cost drill (`/costs/items`) the display names of ALL the item's authors in the slice, joined with ", ", the largest contributor first. */
@@ -4271,6 +4975,21 @@ export interface components {
              * @description The bar's own per-item value (MD, days, a ratio, …); null = unestimated (counted as 0 MD).
              */
             figure: number | null;
+            /**
+             * @description The OTHER layer's keys the item is linked to, sorted; their kind is said by `itemKind`. On a `MERGE_REQUEST` item (Report 21's
+             *     drill and Home's `CODE_*` lists) they are the Jira issue keys its title or source branch names, uppercased, only those of a KNOWN
+             *     Jira project (a configured `projectKeys` entry of an active Jira data source, or an old project of a moved issue); a key is listed
+             *     whether or not Jira has such an issue. On a `TASK` item of Report 22's drill (`/reports/task-code/items`) they are the GitLab merge
+             *     requests linked to the task, `<project path>!<iid>` (all its merged ones; the unmerged ones on `TASKS_WITHOUT_MR`). Sorted by path, then numeric iid. `[]` = none; null for every other kind and report.
+             */
+            linkedKeys?: string[] | null;
+            /**
+             * @description Report 22's drill only: the `<project path>!<iid>` of the merge request whose merge the item's `figure` measured, the task's LAST
+             *     merge (an entry of `linkedKeys`; of several merged at the same instant the one with the greatest connection and merge request id).
+             *     Set on `TASKS_WITH_MR`, `CODE_LEAD_TIME`, `MERGED_AFTER_DONE` and `MERGED_AFTER_DONE_LAG`; null on `TASKS_WITHOUT_MR` and on every
+             *     other report's drill.
+             */
+            measuredKey?: string | null;
         };
         /**
          * @description A drill list: the report's `meta`, the recomputed `bar`, at most 500 `items` (largest figure first) and the `total` behind
@@ -4405,6 +5124,26 @@ export interface components {
             epicsNoDates: components["schemas"]["HomeFigure"];
             epicsEstimateGap: components["schemas"]["HomeFigure"];
         };
+        /** @description One team's Code figures (Report 21's own): the merge requests merged in the window, their cycle p50 in working days, the open ones now (`openCount` waiting for review, `openDrafts` beside, no trend) with their age p50 in working days, and the merged merge requests with no review by another human. `mergedWithoutReview.numerator` is Report 21's count, `n` the merged merge requests whose details were read (the share's denominator); the share (`value`) is hidden under `meta.minSampleSize`, the count never is. `tasks` (1.53.0) is Report 22's own `tasks` block for the team over the current window alone. */
+        HomeTeamCode: {
+            /** @description The team's people (both windows and now) with at least one linked GitLab identity. */
+            linkedMembers: number;
+            merged: components["schemas"]["HomeFigure"];
+            cycleP50: components["schemas"]["HomeFigure"];
+            openCount: components["schemas"]["HomeFigure"];
+            openDrafts: number;
+            openAgeP50: components["schemas"]["HomeFigure"];
+            mergedWithoutReview: components["schemas"]["HomeFigure"];
+            /** @description The team's done tasks of the window and how many have no MERGED merge request naming them (`GET /reports/task-code` for the same team and window prints the same block). NEUTRAL context: no trend and no verdict, and independent of the team's linked people. Null = that read was over `reports.codeMaxRows` (the other figures stay). */
+            tasks: components["schemas"]["TaskCodeTasks"] | null;
+        };
+        /** @description The code layer's side of the overview. */
+        HomeCode: {
+            /** @description The active GitLab sources with their freshness (Report 21's `sources[]`); empty = none, the section is absent. */
+            sources: components["schemas"]["CodeActivitySource"][];
+            /** @description The code read exceeded `reports.codeMaxRows`; every team's `code` is null. */
+            overBudget: boolean;
+        };
         HomeTeam: {
             /** Format: int32 */
             teamId: number;
@@ -4417,6 +5156,8 @@ export interface components {
             wipTasks: components["schemas"]["HomeWip"];
             throughput: components["schemas"]["HomeThroughput"];
             quality: components["schemas"]["HomeQuality"];
+            /** @description Null = no GitLab source is active, or the code read was over the row budget (`HomeOverview.code.overBudget`). */
+            code: components["schemas"]["HomeTeamCode"] | null;
         };
         /** @description Work of no ACTIVE team (no team, or a soft-deleted one), whichever teams the request picked. */
         HomeUnassigned: {
@@ -4434,6 +5175,7 @@ export interface components {
             freshness: components["schemas"]["HomeFreshness"][];
             teams: components["schemas"]["HomeTeam"][];
             unassigned: components["schemas"]["HomeUnassigned"];
+            code: components["schemas"]["HomeCode"];
         };
         /** @description The fourteen sprint figures (MD beside items), live or frozen. */
         SprintFigures: {
@@ -4760,11 +5502,11 @@ export interface components {
         /** @description One row of the comparison table; see the path description for the verdict fields. */
         CompareRow: {
             /** @enum {string} */
-            key: "deliveredMd" | "deliveredItems" | "taskSizeP50" | "reopenedShare" | "deliveredMdPerAvailableMd" | "deliveredItemsPerAvailableMd" | "cycleWorkingDaysP50" | "cycleWorkingDaysP90" | "cycleElapsedDaysP50" | "cycleElapsedDaysP90" | "flowEfficiencyP50" | "reportedTimeRatioP50" | "accuracyAtStartPred25" | "accuracyAtDonePred25" | "adjustedShare" | "adjustmentMedianChange" | "avgWip" | "wipAtEndItems" | "wipAtEndMedianAgeWd" | "blockedItemsShare" | "blockedShareOfCycle" | "loggedMd" | "availableMd" | "loggedPerAvailableMd" | "foreignShare" | "worklogCoverage" | "lateLoggingShare" | "noEstimateShare";
+            key: "deliveredMd" | "deliveredItems" | "taskSizeP50" | "reopenedShare" | "deliveredMdPerAvailableMd" | "deliveredItemsPerAvailableMd" | "cycleWorkingDaysP50" | "cycleWorkingDaysP90" | "cycleElapsedDaysP50" | "cycleElapsedDaysP90" | "flowEfficiencyP50" | "reportedTimeRatioP50" | "accuracyAtStartPred25" | "accuracyAtDonePred25" | "adjustedShare" | "adjustmentMedianChange" | "avgWip" | "wipAtEndItems" | "wipAtEndMedianAgeWd" | "blockedItemsShare" | "blockedShareOfCycle" | "loggedMd" | "availableMd" | "loggedPerAvailableMd" | "foreignShare" | "worklogCoverage" | "lateLoggingShare" | "noEstimateShare" | "commits" | "linesChanged" | "mrsMerged" | "mrCycleWorkingDaysP50" | "mrSizeLinesP50" | "reviewsGiven" | "approvalsGiven" | "comments";
             /** @enum {string} */
-            group: "DELIVERY" | "CYCLE" | "ESTIMATION" | "WIP" | "TIME" | "QUALITY";
+            group: "DELIVERY" | "CYCLE" | "ESTIMATION" | "WIP" | "TIME" | "QUALITY" | "CODE";
             /** @enum {string} */
-            unit: "MD" | "MD_PER_MD" | "ITEMS" | "ITEMS_PER_DAY" | "ITEMS_PER_MD" | "DAYS" | "RATIO" | "SHARE";
+            unit: "MD" | "MD_PER_MD" | "ITEMS" | "ITEMS_PER_DAY" | "ITEMS_PER_MD" | "DAYS" | "LINES" | "RATIO" | "SHARE";
             /** @enum {string} */
             direction: "HIGHER" | "LOWER" | "TARGET" | "NEUTRAL";
             /**
@@ -4798,7 +5540,7 @@ export interface components {
              * @description The `view` of `GET /api/v1/reports/compare-people/items` that lists the items behind a cell of this row; absent for the available man-days.
              * @enum {string}
              */
-            drill?: "DELIVERED" | "CYCLE_WORKING_DAYS" | "CYCLE_ELAPSED_DAYS" | "REPORTED_TIME_RATIO" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "ACCURACY_AT_DONE" | "ADJUSTED" | "ADJUSTMENT_CHANGE" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LOGGED" | "FOREIGN" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE" | "TASK_SIZE" | "REOPENED";
+            drill?: "DELIVERED" | "CYCLE_WORKING_DAYS" | "CYCLE_ELAPSED_DAYS" | "REPORTED_TIME_RATIO" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "ACCURACY_AT_DONE" | "ADJUSTED" | "ADJUSTMENT_CHANGE" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LOGGED" | "FOREIGN" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE" | "TASK_SIZE" | "REOPENED" | "COMMITS" | "MRS_MERGED" | "MR_CYCLE_WORKING_DAYS" | "MR_SIZE_LINES" | "REVIEWS_GIVEN" | "APPROVALS_GIVEN" | "COMMENTS";
         };
         CompareCycleTime: {
             workingDays: components["schemas"]["Distribution"];
@@ -4934,11 +5676,11 @@ export interface components {
         };
         PersonTrendRow: {
             /** @enum {string} */
-            key: "cycleWorkingDaysP50" | "cycleWorkingDaysP90" | "flowEfficiencyP50" | "deliveredItems" | "deliveredMd" | "accuracyAtStartPred25" | "avgWip" | "wipAtEndMedianAgeWd" | "blockedItemsShare" | "worklogCoverage" | "lateLoggingShare" | "noEstimateShare" | "reopenedShare" | "taskSizeP50";
+            key: "cycleWorkingDaysP50" | "cycleWorkingDaysP90" | "flowEfficiencyP50" | "deliveredItems" | "deliveredMd" | "accuracyAtStartPred25" | "avgWip" | "wipAtEndMedianAgeWd" | "blockedItemsShare" | "worklogCoverage" | "lateLoggingShare" | "noEstimateShare" | "reopenedShare" | "taskSizeP50" | "mrsMerged" | "mrCycleWorkingDaysP50" | "reviewsGiven";
             /** @enum {string} */
-            group: "DELIVERY" | "CYCLE" | "ESTIMATION" | "WIP" | "TIME" | "QUALITY";
+            group: "DELIVERY" | "CYCLE" | "ESTIMATION" | "WIP" | "TIME" | "QUALITY" | "CODE";
             /** @enum {string} */
-            unit: "MD" | "MD_PER_MD" | "ITEMS" | "ITEMS_PER_DAY" | "ITEMS_PER_MD" | "DAYS" | "RATIO" | "SHARE";
+            unit: "MD" | "MD_PER_MD" | "ITEMS" | "ITEMS_PER_DAY" | "ITEMS_PER_MD" | "DAYS" | "LINES" | "RATIO" | "SHARE";
             /** @enum {string} */
             direction: "HIGHER" | "LOWER" | "TARGET" | "NEUTRAL";
             /**
@@ -4955,7 +5697,7 @@ export interface components {
              * @description The Compare people `view` that lists the items behind this figure (over one window); `GET /api/v1/reports/person-trend/items` lists them for a point.
              * @enum {string}
              */
-            drill?: "DELIVERED" | "CYCLE_WORKING_DAYS" | "CYCLE_ELAPSED_DAYS" | "REPORTED_TIME_RATIO" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "ACCURACY_AT_DONE" | "ADJUSTED" | "ADJUSTMENT_CHANGE" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LOGGED" | "FOREIGN" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE" | "TASK_SIZE" | "REOPENED";
+            drill?: "DELIVERED" | "CYCLE_WORKING_DAYS" | "CYCLE_ELAPSED_DAYS" | "REPORTED_TIME_RATIO" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "ACCURACY_AT_DONE" | "ADJUSTED" | "ADJUSTMENT_CHANGE" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LOGGED" | "FOREIGN" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE" | "TASK_SIZE" | "REOPENED" | "COMMITS" | "MRS_MERGED" | "MR_CYCLE_WORKING_DAYS" | "MR_SIZE_LINES" | "REVIEWS_GIVEN" | "APPROVALS_GIVEN" | "COMMENTS";
             /** @description One per window, in the order of `windows`. */
             points: components["schemas"]["PersonTrendPoint"][];
             trend?: components["schemas"]["PersonTrendCue"];
@@ -5004,6 +5746,308 @@ export interface components {
             workMix: components["schemas"]["PersonTrendWorkMix"];
             /** @description Why the WIP rows are empty or partial; absent otherwise. */
             note?: string;
+        };
+        CodeActivityReport: {
+            /** @description The JIRA star's (`derivedAt`, `configRevision`): the roster, names and sprints come from it. The code figures' freshness is `sources`. */
+            meta: components["schemas"]["ReportMeta"];
+            /** @description The GitLab sources read, in connection order; empty while no GitLab source is active. */
+            sources: components["schemas"]["CodeActivitySource"][];
+            quality: components["schemas"]["CodeActivityQuality"];
+            flow: components["schemas"]["CodeActivityFlow"];
+            open: components["schemas"]["CodeActivityOpen"];
+            /** @description Absent while no merged merge request has its details read. */
+            review?: components["schemas"]["CodeActivityReview"];
+            /** @description The per-member volumes. NEUTRAL context — no tint, rank or verdict. */
+            groups: components["schemas"]["CodeActivityGroup"][];
+        };
+        CodeActivitySource: {
+            /** Format: int32 */
+            connectionId: number;
+            name: string;
+            /** @description The organisation's own GitLab origin (D12); the drill links to commits and merge requests build on it. */
+            baseUrl: string;
+            /**
+             * Format: int64
+             * @description Epoch millis of the last successful sync; absent before the first.
+             */
+            lastSyncAt?: number;
+            /**
+             * Format: int64
+             * @description Commits whose files are still unread, as of the last data profile (their counted lines are unknown meanwhile).
+             */
+            commitFilesPending: number;
+            /**
+             * Format: int64
+             * @description Merge requests whose details are still unread, as of the last data profile.
+             */
+            mrDetailsPending: number;
+        };
+        /** @description What the sources hold that no figure can use, connection-wide for the period. */
+        CodeActivityQuality: {
+            /**
+             * Format: int32
+             * @description Identity keys with activity in the period and NO decision at all (the ones that need an administrator); a key decided BOT or IGNORED counts nowhere.
+             */
+            unlinkedIdentities: number;
+            /**
+             * Format: int64
+             * @description Their non-merge commits committed in the period.
+             */
+            unlinkedCommits: number;
+            /**
+             * Format: int64
+             * @description Their merge requests created or merged in the period.
+             */
+            unlinkedMergeRequests: number;
+            /**
+             * Format: int64
+             * @description Their dated acts on live merge requests in the period.
+             */
+            unlinkedEvents: number;
+            /**
+             * Format: int64
+             * @description Non-merge commits of the period with an unknown counted figure (left out of every sum, never zero).
+             */
+            commitsLinesUnknown: number;
+            /**
+             * Format: int64
+             * @description Merge requests merged in the period with an unknown diff total (left out of the size figures, never zero).
+             */
+            mrsSizeUnknown: number;
+            /**
+             * Format: int64
+             * @description Merge requests merged in the period whose details were not read (left out of the review figures, never 'unreviewed').
+             */
+            mrsDetailsNotRead: number;
+            /**
+             * Format: int64
+             * @description Events with no time on the merge requests created or merged in the period (in no period).
+             */
+            eventsUndated: number;
+        };
+        CodeActivityShare: {
+            /** Format: int32 */
+            count: number;
+            /**
+             * Format: double
+             * @description The count over the merged merge requests whose details were read; absent when there is none.
+             */
+            share?: number;
+        };
+        CodeActivityWeek: {
+            /**
+             * Format: date
+             * @description The Monday that starts the week in the configured zone.
+             */
+            bucketStart: string;
+            /** Format: int32 */
+            merged: number;
+        };
+        CodeActivityFlow: {
+            /**
+             * Format: int32
+             * @description Merge requests merged in the period by authors of the team at `merged_at`; the sum of `weekly`.
+             */
+            merged: number;
+            /**
+             * Format: int32
+             * @description Merge requests closed without merging in the period (the author's team at `closed_at`); in no weekly bar.
+             */
+            closedUnmerged: number;
+            cycleWorkingDays: components["schemas"]["Distribution"];
+            cycleElapsedDays: components["schemas"]["Distribution"];
+            timeToFirstReviewWorkingDays: components["schemas"]["Distribution"];
+            sizeLines: components["schemas"]["Distribution"];
+            sizeFiles: components["schemas"]["Distribution"];
+            mergedWithoutReview: components["schemas"]["CodeActivityShare"];
+            mergedWithoutApproval: components["schemas"]["CodeActivityShare"];
+            /** @description Every Monday-started week of the period, oldest first, zero-filled. */
+            weekly: components["schemas"]["CodeActivityWeek"][];
+        };
+        CodeActivityOpenAge: {
+            /**
+             * Format: int32
+             * @description The waiting (non-draft) open merge requests.
+             */
+            n: number;
+            /** @description True under `meta.minSampleSize`; the percentiles are then absent. */
+            hidden: boolean;
+            /** Format: double */
+            p50?: number;
+            /** Format: double */
+            p85?: number;
+        };
+        /** @description The open merge requests now, whose author belongs to the team now. */
+        CodeActivityOpen: {
+            /**
+             * Format: int32
+             * @description The non-draft open merge requests (a draft is not waiting for review).
+             */
+            count: number;
+            /** Format: int32 */
+            drafts: number;
+            age: components["schemas"]["CodeActivityOpenAge"];
+        };
+        CodeActivityReview: {
+            /**
+             * Format: int32
+             * @description The merged merge requests whose details were read.
+             */
+            n: number;
+            /**
+             * Format: double
+             * @description Distinct reviewers per merged merge request, zeros included; absent under `meta.minSampleSize`.
+             */
+            reviewersPerMergedMrP50?: number;
+            /**
+             * Format: double
+             * @description The share of the distinct (merge request, reviewer) pairs held by the busiest reviewer; absent under `meta.minSampleSize` and with no pair.
+             */
+            topReviewerShare?: number;
+        };
+        /** @description One member's volumes over the period — NEUTRAL context. */
+        CodeActivityGroup: {
+            /**
+             * Format: int32
+             * @description Not sent today: every group sits in the request's team.
+             */
+            teamId?: number;
+            /** @description The LINKED Jira account; absent for an unlinked identity (`teamId=0` only). */
+            accountId?: string;
+            /** @description The Jira display name (the account id when none is known); for an unlinked identity its GitLab display name or username, absent for a ghost. */
+            label?: string;
+            /**
+             * Format: int32
+             * @description Non-merge commits committed in the period.
+             */
+            commits: number;
+            /**
+             * Format: int64
+             * @description Counted files (exclusion-aware) of the commits whose counts are known.
+             */
+            filesChanged: number;
+            /**
+             * Format: int64
+             * @description Counted additions (exclusion-aware); not a merge request's size, which is exclusion-blind.
+             */
+            linesAdded: number;
+            /** Format: int64 */
+            linesDeleted: number;
+            /**
+             * Format: int32
+             * @description Commits left out of the three sums because a counted figure is unknown.
+             */
+            commitsLinesUnknown: number;
+            /** Format: int32 */
+            mrsMerged: number;
+            /**
+             * Format: int32
+             * @description Merge requests created in the period, later merged or closed included.
+             */
+            mrsOpened: number;
+            /**
+             * Format: int32
+             * @description Open now, drafts included.
+             */
+            openMrs: number;
+            /**
+             * Format: double
+             * @description Absent under `meta.minSampleSize` merged merge requests.
+             */
+            mrCycleWorkingDaysP50?: number;
+            /**
+             * Format: double
+             * @description Of the merged merge requests with a known size; absent under `meta.minSampleSize`.
+             */
+            mrSizeLinesP50?: number;
+            /**
+             * Format: int32
+             * @description Distinct merge requests (not the member's own) with at least one review-kind event.
+             */
+            reviewsGiven: number;
+            /**
+             * Format: int32
+             * @description Distinct merge requests approved (approve, unapprove, approve is one).
+             */
+            approvalsGiven: number;
+            /**
+             * Format: int32
+             * @description Distinct merge requests with changes requested.
+             */
+            changesRequestedGiven: number;
+            /**
+             * Format: int32
+             * @description Comment and diff-comment acts, none excluded.
+             */
+            comments: number;
+            /**
+             * Format: int32
+             * @description Distinct merge requests that named the member as a reviewer.
+             */
+            reviewRequestsReceived: number;
+        };
+        TaskCodeTasks: {
+            /**
+             * Format: int32
+             * @description Level-0 tasks done in the period (the cycle-time population).
+             */
+            done: number;
+            /**
+             * Format: int32
+             * @description Of them, with at least one linked MERGED merge request.
+             */
+            withMergeRequest: number;
+            /**
+             * Format: int32
+             * @description `done − withMergeRequest`: no linked merge request, or only unmerged ones (`quality.onlyUnmergedMrs`).
+             */
+            withoutMergeRequest: number;
+            /**
+             * Format: double
+             * @description `withoutMergeRequest` over `done`; absent when nothing is done. NEUTRAL: no verdict (a task may need no code).
+             */
+            withoutShare?: number;
+        };
+        TaskCodeMergedAfterDone: {
+            /**
+             * Format: int32
+             * @description Done tasks whose LAST linked merged merge request merged after the task's `done_at`.
+             */
+            count: number;
+            /**
+             * Format: double
+             * @description `count` over the tasks with a merged merge request; absent when there is none.
+             */
+            share?: number;
+            lagWorkingDays: components["schemas"]["Distribution"];
+        };
+        TaskCodeQuality: {
+            /**
+             * Format: int32
+             * @description Done tasks with no `started_at`: no code lead time (they still count as with / without a merge request).
+             */
+            neverStarted: number;
+            /**
+             * Format: int32
+             * @description Done tasks with linked merge requests, none of them merged (open, closed unmerged, locked, or `merged` with no date); counted in `tasks.withoutMergeRequest`.
+             */
+            onlyUnmergedMrs: number;
+            /**
+             * Format: int32
+             * @description Done tasks one of whose keys (current or old) names more than one live issue across the active Jira sources (the key was reused, or two sources hold it): it links no merge request through that key.
+             */
+            tasksWithAmbiguousKey: number;
+        };
+        TaskCodeReport: {
+            /** @description The JIRA star's (`derivedAt`, `configRevision`): the tasks, roster, names and sprints come from it. The merge requests' freshness is `sources`. */
+            meta: components["schemas"]["ReportMeta"];
+            /** @description The GitLab sources read, in connection order; empty while no GitLab source is active. */
+            sources: components["schemas"]["CodeActivitySource"][];
+            tasks: components["schemas"]["TaskCodeTasks"];
+            /** @description Working days from a task's `started_at` to its LAST linked merged merge request, over the started tasks that have one; hidden under `meta.minSampleSize`. Lower is better. */
+            codeLeadTimeWorkingDays: components["schemas"]["Distribution"];
+            mergedAfterDone: components["schemas"]["TaskCodeMergedAfterDone"];
+            quality: components["schemas"]["TaskCodeQuality"];
         };
         CycleTimeReport: {
             meta: components["schemas"]["ReportMeta"];
@@ -6389,7 +7433,7 @@ export interface components {
         /** @description RFC 7807 problem detail. Served as `application/problem+json`; instance is the request path without query parameters. */
         ProblemDetail: {
             /**
-             * @description A URI reference identifying the problem type. `about:blank` for almost every problem; the data-source scope `409`s carry `urn:flow:problem:data-source-other-site` or `urn:flow:problem:data-source-project-overlap` (their `instance` is then the conflicting data source's path, not the request path).
+             * @description A URI reference identifying the problem type. `about:blank` for almost every problem; the data-source scope `409`s carry `urn:flow:problem:data-source-other-site`, `urn:flow:problem:data-source-project-overlap` (Jira), `urn:flow:problem:data-source-other-instance` or `urn:flow:problem:data-source-group-overlap` (GitLab) (their `instance` is then the conflicting data source's path, not the request path); a route that does not serve the data source's kind (the metrics-config routes and the raw-issue inspector on a GitLab source) answers `409` with `urn:flow:problem:data-source-kind-unsupported`.
              * @default about:blank
              */
             type: string;
@@ -6942,6 +7986,8 @@ export interface components {
         ReportWorkCategory: string;
         /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
         ReportConnectionId: number;
+        /** @description Restricts to one ACTIVE GitLab data source (a Jira, deleted or unknown id is `400`). Defaults to every active GitLab data source, a disabled one included. */
+        ReportCodeConnectionId: number;
         /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
         ReportTailPercent: number;
         /** @description The time resolution of a report's bucketed series; weeks start Monday, buckets in the configured zone. */
@@ -8212,6 +9258,29 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
+    listDataSourceKinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The kinds */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataSourceKindsResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
     testDataSourceAdHoc: {
         parameters: {
             query?: never;
@@ -8267,6 +9336,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
@@ -8539,6 +9609,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             /** @description The issue's stored text (payload, histories and live worklogs together) is over `jira.processPageBytes`, so it is too large to inspect. Constant detail; nothing of the document is echoed. */
             413: {
                 headers: {
@@ -8578,6 +9649,141 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
+    listCodeIdentities: {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+                status?: components["schemas"]["CodeIdentityStatus"];
+                /** @description Free-text substring filter (case- and accent-insensitive) — API-LIST-005. */
+                q?: components["parameters"]["Q"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of identities */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodeIdentityPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    decideCodeIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description `u<GitLab user id>` or `e<32 hex digits>` (a commit author address that matches no user). */
+                identityKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CodeIdentityDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description The identity as the list shows it now */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodeIdentityResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    removeCodeIdentityDecision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description `u<GitLab user id>` or `e<32 hex digits>` (a commit author address that matches no user). */
+                identityKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    confirmCodeIdentityProposals: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description How many decisions were written */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodeIdentityConfirmResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
     getDataSourceMetricsConfig: {
         parameters: {
             query?: never;
@@ -8602,6 +9808,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -8663,6 +9870,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -8795,7 +10003,7 @@ export interface operations {
         parameters: {
             query: {
                 /** @description Which figure's items. */
-                view: "TASK_ESTIMATE" | "TASK_CYCLE" | "TASK_COST" | "TASK_PRED10" | "TASK_PRED25" | "TASK_PRED50" | "EPIC_PRED10" | "EPIC_PRED25" | "EPIC_PRED50" | "WIP_TASKS" | "WIP_EPICS" | "QUALITY_TASKS_NO_ESTIMATE" | "QUALITY_TASKS_UNASSIGNED" | "QUALITY_TASKS_ESTIMATED_LATE" | "QUALITY_EPICS_NO_ESTIMATE" | "QUALITY_EPICS_NO_DATES" | "QUALITY_EPICS_ESTIMATE_GAP";
+                view: "TASK_ESTIMATE" | "TASK_CYCLE" | "TASK_COST" | "TASK_PRED10" | "TASK_PRED25" | "TASK_PRED50" | "EPIC_PRED10" | "EPIC_PRED25" | "EPIC_PRED50" | "WIP_TASKS" | "WIP_EPICS" | "QUALITY_TASKS_NO_ESTIMATE" | "QUALITY_TASKS_UNASSIGNED" | "QUALITY_TASKS_ESTIMATED_LATE" | "QUALITY_EPICS_NO_ESTIMATE" | "QUALITY_EPICS_NO_DATES" | "QUALITY_EPICS_ESTIMATE_GAP" | "CODE_MERGED" | "CODE_OPEN" | "CODE_MERGED_WITHOUT_REVIEW" | "CODE_TASKS_WITHOUT_MR";
                 /** @description The team the figure belongs to (a real, active team). */
                 teamId: number;
             };
@@ -10314,7 +11522,7 @@ export interface operations {
                 /** @description Whose cell — one of the two `accountId`s (400 otherwise). */
                 segmentAccountId: string;
                 /** @description Which set of items — the `drill` of a row of the parent report. */
-                view: "DELIVERED" | "CYCLE_WORKING_DAYS" | "CYCLE_ELAPSED_DAYS" | "REPORTED_TIME_RATIO" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "ACCURACY_AT_DONE" | "ADJUSTED" | "ADJUSTMENT_CHANGE" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LOGGED" | "FOREIGN" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE" | "TASK_SIZE" | "REOPENED";
+                view: "DELIVERED" | "CYCLE_WORKING_DAYS" | "CYCLE_ELAPSED_DAYS" | "REPORTED_TIME_RATIO" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "ACCURACY_AT_DONE" | "ADJUSTED" | "ADJUSTMENT_CHANGE" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LOGGED" | "FOREIGN" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE" | "TASK_SIZE" | "REOPENED" | "COMMITS" | "MRS_MERGED" | "MR_CYCLE_WORKING_DAYS" | "MR_SIZE_LINES" | "REVIEWS_GIVEN" | "APPROVALS_GIVEN" | "COMMENTS";
                 /** @description The cycle-time views only — a bar of the `cycleTime` histogram, 0-based (the open tail bucket last). A 400 on any other view or outside the histogram. */
                 bucketIndex?: number;
             };
@@ -10414,7 +11622,7 @@ export interface operations {
                 /** @description The point's day — one of the parent's `windows[].end` for the same `from`/`to` (400 otherwise). */
                 pointEnd: string;
                 /** @description Which set of items — the `drill` of a row of the parent report. */
-                view: "DELIVERED" | "CYCLE_WORKING_DAYS" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE" | "TASK_SIZE" | "REOPENED";
+                view: "DELIVERED" | "CYCLE_WORKING_DAYS" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE" | "TASK_SIZE" | "REOPENED" | "MRS_MERGED" | "MR_CYCLE_WORKING_DAYS" | "REVIEWS_GIVEN";
             };
             header?: {
                 /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
@@ -10436,6 +11644,198 @@ export interface operations {
                     "application/json": components["schemas"]["ReportDrillItems"];
                 };
             };
+            304: components["responses"]["NotModified"];
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportCodeActivity: {
+        parameters: {
+            query: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description The team (required: this report carries no domain slice, so a request without `teamId` is `400`). Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId: components["parameters"]["ReportTeamIdRequired"];
+                /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountIds"];
+                /** @description Restricts to one ACTIVE GitLab data source (a Jira, deleted or unknown id is `400`). Defaults to every active GitLab data source, a disabled one included. */
+                connectionId?: components["parameters"]["ReportCodeConnectionId"];
+                /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
+                tailPercent?: components["parameters"]["ReportTailPercent"];
+            };
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The code activity report */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodeActivityReport"];
+                };
+            };
+            304: components["responses"]["NotModified"];
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportCodeActivityItems: {
+        parameters: {
+            query: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description The team (required: this report carries no domain slice, so a request without `teamId` is `400`). Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId: components["parameters"]["ReportTeamIdRequired"];
+                /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountIds"];
+                /** @description Restricts to one ACTIVE GitLab data source (a Jira, deleted or unknown id is `400`). Defaults to every active GitLab data source, a disabled one included. */
+                connectionId?: components["parameters"]["ReportCodeConnectionId"];
+                /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
+                tailPercent?: components["parameters"]["ReportTailPercent"];
+                /** @description Which figure's items — see the operation description. */
+                view: "COMMITS" | "MRS_MERGED" | "MRS_OPENED" | "OPEN_MRS" | "OPEN_MRS_WAITING" | "MR_CYCLE_WORKING_DAYS" | "MR_CYCLE_ELAPSED_DAYS" | "TIME_TO_FIRST_REVIEW" | "MR_SIZE_LINES" | "MR_SIZE_FILES" | "MERGED_WITHOUT_REVIEW" | "MERGED_WITHOUT_APPROVAL" | "REVIEWS_GIVEN" | "APPROVALS_GIVEN" | "CHANGES_REQUESTED_GIVEN" | "COMMENTS" | "REVIEW_REQUESTS_RECEIVED" | "WEEK";
+                /** @description The histogram views only — a bar of that distribution's `histogram`, 0-based (the open tail bucket last). A 400 on any other view or outside the histogram; absent, the whole measured set. */
+                bucketIndex?: number;
+                /** @description The `WEEK` view only (and REQUIRED there) — the first day of one weekly bar, one of the report's `flow.weekly[].bucketStart`. */
+                bucketStart?: string;
+                /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
+                segmentAccountId?: components["parameters"]["ReportDrillSegmentAccountId"];
+            };
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ReportDrillItemsOk"];
+            304: components["responses"]["NotModified"];
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportTaskCode: {
+        parameters: {
+            query?: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
+                tailPercent?: components["parameters"]["ReportTailPercent"];
+            };
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tasks and code report */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskCodeReport"];
+                };
+            };
+            304: components["responses"]["NotModified"];
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportTaskCodeItems: {
+        parameters: {
+            query: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. Under the history horizon (`meta.historyHorizon`) a `from` before the horizon's first day is clamped to it (`meta.from` tells); a period lying entirely before it is a `400`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. A `to` before the history horizon's first day (`meta.historyHorizon.from`) is a `400`: the period lies entirely before it. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level); a sprint completed before the history horizon is not counted. Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. A sprint completed before the history horizon's first day is a `400`, like an unknown one. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. Required unless `domain` selects the scope (`epicId` on epic progress): a report is read per team or per domain, never for the whole unit; a request with neither is `400`. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. Without `teamId` it is the scope: a UNIT-level read of that domain, grouped by team. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
+                tailPercent?: components["parameters"]["ReportTailPercent"];
+                /** @description Which figure's tasks — see the operation description. */
+                view: "TASKS_WITH_MR" | "TASKS_WITHOUT_MR" | "CODE_LEAD_TIME" | "MERGED_AFTER_DONE" | "MERGED_AFTER_DONE_LAG";
+                /** @description The histogram views only (`CODE_LEAD_TIME`, `MERGED_AFTER_DONE_LAG`), and REQUIRED there — a bar of that distribution's `histogram`, 0-based (the open tail bucket last). A 400 on any other view or outside the histogram. */
+                bucketIndex?: number;
+            };
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ReportDrillItemsOk"];
             304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
