@@ -56,7 +56,7 @@ export default function ReportFilterBar({
                 timeZone={filters.timeZone}
                 horizonFrom={filters.historyHorizon?.from}
                 teams={filters.teams}
-                // "Unassigned" (Code activity, `teamId=0`) resolves no sprints: the period is dates only, like a people-only report's.
+                // "Unassigned" (Code activity, Tasks and code; `teamId=0`) resolves no sprints: the period is dates only, like a people-only report's.
                 datesOnly={controls.peopleOnly || (controls.teamUnassigned === true && filter.teamId === 0)}
                 onChange={onChange}
               />

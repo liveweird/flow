@@ -110,8 +110,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [new] **A domain-wide read from the filter bar.** Cycle time and Tasks and code accept a domain with no team (a `?domain=` link works), but when teams
   exist the bar always holds a team (`teamRequired`, not clearable) and picking a domain keeps it, so "a domain across the whole unit" is only reachable by
   link. Make the team clearable on `teamOrDomain` pages once a domain is set, or say so in the bar.
-- [new] **Tasks and code: the tasks with no credit team.** The endpoint accepts `teamId=0` (Code activity's "Unassigned" since 1.43.0), but the page
-  treats 0 as an unknown team and swaps in the default; offer the "Unassigned" choice there too (`ReportControls.teamUnassigned`).
 - [new] **Tests leave their Jira sources behind, and every report request pays for them.** About 300 per fork at the end of a full run (304 counted 2026-11-04; about
   80 enabled, `jira-raw-store` and `metrics-config-conn` the most), against `testing.md`'s "remove their own". `dataStamp` reads all of them on each report request:
   `ReportDrillSprintScopeTest` is +36 % with 300 extra rows (build-times WHY 63); the whole-suite effect is not measured. Production holds a handful of sources.
