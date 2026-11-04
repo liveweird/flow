@@ -27,7 +27,9 @@
     "backlog": "Estimated backlog",
     "agingWip": "Aging WIP",
     "blockedTime": "Blocked time",
-    "epicProgress": "Epic progress"
+    "epicProgress": "Epic progress",
+    "codeActivity": "Code activity",
+    "taskCode": "Tasks and code"
   },
   "meta": {
     "derived": "Derived {{date}} · configuration revision {{revision}}",
@@ -203,14 +205,21 @@
         "reopens": "Times reopened",
         "ageWd": "Age (working days)",
         "actualMd": "Logged (MD)",
-        "gapMd": "Gap (MD)"
+        "gapMd": "Gap (MD)",
+        "lines": "Lines changed",
+        "files": "Files changed"
       },
       "authors": "Authors",
       "completed": "Sprint completed",
       "logged": "Last logged",
       "started": "Started",
       "worklog": "Logged on",
-      "kind": "Kind"
+      "kind": "Kind",
+      "person": "Person",
+      "merged": "Merged",
+      "created": "Opened",
+      "committed": "Committed",
+      "event": "Done on"
     },
     "sprintFallback": "Sprint {{id}}",
     "epicTitle": "{{bucket}} — {{epic}}",
@@ -693,7 +702,9 @@
   },
   "kind": {
     "TASK": "Task",
-    "EPIC": "Epic"
+    "EPIC": "Epic",
+    "COMMIT": "Commit",
+    "MERGE_REQUEST": "Merge request"
   },
   "agingWip": {
     "noTeams": "Aging WIP is read per team and there is no team yet. An administrator adds teams on the Teams page.",
@@ -1308,7 +1319,7 @@
   },
   "comparePeople": {
     "title": "Compare people",
-    "description": "Two people head to head over a date range, across every team they belonged to. Pick person A and person B: the better figure of each metric (higher, lower or closer to 1, whichever is better for it) is tinted teal and marked with a check. A tie, a neutral metric or a person with too few items gets no mark. Every figure opens the items behind it.",
+    "description": "Two people head to head over a date range, across every team they belonged to. Pick person A and person B: the better figure of each metric (higher, lower or closer to 1, whichever is better for it) is tinted teal and marked with a check. A tie, a neutral metric or a person with too few items gets no mark. The code group counts each person's GitLab commits, merge requests and reviews through the identities an administrator linked to them (a person with no link shows zeros) and ignores the filters below; its counts are context and are never marked. Every figure opens the items behind it.",
     "pickTwo": "Pick two people to compare them.",
     "tableTitle": "Head to head",
     "tableCaption": "Difference is the gap between the two figures; the better figure is tinted teal and marked with a check.",
@@ -1329,6 +1340,8 @@
     "margin": {
       "MD": "{{value}} MD",
       "MD_PER_MD": "{{value}}",
+      "LINES_one": "{{value}} line",
+      "LINES_other": "{{value}} lines",
       "ITEMS_one": "{{value}} item",
       "ITEMS_other": "{{value}} items",
       "ITEMS_PER_DAY_one": "{{value}} item per day",
@@ -1350,7 +1363,8 @@
       "ESTIMATION": "Estimation",
       "WIP": "Work in progress",
       "TIME": "Logged time",
-      "QUALITY": "Data quality"
+      "QUALITY": "Data quality",
+      "CODE": "Code (GitLab)"
     },
     "row": {
       "deliveredMd": "Delivered (MD)",
@@ -1380,7 +1394,15 @@
       "foreignShare": "Foreign work share of logged time",
       "worklogCoverage": "Finished tasks with time logged",
       "lateLoggingShare": "Worklogs logged over a day late",
-      "noEstimateShare": "Finished tasks without an estimate"
+      "noEstimateShare": "Finished tasks without an estimate",
+      "commits": "Commits",
+      "linesChanged": "Lines changed in commits (added + deleted)",
+      "mrsMerged": "Merge requests merged",
+      "mrCycleWorkingDaysP50": "Merge request cycle time, working days — median",
+      "mrSizeLinesP50": "Merge request size (lines) — median",
+      "reviewsGiven": "Merge requests reviewed",
+      "approvalsGiven": "Merge requests approved",
+      "comments": "Comments"
     },
     "view": {
       "DELIVERED": "Delivered tasks",
@@ -1401,7 +1423,14 @@
       "NO_WORKLOGS": "Tasks with no time logged",
       "NO_ESTIMATE": "Tasks without an estimate",
       "TASK_SIZE": "Task size at start",
-      "REOPENED": "Reopened tasks"
+      "REOPENED": "Reopened tasks",
+      "COMMITS": "Commits",
+      "MRS_MERGED": "Merge requests merged",
+      "MR_CYCLE_WORKING_DAYS": "Merge request cycle time (working days)",
+      "MR_SIZE_LINES": "Merge request size (lines)",
+      "REVIEWS_GIVEN": "Merge requests reviewed",
+      "APPROVALS_GIVEN": "Merge requests approved",
+      "COMMENTS": "Comments"
     },
     "drill": {
       "mix": "{{slice}}: {{key}}"
@@ -1460,6 +1489,7 @@
     },
     "cue": {
       "caption": "The mark compares the first and last full window in the range.",
+      "captionNeutral": "No mark is given: this is context, not a measure of how well anyone does. The change compares the first and last full window in the range.",
       "none": "No mark: fewer than two full windows with a figure in this range.",
       "better": "Better",
       "worse": "Worse",
@@ -1491,8 +1521,13 @@
       "ITEMS_PER_DAY": "Items per day",
       "ITEMS_PER_MD": "Items per available MD",
       "DAYS": "Days",
+      "LINES": "Lines",
       "RATIO": "Ratio",
       "SHARE": "Share"
+    },
+    "codeAxis": {
+      "mrsMerged": "Merge requests",
+      "reviewsGiven": "Merge requests reviewed"
     },
     "table": {
       "label": "{{name}}: figures by window",
@@ -1510,6 +1545,185 @@
       "caption": "What the person delivered in each window, as a share of that window's man-days by activity type and by work category (each adds up to 100%). No mix is better than another, so nothing is marked.",
       "axis": "Share of delivered man-days",
       "empty": "Nothing was delivered in any window."
+    }
+  },
+  "codeActivity": {
+    "title": "Code activity",
+    "description": "Where a team's merge requests wait and how big they are, from the connected GitLab: the cycle, the time to first review, the size, what is merged each week, what is open now and how review work is spread. These flow figures say which direction is better; the members' table beside them is context only, the volumes of work, never a ranking. A person is counted once an administrator has linked their GitLab identity to their Jira account.",
+    "noTeams": "Code activity is read per team and there is no team yet. An administrator adds teams on the Teams page.",
+    "noSources": "No GitLab data source is active.",
+    "noSourcesHint": "An administrator connects one under Data sources; its commits and merge requests are read here.",
+    "sources": {
+      "synced": "{{name}}: last synced {{date}}.",
+      "neverSynced": "{{name}}: not synced yet.",
+      "filesPending": "Commits whose files are still to be read: {{n}}. Their lines are unknown for now.",
+      "detailsPending": "Merge requests whose details are still to be read: {{n}}. They are left out of the review figures for now.",
+      "metaHint": "The derived date and configuration revision above belong to the Jira data (the team roster, names and sprints); how fresh the code figures are is said per source here."
+    },
+    "quality": {
+      "title": "Still to attribute, or not yet known",
+      "unlinked": "GitLab identities with activity in this period that no one has linked to a person yet: {{n}}. Their commits ({{commits}}), merge requests ({{mrs}}) and review acts ({{events}}) are in no member's figures until an administrator decides.",
+      "link": "Open the identities of {{name}}",
+      "commitsLinesUnknown": "Commits with unknown lines, left out of the lines sums: {{n}}.",
+      "mrsSizeUnknown": "Merged merge requests with unknown size, left out of the size figures: {{n}}.",
+      "mrsDetailsNotRead": "Merged merge requests whose details are not read yet, left out of the review figures: {{n}}.",
+      "eventsUndated": "Review acts with no date, in no period: {{n}}."
+    },
+    "flow": {
+      "title": "Merge request flow",
+      "caption": "Merge requests merged in the period, by their author's team on the day of the merge. Lower is better for the times, the size and the merged-without-review counts.",
+      "merged": "Merged",
+      "closedUnmerged": "Closed without merging: {{n}}",
+      "withoutReview": "Merged without review",
+      "withoutApproval": "Merged without approval",
+      "withoutReviewRule": "No comment, approval or review by another person up to the merge. Lower is better.",
+      "withoutApprovalRule": "No approval by another person before the merge. Lower is better.",
+      "share": "That is {{share}} of the merged merge requests whose details were read.",
+      "noShare": "No merged merge request has its details read yet.",
+      "cycleWorking": {
+        "title": "Cycle time, working days",
+        "caption": "From creation to merge, in working days. Lower is better.",
+        "axis": "working days"
+      },
+      "cycleElapsed": {
+        "title": "Cycle time, elapsed days",
+        "caption": "From creation to merge, in calendar days. Lower is better.",
+        "axis": "calendar days"
+      },
+      "firstReview": {
+        "title": "Time to first review, working days",
+        "caption": "From creation to the first comment, approval or review by another person. A merge request merged without one is counted above, not here. Lower is better.",
+        "axis": "working days"
+      },
+      "sizeLines": {
+        "title": "Merge request size, lines",
+        "caption": "Lines added plus deleted by the whole diff, generated and vendored files included. Lower is better.",
+        "axis": "lines"
+      },
+      "sizeFiles": {
+        "title": "Merge request size, files",
+        "caption": "Files touched by the diff. Lower is better.",
+        "axis": "files"
+      }
+    },
+    "weekly": {
+      "title": "Merged per week",
+      "caption": "Merge requests merged each week (a week starts on Monday), weeks with none included.",
+      "chartLabel": "Chart: merge requests merged per week",
+      "series": "Merged",
+      "yAxis": "Merge requests",
+      "tableLabel": "Merged per week, as a table",
+      "week": "Week starting",
+      "merged": "Merged"
+    },
+    "open": {
+      "title": "Open merge requests now",
+      "caption": "Merge requests open today whose author is on the team today, whatever their age. Lower is better.",
+      "waiting": "Waiting for review",
+      "drafts": "Drafts",
+      "ageLabel": "Age of the waiting merge requests",
+      "ageP50": "Age, median (working days)",
+      "ageP85": "Age, p85 (working days)",
+      "ageHidden": "Fewer than {{min}} merge requests are waiting, so no ages are shown.",
+      "hint": "Drafts are counted apart: a draft is not waiting for review, and the ages cover the waiting ones only."
+    },
+    "review": {
+      "title": "How review work is spread",
+      "caption": "A bottleneck signal about the team's review work, not a verdict on any person.",
+      "reviewers": "Reviewers per merged merge request (median)",
+      "topShare": "Share of the reviews held by the busiest reviewer",
+      "basis": "Over the merged merge requests whose details were read: {{n}}.",
+      "withheld": "A figure shown as a dash is withheld under {{min}} such merge requests."
+    },
+    "members": {
+      "title": "Activity by member",
+      "caption": "Context, not performance: these are volumes of work, in no order of merit, and they say nothing about who does better. A merge request's size counts every line of its diff, while a commit's lines leave out generated and vendored files, so the two are different lines. A member appears here through an administrator's link between their GitLab identity and their Jira account.",
+      "unlabelled": "Not linked to a person",
+      "unassignedHint": "Unassigned: the work of GitLab identities that no administrator has linked to a person yet (one row each, named as GitLab names it) and of linked people who were in no team when they did it. These names are not links: there is no team to narrow to.",
+      "linesUnknown": "commits not counted: {{n}}",
+      "column": {
+        "commits": "Commits",
+        "linesAdded": "Lines added",
+        "linesDeleted": "Lines deleted",
+        "mrsMerged": "Merged",
+        "mrsOpened": "Opened in period",
+        "openMrs": "Open now",
+        "reviewsGiven": "Reviews",
+        "approvalsGiven": "Approvals",
+        "comments": "Comments"
+      },
+      "hintRows": "Click a figure in the table to list the commits or merge requests behind it."
+    },
+    "drill": {
+      "view": {
+        "COMMITS": "Commits",
+        "MRS_MERGED": "Merge requests merged",
+        "MRS_OPENED": "Merge requests opened",
+        "OPEN_MRS": "Open merge requests",
+        "OPEN_MRS_WAITING": "Merge requests waiting for review",
+        "MERGED_WITHOUT_REVIEW": "Merged without review",
+        "MERGED_WITHOUT_APPROVAL": "Merged without approval",
+        "REVIEWS_GIVEN": "Merge requests reviewed",
+        "APPROVALS_GIVEN": "Merge requests approved",
+        "CHANGES_REQUESTED_GIVEN": "Merge requests with changes requested",
+        "COMMENTS": "Comments",
+        "REVIEW_REQUESTS_RECEIVED": "Review requests received",
+        "WEEK": "Merged in the week"
+      },
+      "weekOf": "Week starting {{date}}"
+    }
+  },
+  "taskCode": {
+    "title": "Tasks and code",
+    "description": "How the tasks done in the period line up with the code that delivered them, from the connected GitLab. A merge request belongs to a task when its title or branch names the task's issue key. The page shows how many done tasks have a merged merge request and how many have none merged, how long it takes from a task's start to the merge of its last merge request, and how often code is merged after the task was already done. The share of tasks without a merge request is context, not a verdict: a task may need no code. Lower is better for the code lead time and for code merged after done.",
+    "noTeams": "Tasks and code are read for one team or one domain, and there is neither yet. An administrator adds teams on the Teams page.",
+    "pickScope": "Pick a team or a domain to read tasks and code for.",
+    "noSources": "No GitLab data source is active.",
+    "noSourcesHint": "Without the code layer no task can be linked to a merge request, so there is nothing to compare, and that says nothing about the tasks. An administrator connects a GitLab source under Data sources.",
+    "sources": {
+      "metaHint": "The derived date and configuration revision above belong to the Jira data (the done tasks); how fresh the merge requests are is said per source here."
+    },
+    "quality": {
+      "title": "What the link between tasks and merge requests leaves out",
+      "neverStarted": "Done tasks that never started, so they have no code lead time: {{n}}.",
+      "onlyUnmergedMrs": "Done tasks whose merge requests are all unmerged (open, closed or locked); they count as without a merged merge request: {{n}}.",
+      "tasksWithAmbiguousKey": "Done tasks with an issue key that names more than one issue (the key was reused, or two Jira sources hold it); that key links no merge request: {{n}}."
+    },
+    "tasks": {
+      "title": "Done tasks and their merge requests",
+      "caption": "Tasks done in the period, by the team credited with them. A task is “with a merge request” when at least one merged merge request names its issue key. No direction is better here: a task may need no code.",
+      "done": "Done tasks",
+      "doneHint": "Tasks, not subtasks.",
+      "withMr": "With a merged merge request",
+      "withMrHint": "At least one merged merge request names the task.",
+      "withoutMr": "Without a merged merge request",
+      "withoutShare": "{{share}} of the done tasks.",
+      "noShare": "No task was done in the period."
+    },
+    "leadTime": {
+      "title": "Code lead time",
+      "caption": "From a task's start to the merge of its last merge request, in working days: the same start as the cycle time. Only started tasks that have a merged merge request are counted. Lower is better.",
+      "panelTitle": "Task start to last merge, working days",
+      "axis": "working days"
+    },
+    "mergedAfter": {
+      "title": "Code merged after the task was done",
+      "caption": "Tasks whose last merge request merged after the task was marked done. Lower is better: code should be merged before the task is closed.",
+      "tile": "Merged after done",
+      "share": "{{share}} of the tasks with a merged merge request.",
+      "noShare": "No done task has a merged merge request.",
+      "lagTitle": "Done to last merge, working days",
+      "lagCaption": "Working days between the task being done and the merge of its last merge request.",
+      "axis": "working days"
+    },
+    "drill": {
+      "tilesHint": "Click a figure to list the tasks behind it.",
+      "view": {
+        "TASKS_WITH_MR": "Tasks with a merged merge request",
+        "TASKS_WITHOUT_MR": "Tasks without a merged merge request",
+        "MERGED_AFTER_DONE": "Tasks merged after done"
+      },
+      "lastMerge": "last merge"
     }
   },
   "deepDive": {

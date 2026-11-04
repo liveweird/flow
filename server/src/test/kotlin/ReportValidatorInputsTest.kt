@@ -1,6 +1,9 @@
 package ch.nokillswit
 
 import ch.nokillswit.flowusers.FlowUserRole
+import ch.nokillswit.identities.CodeIdentityDecision
+import ch.nokillswit.identities.CodeIdentityLinkStore
+import ch.nokillswit.identities.IdentityLink
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobsService
@@ -26,6 +29,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
+import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -196,6 +200,106 @@ class ReportValidatorInputsTest {
             assertNotNull(deleted)
             suspendTransaction(sharedDatabaseForTests()) { c.update({ c.id eq connectionId }) { it[purgedAt] = 5_000L } }
             assertNotEquals(deleted, client.conditional("/api/v1/reports/filters", "*").headers[HttpHeaders.ETag], "the purge")
+        }
+
+    @Test
+    fun `the code-reading reports' validators carry the GitLab inputs - links, sync activity, the source - a Jira report's does not`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val client = seededClient("etag-code")
+            val adminId = TestUsers.seed(uniqueEmail("etag-code-admin"), "pw", role = FlowUserRole.ADMIN)
+            val db = sharedDatabaseForTests()
+            val links = CodeIdentityLinkStore(db)
+            val zone = ZoneId.of(DerivedStubFixture.metricsSettings().read().timeZone)
+            // The Jira source whose project list the `keys:` line carries: created BEFORE the baselines (its `connection:` line moves
+            // every tag).
+            val jiraId = SyncedStubFixture.createConnection(enabled = false, namePrefix = "etag-keys")
+            withCodeWorld(zone) {
+                application.attributes[ReportServiceKey].clock = { now }
+                // Report 21 and every operation that reads the CODE rows (A50): Compare people and Person trend, and their drills.
+                val period = "from=2026-03-02&to=2026-03-15"
+                val people = "$period&accountId=$accA&accountId=$accB"
+                val code = "/api/v1/reports/code-activity?teamId=$teamId&$period&connectionId=$connId"
+                val codeReaders = listOf(
+                    code,
+                    "/api/v1/reports/compare-people?$people",
+                    "/api/v1/reports/compare-people/items?$people&segmentAccountId=$accA&view=COMMITS",
+                    "/api/v1/reports/person-trend?$period&accountId=$accA",
+                    "/api/v1/reports/person-trend/items?$period&accountId=$accA&pointEnd=2026-03-15&view=MRS_MERGED",
+                    // Report 22 (1.47.0) reads the merge requests by their issue keys: it carries the stamp lines too.
+                    "/api/v1/reports/task-code?teamId=$teamId&$period",
+                    "/api/v1/reports/task-code/items?teamId=$teamId&$period&view=TASKS_WITH_MR",
+                    // Home's Code section reads the same rows (1.44.0): the overview and its CODE_* drills carry the stamp lines too.
+                    "/api/v1/reports/home",
+                    "/api/v1/reports/home/items?view=CODE_MERGED&teamId=$teamId",
+                    // 1.53.0: the tasks without a merge request join Jira tasks to the merge requests that name them.
+                    "/api/v1/reports/home/items?view=CODE_TASKS_WITHOUT_MR&teamId=$teamId",
+                )
+                // The Jira-only reports read no GitLab row: not one of them may move (the cycle-time report is a team report).
+                val cycle = "/api/v1/reports/cycle-time?teamId=$teamId&$period"
+                // A Jira-view drill of the code-reading reports reads no GitLab row either: its tag stays put on a link write.
+                val jiraDrills = listOf(
+                    "/api/v1/reports/compare-people/items?$people&segmentAccountId=$accA&view=DELIVERED",
+                    "/api/v1/reports/person-trend/items?$period&accountId=$accA&pointEnd=2026-03-15&view=DELIVERED",
+                    // Home's Jira views read no GitLab row either.
+                    "/api/v1/reports/home/items?view=TASK_CYCLE&teamId=$teamId",
+                )
+                val jiraSide = listOf("/api/v1/reports/filters", cycle) + jiraDrills
+                val jiraBefore = jiraSide.map { client.etagOf(it) }
+                val j = SyncJobsService.Jobs
+                val c = DataSourceService.Connections
+                var tags = codeReaders.map { client.etagOf(it) }
+                suspend fun moved(what: String) {
+                    val next = codeReaders.map { client.etagOf(it) }
+                    codeReaders.indices.forEach { assertNotEquals(tags[it], next[it], "$what: ${codeReaders[it].substringBefore('?')}") }
+                    assertEquals(jiraBefore, jiraSide.map { client.etagOf(it) }, "$what must not move a Jira report's tag")
+                    tags = next
+                }
+                try {
+                    // `links:<host>:<count>:<newest decided_at>`: an insert (count), an overwrite (newest instant) and a delete (count).
+                    links.insertIfAbsent(IdentityLink(source.host, kU, CodeIdentityDecision.IGNORED, null, adminId.toLong(), 1L))
+                    moved("a link written")
+                    links.update(IdentityLink(source.host, kU, CodeIdentityDecision.BOT, null, adminId.toLong(), 7L))
+                    moved("a link overwritten")
+                    // Same number of links, same newest decided_at (7), another decision: a count and a newest instant would miss it.
+                    links.update(IdentityLink(source.host, kU, CodeIdentityDecision.IGNORED, null, adminId.toLong(), 7L))
+                    moved("a link changed to another decision at the same instant, the count unchanged")
+                    links.delete(source.host, kU)
+                    moved("a link removed")
+
+                    // `code-ingest:`: a SYNC (its PROCESS pages) moves with the heartbeat, page by page, and with its end.
+                    val job = SyncJobsService(db, 3).requestJob(connId, SyncJobKind.SYNC, adminId, configRevision = 1L).jobId
+                    moved("a job enqueued")
+                    suspendTransaction(db) { j.update({ j.id eq job }) { it[heartbeatAt] = 1_000L } }
+                    moved("the first committed page")
+                    suspendTransaction(db) { j.update({ j.id eq job }) { it[heartbeatAt] = 2_000L } }
+                    moved("the next page")
+                    suspendTransaction(db) { j.update({ j.id eq job }) { it[finishedAt] = 3_000L; it[status] = "SUCCEEDED" } }
+                    moved("the run's end")
+
+                    // `code:`: what sources[] prints.
+                    suspendTransaction(db) { c.update({ c.id eq connId }) { it[lastSyncSucceededAt] = 4_000L } }
+                    moved("a last successful sync")
+                    suspendTransaction(db) { c.update({ c.id eq connId }) { it[name] = "etag-code-renamed-${System.nanoTime()}" } }
+                    moved("a source rename")
+                    // `keys:<id>:<sha256 of the project keys>` (A51): the merge-request drills show the Jira keys of the known projects,
+                    // and a project-list edit bumps no revision a report stamps. It moves the code readers and no Jira report.
+                    SyncedStubFixture.putProjectKeys(jiraId, SyncedStubFixture.IN_SCOPE_PROJECT_KEYS + uniqueProjectKey())
+                    moved("a Jira source's project list edited")
+                    // The negative control for the stamp itself: an unrelated write to the row moves nothing.
+                    suspendTransaction(db) { c.update({ c.id eq connId }) { it[updatedAt] = nowPlus(1) } }
+                    assertEquals(tags, codeReaders.map { client.etagOf(it) }, "updated_at is not stamped")
+                } finally {
+                    PostgresTestSupport.connect().use { conn ->
+                        conn.prepareStatement("DELETE FROM sync_jobs WHERE connection_id = ?").use {
+                            it.setInt(1, connId.toInt())
+                            it.executeUpdate()
+                        }
+                    }
+                    TestUsers.softDelete(adminId)
+                    SyncedStubFixture.dataSources().delete(jiraId)
+                }
+            }
         }
 
     private fun nowPlus(extraMs: Long): Long = System.currentTimeMillis() + extraMs

@@ -18,6 +18,7 @@ import ch.nokillswit.infra.paging.optionalEnum
 import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.infra.paging.parsePaging
 import ch.nokillswit.infra.paging.toPage
+import ch.nokillswit.infra.validation.canonicalEmail
 import ch.nokillswit.infra.validation.sanitizeSingleLine
 import ch.nokillswit.plugins.servesApi
 import io.ktor.http.HttpHeaders

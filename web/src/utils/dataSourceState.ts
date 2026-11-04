@@ -20,3 +20,8 @@ export function formatEpochMillis(epochMillis: number | null | undefined, t: TFu
   if (epochMillis == null) return t("dataSources.never");
   return new Date(epochMillis).toISOString().slice(0, 16).replace("T", " ");
 }
+
+/** One decimal place, matching the server's own rounding — never a rendered fraction. */
+export function percent(value: number): string {
+  return `${value.toFixed(1)}%`;
+}

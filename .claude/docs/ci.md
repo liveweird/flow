@@ -10,7 +10,7 @@ Read on demand before changing a CI job, a Dependabot rule or a static-analysis 
   `web` — incl. the API-contract gate (`lint:api` + `check:api`), `npm run lint` over a restored ESLint result cache (`web/.eslintcache` via `actions/cache`, keyed on the lockfile + `eslint.config.js` + the commit with a prefix restore, so a PR re-lints only the files it changed; `build-times.md` WHY 20) and the coverage run in shuffled order
   (`npm run test:coverage -- --sequence.shuffle --sequence.seed=<seed>`, which is also the `isolate: false` independence proof; `scripts/gates.sh web` mirrors it with a
   random seed it prints; CI picks the seed itself and writes it, with the replay command, to the job summary before the run, so a shuffle-order failure can be reproduced), `e2e-static` —
-  lint/knip/typecheck/scenario parity/setup, the toolchain-pins check, the sample-data generator self-test (`node --test sample-data/jira/hostile.test.mjs`), `npm audit` (high+) on both npm workspaces, `k8s-static` (kubeconform over
+  lint/knip/typecheck/scenario parity/setup, the toolchain-pins check, the sample-data generator self-tests (`node --test sample-data/jira/hostile.test.mjs sample-data/gitlab/generate.test.mjs`: the hostile Jira host, and the GitLab stub generator's determinism, committed-stub-is-current and invariants), `npm audit` (high+) on both npm workspaces, `k8s-static` (kubeconform over
   `k8s/`, and the web deployment pinned to one replica), and `images`, an image build plus a Trivy scan of it, on `master` pushes and on every pull request that changes more than Markdown — the `changes` job decides it, as it does `server`); the blackbox Playwright
   suite (`e2e.yml`) runs nightly and on demand, and re-scans the image it built with the same Trivy gate (its "Build images" step is a plain `docker compose build`, like `images`: the layer cache it used to restore cost more than it saved, `build-times.md` WHY 22). Dependabot (`.github/dependabot.yml`) checks every
   workspace, Actions and container manifests weekly; `.claude/docs/dependencies.md` describes
@@ -30,7 +30,7 @@ Read on demand before changing a CI job, a Dependabot rule or a static-analysis 
 - **Closing is manual.** Nothing closes the issue automatically, not even a green run: close it once the cause is understood, and the next red run opens a fresh one. A red `alert` job (e.g. a token problem) is itself a failed run.
 
 **Local gates vs CI (`scripts/gates.sh`).** The script runs `server-build`, `web-gates` and `e2e-static` (lint, knip, typecheck, scenario parity, `npm run test:setup` and
-`node scripts/check-toolchain-pins.mjs` and `node --test sample-data/jira/hostile.test.mjs`, the same cheap checks as the CI `e2e-static` job). **CI-only scans**, deliberately not in the script (the header comment of
+`node scripts/check-toolchain-pins.mjs` and `node --test` over `sample-data/jira/hostile.test.mjs` and `sample-data/gitlab/generate.test.mjs`, the same cheap checks as the CI `e2e-static` job). **CI-only scans**, deliberately not in the script (the header comment of
 `gates.sh` lists them too): `npm audit` on both workspaces and the HIGH/CRITICAL Gradle lockfile vulnerability scan (they read a live advisory database and the network, and
 their result changes overnight without a commit), kubeconform in `k8s-static` (a downloaded checksum-pinned binary), and the Trivy / AppCDS image checks (need a built image).
 
@@ -65,7 +65,8 @@ files count as entries, so a flagged export is unused even by tests) — the gen
 its own terminal. The compose stack bundles **Mailpit** (`http://localhost:8028`) and wires the
 app's password-reset and MFA email to it (`MAIL_TRANSPORT=smtp`). Ports deliberately avoid
 Lettuce's (8080/5432/5173/8025), Toadie's (8081/5433/5174/8026) and Covenant's (8082/5434/5175/8027)
-so every sibling stack can run side by side; host ports bind to 127.0.0.1 only. Kubernetes
+so every sibling stack can run side by side; host ports bind to 127.0.0.1 only. The optional WireMock stubs over `sample-data/` sit beside them:
+`jira-stub` on **8094** and `gitlab-stub` on **8095** (day-2 switch commands in the compose comments; `sample-data/README.md`). Kubernetes
 (OrbStack) deployment targets the dedicated `flow` namespace — see `k8s/secret.yaml`'s header for
 the secret-creation command.
 

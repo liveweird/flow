@@ -137,10 +137,13 @@ describe("ReportPersonTrend page", () => {
         "Finished tasks without an estimate",
         "Finished tasks that were reopened",
         "Task size at start (MD) — median",
+        "Merge requests merged",
+        "Merge request cycle time, working days — median",
+        "Merge requests reviewed",
         "Work mix",
       ]);
       expect(headingOutline().filter(([level]) => level === 4).map(([, text]) => text)).toEqual(["Work mix by activity type", "Work mix by work category"]);
-      await waitFor(() => expect(lineCharts()).toHaveLength(13));
+      await waitFor(() => expect(lineCharts()).toHaveLength(16));
       expect(lineCharts()[0]).toHaveAttribute("data-series", "Median (p50)|p90");
       expect(lineCharts()[1]).toHaveAttribute("data-series", "Flow efficiency — median");
       expect(await screen.findAllByTestId("area-chart")).toHaveLength(2);
@@ -153,7 +156,7 @@ describe("ReportPersonTrend page", () => {
     test("a window with nothing derived is a gap in the chart whatever the server's figure, a partial one keeps its value", async () => {
       serve(mockFetch);
       renderPage(ANN);
-      await waitFor(() => expect(lineCharts()).toHaveLength(13));
+      await waitFor(() => expect(lineCharts()).toHaveLength(16));
       // Delivered (items) is the 3rd chart; its NONE window carries the server's 0.
       const rows = JSON.parse(lineCharts()[2].getAttribute("data-rows")!) as Array<{ label: string; value: number | null }>;
       expect(rows.map((row) => row.value)).toEqual([null, 4, 6, 7, 9]);
@@ -171,7 +174,7 @@ describe("ReportPersonTrend page", () => {
       serve(mockFetch, PERSON_TREND_TEAM);
       const user = userEvent.setup();
       renderPage(ANN);
-      await waitFor(() => expect(lineCharts()).toHaveLength(13));
+      await waitFor(() => expect(lineCharts()).toHaveLength(16));
       expect(screen.getByText(/The dotted gray line is the team median: the median of the person's team-mates who were active in that window/)).toBeInTheDocument();
       expect(lineCharts()[0]).toHaveAttribute("data-series", "Median (p50)|p90|Team median (p50)");
       expect(lineCharts()[2]).toHaveAttribute("data-series", "Delivered (items)|Team median");
@@ -186,7 +189,7 @@ describe("ReportPersonTrend page", () => {
     test("under a history horizon the page says since when and that earlier windows are only partly covered", async () => {
       serve(mockFetch, { ...PERSON_TREND, meta: { ...PERSON_TREND.meta, historyHorizon: { months: 6, from: "2026-04-30" } } });
       renderPage(ANN);
-      await waitFor(() => expect(lineCharts()).toHaveLength(13));
+      await waitFor(() => expect(lineCharts()).toHaveLength(16));
       expect(screen.getByText("Reports show work since 2026-04-30 (history horizon: 6 months)")).toBeInTheDocument();
       expect(screen.getByText(/Windows that start before 2026-04-30 \(the history horizon\) are only partly covered/)).toBeInTheDocument();
     });
@@ -198,7 +201,7 @@ describe("ReportPersonTrend page", () => {
       };
       serve(mockFetch, noMedian);
       renderPage(ANN);
-      await waitFor(() => expect(lineCharts()).toHaveLength(13));
+      await waitFor(() => expect(lineCharts()).toHaveLength(16));
       expect(screen.queryByText(/The dotted gray line is the team median/)).not.toBeInTheDocument();
       expect(lineCharts()[2]).toHaveAttribute("data-series", "Delivered (items)");
     });
@@ -207,7 +210,7 @@ describe("ReportPersonTrend page", () => {
       serve(mockFetch);
       const user = userEvent.setup();
       renderPage(ANN);
-      await waitFor(() => expect(lineCharts()).toHaveLength(13));
+      await waitFor(() => expect(lineCharts()).toHaveLength(16));
       expect(screen.queryByText(/team median/i)).not.toBeInTheDocument();
       expect(lineCharts()[2]).toHaveAttribute("data-series", "Delivered (items)");
       const items = card("Delivered (items)");
@@ -236,6 +239,24 @@ describe("ReportPersonTrend page", () => {
       expect(blocked).toHaveTextContent("↓ Too few items to call · first window ending 2026-07-28, last ending 2026-08-25 · change 5 pp");
       expect(blocked).not.toHaveTextContent("No change");
       expect(within(card("Worklogs logged over a day late")).getByTestId("cue-lateLoggingShare")).toHaveTextContent("→ No change");
+    });
+
+    test("the code volumes are context: their cue is a change and never a verdict, their card says so, and the cycle p50 keeps its mark", async () => {
+      serve(mockFetch);
+      renderPage(ANN);
+      await screen.findByRole("heading", { level: 3, name: "Cycle time, working days" });
+      const merged = card("Merge requests merged");
+      expect(
+        within(merged).getByText("Neither direction is better. No mark is given: this is context, not a measure of how well anyone does. The change compares the first and last full window in the range."),
+      ).toBeInTheDocument();
+      // No arrow, no verdict word (not even "Too few items to call"): the first window ending, the last, and the change in the row's unit.
+      const cue = within(merged).getByTestId("cue-mrsMerged");
+      expect(cue).toHaveTextContent("first window ending 2026-07-28, last ending 2026-08-25 · change 4 items");
+      expect(cue.textContent).not.toMatch(/[↑↓→]|Better|Worse|No change|Too few/);
+      expect(within(card("Merge requests reviewed")).getByTestId("cue-reviewsGiven")).toHaveTextContent("· change 7 items");
+      const cycle = card("Merge request cycle time, working days — median");
+      expect(within(cycle).getByText("Lower is better. The mark compares the first and last full window in the range.")).toBeInTheDocument();
+      expect(within(cycle).getByTestId("cue-mrCycleWorkingDaysP50")).toHaveTextContent("↓ Better · first window ending 2026-07-28, last ending 2026-08-25 · change 1.5 days");
     });
 
     test("a row with fewer than two full windows with a figure has no mark, and says why", async () => {
@@ -300,11 +321,11 @@ describe("ReportPersonTrend page", () => {
       serve(mockFetch, PERSON_TREND_EMPTY);
       renderPage(ANN);
       await screen.findByRole("heading", { level: 3, name: "Work mix" });
-      expect(screen.getAllByText("No window has a figure to draw here.")).toHaveLength(13);
+      expect(screen.getAllByText("No window has a figure to draw here.")).toHaveLength(16);
       expect(screen.queryByTestId("line-chart")).not.toBeInTheDocument();
       // Nothing to click, so no hint about clicking.
       expect(screen.queryByText(/Click a dot/)).not.toBeInTheDocument();
-      expect(screen.getAllByText("No mark: fewer than two full windows with a figure in this range.")).toHaveLength(14);
+      expect(screen.getAllByText("No mark: fewer than two full windows with a figure in this range.")).toHaveLength(17);
       expect(screen.getByText("Nothing was delivered in any window.")).toBeInTheDocument();
       expect(screen.queryByTestId("area-chart")).not.toBeInTheDocument();
     });

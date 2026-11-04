@@ -68,7 +68,8 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   `insertRows` / `insertRowsIgnoringConflicts` build each row (run the caller's body) lazily, only while the statement that carries it is assembled, and plan the statements exactly as the payload split would over the whole list, so the rows in flight are one statement's cap, not the call's, and each body runs exactly once (`upsertRows` builds them all first: its collapse of repeated keys needs every key; `build-times.md` WHY 51). Exposed lists every statement a transaction ran until it ends (parsed SQL and encoded parameters included): `insertRows` clears the list after each statement, and `JiraRawBatchWrites` (`diffBatch`) after each key read, per-row UPDATE and touch chunk, so a 30,000-row flush keeps no read or update statement (`jira-integration.md` "Stored-size ceilings"); the worklog writer additionally hands in groups of at most 1,024 rows / 512 Ki characters, each normally one statement. **Statement timeouts: use the transaction's `queryTimeout`, nothing else.** Exposed's R2DBC executor *requests* the
   transaction's `queryTimeout` (whole seconds, default 0, never null) from the driver before EVERY statement. The reports use it
   through `ReportService.reportTransaction` (`reports.md` "Query budget"), the post-commit ANALYZE through
-  `MetricsStore.analyzeDerivedTables` (`SET LOCAL lock_timeout` is effective, the statement budget is the `queryTimeout`).
+  `MetricsStore.analyzeDerivedTables` and the post-PROCESS `norm` ANALYZE through `norm/NormAnalyze.kt` (`SET LOCAL lock_timeout`
+  is effective, the statement budget is the `queryTimeout`).
   **The per-connection cache (`infra/db/StatementTimeoutCache.kt`, `build-times.md` WHY 13).** r2dbc-postgresql answers each
   request with its own `SET STATEMENT_TIMEOUT` simple query that Exposed awaits — 43-49 % of all the round trips of a stub
   PROCESS or DERIVE. `connectPooledDatabase` therefore wraps the RAW connection factory (below the pool) in
@@ -380,6 +381,14 @@ place:
 
 The "is this team there and active" check every one of those reads runs is ONE function, `teams/TeamActive.kt` `Teams.requireActive(teamId) { failure }` (the caller picks
 the status: `Teams.requireActiveOrNotFound` for a path team, a `400` for the reports' `teamId` filter); the row-locking twin is `lockActiveForWrite`.
+- `ingest/SyncStatusRoutes.kt` (the ADMIN status view) READS `gitlab/GitLabRawStore.counts(connectionId)` (V41-V43: row COUNTS of `raw.gitlab_projects` /
+  `raw.gitlab_users` / `raw.gitlab_commits` by their markers - live, merge, tombstoned, files pending - and the merge-request counts (`mrCounts` over `raw.gitlab_merge_requests` / `raw.gitlab_mr_events`): live, merged, events, details pending (the stream's own backlog predicate), diff stats missing, deleted (tombstoned by a reconcile) and details unread (live, of a live project, any `details_error`) - never a payload, a commit's title, author or path, or a merge request's title, branch or username) for a GITLAB connection, through the store published as `GitLabRawStoreKey` (absent when GitLab is off
+  in the process: `counts.gitlab` is then null). `gitlab/GitLabConnector` WRITES `raw.gitlab_*`, its `sync_cursors` rows (the streams' own and `code_process`, whose three fingerprints are the configuration the norm rows were computed under), `norm.code_*` (V44) ONLY through `CodeActivityStore` (PROCESS's replace and PURGE's drains, never a route) and `source_connections.profile` through `DataSourceService.updateProfile` (the PROFILE stream, like Jira's); it READS
+  the connection through `DataSourceService.readGitLabForSync` (the decrypted token and the EFFECTIVE path exclusions, for the connector alone) and the code layer's aggregates through `CodeActivityStore` for the profile. `CodeActivityStoreKey` is published even when GitLab is off, so `identities/` can read `norm.code_*` through the store.
+- `identities/` READS `norm.code_identities` and the `norm.people` email matches through `CodeActivityStore` (`identityRows`, `identityRow`, `identityKeysOf` for the orphan rule across the host's sources, `proposalMatches`), `WorkItemStore.displayNames` (`norm.people` of ACTIVE connections) for the PUT's account check and the linked names, `source_connections` through `DataSourceService.read` (the path's data source) and `DataSourceService.list` (the other active sources on the same host); WRITES only `public.code_identity_links` (its own table).
+- **Issue-key reads (V46, "Merge request issue keys (V46)"; the first reader is Report 21's drill, 1.46.0 - `reports/IssueKeyScope.kt` and `CodeActivityDrillLabels.kt`: the candidates of the LISTED merge requests, the Jira sources' configured project keys through `DataSourceService.activeJiraProjectKeys` - the Jira twin of `activeGitLabBaseUrls`, also read by the `keys:` stamp line - and the `issuekey` change rows; `norm.work_items` by key is read by the task-side report, Report 22, 1.47.0 - `reports/TaskCodeReads.kt`: the done tasks' keys, old and current, are resolved to live issues across every active Jira source (also the `issuekey` rows, by text) and their link rows join `code_merge_requests` for state, `merged_at` and the tombstone, charged to `CodeRowBudget`; the merge requests are never scanned):** `reports/` MAY READ `norm.code_mr_issue_keys` (joined to the LIVE rows of `norm.code_merge_requests`), `norm.work_items` BY `issue_key` (`idx_norm_work_items_issue_key`) and the `norm.work_item_field_changes` rows with `field_id = 'issuekey'` (`from_text` / `to_text`: the old keys of a moved issue), read-only, with raw SQL over the Exposed table objects like Report 21; it never writes them. `gitlab/GitLabConnector` WRITES `norm.code_mr_issue_keys` only through `CodeActivityStore` (PROCESS's replace, PURGE's drain). Besides the owner's own facade (the GitLab PROFILE's candidate counts, `CodeActivityStore.mergeRequestFigures`), only `reports/` reads the table, and no code path reads a Jira table from the GitLab side (`norm` references neither connector).
+- **Report 21 (A50, built 1.39.0; `reports.md` "Report 21"):** `reports/CodeActivity*.kt` READ `norm.code_commits`, `norm.code_merge_requests`, `norm.code_mr_events` (and `code_projects` for the drill labels: the drill, 1.41.0, reads `path_with_namespace`, the merge request's `iid`/`title` and the commit's `title` for the LISTED rows only, `CodeActivityDrillLabels.kt`) with raw SQL over the Exposed table objects of `norm/CodeActivityStore.kt` (read-only, no new store method; `reports/` may import `norm/`, never the reverse), the identity links ONLY through `IdentityResolver` (`accountsByKey`, `keysByAccount`, and a new `decidedKeys` for the BOT/IGNORED actors: `reports/` never touches `CodeIdentityLinkStore` or the table), `source_connections` through `DataSourceService.activeGitLabBaseUrls` (the hosts), and the dated memberships from `TeamMembershipService.TeamMembership` (read-only, the `readPeopleMemberships` precedent, then `teamAt`). It writes nothing and adds no table, index or migration (the performance run, `build-times.md` WHY 61, found no statement that needs one: no `merged_at` or other time index). `CodeActivityStamp.kt` READS `source_connections` (GITLAB rows), their `sync_jobs` and `public.code_identity_links` (count and newest `decided_at` per host) for the stamp lines, and `CodeActivityReport.kt` the stored data profile (`DataSourceService.readProfile`) for `sources[]`; `PackageBoundaryTest` carries the rule that `identities/` is referenced only by `reports/` (the routes are wired from `application.yaml`, so the composition root names it nowhere).
+
 List each new cross-feature read/write here as it lands — the list IS the permission.
 
 ### Schemas
@@ -399,7 +408,8 @@ amendment over the architect's original all-`public`-with-prefixes recommendatio
   — the RECONCILE stream's own scratch table. A future GitLab connector adds `raw.gitlab_*`
   alongside these rather than inventing a fourth schema.
 - **`norm`** — the neutral, source-agnostic layer every connector normalizes into (`work_items`,
-  `sprints`, `boards`, …) — landed at V13 (plan commit 8a, "The normalized layer (V13)" below).
+  `sprints`, `boards`, …) — landed at V13 (plan commit 8a, "The normalized layer (V13)" below); the code layer's
+  `code_projects`, `code_identities`, `code_commits`, `code_merge_requests` and `code_mr_events` joined it at V44 ("The normalized code layer (V44)" below), `code_mr_issue_keys` at V46 ("Merge request issue keys (V46)").
 - **`metrics`** — the metrics layer's own schema: configuration lands first (V15, v0.3.0 M1 commit
   3, "The `metrics` schema — configuration (V15)" below); the derived star (dimensions/bridges/
   facts/daily aggregates) lands at V16, v0.3.0 M3 commit 7 ("The `metrics` schema — the derived
@@ -585,6 +595,20 @@ work item's rows into, one issue at a time, keyed the same way `raw.jira_issues`
 `jira/JiraNormalizer.kt` is the Jira-specific parser that feeds it; `jira/JiraProcessStream.kt` is
 the PROCESS stream that drives the write. See `.claude/docs/ingestion.md` "Normalized layer" for
 the tiling invariants and stream mechanics — this section is the schema/persistence side only.
+
+**Planner statistics of `norm` (maintenance, build-times WHY 60).** `norm.*` is filled by PROCESS in many small committed page
+transactions, and nothing else maintains its statistics except autovacuum, which analyzes a table only after ~10 % of it changed and
+its naptime passed: a DERIVE that starts right behind a second connection's PROCESS plans that connection's rows from statistics that
+describe the first alone. So a PROCESS that wrote rows into the tables DERIVE joins ends with a bounded `ANALYZE` in its own
+short transaction when ANY of: a table was never analyzed (`reltuples < 0`); the tables' summed `pg_stat_user_tables.n_mod_since_analyze`
+is at least 10 % of their `pg_class.reltuples` sum (accumulating many small SYNCs and a failed attempt's committed rows); this connection
+is absent from `connection_id`'s `pg_stats.most_common_vals` on the first table (a tiny connection the sample misses pays about 0.35 s
+per SYNC, accepted) - `norm/NormAnalyze.kt` `analyzeIfMaterial`, which `check`s that no transaction is open so its `SET LOCAL` cannot
+leak into one; `SET LOCAL lock_timeout = 5000` plus a 30 s `queryTimeout`, never a `SET LOCAL statement_timeout`; a failure is
+one WARN with the SQLSTATE when there is one, and the job succeeds). Jira: `work_items`, `work_item_worklogs`, `work_item_field_intervals`; GitLab: `code_commits`,
+`code_merge_requests`, `code_mr_events`. The other `norm` tables are left to autovacuum (no statement DERIVE or the
+PROFILE runs over them plans badly on a stale estimate, or they are small and rebuilt wholesale). A new table that a DERIVE or PROFILE statement joins by `connection_id` goes into
+the matching list (`NORM_WORK_ITEM_ANALYZED_TABLES` / `NORM_CODE_ANALYZED_TABLES`); the `metrics` side is `MetricsAnalyzer`.
 
 - **`norm.work_items`** — PK `(connection_id, issue_id)`. Every column is the CURRENT snapshot
   only — history lives in the interval/change tables below, never here. `status_category` is one
@@ -895,7 +919,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V39`:
+Current migrations are `V1`–`V43`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -1072,6 +1096,16 @@ Current migrations are `V1`–`V39`:
   `clearReconcilePause`), under the connection row's `FOR NO KEY UPDATE`; the scheduler's RECONCILE scan (not SYNC's) filters on
   `reconcile_paused_at IS NULL`. `MigrationChecksumTest` pins it.
 - `V39__history_horizon_months` - see "History horizon (V39)" below: `metrics.settings.history_horizon_months`.
+- `V40__source_connection_kind_gitlab` - the GitLab connector kind (`.claude/docs/gitlab-integration.md` "The connector seam"):
+  `source_connections.kind`'s CHECK widened from `('JIRA_CLOUD')` to `('JIRA_CLOUD', 'GITLAB')`. V8 declared it inline and unnamed, so
+  PostgreSQL named it **`source_connections_kind_check`** (confirmed on the Testcontainers DB; `ConnectorSeamTest` reads it back from
+  `pg_constraint`); V40 drops and re-adds it under that name (V16's constraint-swap pattern for `sync_jobs.kind`). **Schema-only**: no
+  row is rewritten (every existing row is `JIRA_CLOUD` and satisfies the wider check), no new column, and nothing creates a `GITLAB` row
+  before the GitLab data-source release, so an old pod never reads one. `MigrationChecksumTest` pins it. No cross-feature read or write
+  is added: the list above is unchanged.
+- `V41__gitlab_raw_store` - see "The GitLab raw store (V41)" below: `raw.gitlab_projects` and `raw.gitlab_users`.
+- `V42__gitlab_commits_raw_store` - see "The GitLab commits raw store (V42)" below: `raw.gitlab_commits` and `raw.gitlab_commit_files`, and `raw.gitlab_projects.commits_head_sha` widened to `VARCHAR(64)`.
+- `V43__gitlab_merge_requests_raw_store` - see "The GitLab merge-request raw store (V43)" below: `raw.gitlab_merge_requests` and `raw.gitlab_mr_events`.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
@@ -1261,6 +1295,219 @@ the column default 24 means an existing deployment wakes up at 24 months. The re
 - **This release stores and edits the setting only**; the reports' read-time clamp and the data-source backfill floor follow.
 - Purely additive (an old pod ignores the column). `MigrationChecksumTest` gains V39's pin.
 
+### The GitLab raw store (V41)
+
+`V41__gitlab_raw_store.sql` adds the GitLab connector's two raw tables in the `raw` schema (`gitlab/GitLabRawStore.kt` and its collaborators;
+the design is `gitlab-integration.md` "Schema"). Both are keyed `(connection_id → public.source_connections, <id>)`, store a SLIM `payload JSONB`
+(a projection, never the whole document: `gitlab/GitLabSlim.kt`) canonicalized by `canonicalJson` and hashed with `sha256Hex` like `raw.jira_*`, and
+carry `first_seen_at` / `last_seen_at` / `changed_at` epoch millis.
+
+- **`raw.gitlab_projects`**: `project_id`, `path_with_namespace` (≤1024), `group_path` / `group_id` (the CONFIGURED group the project was listed
+  under, not its own subgroup), `default_branch`, `archived`, `moved_out_at` (not seen under any configured group in a COMPLETED pass; cleared when
+  seen again), `deleted_at` (set by RECONCILE on a `GET /projects/:id` 404 of a moved-out project; `archived` is set true by RECONCILE on a 200 that says so; neither write touches the payload or hash, so the next listing resurrects the project through `changeProject`) and the COMMITS stream's `commits_head_sha` (CHAR(40) in V41, widened to
+  VARCHAR(64) by V42) / `relist_requested` (PR 7; null/false until then).
+- **`raw.gitlab_users`**: `user_id`, `username`, `name`, `state`, `bot`, `emails JSONB` (the sorted, distinct, lowercased union of the user's
+  `email`/`commit_email`/`public_email` and the confirmed secondary emails - also inside the payload, so ONE hash covers both), `deleted_at` (not seen
+  in a completed `/users` pass).
+- **The diff rule is the Jira one**, lifted: `ingest/RawUpsertOutcome.kt`'s `classifyUpsert` (no stored row inserts, the same hash on a live row is
+  unchanged, a tombstoned row seen again is resurrected, any other difference is a change). `GitLabRawWrites` loads a 100-row page with ONE
+  `SELECT ... IN (...) FOR UPDATE` (keys sorted), inserts new rows in one multi-row `INSERT`, touches unchanged live rows with one `UPDATE ... last_seen_at`, and
+  rewrites a changed or tombstoned row (payload, hash, `changed_at`, markers cleared). The sweeps (`markProjectsMovedOutNotSeenSince`,
+  `markUsersDeletedNotSeenSince`) tombstone live rows with `last_seen_at` older than the pass start.
+- **PURGE**: `GitLabRawPurge` deletes 500-row batches of each table per connection (`GitLabRawStore.purgeAll`, the connector's `PurgeStep`).
+- Indexes `(connection_id, last_seen_at)` on both tables serve the sweeps and the users-freshness read (`oldestLiveUserSeenAt`). The telemetry size
+  estimate picks both tables up by their `connection_id` column automatically. Purely additive: an old pod never reads them.
+  `MigrationChecksumTest` pins it.
+
+### The GitLab commits raw store (V42)
+
+`V42__gitlab_commits_raw_store.sql` (`gitlab/GitLabCommitWrites.kt`, `GitLabCommitFileWrites.kt`, `GitLabCommitReads.kt`, the tables on `GitLabRawStore`;
+design `gitlab-integration.md` "Streams") adds the default-branch commits of the live projects and the per-file line counts of each non-merge commit.
+Privacy: no message body, committer, diff text or payload is stored - a commit's `title` (GitLab's first line, ≤255), author name/email (≤255, as sent;
+canonicalised later), `authored_at`/`committed_at`, `parent_count`, `additions`/`deletions` from `stats`, and per file only the path, its lines and flags.
+
+- **`raw.gitlab_commits`**: PK `(connection_id, project_id, sha)`, `sha VARCHAR(64)` (SHA-1 or SHA-256 repositories). **No payload and no hash**: a commit is
+  immutable by SHA, so a re-listing only touches `last_seen_at` (`UNCHANGED`) and clears a tombstone (`RESURRECTED`, which sets `needs_processing` again
+  and resets a `files_error = 'NOT_FOUND'` stamp - `files_fetched_at`/`files_error` back to NULL, since NOT_FOUND meant "gone" and seeing the commit
+  again disproves it, so it re-enters the files backlog; its stored files and a `LIMIT_EXCEEDED` stamp stay); there is no `CHANGED` outcome. No FK to
+  `raw.gitlab_projects` (as `raw.jira_issues` has none to its project). The page's key load is `SELECT ... FOR NO KEY UPDATE` (keys sorted), never
+  `FOR UPDATE`: the key never changes and `raw.gitlab_commit_files` references these rows ("Row locks vs. FK locks").
+- **The files-backlog states** (one column set, three states): `files_fetched_at` NULL = the `/diff` has not been read (the COMMIT FILES backlog; a merge
+  commit, `parent_count > 1`, and a tombstoned one never enter it); set with `files_error` NULL = the file rows are complete (`files_changed` = the rows
+  stored, `files_capped` = the 1,000-file cap cut them, in which case `files_changed` is 1,000 and PR 10 reads the flag, never a total); set with
+  `files_error` (`LIMIT_EXCEEDED`: a diff page over `gitlab.maxResponseBytes`; `NOT_FOUND`: the commit is gone) = terminal, `files_changed` stays NULL and
+  the commit's `stats` are all PROCESS has. `idx_raw_gitlab_commits_files_backlog` is the partial index of exactly the pending predicate, newest first.
+- **`raw.gitlab_commit_files`**: PK `(connection_id, project_id, sha, path)`, `path` = GitLab's `new_path`, `old_path` for a rename only. **Both are cut
+  by characters AND bytes** (`cutPath`, after the NUL replacement): at most 1,024 characters (the `VARCHAR(1024)` width) and at most 2,000 UTF-8 bytes,
+  on a code-point boundary. The byte cap is what keeps the PK B-tree entry (connection 4 + project 8 + sha ≤64 + path ≤2,000, plus headers) under the
+  ~2,704-byte limit, so no flush can fail on a long CJK path; 1,024 characters alone can reach 4,096 bytes. `files_changed` is the number of distinct
+  paths AFTER the cut (the flush collapses the outcome's files by cut path, the first wins), so two long paths sharing the cut prefix are ONE row and
+  ONE in the count, always equal to the rows stored.
+  `additions`/`deletions` NULL when GitLab sent the file `too_large` or `collapsed` (a binary file counts 0/0), the new/deleted/renamed flags and
+  `generated_file` (GitLab's own `linguist-generated` detection, free at fetch time and not recoverable at PROCESS without a refetch). The composite FK to
+  `raw.gitlab_commits` is `ON DELETE CASCADE`; the `connection_id` column alone has no FK, the commit's already pins it. A flush
+  (`flushCommitFiles`) inserts the files `ON CONFLICT DO NOTHING` and stamps their commits in ONE transaction, so a commit is never stamped without its files.
+- **The tombstone sweep** (`tombstoneCommitsNotSeenSince`): at the end of a force-push re-list, the project's live commits with `committed_at >= since`
+  (the oldest live commit when the re-list began, NOT the moving backfill floor) and `last_seen_at < passStartedAt` get `deleted_at = now` and
+  `needs_processing = true`. A tombstone deletes nothing: the files stay until PURGE. RECONCILE sets `deleted_at` the same way: its `reconcile_commits` re-list runs the same sweep.
+- **`needs_processing` / `processed_at` / `processing_version`** are the code-layer PROCESS's (`GitLabRawProcessStore` claims and marks them, V44), the `raw.jira_issues` shape; a files flush and a tombstone set
+  `needs_processing` again. `idx_raw_gitlab_commits_needs_processing` serves its claim scan; `idx_raw_gitlab_commits_project_live` the per-project reads
+  (`oldestLiveCommittedAt`, the sweep).
+- **`raw.gitlab_projects.commits_head_sha`** is widened from `CHAR(40)` (V41, never written before this migration) to `VARCHAR(64)`: a SHA-256
+  repository would otherwise truncate the head silently. `recordCommitsHead` writes the head and the `relist_requested` flag in one `UPDATE`.
+- **`raw.gitlab_projects.relist_started_at`** (BIGINT, added by V42 as well, the table's epoch-millis convention) is the **re-list epoch**: `beginRelist` sets it when a
+  RELIST begins (kept if already set, so a re-list that spans runs has ONE epoch) and `finishRelist` / `recordCommitsHead(..., relistRequested = false)` clear it. The sweep's
+  candidates are the live commits not seen since it (`last_seen_at < relist_started_at`), so a candidate the sweep keeps (touched) never re-qualifies within the same re-list.
+  The files backlog (`FILES_BACKLOG`) also requires an `EXISTS` live project on `raw.gitlab_projects`' primary key (`moved_out_at`/`deleted_at` null).
+- **PURGE**: `GitLabRawPurge.purgeCommitsBatch` deletes batches of 25 COMMITS per connection (`GITLAB_PURGE_COMMITS_BATCH_SIZE`; a delete per project, so a
+  SHA shared by two projects - a fork - stays exact) and the files go through the cascade. The batch counts commits, not rows, and each commit cascades up
+  to 1,000 file rows (the files cap), so 25 bounds one statement to 25,000 cascaded rows where the 500 of the other tables would be up to 500,000; `GitLabRawStore.purgeAll` drains commits, then users, then projects. The telemetry size
+  estimate picks both tables up by their `connection_id` column. Purely additive but for the widened column: an old pod never reads them.
+  `MigrationChecksumTest` pins it.
+
+### The GitLab merge-request raw store (V43)
+
+`V43__gitlab_merge_requests_raw_store.sql` (`gitlab/GitLabMrWrites.kt`, `GitLabMrReads.kt`, `GitLabMrModels.kt`, the tables on `GitLabRawStore`; design
+`gitlab-integration.md` "Streams") adds the merge requests of the configured groups' projects and their review activity. Privacy (decision 9, pinned by
+`GitLabMrStoreTest` against `information_schema.columns`): the MR `title` (≤255), the two branch names (≤255), ids, times, states, counts and a slim
+`payload`; never a description, a label, a URL, a name, an avatar, a pipeline or merge status, or the BODY of any note.
+
+- **`raw.gitlab_merge_requests`**: PK `(connection_id, mr_id)` (GitLab's global id); unique `(connection_id, project_id, iid)` (the GraphQL answer and
+  RECONCILE's per-project re-list read by iid). A merge request is MUTABLE, so it is hashed like `raw.gitlab_projects`: `payload` (the slim projection) is
+  canonicalized and sha256'd, `diffPage` (`GitLabRawDiff.kt`, the ONE page rule of every hashed GitLab table) decides `INSERTED / UNCHANGED / CHANGED /
+  RESURRECTED`, and a change sets `changed_at` and `needs_processing` and clears a `NOT_FOUND` or `FETCH_FAILED` `details_error` (seeing it again disproves "gone" and it is read afresh). The
+  queryable columns duplicate the payload (`state`, `draft`, authors, times, branches, `title`, the three SHAs - stored only when a full 40/64-hex id -,
+  `reviewer_ids` / `assignee_ids` as sorted distinct JSON arrays, `user_notes_count`). The page's key load is `SELECT ... FOR NO KEY UPDATE` (keys sorted),
+  never `FOR UPDATE`: the key never changes and `raw.gitlab_mr_events` is inserted into by the details transactions ("Row locks vs. FK locks").
+  No FK to `raw.gitlab_projects` (as `raw.gitlab_commits`, and `raw.jira_issues` to its project): the stream skips a merge request of an unstored
+  project, and a project that moved out or was deleted keeps its merge requests. A change does not rewrite `project_id` / `iid` (a merge request never moves).
+- **The stale-details rule** (one stamp for everything the details stream reads): `details_synced_at IS NULL OR details_synced_at < changed_at`, on a live
+  merge request of a live project (`MR_DETAILS_BACKLOG`, the `FILES_BACKLOG` shape), newest `updated_at` first. The partial index
+  `idx_raw_gitlab_mrs_details_backlog` has exactly that predicate; it contains no constant and the query renders no bind parameter for it (a
+  parameter in a partial-index predicate defeats a cached generic plan, the V42 lesson; `GitLabMrStoreTest` pins the rendered SQL). The ONE write
+  of a details read is `settleMrDetails` (events AND stamp in one transaction, the row locked `FOR NO KEY UPDATE` first, which also keeps a PURGE from
+  deleting it mid-write): a complete read REPLACES the events, writes `notes_capped` and `additions` / `deletions` / `file_count` (GraphQL's
+  `diffStatsSummary`; null = a gap, never a job failure) and clears `details_error`; a terminal error (`NOT_FOUND`: the notes answered 404;
+  `LIMIT_EXCEEDED`: a page over the response ceiling; `FETCH_FAILED`: a read that kept failing `UPSTREAM_UNAVAILABLE`/`INVALID_RESPONSE`) writes NO events and leaves events, stats and cap as they were (the method refuses events
+  with an error). The stamp is `details_synced_at = GREATEST(now, changed_at)`: a clock that did not pass the change (the same millisecond, or a worker
+  clock behind the writer's) still leaves the backlog instead of re-selecting the row forever; a change made in the very millisecond of the stamp is
+  not told apart (accepted). `mrDiffStatsMissing` counts the gaps of SETTLED rows only (`details_synced_at >= changed_at`): a changed row is pending, not a
+  gap. The outcome type (`MrDetailsOutcome`) refuses the either/or violation.
+- **The upsert never tombstones.** `deleted_at` is written by RECONCILE only, on a per-MR 404 confirmed by the project answering 200 before and after; a
+  listing that omits a row (it is filtered by `updated_after`) and a notes 404 are no evidence. `retryMrDetails` (un-stamps a bounded set of `details_error` rows) and `writeMrDiffStats` (fills `additions`/`deletions`/`file_count`, stamp untouched) are RECONCILE's other two writes; all three are guarded on what they set, so a repeated pass is a no-op.
+- **`raw.gitlab_mr_events`**: PK `(connection_id, mr_id, source, source_id)`, composite FK to the merge request `ON DELETE CASCADE`. `source` is `NOTE`
+  (`source_id` = the note id), `APPROVAL` (the legacy `/approvals` object, `source_id` = the approver's user id, `event_at` NULL - the endpoint has no
+  time) or `REVIEWER` (`/reviewers`, `action` = the state). A note is reduced to an action code (`COMMENT`, `DIFF_COMMENT`, `APPROVAL`, `UNAPPROVAL`,
+  `CHANGES_REQUESTED`, `REVIEW_REQUESTED`, `REVIEW_REQUEST_REMOVED`, `COMMITS_ADDED`, `MERGED`, `CLOSED`, `REOPENED`, `DRAFT`, `READY`, `OTHER_SYSTEM`);
+  `targets` (JSONB, ≤20 usernames of ≤255 characters) is kept for the two review-request actions of a NOTE only (`RawGitLabMrEvent` refuses it
+  elsewhere) - the only record of WHO was asked and WHEN. The set is REPLACED on every complete details read (`settleMrDetails`: delete the merge request's
+  rows, insert the fresh set `ON CONFLICT DO NOTHING`, in the transaction of the stamp; `project_id` is the merge request row's own), so no PK holds upstream
+  text: `source` is a fixed code. `targets` are cut to their width first, then empties dropped and the rest made distinct.
+- **Text cut** (`GitLabText.kt`'s `cutText`, which `cutPath` now uses): NUL replaced, then cut by code points (never half a surrogate pair, which
+  `String.take` leaves) to the column width; a byte cap exists for a column inside a B-tree key and defaults to none.
+- **The group id of a configured path** (`configuredGroupIds`, the MERGE REQUESTS listing's `/groups/:id`) is read from the LIVE stored projects only (not moved
+  out, not deleted): a path whose group was deleted and re-created carries two ids across the rows, and the one on the most recently seen live row wins
+  (ties: the greater id). A path with no live project is absent and lists nothing.
+- **PURGE**: `GitLabRawPurge.purgeMergeRequestsBatch` deletes batches of 20 MERGE REQUESTS (`GITLAB_PURGE_MRS_BATCH_SIZE`); the batch counts merge requests,
+  not rows, and each cascades up to 1,000 notes plus its approvers and reviewers (~1,100 rows), so 20 bounds one statement to ~22,000 cascaded rows
+  (the commits' budget, ~25,000; 500 would be ~550,000). `GitLabRawStore.purgeAll` drains commits, merge requests, users, then projects.
+- `needs_processing` / `processed_at` / `processing_version` are the code-layer PROCESS's (`GitLabRawProcessStore` claims and marks them, V44); `idx_raw_gitlab_mrs_needs_processing` serves its claim scan (a
+  query on it must not bind the boolean as a parameter). The telemetry size estimate picks both tables up by their `connection_id` column. Purely
+  additive: an old pod never reads them. `MigrationChecksumTest` pins it.
+
+### The normalized code layer (V44)
+
+`V44__norm_code_layer.sql` (`norm/CodeActivityStore.kt` - the five Exposed tables, the row shapes and the ONE facade `CodeActivityStoreKey`, delegating to
+`CodeActivityWriter.kt` (the PROCESS write path), `CodeActivityReads.kt` (the profile aggregates and the row readers tests use) and `CodeActivityPurge.kt`;
+`norm/CodeNormalization.kt` the codes and `CODE_PROCESSING_VERSION`; design `gitlab-integration.md` "PROCESS / PROFILE") adds the connector-agnostic facts
+GitLab's PROCESS rebuilds from `raw.gitlab_*`. The `WorkItemStore` idiom (V13) throughout: every table carries `connection_id REFERENCES
+public.source_connections(id)`, times are epoch-millis `BIGINT`, the codes (identity kind, event kind, details state) are Kotlin-enum-whitelisted and not
+CHECK-constrained, and there is NO foreign key between two `norm` tables (a REPLACE deletes the children explicitly). Privacy (decision 9): no code, diff,
+description or note body, and no key holds an email (decision 10).
+
+- **`norm.code_projects`**: PK `(connection_id, project_id)`; path, group path, default branch, `archived`, and the `moved_out_at` / `deleted_at` markers
+  mirrored from `raw.gitlab_projects`. **`norm.code_identities`**: PK `(connection_id, identity_key)`; the key is `u<GitLab user id>` (`kind` USER) or
+  `e<first 32 hex of sha256(canonical email)>` (`kind` EMAIL, a commit author matching no GitLab user); `emails` (JSONB) keeps what `raw.gitlab_users` holds
+  (USER) or the one canonical address (EMAIL), purged with the connection. A USER with a null `username` is a ghost (an id a fact names that has no users row).
+  Both are REFERENCE rows, rebuilt WHOLESALE per connection on every PROCESS run (`replaceProjects` / `replaceIdentities`: delete the connection's rows,
+  `insertRows` the current set), like `norm.statuses` / `norm.people`.
+- **`norm.code_commits`**: PK `(connection_id, project_id, sha)` = the raw PK; `identity_key` the resolved author; `is_merge`; GitLab's own `additions` /
+  `deletions` / `files` beside the **`additions_counted` / `deletions_counted` / `files_counted`** figures (after the path exclusions); `files_capped`;
+  `deleted_at` mirrored; its own `processed_at` / `processing_version`. **A `_counted` null means UNKNOWN - files pending or terminally unavailable, a
+  merge commit (no diff is read), or (additions / deletions only) an included file with unknown lines while GitLab's stats are missing - or the commit is
+  `files_capped`, whose stats cover files that were never stored, so no remainder is credited - so `files_counted` is set but the counted lines are
+  null - never zero.** `idx_norm_code_commits_identity (connection_id, identity_key, committed_at) WHERE deleted_at IS NULL`.
+  **`norm.code_merge_requests`**: PK `(connection_id, mr_id)`, unique `idx_norm_code_mrs_project_iid (connection_id, project_id, iid)` and `idx_norm_code_mrs_author (connection_id, author_key, created_at) WHERE deleted_at IS NULL` (no index on `reviewer_keys` / `assignee_keys`: a report that needs one adds it); author / merge-user keys,
+  `reviewer_keys` / `assignee_keys` (sorted JSONB arrays of `u<id>`), GitLab's diff stats (null = a gap; NOT exclusion-aware), `notes_capped`, and
+  `details_state` (`READ` / `PENDING` / `UNREADABLE`: whether the events are current - a report reads the state, never "no events"). **`norm.code_mr_events`**:
+  PK `(connection_id, mr_id, seq)` (no surrogate id; `seq` is the position in the CURRENT event set, renumbered on every PROCESS of the merge request - never reference an event by `(mr_id, seq)` across runs), `kind` (`COMMENT`, `DIFF_COMMENT`, `APPROVAL`, `REVIEW_REQUESTED`, `REVIEWED`, `CHANGES_REQUESTED`),
+  `actor_key`, `event_at` (null = the source carries no time), `target_keys` (JSONB, set only for REVIEW_REQUESTED, and NULL there too when every named username failed to resolve); `idx_norm_code_mr_events_actor
+  (connection_id, actor_key, event_at)`.
+- **Facts are flagged, not rebuilt.** A commit / merge request is written when its raw row is `needs_processing` (or its `processing_version` differs from
+  `CODE_PROCESSING_VERSION`): `replaceCommits` is ONE `upsertRows` on the raw PK writing every non-key column; `replaceMergeRequests` deletes the page's
+  events, `insertRows` the fresh set and `upsertRows` the rows. A tombstone is MIRRORED in `deleted_at`, never deleted. Every write joins the caller's
+  transaction (the PROCESS page transaction also holds the raw rows' marks). The fact writers skip empty input; the wholesale rebuilds (`replaceProjects`,
+  `replaceIdentities`) always delete first, so an empty list empties them.
+- **`CODE_PROCESSING_VERSION`** (`norm/CodeNormalization.kt`, `2` since V46) is separate from Jira's `PROCESSING_VERSION`: bump it on ANY change to the code layer's
+  rules, and every raw GitLab commit / merge request is claimed again on the next pass with no migration.
+- **PURGE**: `CodeActivityStore.purgeAll` (`norm/CodeActivityPurge.kt`) drains `code_mr_events` (batches of `NORM_PURGE_BATCH_SIZE` rows by their own
+  `(mr_id, seq)` key), `code_merge_requests`, `code_commits` (batches by key), then clears `code_identities` and `code_projects` outright. The telemetry size
+  estimate picks the tables up by their `connection_id` column. Purely additive: an old pod never reads them. `MigrationChecksumTest` pins it. (V46 adds a sixth table, `code_mr_issue_keys`, drained FIRST: "Merge request issue keys (V46)" below.)
+
+### Merge request issue keys (V46)
+
+`V46__norm_code_mr_issue_keys.sql` (`norm/CodeActivityStore.kt` `CodeMrIssueKeys`; the pure extractor `norm/IssueKeys.kt`; design `gitlab-integration.md` "Issue keys")
+adds `norm.code_mr_issue_keys` and one Jira-side index. Same idiom as V44: `connection_id INTEGER REFERENCES public.source_connections(id)` (no `ON DELETE`), `mr_id
+BIGINT`, and NO foreign key to `norm.code_merge_requests`.
+
+- **`norm.code_mr_issue_keys`**: PK `(connection_id, mr_id, issue_key)`; `issue_key VARCHAR(20)` the UPPERCASE key; `in_title` / `in_branch` say where the merge
+  request names it (a key in both is ONE row, both flags true; the target branch is never read). Every candidate the token rule admits is stored, with no
+  knowledge of which Jira projects exist (`UTF-8`, `SHA-256` and a `v2-3` slug included): the reports scope a candidate to the known project keys at read time.
+  `idx_norm_code_mr_issue_keys_key (connection_id, issue_key)` serves task -> merge requests. Merge requests only: commits are linked through their merge request.
+- **REPLACED per merge request** like the events: `replaceMergeRequests` deletes the page's rows `(connection_id, mr_id IN (...))`, `insertRows` the fresh set
+  and upserts the merge request rows, in the page transaction. A tombstoned merge request keeps its rows (the keys follow its title and branch; the reports read
+  the live merge requests by joining `code_merge_requests`), exactly as its events do.
+- **PURGE**: `purgeAll` drains `code_mr_issue_keys` FIRST (batches of `NORM_PURGE_BATCH_SIZE` rows by their own `(mr_id, issue_key)` key), then the events.
+- **`CODE_PROCESSING_VERSION` 2**: the bump re-claims every raw commit and merge request on the next PROCESS (no migration, no refetch), which fills the table.
+  The new table is not in `NORM_CODE_ANALYZED_TABLES` (the PROFILE's candidate count joins it to the live merge requests by its primary-key prefix `(connection_id, mr_id)`, an index probe whatever the estimate; no DERIVE statement reads it); a report that joins it at scale adds it there. **Rolling deploy:** a pre-1.45.0 worker's PURGE does not drain this table (nothing references it, so the purge still succeeds and leaves orphan key rows), so replace every worker before deleting a GitLab source.
+- **`idx_norm_work_items_issue_key (connection_id, issue_key)`** on `norm.work_items` (V13 had no index on `issue_key`; the primary key is `(connection_id,
+  issue_id)`): the key -> issue resolution. A plain `CREATE INDEX` (Flyway runs the migration in a transaction), built over the existing rows once.
+- Purely additive: an old pod never reads either. `MigrationChecksumTest` pins it.
+
+### Code identity links (V45)
+
+`V45__code_identity_links.sql` (`identities/CodeIdentityLinkStore.kt`; design `gitlab-integration.md` "Identity") adds `public.code_identity_links`: an ADMIN's
+decision about ONE GitLab identity of ONE instance. PK `(source_host, identity_key)`: `identity_key` (`VARCHAR(40)`) is the code layer's `u<id>` / `e<hash>` key
+(`norm.code_identities`, V44) and `source_host` (`VARCHAR(300)`) the instance's authority - the lowercase host, plus `:port` when the base URL names one
+(`sourceHostOf`, taken from the data source's canonical base URL). `decision` is `LINKED` / `IGNORED` / `BOT` (`CodeIdentityDecision`) and
+`jira_account_id` (`VARCHAR(100)`, `norm.people.account_id`'s width) is non-null **exactly when LINKED**, and never empty; `decided_by_user_id` (`NOT NULL`, every decision
+is made by an admin; `REFERENCES users(id)`, no `ON DELETE` rule: users are only ever soft-deleted, and an admin's departure must not unlink people) and `decided_at`
+(epoch-millis `BIGINT`) say who and when. Four CHECKs enforce the shapes in SQL, whatever writes the row: `ck_code_identity_links_decision` (the closed vocabulary),
+`ck_code_identity_links_key` (`identity_key ~ '^(u[0-9]{1,19}|e[0-9a-f]{32})$'`, what the code layer mints), `ck_code_identity_links_host` (`source_host <> ''` and
+`= lower(source_host)`, what `sourceHostOf` mints) and `ck_code_identity_links_account` (`(decision = 'LINKED') = (jira_account_id IS NOT NULL)` and a present account
+is non-empty: a LINKED row without an account, or an IGNORED / BOT row that still names one, is impossible). `idx_code_identity_links_account`
+(`(source_host, jira_account_id) WHERE decision = 'LINKED'`) serves the resolver's `keysByAccount`, which filters on exactly those three.
+There is no foreign key to `jira_account_id` (`norm.people` is per connection and rebuilt) - the service checks the account is known when it writes. **If a LINKED
+account later vanishes from Jira** the link stays and still resolves; the list shows it with no display name, and a re-PUT of the same account is accepted (the
+unknown-account check skips an account the stored link already names).
+
+- **Host-keyed, no connection column, undated.** `norm.code_identities` is rebuilt wholesale per PROCESS run and drained by PURGE, and a data source can be
+  deleted and created again for the same instance; a link points at the HOST, never at a row or a connection, so it **survives PURGE, a data-source
+  delete and a re-created source** and applies again as soon as the identity rows are back. No purge step is registered (`JobHandlerRegistry` untouched).
+  A decision whose identity no active data source on the host still has stays listed (as not seen) on the decided tabs of those sources and is removable there
+  (an orphan is per INSTANCE: a key another active source on the host still has belongs to that source's page and is not listed on this one); with no
+  active source on the host it waits, inert, until one is created. Proposals (an address matching a Jira person) are
+  computed at read time and never stored; only decisions are rows, and only a LINKED decision attributes anything.
+- **Readers and writers.** `identities/` only: `CodeIdentityLinkStore` is the single place that touches the table (`Links` is a query-only Exposed
+  definition; `decided_by_user_id` is a plain `long` column there because `identities/` never imports `flowusers/`). The routes' service and
+  `IdentityResolver` (the one entry point for the later reports) are its callers; nothing in `ingest/`, `norm/`, `jira/`, `gitlab/` references it. A row lock
+  on a link is a plain `FOR UPDATE`: nothing references this table, so no long transaction holds key-share locks on it ("Row locks vs. FK locks"). The store's
+  writes report what they wrote (`insertIfAbsent`/`update`: boolean; `insertIgnoringConflicts`: the keys inserted; `delete`: the row removed), and the PUT pattern is
+  `find(forUpdate = true)`, else `insertIfAbsent`, and on a lost race `find(forUpdate = true)` + `update`, all in ONE transaction (`CodeIdentityLinkStore.find`).
+- **Hard delete** (an exception listed in "Soft delete (convention)"): the deletable action is "this decision was wrong"; the audit trail carries who
+  decided and who removed what.
+- Purely additive: an old pod never reads it. `MigrationChecksumTest` pins it.
+
 ### Telemetry (V36)
 
 `ops.telemetry_processes` and `ops.telemetry_samples` (V36; `telemetry/TelemetryStore.kt`, `.claude/docs/observability.md` "Telemetry")
@@ -1283,6 +1530,7 @@ stays. The tests own the schema: `TelemetryStoreTest`/`TelemetrySamplerTest` emp
 `users` and `teams` are **soft-deleted** — rows are flagged, never physically removed; every
 business entity follows the same convention. Only join/token tables (today: `revoked_tokens`, a
 pure token registry, `password_reset_tokens` (V35, expiring single-use credentials, not history), `user_disabled_features`, a pure flag join whose PUT is a wholesale replace,
+`code_identity_links` (V45, "Code identity links (V45)": an admin's decision about one GitLab identity, undated and host-keyed; the deletable action is "this decision was wrong", the audit trail carries the removal - the `team_membership` justification below),
 `metrics.public_holidays` (V25, "Public holidays (V25)") and `metrics.team_membership` (V15, D1) — a pure DATED
 join: the deletable action is "this interval was entered by mistake", not "this person left" (which
 is already modeled by closing the interval — `validTo`), and a soft-delete flag would need a
@@ -1349,7 +1597,7 @@ NOT with `FOR KEY SHARE`, so DERIVE's FK locks never stall it. `lockActiveForWri
 expression indexes (`uq_teams_name_active`, `uq_source_connections_name_active`, `uq_users_email_active`), which PostgreSQL does
 not count as key columns — a rename is still a non-key update. Plain `FOR UPDATE` is for a row nothing references from a long
 transaction (`users` is referenced only by columns no long transaction inserts — `updated_by_*`, `teams.manager_user_id`,
-`user_disabled_features.user_id`, `sync_jobs.requested_by_user_id`, `password_reset_tokens.user_id` (short inserts only - `issue`):
+`user_disabled_features.user_id`, `sync_jobs.requested_by_user_id`, `password_reset_tokens.user_id` (short inserts only - `issue`), `code_identity_links.decided_by_user_id` (V45, one short insert or update per admin decision):
 `FlowUserService.lockedActiveAdminCount`;
 `raw.jira_*`, the `sync_jobs` rows), or for `SKIP LOCKED` claims. A new `FOR UPDATE` on an FK-referenced row needs that
 justification in a comment. `RowLockVersusDeriveTest` pins both halves: a writer completes while another transaction holds

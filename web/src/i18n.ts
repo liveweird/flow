@@ -12,6 +12,7 @@ import enAppShell from "./locales/en/appShell.json";
 import enAuth from "./locales/en/auth.json";
 import enCapacity from "./locales/en/capacity.json";
 import enChangelog from "./locales/en/changelog.json";
+import enCodeIdentities from "./locales/en/codeIdentities.json";
 import enDataSources from "./locales/en/dataSources.json";
 import enFlowUsers from "./locales/en/flowUsers.json";
 import enHome from "./locales/en/home.json";
@@ -61,6 +62,7 @@ export const en = {
   auth: enAuth,
   capacity: enCapacity,
   changelog: enChangelog,
+  codeIdentities: enCodeIdentities,
   dataSources: enDataSources,
   flowUsers: enFlowUsers,
   home: enHome,

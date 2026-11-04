@@ -18,7 +18,7 @@ import ch.nokillswit.jira.JiraIssuesStream
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraSearchPage
 import ch.nokillswit.jira.JiraSyncDependencies
-import ch.nokillswit.jira.backfillFromEpochMillis
+import ch.nokillswit.ingest.backfillFromEpochMillis
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope

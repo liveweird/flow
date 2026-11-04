@@ -1,0 +1,52 @@
+{
+  "priority": 6,
+  "request": {
+    "method": "GET",
+    "urlPath": "/api/v4/projects/1/repository/commits",
+    "queryParameters": {
+      "ref_name": {
+        "equalTo": "main"
+      },
+      "with_stats": {
+        "equalTo": "true"
+      },
+      "per_page": {
+        "equalTo": "100"
+      },
+      "page": {
+        "or": [
+          {
+            "absent": true
+          },
+          {
+            "equalTo": "1"
+          }
+        ]
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json",
+      "RateLimit-Limit": "2000",
+      "RateLimit-Observed": "10",
+      "RateLimit-Remaining": "1990",
+      "RateLimit-Reset": "1788220860",
+      "RateLimit-ResetTime": "Tue, 01 Sep 2026 00:01:00 GMT",
+      "X-Next-Page": "",
+      "X-Page": "1",
+      "X-Per-Page": "100",
+      "X-Prev-Page": "",
+      "X-Total": "90",
+      "X-Total-Pages": "1",
+      "Link": "<{{request.baseUrl}}/api/v4/projects/1/repository/commits?id=1&page=1&per_page=100&ref_name=main&with_stats=true>; rel=\"first\", <{{request.baseUrl}}/api/v4/projects/1/repository/commits?id=1&page=1&per_page=100&ref_name=main&with_stats=true>; rel=\"last\""
+    },
+    "bodyFileName": "p1-commits-started-page-1.json",
+    "transformers": [
+      "response-template"
+    ]
+  },
+  "scenarioName": "gitlab-day2",
+  "requiredScenarioState": "Started"
+}

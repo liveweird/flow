@@ -124,7 +124,7 @@ class DataSourceScopeTest {
         val problem = taken.assertScopeConflict("urn:flow:problem:data-source-project-overlap")
         assertEquals("/api/v1/data-sources/${a.id}", problem.instance)
         assertTrue(keyA in problem.detail!! && a.name in problem.detail!!, problem.detail)
-        assertEquals(listOf(keyB), admin.get("/api/v1/data-sources/${b.id}").body<DataSourceResponse>().jira.projectKeys, "unchanged")
+        assertEquals(listOf(keyB), admin.get("/api/v1/data-sources/${b.id}").body<DataSourceResponse>().jira!!.projectKeys, "unchanged")
 
         // Its own keys (and a new free one) never conflict with itself; a rename alone is as good.
         val self = admin.putJson("/api/v1/data-sources/${b.id}", request(unique("scope-renamed"), listOf(keyB, keyFree), token = null))
@@ -162,8 +162,10 @@ class DataSourceScopeTest {
             )
             assertTrue(createEvent.hasKeyValue("reason", "PROJECT_OVERLAP"))
             assertTrue(createEvent.hasKeyValue("conflictingDataSourceId", a.id.toLong()))
-            assertTrue(createEvent.hasKeyValue("siteHost", "flow-test.atlassian.net"))
+            assertTrue(createEvent.hasKeyValue("kind", "JIRA_CLOUD"))
+            assertTrue(createEvent.hasKeyValue("host", "flow-test.atlassian.net"))
             assertTrue(createEvent.hasKeyValue("projectKeys", listOf(shared)))
+            assertTrue(createEvent.hasKeyValue("groupPaths", emptyList<String>()), "a Jira rejection carries no group paths")
             assertTrue(createEvent.keyValuePairs.none { token in "${it.value}" }, "no audit field may carry the token")
 
             val update = admin.putJson("/api/v1/data-sources/${b.id}", request(b.name, listOf(shared), token = token))
@@ -221,8 +223,8 @@ class DataSourceScopeTest {
                 withTimeout(PERSIST_TIMEOUT_MS) { persist.await() }
             }
             val stored = assertNotNull(service.read(id))
-            assertEquals(listOf(kept), stored.jira.projectKeys, "the edit's keys survive; the removed key is not restored")
-            assertEquals("cloud-$id", stored.jira.cloudId)
+            assertEquals(listOf(kept), stored.jira!!.projectKeys, "the edit's keys survive; the removed key is not restored")
+            assertEquals("cloud-$id", stored.jira!!.cloudId)
         } finally {
             service.delete(id)
         }

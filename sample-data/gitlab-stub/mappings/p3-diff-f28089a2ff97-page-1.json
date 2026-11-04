@@ -1,0 +1,44 @@
+{
+  "priority": 6,
+  "request": {
+    "method": "GET",
+    "urlPath": "/api/v4/projects/3/repository/commits/f28089a2ff97499144e5357ca58b7ad0ca9c477a/diff",
+    "queryParameters": {
+      "per_page": {
+        "equalTo": "100"
+      },
+      "page": {
+        "or": [
+          {
+            "absent": true
+          },
+          {
+            "equalTo": "1"
+          }
+        ]
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json",
+      "RateLimit-Limit": "2000",
+      "RateLimit-Observed": "10",
+      "RateLimit-Remaining": "1990",
+      "RateLimit-Reset": "1788220860",
+      "RateLimit-ResetTime": "Tue, 01 Sep 2026 00:01:00 GMT",
+      "X-Next-Page": "",
+      "X-Page": "1",
+      "X-Per-Page": "100",
+      "X-Prev-Page": "",
+      "X-Total": "4",
+      "X-Total-Pages": "1",
+      "Link": "<{{request.baseUrl}}/api/v4/projects/3/repository/commits/f28089a2ff97499144e5357ca58b7ad0ca9c477a/diff?id=3&page=1&per_page=100&sha=f28089a2ff97499144e5357ca58b7ad0ca9c477a>; rel=\"first\", <{{request.baseUrl}}/api/v4/projects/3/repository/commits/f28089a2ff97499144e5357ca58b7ad0ca9c477a/diff?id=3&page=1&per_page=100&sha=f28089a2ff97499144e5357ca58b7ad0ca9c477a>; rel=\"last\""
+    },
+    "bodyFileName": "p3-diff-f28089a2ff97-page-1.json",
+    "transformers": [
+      "response-template"
+    ]
+  }
+}

@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.infra.json.canonicalJson
 import ch.nokillswit.infra.json.sha256Hex
 import ch.nokillswit.ingest.JiraAuthScheme
+import ch.nokillswit.ingest.RawUpsertOutcome
 import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.jira.HttpJiraClient
 import ch.nokillswit.jira.JiraChangelogStream
@@ -10,8 +11,7 @@ import ch.nokillswit.jira.JiraIssuesStream
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraWorklogStream
 import ch.nokillswit.jira.RawIssueInput
-import ch.nokillswit.jira.RawUpsertOutcome
-import ch.nokillswit.jira.backfillFromEpochMillis
+import ch.nokillswit.ingest.backfillFromEpochMillis
 import ch.nokillswit.jira.slimUserReference
 import ch.nokillswit.jira.slimUserReferences
 import ch.nokillswit.jira.trimmedHistoryCanonicalJson

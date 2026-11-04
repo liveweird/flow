@@ -1,16 +1,19 @@
 import type { UseQueryResult } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Alert, Drawer, Select, Stack, Text, VisuallyHidden } from "@mantine/core";
-import type { ReportDrillItems } from "../api/reportDrill";
+import type { ReportDrillItem, ReportDrillItems } from "../api/reportDrill";
 import { personLabel } from "../utils/commitmentsReport";
 import { drillItemColumns, type DrillAnchor, type DrillUnit } from "../utils/reportDrill";
 import { formatMd } from "../utils/reportFormat";
 import classes from "../theme.module.css";
+import CodeItemKey from "./CodeItemKey";
 import ColumnTable from "./ColumnTable";
+import type { CodeActivityReport } from "../api/reports";
 import ErrorAlert from "./ErrorAlert";
 import JiraKeyLink from "./JiraKeyLink";
 import LoadingBlock from "./LoadingBlock";
 import ScrollRegion from "./ScrollRegion";
+import TaskCodeItemKey from "./TaskCodeItemKey";
 
 /** A picked person of a stacked chart, as the drawer's person select lists them (numbered like the chart's legend). */
 interface DrillPerson {
@@ -64,6 +67,23 @@ export interface ReportDrillDrawerProps {
   onSegmentChange?: (accountId: string | undefined) => void;
   /** Whether the person select offers "Everyone". Compare people's lists are always one person's (the API requires the segment), so it does not. */
   allowEveryone?: boolean;
+  /**
+   * The list is Code activity's (commits and merge requests): its keys link to the GitLab of these report sources, a merge request's
+   * `linkedKeys` link to Jira beside it, and its people column is "Person".
+   */
+  codeSources?: CodeActivityReport["sources"];
+  /**
+   * The list is Tasks and code's (tasks): each task's Jira key links to Jira and its `linkedKeys` — the merge requests linked to it —
+   * link to the GitLab of these report sources. The people column stays "Assignee".
+   */
+  taskSources?: CodeActivityReport["sources"];
+}
+
+/** How the key cell of a row renders: Code activity's GitLab key with its Jira issues, Tasks and code's Jira key with its merge requests, else a Jira link. */
+function issueKeyRenderer(codeSources?: CodeActivityReport["sources"], taskSources?: CodeActivityReport["sources"]) {
+  if (codeSources !== undefined) return (item: ReportDrillItem) => <CodeItemKey item={item} sources={codeSources} />;
+  if (taskSources !== undefined) return (item: ReportDrillItem) => <TaskCodeItemKey item={item} sources={taskSources} />;
+  return (item: ReportDrillItem) => <JiraKeyLink issueKey={item.issueKey} />;
 }
 
 /**
@@ -92,6 +112,8 @@ export default function ReportDrillDrawer({
   segmentAccountId,
   onSegmentChange,
   allowEveryone = true,
+  codeSources,
+  taskSources,
 }: ReportDrillDrawerProps) {
   const { t } = useTranslation();
   const data = query.data;
@@ -163,7 +185,15 @@ export default function ReportDrillDrawer({
               <ScrollRegion label={t("reports.drill.tableAria")} minWidth={520} fill>
                 <ColumnTable
                   aria-label={t("reports.drill.tableAria")}
-                  columns={drillItemColumns(t, unit, anchor, timeZone, showKind, (item) => <JiraKeyLink issueKey={item.issueKey} />)}
+                  columns={drillItemColumns(
+                    t,
+                    unit,
+                    anchor,
+                    timeZone,
+                    showKind,
+                    issueKeyRenderer(codeSources, taskSources),
+                    codeSources !== undefined,
+                  )}
                   rows={data.items}
                   rowKey={(item, index) => `${item.issueKey}:${index}`}
                   stickyHeader

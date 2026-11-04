@@ -115,7 +115,7 @@ internal fun taskPredOf(current: HomeDoneWindowAgg, previous: HomeDoneWindowAgg,
     return HomePredLine(line { it.within10 }, line { it.within25 }, line { it.within50 })
 }
 
-/** The three task findings of section 7 (counts, never hidden). */
+/** The three task findings of section 8 (counts, never hidden). */
 internal class HomeTaskFindings(val noEstimate: HomeFigure, val unassigned: HomeFigure, val estimatedLate: HomeFigure)
 
 internal fun taskFindingsOf(current: HomeDoneWindowAgg, previous: HomeDoneWindowAgg, min: Int): HomeTaskFindings {

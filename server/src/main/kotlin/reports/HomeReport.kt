@@ -128,7 +128,7 @@ private suspend fun ReportService.readHomeRows(ctx: HomeContext, listed: Set<UIn
     )
 }
 
-private fun teamOf(ctx: HomeContext, team: HomeTeamRef, rows: HomeRows, sprint: HomeSprint?): HomeTeam {
+private fun teamOf(ctx: HomeContext, team: HomeTeamRef, rows: HomeRows, sprint: HomeSprint?, code: HomeCodeRead): HomeTeam {
     val windows = ctx.windows
     val done = rows.done.getValue(team.id)
     val epics = rows.epics.filter { it.ownerTeamId == team.id }
@@ -148,6 +148,7 @@ private fun teamOf(ctx: HomeContext, team: HomeTeamRef, rows: HomeRows, sprint: 
         wipTasks = wipOf(ctx, rows.openTasks, team.id),
         throughput = throughputOf(done, ctx.minSample),
         quality = qualityOf(ctx, done, rows.dqEpics.filter { it.owner == team.id }),
+        code = ctx.homeTeamCode(code, team.id),
     )
 }
 
@@ -177,6 +178,7 @@ suspend fun ReportService.home(nowMs: Long, teamIds: List<UInt> = emptyList()): 
     val listedIds = teams.map { it.id }.toSet()
     val activeIds = active.map { it.id }.toSet()
     val rows = readHomeRows(ctx, listedIds, activeIds)
+    val code = readHomeCode(ctx, listedIds)
     // Only the listed teams' last sprints are kept, so only their snapshots are read (the sprint rows themselves are a unit-wide read).
     val sprintRows = resolveSprintRows(ReportPeriod.LastSprints(1), ctx.connectionIds, null, ctx.filter.historyHorizon, ctx.calendar)
         .filter { it.teamId in listedIds }.associateBy { it.teamId }
@@ -191,12 +193,13 @@ suspend fun ReportService.home(nowMs: Long, teamIds: List<UInt> = emptyList()): 
         freshness = freshnessOf(ctx),
         teams = teams.map { team ->
             val sprint = sprintRows[team.id]?.let { homeSprintOf(it, snapshots[it.connectionId to it.sprintId]) }
-            teamOf(ctx, team, rows, sprint)
+            teamOf(ctx, team, rows, sprint, code)
         },
         unassigned = HomeUnassigned(
             doneTasks = rows.doneOfNoActiveTeam,
             openTasks = rows.openTasks.countOutside(activeIds),
             epics = rows.dqEpics.count { it.owner !in activeIds },
         ),
+        code = HomeCode(code.freshness, code.overBudget),
     )
 }

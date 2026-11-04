@@ -1,0 +1,33 @@
+{
+  "priority": 6,
+  "request": {
+    "method": "GET",
+    "urlPath": "/api/v4/projects/3/repository/merge_base",
+    "queryParameters": {
+      "refs[]": {
+        "includes": [
+          {
+            "equalTo": "51de782db4eae8b433d6a35f31dd5502a85c8daa"
+          },
+          {
+            "equalTo": "51de782db4eae8b433d6a35f31dd5502a85c8daa"
+          }
+        ]
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json",
+      "RateLimit-Limit": "2000",
+      "RateLimit-Observed": "10",
+      "RateLimit-Remaining": "1990",
+      "RateLimit-Reset": "1788220860",
+      "RateLimit-ResetTime": "Tue, 01 Sep 2026 00:01:00 GMT"
+    },
+    "bodyFileName": "p3-merge-base-started-tip-by-tip-started.json"
+  },
+  "scenarioName": "gitlab-day2",
+  "requiredScenarioState": "Started"
+}

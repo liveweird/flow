@@ -42,4 +42,20 @@ describe("loadErrorMessage", () => {
     expect(loadErrorMessage(timeout, t)).toBe(t("common.error.timeout"));
     expect(loadErrorMessage(new Error("net"), t)).toBe(t("common.error.network"));
   });
+
+  test("the code reads' two refusals get a sentence of their own, told by status and the problem's detail", () => {
+    const budget = new ApiError(400, {
+      status: 400,
+      detail: "The selection reads more than 100000 code rows (commits, merge requests and review events) - narrow the period or pick fewer people",
+    });
+    const busy = new ApiError(429, { status: 429, detail: "Too many code activity reports are being computed at once - retry in a moment" });
+    expect(loadErrorMessage(budget, t)).toBe("This selection is too large to read. Narrow the period or pick fewer people.");
+    expect(loadErrorMessage(busy, t)).toBe("The server is busy computing other reports. Retry in a moment.");
+    // Any other 400, and the per-user rate limit's 429 (a bare problem body), keep the generic mapping.
+    expect(loadErrorMessage(new ApiError(400, { status: 400, detail: "Unknown or inactive connectionId" }), t)).toBe("Load failed (400)");
+    expect(loadErrorMessage(new ApiError(400, null), t)).toBe("Load failed (400)");
+    expect(loadErrorMessage(new ApiError(429, { status: 429, detail: "Too many requests" }), t)).toBe("Too many requests. Wait a minute and try again.");
+    // The phrase alone is not enough: the status decides.
+    expect(loadErrorMessage(new ApiError(500, { status: 500, detail: "narrow the period or pick fewer people" }), t)).toBe("Load failed (500)");
+  });
 });

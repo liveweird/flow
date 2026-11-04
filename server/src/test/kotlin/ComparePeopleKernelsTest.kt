@@ -120,6 +120,30 @@ class ComparePeopleKernelsTest {
     }
 
     @Test
+    fun `the CODE rows - a size within a line is a tie, a smaller merge request is better, a volume names no side`() {
+        fun row(key: String) = COMPARE_ROWS.single { it.key == key }
+        val size = row("mrSizeLinesP50")
+        assertEquals(CompareDirection.LOWER, size.direction)
+        assertEquals(CompareUnit.LINES, size.unit)
+        assertNull(compareCells(size, cell(40.0, n = 5), cell(40.5, n = 5), min).better, "half a line is a tie")
+        val smaller = compareCells(size, cell(40.0, n = 5), cell(55.0, n = 5), min)
+        assertEquals(CompareSide.A, smaller.better)
+        assertEquals(15.0, smaller.margin)
+        assertNull(compareCells(size, cell(40.0, n = 4), cell(55.0, n = 5), min).better, "a p50 over fewer than the minimum is no cue")
+        val cycle = row("mrCycleWorkingDaysP50")
+        assertEquals(CompareDirection.LOWER, cycle.direction)
+        assertEquals(CompareSide.B, compareCells(cycle, cell(3.0, n = 5), cell(1.5, n = 5), min).better)
+        // The volumes are NEUTRAL context: the difference, never a side.
+        for (key in listOf("commits", "linesChanged", "mrsMerged", "reviewsGiven", "approvalsGiven", "comments")) {
+            assertEquals(CompareDirection.NEUTRAL, row(key).direction, key)
+            val verdict = compareCells(row(key), cell(2.0, n = 2), cell(90.0, n = 90), min)
+            assertNull(verdict.better, key)
+            assertEquals(88.0, verdict.difference, key)
+        }
+        assertTrue(COMPARE_ROWS.filter { it.group == CompareGroup.CODE }.none { it.requiresCapacity })
+    }
+
+    @Test
     fun `a pure count of items is not sample-gated - one against eight is a real difference`() {
         val items = spec(CompareDirection.LOWER, CompareUnit.ITEMS)
         val verdict = compareCells(items, cell(1.0, n = 1), cell(8.0, n = 8), min)
@@ -132,7 +156,11 @@ class ComparePeopleKernelsTest {
         for (unit in CompareUnit.entries.filter { it != CompareUnit.ITEMS }) {
             assertNull(compareCells(spec(CompareDirection.LOWER, unit), cell(1.0, n = 1), cell(8.0, n = 8), min).better, "$unit")
         }
-        assertTrue(COMPARE_ROWS.filter { !it.unit.sampleGated }.map { it.key }.toSet() == setOf("deliveredItems", "wipAtEndItems"))
+        // The pure item counts: the two delivery / WIP counts, and the NEUTRAL volumes of the CODE group (which no verdict reads anyway).
+        val counts = setOf("deliveredItems", "wipAtEndItems", "commits", "mrsMerged", "reviewsGiven", "approvalsGiven", "comments")
+        assertTrue(COMPARE_ROWS.filter { !it.unit.sampleGated }.map { it.key }.toSet() == counts)
+        val codeCounts = COMPARE_ROWS.filter { !it.unit.sampleGated && it.group == CompareGroup.CODE }
+        assertTrue(codeCounts.all { it.direction == CompareDirection.NEUTRAL })
     }
 
     @Test

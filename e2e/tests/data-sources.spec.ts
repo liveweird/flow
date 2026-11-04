@@ -2,9 +2,11 @@
 // reroutes every Jira call to the jira-stub service via JIRA_STUB_BASE_URL, so no real Jira
 // tenant is ever touched), test-connects it, syncs it end to end, and reads back what landed —
 // the sync-jobs history, the raw-store counts, the data profile and the raw issue inspector.
-// A regular user sees no trace of the surface at all. Owns: its throwaway data source (unique
-// `e2e-jira-*` name) — deleted at the end of its test (and by the afterEach below when a step fails first) — and, in the second test, a throwaway
-// user. The synced connection's raw/normalized rows are NOT purged by the delete (see
+// The 1.34.0 GitLab kind does the same against the gitlab-stub service (GITLAB_STUB_BASE_URL; the
+// only accepted base URL is the stub's own origin, http://gitlab-stub:8080) and reads back its
+// projects and users. A regular user sees no trace of the surface at all. Owns: its throwaway data
+// sources (unique `e2e-jira-*` / `e2e-gitlab-*` names) — deleted at the end of their test (and by
+// the afterEach below when a step fails first) — and, in the last test, a throwaway user. The synced connection's raw/normalized rows are NOT purged by the delete (see
 // scenarios/data-sources.md "Not covered here").
 import { createUserViaUi, deleteUserRow, deleteViaApi, expect, login, openFilters, REPORTS_EXCLUSIVE_LOCKS, rowOperation, signOut, test, uniqueText } from "./helpers";
 
@@ -112,6 +114,144 @@ test("admin connects the Jira stub, syncs it, and inspects the result", async ({
   await expect(page.getByText("Enter a valid issue key (e.g. ENG-123) or numeric id")).toBeVisible();
   await expect(keyInput).toBeEditable();
   await expect(page.getByRole("button", { name: "Look up" })).toBeEnabled();
+
+  // Delete from the list's row menu.
+  await page.goto("/data-sources");
+  await openFilters(page);
+  await page.getByLabel("Name", { exact: true }).fill(name);
+  await rowOperation(page, name, `Delete ${name}`);
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "DELETE" && /\/api\/v1\/data-sources\/\d+$/.test(r.url()) && r.ok()),
+    page.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click(),
+  ]);
+  await expect(page.getByRole("link", { name: `Open ${name}` })).toHaveCount(0);
+});
+
+test("admin connects the GitLab stub, syncs and reconciles it, and reads back its projects, users, commits and merge requests, and opens its data profile", async ({ page }) => {
+  test.setTimeout(300_000);
+  await login(page);
+  const name = uniqueText("e2e-gitlab");
+
+  // Create through the modal: pick the GitLab kind, then test the connection against the GitLab stub first.
+  await page.goto("/data-sources");
+  await page.getByRole("button", { name: "New data source" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Name").fill(name);
+  await dialog.getByRole("radiogroup", { name: "Kind" }).getByText("GitLab", { exact: true }).click();
+  // The Excluded paths field is prefilled with the server's built-in defaults (the `/kinds` read).
+  await expect(dialog.getByRole("combobox", { name: "Excluded paths" })).toBeVisible();
+  await expect(dialog.getByText("package-lock.json", { exact: true })).toBeVisible();
+  // The compose stack's GITLAB_STUB_BASE_URL makes the stub's exact origin the only accepted base URL.
+  await dialog.getByLabel("Base URL").fill("http://gitlab-stub:8080");
+  await dialog.getByLabel("Access token").fill("e2e-fake-token");
+  const groupPaths = dialog.getByRole("combobox", { name: "Group paths" });
+  for (const path of ["platform", "apps"]) {
+    await groupPaths.click();
+    await groupPaths.pressSequentially(path);
+    await groupPaths.press("Enter");
+  }
+
+  await dialog.getByRole("button", { name: "Test connection" }).click();
+  // Every REQUIRED probe row (version, user, token scopes, each group and its projects, users) is OK against the stub
+  // (the server's GitLabConnectorTest pins it); the optional user_admin / user_emails rows may vary. A GitLab result has no Cloud ID.
+  const requiredRows = dialog.locator("table tbody tr", { hasText: "Required" });
+  await expect(requiredRows.first()).toBeVisible({ timeout: 35_000 });
+  const requiredCount = await requiredRows.count();
+  for (let i = 0; i < requiredCount; i++) {
+    await expect(requiredRows.nth(i)).toContainText("OK");
+  }
+  await expect(dialog.getByText(/Cloud ID/)).toHaveCount(0);
+
+  const [createResponse] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith("/api/v1/data-sources") && r.request().method() === "POST" && r.ok()),
+    dialog.getByRole("button", { name: "Create", exact: true }).click(),
+  ]);
+  teardown.push(`/api/v1/data-sources/${(await createResponse.json()).id as number}`);
+  await expect(dialog).toHaveCount(0);
+
+  // Filter the list down to the new row and open its details page.
+  await openFilters(page);
+  await page.getByLabel("Name", { exact: true }).fill(name);
+  const openLink = page.getByRole("link", { name: `Open ${name}` });
+  await expect(openLink).toBeVisible();
+  await openLink.click();
+  await expect(page).toHaveURL(/\/data-sources\/\d+$/);
+  await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+
+  // The connection table names the kind and the groups; the raw issue inspector and metrics configuration are Jira-only, while the
+  // data profile and Reprocess are offered for GitLab too (since 1.37.0, when its PROCESS landed), like Reconcile now (since 1.36.1).
+  const connection = page.getByRole("table", { name: "Connection", exact: true });
+  await expect(connection).toContainText("GitLab");
+  await expect(connection).toContainText("platform, apps");
+  await expect(connection.getByRole("row", { name: /^Excluded paths/ })).toContainText("package-lock.json");
+  for (const link of ["Raw issue inspector", "Metrics configuration"]) {
+    await expect(page.getByRole("link", { name: link })).toHaveCount(0);
+  }
+  await expect(page.getByRole("link", { name: "Data profile" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reprocess" })).toBeVisible();
+
+  // Sync now, then poll (reloading each attempt) until the SYNC job succeeded and the counts show the stub's in-scope world:
+  // 4 projects (sample-data/gitlab/expected.json `projects.inScopeIds`), 8 users (`users.list`) and its commits: 300 live, 19 of them
+  // merges (`commits.inScopeTotals`), and none still awaiting file details (one SYNC drains the 281 diffs under the default budget); then
+  // its merge requests: 60 (`mergeRequests.total`), 34 merged (`byState.merged`), 698 review events (`events.noteTotal` 582 +
+  // `approvalsEndpointTotal` 40 + `reviewersTotal` 76), none awaiting details (one SYNC drains ~190 calls under the default budget) and the one
+  // GraphQL gap without size statistics (`mergeRequests.nullDiffStatsGap`), no merge request deleted and none with unreadable details.
+  // Scope the job row to the "Sync" kind so a co-occurring Reconcile row's own "Succeeded" is never what we matched.
+  await page.getByRole("button", { name: "Sync now" }).click();
+  const syncJobRow = page.getByRole("row").filter({ hasText: "Sync" }).filter({ hasText: "Succeeded" });
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+    await expect(syncJobRow.first()).toBeVisible();
+    await expect(page.getByRole("row", { name: /^Projects \d+$/ })).toContainText("4");
+    await expect(page.getByRole("row", { name: /^Users \d+$/ })).toContainText("8");
+    await expect(page.getByRole("row", { name: /^Commits \d+$/ })).toContainText("300");
+    await expect(page.getByRole("row", { name: /^Merge commits \d+$/ })).toContainText("19");
+    await expect(page.getByRole("row", { name: /^Commits awaiting file details \d+$/ })).toContainText("0");
+    await expect(page.getByRole("row", { name: /^Merge requests \d+$/ })).toContainText("60");
+    await expect(page.getByRole("row", { name: /^Merged merge requests \d+$/ })).toContainText("34");
+    await expect(page.getByRole("row", { name: /^MR events .* \d+$/ })).toContainText("698");
+    await expect(page.getByRole("row", { name: /^Merge requests awaiting details \d+$/ })).toContainText("0");
+    await expect(page.getByRole("row", { name: /^Merge requests without size statistics \d+$/ })).toContainText("1");
+    await expect(page.getByRole("row", { name: /^Merge requests deleted \d+$/ })).toContainText("0");
+    await expect(page.getByRole("row", { name: /^Merge requests with unreadable details \d+$/ })).toContainText("0");
+  }).toPass({ timeout: 280_000, intervals: [10_000] });
+
+  // The data profile (stored by the job's PROFILE stream before the Sync row reads Succeeded): a handful of stable figures from
+  // sample-data/gitlab/expected.json - 4 live projects (`projects.inScopeIds`), 281 non-merge commits and 19 merges
+  // (`commits.inScopeTotals`), none awaiting file details, 34 merged merge requests (`mergeRequests.byState.merged`) of which 59
+  // carry size statistics (98.3 %), 76 review requests (`events.notesByKind.REVIEW_REQUESTED`), 14 reviews
+  // (`events.reviewerStates.reviewed`), 8 GitLab users (`users.list`) and 1 commit email matching no user (`users.unmatchedAuthors`).
+  await page.getByRole("link", { name: "Data profile" }).click();
+  await expect(page).toHaveURL(/\/data-sources\/\d+\/profile$/);
+  await expect(page.getByRole("heading", { name: "Data profile" })).toBeVisible();
+  const profileRow = (table: string, label: string) =>
+    page.getByRole("table", { name: table, exact: true }).getByRole("row", { name: new RegExp(`^${label} `) });
+  await expect(profileRow("Projects", "Live")).toContainText("4");
+  await expect(profileRow("Commits", "Commits \\(merges excluded\\)")).toContainText("281");
+  await expect(profileRow("Commits", "Merge commits")).toContainText("19");
+  await expect(profileRow("Commits", "Awaiting file details")).toContainText("0");
+  await expect(profileRow("Merge requests", "Merged")).toContainText("34");
+  await expect(profileRow("Merge requests", "With size statistics")).toContainText(/59 \(98\.3%\)/);
+  await expect(profileRow("Review events", "Review requests")).toContainText("76");
+  await expect(profileRow("Review events", "Reviews")).toContainText("14");
+  await expect(profileRow("Identities", "GitLab users")).toContainText("8");
+  await expect(profileRow("Identities", "Commit emails matching no user")).toContainText("1");
+  await page.goBack();
+  await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+
+  // Reconcile now (day zero: the stub has nothing deleted, moved or force-pushed, so it is ~15 calls and changes no count): the job row
+  // reads Succeeded and the figures stand. The day-2 reconcile is graded by the server's GitLabReconcileStreamsTest.
+  await page.getByRole("button", { name: "Reconcile now" }).click();
+  const reconcileJobRow = page.getByRole("row").filter({ hasText: "Reconcile" }).filter({ hasText: "Succeeded" });
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+    await expect(reconcileJobRow.first()).toBeVisible();
+    await expect(page.getByRole("row", { name: /^Commits \d+$/ })).toContainText("300");
+    await expect(page.getByRole("row", { name: /^Merge requests \d+$/ })).toContainText("60");
+    await expect(page.getByRole("row", { name: /^Merge requests deleted \d+$/ })).toContainText("0");
+  }).toPass({ timeout: 120_000, intervals: [5_000] });
 
   // Delete from the list's row menu.
   await page.goto("/data-sources");

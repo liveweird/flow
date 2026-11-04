@@ -134,6 +134,8 @@ class DataSourceTestConnectionTest {
             }
             assertTrue(event != null, "data_source.tested was not audited")
             assertTrue(event.hasKeyValue("ok", true), "an optional row failing must not clear ok: ${event.keyValuePairs}")
+            assertTrue(event.hasKeyValue("kind", "JIRA_CLOUD"))
+            assertTrue(event.keyValuePairs.any { it.key == "host" }, "the host (never the URL) is audited")
         } finally {
             capture.detach()
             JiraStubServer.removeOverride(forbidden)
@@ -192,14 +194,14 @@ class DataSourceTestConnectionTest {
             "/api/v1/data-sources",
             DataSourceRequest(unique("Jira"), true, 60, null, 3, jiraRequest(uniqueProjectKeys(1))),
         ).body<DataSourceResponse>()
-        assertNull(created.jira.cloudId)
+        assertNull(created.jira!!.cloudId)
 
         val response = admin.post("/api/v1/data-sources/${created.id}/test") {}
         assertEquals(HttpStatusCode.OK, response.status)
         assertEquals(JiraStubServer.CLOUD_ID, response.body<ConnectionTestResult>().cloudId)
 
         val reread = admin.get("/api/v1/data-sources/${created.id}").body<DataSourceResponse>()
-        assertEquals(JiraStubServer.CLOUD_ID, reread.jira.cloudId)
+        assertEquals(JiraStubServer.CLOUD_ID, reread.jira!!.cloudId)
     }
 
     @Test

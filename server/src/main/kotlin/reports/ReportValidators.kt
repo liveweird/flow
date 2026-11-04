@@ -2,6 +2,7 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.ingest.DataSourceService
+import ch.nokillswit.ingest.derivesMetrics
 import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.metrics.HistoryHorizon
@@ -137,14 +138,18 @@ internal suspend fun ReportService.dataStamp(
     nowMs: Long,
 ): List<String> = reportTransaction {
     val c = DataSourceService.Connections
-    val connections = c.select(c.id, c.name, c.settings, c.lastSyncSucceededAt, c.backfillFrom).where { c.active() }.orderBy(c.id).toList()
-    val retired = c.select(c.id, c.purgedAt).where { c.markedAsDeleted eq true }.orderBy(c.id).toList()
+    // Connections of a kind that derives metrics only (`DataSourceKind.derivesMetrics`): another kind's name, sync time and jobs are not
+    // something a report prints, so they must not move a report's ETag either.
+    val connections = c.select(c.id, c.name, c.settings, c.lastSyncSucceededAt, c.backfillFrom)
+        .where { c.active() and c.derivesMetrics() }.orderBy(c.id).toList()
+    val retired = c.select(c.id, c.purgedAt).where { (c.markedAsDeleted eq true) and c.derivesMetrics() }.orderBy(c.id).toList()
     val j = SyncJobsService.Jobs
     val ingestKinds = listOf(SyncJobKind.SYNC, SyncJobKind.RECONCILE, SyncJobKind.REPROCESS, SyncJobKind.PURGE).map { it.name }
     val newestId = j.id.max()
     val lastHeartbeat = j.heartbeatAt.max()
     val lastFinish = j.finishedAt.max()
-    val ingest = j.select(j.connectionId, newestId, lastHeartbeat, lastFinish).where { j.kind inList ingestKinds }
+    val ingest = j.select(j.connectionId, newestId, lastHeartbeat, lastFinish)
+        .where { (j.kind inList ingestKinds) and (j.connectionId inList (connections.map { it[c.id] } + retired.map { it[c.id] })) }
         .groupBy(j.connectionId).orderBy(j.connectionId).toList()
     val t = TeamService.Teams
     val teams = t.select(t.id, t.name, t.updatedAt).where { t.active() }.orderBy(t.id).toList()
@@ -189,7 +194,9 @@ internal fun reportEtag(codeIdentity: String, path: String, query: Parameters, s
 }
 
 /**
- * Computes the ETag of the current request (path + query) over a fresh [dataStamp]. [callerShape] lists the facts about the CALLER the
+ * Computes the ETag of the current request (path + query) over a fresh [dataStamp]. [extraStamp] is a report's OWN stamp lines (only
+ * Report 21's `codeStamp`: the GitLab inputs no Jira report reads, so they must not move a Jira report's tag).
+ * [callerShape] lists the facts about the CALLER the
  * answer is shaped by (today only Compare people's capacity verdict, [CapacityGrant]); every other report passes none, because its
  * content never depends on who asks (D12), so a validator is shared by every caller and a changed verdict can never answer `304`.
  */
@@ -197,9 +204,10 @@ internal suspend fun ReportService.etagFor(
     call: ApplicationCall,
     scope: StampScope,
     callerShape: List<String> = emptyList(),
+    extraStamp: List<String> = emptyList(),
 ): String = reportEtag(
     codeIdentity, call.request.path(), call.request.queryParameters,
-    dataStamp(scope.settings, scope.calendar, scope.clock, scope.nowMs) + callerShape,
+    dataStamp(scope.settings, scope.calendar, scope.clock, scope.nowMs) + callerShape + extraStamp,
 )
 
 /** A report's response, built lazily: it runs only when the validator check did not answer `304` (see [reportGet]). */

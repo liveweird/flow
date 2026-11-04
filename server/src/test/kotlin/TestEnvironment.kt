@@ -276,6 +276,15 @@ fun warmStubFixtures() {
     runBlocking { DerivedStubFixture.connectionId() }
 }
 
+/**
+ * The GitLab twin of [warmStubFixtures]: a class that reads [SyncedGitLabFixture] declares it in a `@BeforeClass`
+ * (`companion object { @JvmStatic @BeforeClass fun warmFixtures() = warmGitLabFixture() }`), so the one-time GitLab SYNC lands outside
+ * `testApplication`'s 60 s limit. Separate from [warmStubFixtures] on purpose: the Jira-fixture classes must not pay for it.
+ */
+fun warmGitLabFixture() {
+    runBlocking { SyncedGitLabFixture.connectionId() }
+}
+
 /** The shared test database — for fixtures that construct a service by hand (the encryption tests). */
 fun sharedDatabaseForTests(): R2dbcDatabase = sharedTestDatabase
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import i18n from "../i18n";
-import { dataSourceStateColor, formatEpochMillis } from "./dataSourceState";
+import { dataSourceStateColor, formatEpochMillis, percent } from "./dataSourceState";
 
 describe("dataSourceState", () => {
   test("colours CURRENT teal, FAILED red, and every other state gray", () => {
@@ -15,5 +15,10 @@ describe("dataSourceState", () => {
     expect(formatEpochMillis(1_700_000_000_000, i18n.t)).toBe("2023-11-14 22:13");
     expect(formatEpochMillis(null, i18n.t)).toBe("Never");
     expect(formatEpochMillis(undefined, i18n.t)).toBe("Never");
+  });
+
+  test("prints a percentage with exactly one decimal", () => {
+    expect(percent(98.3)).toBe("98.3%");
+    expect(percent(100)).toBe("100.0%");
   });
 });

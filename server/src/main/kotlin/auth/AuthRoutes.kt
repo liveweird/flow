@@ -13,7 +13,7 @@ import ch.nokillswit.plugins.servesApi
 import ch.nokillswit.flowusers.Feature
 import ch.nokillswit.flowusers.FlowUser
 import ch.nokillswit.flowusers.FlowUserServiceKey
-import ch.nokillswit.flowusers.canonicalEmail
+import ch.nokillswit.infra.validation.canonicalEmail
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import com.auth0.jwt.exceptions.JWTVerificationException

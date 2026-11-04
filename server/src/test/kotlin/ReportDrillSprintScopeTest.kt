@@ -205,20 +205,21 @@ class ReportDrillSprintScopeTest {
                     val stored = storedScope(connId, sprint.sprintId)
                     val commitments = client.commitments(one).sprints.single()
                     val throughput = client.throughput(one).bySprint.single()
-                    for (bucket in buckets) {
+                    val resolvedSprints = client.consistency(one).meta.resolvedSprints
+                    val drills = buckets.associateWith { client.items("$one&bucket=$it") }
+                    for ((bucket, drill) in drills) {
                         val label = "$level/sprint ${sprint.sprintId}/$bucket"
-                        val drill = client.items("$one&bucket=$bucket")
                         assertBarReconciles(label, drill, bucket, sprint.pair(bucket), stored, sprint.completedAt, sprint.teamId)
-                        assertEquals(client.consistency(one).meta.resolvedSprints, drill.meta.resolvedSprints, "$label resolvedSprints")
+                        assertEquals(resolvedSprints, drill.meta.resolvedSprints, "$label resolvedSprints")
                     }
                     // Reports 1 and 2 draw the SAME rows: their bars are these buckets.
-                    val committed = client.items("$one&bucket=COMMITTED").bar
-                    val final = client.items("$one&bucket=FINAL").bar
+                    val committed = drills.getValue(SprintBucket.COMMITTED).bar
+                    val final = drills.getValue(SprintBucket.FINAL).bar
                     assertEquals(commitments.initialItems, committed.count, "$level/${sprint.sprintId} Commitments initialItems")
                     assertEquals(commitments.initialMd, committed.sumMd!!, MD_TOLERANCE, "$level/${sprint.sprintId} Commitments initialMd")
                     assertEquals(commitments.finalItems, final.count, "$level/${sprint.sprintId} Commitments finalItems")
                     assertEquals(commitments.finalMd, final.sumMd!!, MD_TOLERANCE, "$level/${sprint.sprintId} Commitments finalMd")
-                    val delivered = client.items("$one&bucket=DELIVERED")
+                    val delivered = drills.getValue(SprintBucket.DELIVERED)
                     assertEquals(throughput.deliveredItems, delivered.bar.count, "$level/${sprint.sprintId} Throughput deliveredItems")
                     assertEquals(
                         throughput.deliveredMd, delivered.bar.sumMd!!, MD_TOLERANCE, "$level/${sprint.sprintId} Throughput deliveredMd",

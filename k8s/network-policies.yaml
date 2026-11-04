@@ -103,6 +103,16 @@ spec:
     # compromised pod cannot reach cluster-internal services, other namespaces or the cloud
     # metadata endpoint (169.254.169.254). An in-cluster or private SMTP relay, or the dev-only
     # Jira stub (`JIRA_STUB_BASE_URL`), needs its own additional policy.
+    # A self-managed GitLab (GITLAB_ALLOWED_HOSTS) usually lives on a private address, which the exclusions
+    # below block on purpose: it needs its own egress rule, scoped to its address and port (the app's
+    # guard allows only the CIDRs in GITLAB_ALLOWED_CIDRS; keep the two in step). Template, one more
+    # item under this policy's `egress:` list (adjust the CIDR and port to the instance):
+    #   - to:
+    #       - ipBlock:
+    #           cidr: 10.20.0.0/16
+    #     ports:
+    #       - protocol: TCP
+    #         port: 443
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

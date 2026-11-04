@@ -1,6 +1,6 @@
 # Product backlog
 
-Updated 2026-10-08. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
+Updated 2026-11-01. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
 - [README.md](README.md);
 - the [application changelog](web/src/changelog/entries.ts);
 - the topic guides under `.claude/docs/`.
@@ -47,7 +47,16 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   (a fetch size < ~250 rows) costs a round trip per statement and is not taken.
 - [todo] **CI duration: check the trend at every milestone.** Run `node scripts/timings/ci-times.mjs --branch master`.
   A trend jump gets an investigation, never a raised budget.
-  - Last checked 2026-10-30 (1.31.0): `server` median-5 16m22s (prev-5 12m53s, so a TREND +27 % flag; 30 master runs 10-28..10-30; min 9m18s,
+  - Last checked 2026-11-04 (1.49.0): `server` median-5 19m51s (prev-5 14m52s, a TREND +34 % flag; 30 master runs 10-30..11-01; min 10m58s,
+    max 20m17s), `web` 4m48s (TREND +26 %), `images` 3m30s, `e2e-static` 1m09s — no new jump, the runner draw: `server` fast 699-790 s, slow
+    1083-1201 s, four of the last five runs slow; `web` fast 159-229 s, slow 281-313 s. `server`, `web` and `e2e-static` over their alarms; nightly
+    `e2e` median-5 13m38s, the last 14 runs green.
+    2026-10-31 (1.38.0, the GitLab plan's end): `server` median-5 18m15s (prev-5 16m35s; 30 master runs 10-29..10-31; min
+    10m29s, max 19m10s), `web` 4m00s (TREND +38 % flag: the runner draw, 149-285 s run to run, the last two 169-181 s), `images` 4m10s — no
+    new jump: the fast mode is unchanged (658-715 s against 629-773 s) and the slow mode moved from 981-1084 s to 1095-1150 s as the suite
+    grew from ~2,280 to 2,831 tests over the GitLab PRs (each measured locally in WHY 55-58); `server`, `web`, `images` and `e2e-static` over
+    their alarms; nightly `e2e` median-5 12m56s.
+    2026-10-30 (1.31.0): `server` median-5 16m22s (prev-5 12m53s, so a TREND +27 % flag; 30 master runs 10-28..10-30; min 9m18s,
     max 18m04s), `web` 3m42s, `images` 3m03s — no new jump: the median equals the 1.28.0 check and the last 14 runs are the same two modes
     (fast 629-773 s, slow 981-1084 s; the slow mode was 982-988 s on 10-29), so the flag is the window moving across the draw; `server` and `web`
     still over their alarms; nightly `e2e` median-5 12m49s.
@@ -79,11 +88,36 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     `scripts/gates.sh`.
 - [parked] **Data profile: multi-project boards.** A board whose filter spans several projects shows no observed or
   unmapped statuses, because `BoardRef` carries a single project key. Revisit if real boards span projects.
-- [next] **GitLab integration (self-managed), 1.34.0–1.38.0.** Approved 2026-10-31; design and PR order in
-  `.claude/docs/gitlab-integration.md`.
-  - Per-person commits (files, lines), merge requests and review activity, read from a self-managed GitLab with an
-    admin-issued read-only token; no git mirror, no repository content stored.
-  - D6 (de-Jira the `Connector` seam) is its PR 3. Reports over `norm.code_*` are a separate, later plan.
+- [new] **GitLab backfill fetch-ahead.** Measured 2026-10-31 (`build-times.md` WHY 59): a full backfill of 15k commits and 3k merge
+  requests is 283 s, about 23.6k calls at about 12 ms each (the stub's time included); COMMIT FILES (157 s) and MR DETAILS (115 s) are 96 %
+  of it and are latency-bound, because a GitLab job holds ONE permit and its calls are sequential.
+  - Derived, not measured: at 60k commits / 20k merge requests that is about 118k calls, about 24 min at 12 ms and about 20 min more per
+    extra 10 ms of per-call latency, i.e. the real instance's latency decides it.
+  - The shape: a fetch-ahead inside a claimed batch (WORKLOGS', `jira.maxConcurrentRequests` calls in flight). An estimated several-fold
+    cut on those two streams, not measured.
+  - The caveat: it adds response trees in flight, which the heap fit's one-tree-per-slot assumption
+    (`gitlab-integration.md` "Outbound calls", Memory) does not cover, so it needs the fit extended and a re-measure beside a Jira job
+    (the worker's old generation peaked at 86 of 448 MiB in the pair).
+  - Wait for the real-instance smoke run's per-call cost before deciding: at 12 ms it is minutes, at 100 ms it is hours.
+- [new] **The raw issue inspector's merge requests list.** The admin's raw/normalized issue view (`ingest/`) lists the merge requests that name the
+  issue's key (and its old keys), from `norm.code_mr_issue_keys` by the same resolution as Report 22, to debug a missing or ambiguous link.
+- [new] **Commit-title keys (A51/D5 alternative).** Also extract keys from `norm.code_commits.title` into a sibling table, so direct-to-default commits that
+  bypass a merge request link to their task; a later PR with no schema conflict, plus a "commits with no merge request" figure on Report 21.
+- [new] **Cycle time: a domain across every team.** The API answers a domain with no team, but the page is `teamRequired` without `teamOrDomain`, so a `?domain=` link gets a
+  team swapped in and the page cannot read a domain-wide figure at all. Other `teamRequired` pages with a domain control (Throughput, Task accuracy and more) behave the same way.
+  Tasks and code has this since 1.52.0 (`teamClearableUnderDomain`); decide which of the others should have it.
+- [new] **A scaled measurement of Report 22's reads at plan density.** The 90-day request is measured on the base stub (15 ms in-test); measure the
+  four-step read (population, old keys, key resolution, link rows) at 21k merge requests and a whole-domain period, and record it in `build-times.md`.
+- [new] **Tests leave their Jira sources behind, and every report request pays for them.** About 300 per fork at the end of a full run (304 counted 2026-11-04; about
+  80 enabled, `jira-raw-store` and `metrics-config-conn` the most), against `testing.md`'s "remove their own". `dataStamp` reads all of them on each report request:
+  `ReportDrillSprintScopeTest` is +36 % with 300 extra rows (build-times WHY 63); the whole-suite effect is not measured. Production holds a handful of sources.
+  Clean up per class (dozens of classes), or correct the doc if that is not worth it. The `FLO-366` row that once tripped `ReportTaskCodeFixtureTest`'s guard is not
+  reproduced: sampling both forks every 15 s for a full run found none, and the guard now runs after the other sources are deactivated.
+- [new] **The Tasks and code e2e test races other specs' Jira sources.** `reports-code-activity.spec.ts`'s Tasks and code test reads the report's API as its oracle, then the page. Specs running
+  beside it create a second active Jira source holding the same keys, which makes every key ambiguous, so nothing links and the figures change under it. It failed once in the last 6 nightly runs
+  (passed on retry, so reported as flaky) and in one full local run on 2026-11-04 (retries are 0 locally). Needs its own scope for the fixture's keys, or a spec order that keeps it apart; relaxing the assertions would lose what it pins.
+- [new] **The `keys:` stamp line invalidates readers that show no keys.** It rides the ONE `codeStamp`, so a Jira source's project-list edit also moves
+  Compare people's, Person trend's (and its peer-cell cache generation) and the Home overview's tags; split the stamp if that churn ever shows.
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 
@@ -108,7 +142,11 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [todo] **Atlassian API-token quota: re-check developer.atlassian.com/changelog before releases.**
   - API-token traffic is excluded from the 2026 points-based rate limits.
   - Atlassian is evaluating a quota for tokens "with advance notice".
-  - Last checked 2026-10-30 (1.31.0): no token quota announced (the only new entry, a Forge custom-field UI RFC, does not touch Flow).
+  - Last checked 2026-11-04 (1.49.0): no token quota announced (entries through 11-03; the 11-02 draft-workflow removal from the Workflow Rules APIs does not
+    touch Flow's endpoints).
+    2026-10-31 (1.38.0): no token quota announced (the only entry since 10-29, the Forge custom-field UI RFC-154, does not touch
+    Flow).
+    2026-10-30 (1.31.0): no token quota announced (the only new entry, a Forge custom-field UI RFC, does not touch Flow).
     2026-10-30 (1.28.0): no token quota announced (entries through 10-28: Bitbucket SSH, Confluence byline, org-level app
     sharing, an MCP tool promotion — none touch Flow's endpoints). 2026-10-29 (1.26.0): no token quota announced (entries through 10-28; the 10-27 `portfolioChildIssuesOf()` JQL change
     does not touch Flow, which never sends it). 2026-10-28 (1.22.1): the 2026-10-20 Tier 2 clarification covers apps (per-tenant quotas), not tokens.

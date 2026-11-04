@@ -19,13 +19,13 @@ not who is busy.
   change and rebuilds the analytical `metrics` star (facts in man-days, daily aggregates, frozen
   sprint snapshots) from the normalized layer and the configuration — never from a Jira call.
   See `.claude/docs/metrics.md`.
-- **Twenty reports** on nineteen pages (the backlog in sprints sits on the estimated-backlog
+- **Twenty-two reports** on twenty-one pages (the backlog in sprints sits on the estimated-backlog
   page), open to every signed-in user and drilling unit → team → user; period-based reports take
   any calendar period or the last N sprints: commitments, velocity, throughput, sprint consistency and cycle
   time (tasks, and epics by owner team); task and epic estimation accuracy, estimate adjustments,
   reported ÷ cycle time and the distribution of finished tasks' estimates; WIP, the estimated backlog, aging WIP and blocked time; epic progress
   (planned value, earned value and actual cost — PV/EV/AC — in man-days); data quality; and the
-  Costs (man-days logged, the foreign-work share, by activity type and work category). The **Deep dive** lays plan, approximate earned value and cost per
+  Costs (man-days logged, the foreign-work share, by activity type and work category); and **Code activity**, a team's merge-request flow over the connected GitLab with its members' volumes as context; and **Tasks and code**, the done tasks of a team or domain against the merge requests that name them by Jira issue key. The **Deep dive** lays plan, approximate earned value and cost per
   task and day side by side for work selected by sprints of a domain or by epics, drilling months → weeks → days and epics → tasks. The Home page is the overview of up to
   three picked teams (one request: last sprint, granularity, PRED, work in progress, delivery and data quality, each beside the previous 90 days). See `.claude/docs/reports.md`.
 - **Jira Cloud ingestion** (v0.2.0) — ADMIN-managed connections (a service account's scoped,
@@ -223,7 +223,9 @@ Jira call to the stub in development mode (`JIRA_STUB_BASE_URL`; see `sample-dat
 
 The compose stack routes **every** Jira call to that bundled stub, so a real `*.atlassian.net`
 connection would silently talk to the stub. To connect a real tenant, start the stack with the
-reroute turned off: `JIRA_STUB_BASE_URL= docker compose up` (an explicitly empty value, not unset).
+reroute turned off: `JIRA_STUB_BASE_URL= docker compose up` (an explicitly empty value, not unset). The same holds for GitLab:
+the stack points `GITLAB_STUB_BASE_URL` at the bundled `gitlab-stub`, which turns the GitLab data-source kind on with `http://gitlab-stub:8080` as the
+only accepted base URL; `GITLAB_STUB_BASE_URL= docker compose up` turns that off. For a real instance, list its host in `GITLAB_ALLOWED_HOSTS` (and, on a private address, its range in `GITLAB_ALLOWED_CIDRS`); compose forwards both, while an internal CA (`GITLAB_CA_BUNDLE`) needs a volume mount for the PEM file. The GitLab bot user is an admin with a `read_api`-only token; the checklist for a first real instance (what to run, what figures to share back) is in `.claude/docs/gitlab-integration.md`, "Real-instance smoke run".
 
 ## Configuration (environment variables)
 
@@ -299,6 +301,17 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive (`.claude/
 | `JIRA_USERS_REFRESH_HOURS` | `24` | How old (hours, 0..168) a data source's Jira users may get before a SYNC fetches them again (`users/search`, the bulk of a routine SYNC's calls); `0` = every SYNC. |
 | `JIRA_CHANGELOG_PAGE_SIZE` | `1000` | Histories per `changelog/bulkfetch` page (`maxResults`, 1..10000, Jira's own default and ceiling); independent of the chunk size; the stub ignores it. |
 | `JIRA_STUB_BASE_URL` | *(blank)* | Reroutes the Jira tenant_info + gateway hosts to the in-JVM/compose stub — development only; production refuses a non-blank value. |
+| `GITLAB_ALLOWED_HOSTS` | *(blank)* | Self-managed GitLab hosts Flow may call: comma-separated exact DNS names, `host` or `host:port` (no port = 443); no wildcards, no IP literals. Blank = the GitLab kind is off. Only the operator can widen it; a malformed entry refuses startup. |
+| `GITLAB_ALLOWED_CIDRS` | *(blank)* | Private ranges a *listed* GitLab host may resolve to (e.g. `10.20.0.0/16`), comma-separated IPv4/IPv6 CIDRs. Startup refuses `/0`, IPv4 wider than /8, IPv6 wider than /32, anything overlapping loopback, link-local (incl. the cloud metadata address), any-local, multicast, 6to4, Teredo, IPv4-mapped or NAT64 space, and CIDRs without `GITLAB_ALLOWED_HOSTS`. |
+| `GITLAB_CA_BUNDLE` | *(blank)* | Path to a PEM file of internal CA certificates, added to the GitLab client's trust ALONGSIDE the JVM default CAs (the Jira client is untouched). Startup refuses an unreadable or certificate-less file, and a bundle without `GITLAB_ALLOWED_HOSTS`. There is no skip-TLS setting. |
+| `GITLAB_STUB_BASE_URL` | *(blank)* | Reroutes GitLab calls to the in-JVM/compose GitLab stub - development only; production refuses a non-blank value. With `GITLAB_ALLOWED_HOSTS` blank it enables the GitLab kind and accepts only the stub's origin as a base URL (the compose file sets it to `http://gitlab-stub:8080`). |
+| `GITLAB_REQUEST_TIMEOUT_SECONDS` | `30` | Per-attempt request and connect timeout of the GitLab client (1..120). |
+| `GITLAB_MAX_RESPONSE_BYTES` | *(min of 8 MiB and `JIRA_MAX_RESPONSE_BYTES`)* | Bounded-read ceiling on one GitLab response body (1 KiB..128 MiB). Leave it blank and it follows Jira's ceiling when that is lower; an explicit value may not exceed `JIRA_MAX_RESPONSE_BYTES` (startup refuses otherwise). GitLab calls share Jira's `JIRA_MAX_CONCURRENT_REQUESTS` permits, so the worker's heap check already covers them. |
+| `GITLAB_MAX_RETRIES` | `4` | Retries (0..10) on 429/5xx/IOException before a GitLab call fails terminally. |
+| `GITLAB_REQUEST_DEADLINE_SECONDS` | `180` | Total budget (1..1800 s) for one logical GitLab call across every retry/backoff attempt. |
+| `GITLAB_USERS_REFRESH_HOURS` | `24` | How old (hours, 0..168) a GitLab data source's stored users may get before a SYNC fetches them again; `0` = every SYNC. "Sync now" always refreshes. |
+| `GITLAB_COMMIT_FILES_PER_RUN` | `5000` | The diff calls (pages, 10..100000) one GitLab SYNC run spends on the per-file line counts of the default-branch commits, newest first. A run that reaches it ends normally and the next run continues; a first backfill drains over several runs. |
+| `GITLAB_MR_DETAILS_PER_RUN` | `3000` | The REST and GraphQL calls (10..100000) one GitLab SYNC run spends on merge-request details (notes as action codes, approvals, reviewer states, diff stats), about three per merge request, newest first. A run that reaches it ends normally and the next run continues. |
 | `INGEST_SCHEDULER_TICK_SECONDS` | `15` | How often the `worker`-role scan loop runs: enqueue due jobs, prune old rows, claim+run. |
 | `INGEST_WORKER_SLOTS` | `2` | Cap on concurrently RUNNING sync jobs for this worker instance. Each slot may keep one worst-case Jira response tree (~112 MiB at the default response cap), so raising it means raising the worker's `-Xmx`: the worker refuses to start otherwise (see the `JAVA_OPTS` paragraph above). |
 | `INGEST_LEASE_SECONDS` | `300` | A claimed job's lease lifetime; heartbeated at `leaseSeconds/3`. An expired lease is reclaimable by any worker. |
@@ -328,6 +341,8 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive (`.claude/
 | `TELEMETRY_CONNECTION_ESTIMATE_INTERVAL_SECONDS` | `21600` | How often the per-connection storage estimate runs, 3600..604800 (a later release). |
 | `REPORTS_STATEMENT_TIMEOUT_SECONDS` | `30` | Per-statement time budget of every report read (1..3600, whole seconds); a statement over it is cancelled and answers a 500 problem (`.claude/docs/reports.md` "Query budget"). |
 | `REPORTS_PEER_CELL_CACHE_MAX_ENTRIES` | `20000` | Most cached (teammate, window) cells of Person trend's peer-cell cache per data-stamp generation, per web instance (0..50000; about 0.4 KiB each, ~8 MiB at the default; `0` turns the cache off; `.claude/docs/reports.md` "Report 20", Cost). |
+| `REPORTS_CODE_MAX_ROWS` | `100000` | Per-request row budget of the GitLab code reads (Code activity, its drill, Compare people, Person trend; 1..5000000): the most commit, merge request and review event rows one request may load. A selection over it answers a 400 ("narrow the period or pick fewer people"), never a silently cut figure (`.claude/docs/reports.md` "Report 21"). Values below a few thousand are a test seam. |
+| `REPORTS_CODE_READ_PERMITS` | `2` | How many Code activity computations (the report and its drill) one web process runs at once (1..64). A request waits up to `REPORTS_STATEMENT_TIMEOUT_SECONDS` for a permit, then answers a 429; with `REPORTS_CODE_MAX_ROWS` it bounds the heap those reads can take (`.claude/docs/reports.md` "Report 21"). |
 
 ## Useful Gradle tasks
 

@@ -4,7 +4,7 @@ import ch.nokillswit.audit.audit
 import ch.nokillswit.authz.TooManyRequestsException
 import ch.nokillswit.authz.UnauthorizedException
 import ch.nokillswit.flowusers.FlowUserServiceKey
-import ch.nokillswit.flowusers.canonicalEmail
+import ch.nokillswit.infra.validation.canonicalEmail
 import ch.nokillswit.flowusers.validateEmail
 import ch.nokillswit.flowusers.validatePassword
 import ch.nokillswit.infra.config.requireConfigInt

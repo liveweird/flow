@@ -21,6 +21,15 @@ export default function HomeFreshness({ overview }: { overview: HomeOverview }) 
               .map((connection) => t("home.freshness.connection", { name: connection.name, sync: at(connection.lastSyncAt), derive: at(connection.lastDeriveAt) }))
               .join(" · ")}
       </Text>
+      {overview.code.sources.length > 0 && (
+        <Text size="sm" c="dimmed">
+          {overview.code.sources
+            .map((source) =>
+              t("home.freshness.codeSource", { name: source.name, sync: source.lastSyncAt === undefined ? never : formatDateTime(source.lastSyncAt, overview.timeZone) }),
+            )
+            .join(" · ")}
+        </Text>
+      )}
       <Text size="xs" c="dimmed">
         {t("home.freshness.windows", {
           from: overview.window.from,

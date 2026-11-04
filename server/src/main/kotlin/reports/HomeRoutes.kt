@@ -23,7 +23,8 @@ class ReportHomeItemsRoute
  * name, whoever asks — a caller-dependent default would make a report's content depend on WHO asks, D12); the window is the trailing
  * 90 days ending today. The drill takes `view` and `teamId`, both required; `teamId` must be a real active team (checked by the
  * service). Both answer through the cache validators (`ReportValidators.kt`) on the five-minute clock: the WIP ages are fractional
- * working days at `now`.
+ * working days at `now`. The overview and the `CODE_*` drills also carry Report 21's GitLab stamp lines ([codeStamp], empty while no
+ * GitLab source is active): the Code section reads `norm.code_*` and the identity links live; a Jira view's tag does not move.
  */
 internal fun Route.homeRoutes(reportService: ReportService) {
     get<ReportHomeRoute> {
@@ -33,7 +34,8 @@ internal fun Route.homeRoutes(reportService: ReportService) {
             it.toUInt()
         }
         val scope = reportService.stampScope(StampClock.FIVE_MINUTES)
-        call.respondRevalidated(reportService.etagFor(call, scope)) { reportService.home(scope.nowMs, teamIds) }
+        val etag = reportService.etagFor(call, scope, extraStamp = reportService.codeStamp())
+        call.respondRevalidated(etag) { reportService.home(scope.nowMs, teamIds) }
     }
     get<ReportHomeItemsRoute> {
         call.caller()
@@ -41,6 +43,9 @@ internal fun Route.homeRoutes(reportService: ReportService) {
         val view = params.requireEnum<HomeDrillView>("view")
         val teamId = params.optionalUInt("teamId") ?: throw BadRequestException("teamId is required")
         val scope = reportService.stampScope(StampClock.FIVE_MINUTES)
-        call.respondRevalidated(reportService.etagFor(call, scope)) { reportService.homeItems(view, teamId, scope.nowMs) }
+        // Only a code view reads the GitLab rows and links: a Jira view's tag must not move on a link write.
+        val extra = if (view.isCodeView()) reportService.codeStamp() else emptyList()
+        val etag = reportService.etagFor(call, scope, extraStamp = extra)
+        call.respondRevalidated(etag) { reportService.homeItems(view, teamId, scope.nowMs) }
     }
 }

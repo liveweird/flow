@@ -1,5 +1,8 @@
 package ch.nokillswit.jira
 
+import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.fetch.PageCeiling
+import ch.nokillswit.fetch.answerCeilingExceeded
 import ch.nokillswit.norm.HierarchyBucket
 import ch.nokillswit.norm.hierarchyBucket
 import kotlinx.serialization.json.Json
@@ -22,13 +25,13 @@ private const val WORK_TYPES_PER_REQUEST = 25
 /**
  * The ONE failure code that stays fatal for the OPTIONAL `PROJECT_FIELDS` REFERENCE step (`.claude/docs/jira-integration.md`
  * "Project field schemes"): an SSRF-guard rejection is a security signal, never something to swallow. Every other
- * [JiraFetchException] (a missing scope, a withdrawn endpoint, a bad shape, a 5xx after retries, a timeout, a rate limit, ...)
+ * [FetchException] (a missing scope, a withdrawn endpoint, a bad shape, a 5xx after retries, a timeout, a rate limit, ...)
  * only skips the project — the endpoint is EXPERIMENTAL and must never stop ingestion.
  */
 private const val FATAL_PROJECT_FIELDS_CODE = "BLOCKED_HOST"
 
 /** Whether [failure] skips the optional `PROJECT_FIELDS` step for a project (true) or must propagate (`BLOCKED_HOST`). */
-internal fun skipsProjectFields(failure: JiraFetchException): Boolean = failure.code != FATAL_PROJECT_FIELDS_CODE
+internal fun skipsProjectFields(failure: FetchException): Boolean = failure.code != FATAL_PROJECT_FIELDS_CODE
 
 /**
  * `PROJECT_FIELDS` entity helpers (`GET /projects/fields`, one stored entity per project key): the inputs the step reads
@@ -88,7 +91,7 @@ internal object JiraProjectFields {
      * Jira actually returned) in request-sized groups of work types, folding each page into the per-type sets as it arrives.
      * A row without a numeric `workTypeId` still counts in [FetchedScheme.fieldIds] but makes the per-type split unknown
      * ([FetchedScheme.byWorkType] `null`). Throws
-     * [JiraFetchException] — `INVALID_RESPONSE` for a row without a string `fieldId`, `LIMIT_EXCEEDED` past a [ProjectFieldsCeilings]
+     * [FetchException] — `INVALID_RESPONSE` for a row without a string `fieldId`, `LIMIT_EXCEEDED` past a [ProjectFieldsCeilings]
      * figure (work types, pages of one group, rows, distinct field ids) — so the caller decides what skips.
      */
     suspend fun fetchScheme(
@@ -98,12 +101,12 @@ internal object JiraProjectFields {
         ceilings: ProjectFieldsCeilings = ProjectFieldsCeilings(),
     ): FetchedScheme {
         if (workTypeIds.size > ceilings.maxWorkTypes) {
-            throw answerCeilingExceeded(PROJECT_FIELDS_ENDPOINT, "more than ${ceilings.maxWorkTypes} work types")
+            throw answerCeilingExceeded(JIRA_SOURCE, PROJECT_FIELDS_ENDPOINT, "more than ${ceilings.maxWorkTypes} work types")
         }
         val collector = SchemeCollector(ceilings)
         for (group in workTypeIds.chunked(WORK_TYPES_PER_REQUEST)) {
             var startAt = 0
-            val pages = PageCeiling(PROJECT_FIELDS_ENDPOINT, ceilings.maxPagesPerGroup)
+            val pages = PageCeiling(JIRA_SOURCE, PROJECT_FIELDS_ENDPOINT, ceilings.maxPagesPerGroup)
             while (true) {
                 pages.next()
                 val page = client.projectFields(projectId, group, startAt)
@@ -125,11 +128,13 @@ internal object JiraProjectFields {
         private var rows = 0
 
         fun add(row: JsonElement) {
-            if (++rows > ceilings.maxRows) throw answerCeilingExceeded(PROJECT_FIELDS_ENDPOINT, "more than ${ceilings.maxRows} rows")
+            if (++rows > ceilings.maxRows) {
+                throw answerCeilingExceeded(JIRA_SOURCE, PROJECT_FIELDS_ENDPOINT, "more than ${ceilings.maxRows} rows")
+            }
             val fieldId = fieldIdOf(row)
             fieldIds += fieldId
             if (fieldIds.size > ceilings.maxFieldIds) {
-                throw answerCeilingExceeded(PROJECT_FIELDS_ENDPOINT, "more than ${ceilings.maxFieldIds} distinct fields")
+                throw answerCeilingExceeded(JIRA_SOURCE, PROJECT_FIELDS_ENDPOINT, "more than ${ceilings.maxFieldIds} distinct fields")
             }
             val workTypeId = workTypeIdOf(row)
             if (workTypeId == null) splitKnown = false else byWorkType.getOrPut(workTypeId) { sortedSetOf() } += fieldId
@@ -196,6 +201,6 @@ internal object JiraProjectFields {
     private fun fieldIdOf(row: JsonElement): String {
         val field = (row as? JsonObject)?.get("fieldId") as? JsonPrimitive
         return field?.takeIf { it.isString }?.contentOrNull?.takeIf { it.isNotBlank() }
-            ?: throw JiraFetchException("INVALID_RESPONSE", null, PROJECT_FIELDS_ENDPOINT)
+            ?: throw FetchException(JIRA_SOURCE, "INVALID_RESPONSE", null, PROJECT_FIELDS_ENDPOINT)
     }
 }

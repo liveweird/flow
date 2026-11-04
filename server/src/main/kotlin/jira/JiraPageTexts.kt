@@ -6,7 +6,7 @@ import kotlinx.serialization.json.jsonObject
 
 // What the accumulating streams keep of a response page: the trimmed item TEXTS and the paging fields, never the parsed page.
 // They are built inside `JiraClient.*As`'s convert lambda, which `HttpJiraClient` runs while the big-parse lock is held
-// (`JiraHttp.requestAs`), so the page tree is unreachable by the time the stream sees the result.
+// (`SourceHttp.requestAs`), so the page tree is unreachable by the time the stream sees the result.
 
 /** One `changelog/bulkfetch` page: its histories as the rows they will store, and the token of the next page (null on the last). */
 internal class BulkChangelogPageTexts(val histories: List<RawChangelogInput>, val nextPageToken: String?)
@@ -27,7 +27,7 @@ internal fun feedWorklogsOf(elements: JsonArray): List<FeedWorklog> = elements.m
 }
 
 // The `...As` calls hand a page to `convert` and return only its result. On the real client ([HttpJiraClient]) `convert` runs while
-// the big-parse lock is still held (`JiraHttp.requestAs`), so a dense page's tree is garbage before the next big body is parsed and the
+// the big-parse lock is still held (`SourceHttp.requestAs`), so a dense page's tree is garbage before the next big body is parsed and the
 // streams that accumulate answers across pages (CHANGELOGS, WORKLOGS) never keep a page tree beside their text. Any other client (a
 // test fake, or a wrapper that overrides the plain calls) is called through the plain method and `convert` runs after it, so its
 // overrides are honoured; the result is the same.

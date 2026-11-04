@@ -123,6 +123,8 @@ data class DataProfile(
     val taskWorkflowStatusIds: List<String> = emptyList(),
     val schemeEpicFieldIds: List<String>? = null,
     val schemeTaskFieldIds: List<String>? = null,
+    /** The GitLab section (a GITLAB data source); null for a Jira source and before the first PROFILE. */
+    val gitlab: GitLabDataProfile? = null,
 )
 
 /**
@@ -148,6 +150,7 @@ data class DataProfileSections(
     val taskWorkflowStatusIds: List<String> = emptyList(),
     val schemeEpicFieldIds: List<String>? = null,
     val schemeTaskFieldIds: List<String>? = null,
+    val gitlab: GitLabDataProfile? = null,
 )
 
 /** Wraps [this] with [computedAt] into the wire response — `ingest/DataProfileRoutes.kt`'s one call site. */
@@ -170,4 +173,11 @@ fun DataProfileSections.withComputedAt(computedAt: Long?): DataProfile = DataPro
     taskWorkflowStatusIds = taskWorkflowStatusIds,
     schemeEpicFieldIds = schemeEpicFieldIds,
     schemeTaskFieldIds = schemeTaskFieldIds,
+    gitlab = gitlab,
 )
+
+/** `part` as a percentage of `whole` (0.0 when `whole` is not positive); the one rule the Jira and GitLab profiles share. */
+internal fun percentOf(part: Long, whole: Long): Double = if (whole <= 0) 0.0 else part.toDouble() * 100.0 / whole
+
+/** [percentOf] rounded to one decimal (the GitLab section prints it as is). */
+internal fun percentOfRounded(part: Long, whole: Long): Double = Math.round(percentOf(part, whole) * 10.0) / 10.0

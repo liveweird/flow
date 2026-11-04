@@ -1,5 +1,9 @@
 package ch.nokillswit.jira
 
+import ch.nokillswit.fetch.AnswerCeiling
+import ch.nokillswit.fetch.BoundedAnswer
+import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.fetch.answerCeilingExceeded
 import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
 
 /**
@@ -147,14 +151,16 @@ internal const val ISSUE_WORKLOG_ENDPOINT = "/rest/api/3/issue/{id}/worklog"
  * would be re-asked forever).
  */
 internal fun JiraWorklogIdsPage.requirePlausible(endpoint: String, since: Long, now: Long, maxEntries: Int) {
-    if (values.size > maxEntries) throw answerCeilingExceeded(endpoint, "a feed page of ${values.size} entries, more than $maxEntries")
+    if (values.size > maxEntries) {
+        throw answerCeilingExceeded(JIRA_SOURCE, endpoint, "a feed page of ${values.size} entries, more than $maxEntries")
+    }
     if (until > now + FEED_CLOCK_SKEW_MILLIS) {
         val detail = "the feed's until ($until) is later than now + ${FEED_CLOCK_SKEW_MILLIS}ms"
-        throw JiraFetchException("INVALID_RESPONSE", null, endpoint, detail)
+        throw FetchException(JIRA_SOURCE, "INVALID_RESPONSE", null, endpoint, detail)
     }
     if (!lastPage && until <= since) {
         val detail = "the feed has a next page but its until ($until) did not pass since ($since)"
-        throw JiraFetchException("INVALID_RESPONSE", null, endpoint, detail)
+        throw FetchException(JIRA_SOURCE, "INVALID_RESPONSE", null, endpoint, detail)
     }
 }
 

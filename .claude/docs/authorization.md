@@ -205,9 +205,18 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     audited `data_source.scope_rejected`, answered after validation (400 wins) and after the 403 guard. `jira.apiToken` is write-only — required on create, optional on
     update (omitted keeps the current token, present rotates it, audited separately as
     `data_source.token_rotated`); no response or audit event ever carries it, only
-    `jira.hasApiToken`. Delete is soft (disables the connection; the raw/normalized rows purge
+    `jira.hasApiToken`. **The GitLab kind (1.34.0)** rides the same routes with a `gitlab` block instead of `jira` (exactly one, else `400`;
+    the block sets the kind, which is fixed: the other block on a PUT, or a different canonical `gitlab.baseUrl`, is `409`; `gitlab.token`
+    is write-only like the Jira token, only `gitlab.hasToken` is echoed; `gitlab.pathExclusions` is validated after the guard - more than 100 patterns, one outside 1-255 characters
+    (after `sanitizeSingleLine`, whose control-character refusal is a `400` too) or one that is not a valid glob is a `400`; the audit events never carry the patterns). Its own scope `409`s are
+    `urn:flow:problem:data-source-other-instance` / `…-group-overlap`; a base URL off the operator's `GITLAB_ALLOWED_HOSTS`, or any GitLab
+    write while the kind is off, is a `400` carrying `gitlab-host-not-allowed` / `gitlab-disabled`; the stored Test connection of a GitLab row
+    while the kind is off is `409 data-source-kind-unsupported`. **`GET /api/v1/data-sources/kinds`** (ADMIN, `requireAdmin` first; `{items}` of
+    `{kind, enabled, allowedOrigins, defaultPathExclusions}`) tells the editor which kinds can be created: nothing in it is a secret (the operator's own host list), but
+    like the rest of the surface it is not an any-authenticated read. Delete is soft (disables the connection; the raw/normalized rows purge
     later per the v0.2.0 plan's grace-period amendment). Mutations audit
-    `data_source.created`/`.updated`/`.token_rotated`/`.deleted`. Tests: `DataSourceRoutesTest`.
+    `data_source.created`/`.updated`/`.token_rotated`/`.deleted` (the first two and `.tested`/`.scope_rejected` carry `kind` and `host`).
+    Tests: `DataSourceRoutesTest`, `GitLabDataSourceRoutesTest`, `GitLabScopeTest`.
   - `/api/v1/data-sources/{id}/sync-jobs` (`POST`/`GET`, `GET .../sync-jobs/{jobId}`,
     `POST .../sync-jobs/{jobId}/cancel`, `ingest/SyncJobRoutes.kt`) → **ADMIN only**, `requireAdmin`
     before `call.receive()` on the enqueue mutation (guard-before-read/-body, the data-sources
@@ -235,6 +244,16 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     SYNC/REPROCESS. `computedAt` is `null` before the connection's first PROCESS pass rather than a
     `404`. No mutation, so no audit event of its own — see `.claude/docs/ingestion.md` "Data profile".
     Tests: `DataProfileTest`.
+  - `GET /api/v1/data-sources/{id}/code-identities`, `PUT`/`DELETE …/code-identities/{identityKey}` and `POST …/code-identities/confirm-proposals`
+    (`identities/CodeIdentityRoutes.kt`, V45) → **ADMIN only, the whole surface.** `requireAdmin` is the FIRST statement of every handler,
+    before the data-source lookup, the key, the query and the body, so a non-admin gets ONE uniform `403` for a missing id, a Jira id, a
+    malformed key and a malformed body alike. Then the order is `404` data source (missing or soft-deleted) → `409`
+    `data-source-kind-unsupported` (not a GitLab source: the mirror of the metrics-config `409` for GitLab, from the one `read`) → `400` (key
+    pattern, query, body) → `404` (the identity: none in this connection's code layer and no decision stored for the key; or, on `DELETE`, no
+    decision) → `400` unknown Jira account (the client-supplied-FK idiom of the team memberships; skipped when the stored decision already names
+    that account). The host a decision is stored under comes from the path's data source, never from the body. **The list carries the GitLab
+    addresses** (`emails`), to ADMIN only (every `/api/` answer is `no-store`; the server never places a stored address in a URL, a log line or an audit field; `q` is search text an admin typed, which may contain one, as flow-users' `q` already may). Audits:
+    `code_identity.decided`, `code_identity.decision_removed` (`observability.md`). Tests: `CodeIdentityRoutesTest`.
   - `GET /api/v1/telemetry/current` and `GET /api/v1/telemetry/history?group=&range=` (`telemetry/TelemetryRoutes.kt`) → **ADMIN only, read-only**
     (operational data: process sizes, container limits, connection names and their sync health). `requireAdmin(call.caller())` is the first
     statement, before the query is read, so a non-admin gets the uniform `403` for a bad or missing `group`/`range` too (`403` outranks `400`);

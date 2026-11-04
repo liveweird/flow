@@ -1,0 +1,33 @@
+{
+  "priority": 6,
+  "request": {
+    "method": "GET",
+    "urlPath": "/api/v4/projects/5/repository/merge_base",
+    "queryParameters": {
+      "refs[]": {
+        "includes": [
+          {
+            "equalTo": "7d185805a51985399326ea755a687d544f6c7d71"
+          },
+          {
+            "equalTo": "main"
+          }
+        ]
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json",
+      "RateLimit-Limit": "2000",
+      "RateLimit-Observed": "10",
+      "RateLimit-Remaining": "1990",
+      "RateLimit-Reset": "1788220860",
+      "RateLimit-ResetTime": "Tue, 01 Sep 2026 00:01:00 GMT"
+    },
+    "bodyFileName": "p5-merge-base-started-tip-started.json"
+  },
+  "scenarioName": "gitlab-day2",
+  "requiredScenarioState": "Started"
+}

@@ -8,6 +8,8 @@ import {
   cellText,
   differenceText,
   drillCount,
+  isCodeView,
+  marginText,
   mixKeyLabel,
   normalizeComparePeopleFilter,
   viewColumns,
@@ -198,5 +200,37 @@ describe("viewColumns", () => {
     expect(viewColumns("LOGGED")).toEqual({ unit: "loggedMd", anchor: "worklog" });
     expect(viewColumns("WIP_TASK_DAYS")).toEqual({ unit: "heldDays", anchor: "none" });
     expect(viewColumns("SOMETHING_NEW")).toEqual({ unit: "md", anchor: "done" });
+  });
+
+  test("the CODE views read in Report 21's units and dates, and are the views that list GitLab items", () => {
+    expect(viewColumns("COMMITS")).toEqual({ unit: "lines", anchor: "committed" });
+    expect(viewColumns("MRS_MERGED")).toEqual({ unit: "wd", anchor: "merged" });
+    expect(viewColumns("MR_CYCLE_WORKING_DAYS")).toEqual({ unit: "wd", anchor: "merged" });
+    expect(viewColumns("MR_SIZE_LINES")).toEqual({ unit: "lines", anchor: "merged" });
+    for (const view of ["REVIEWS_GIVEN", "APPROVALS_GIVEN", "COMMENTS"]) expect(viewColumns(view)).toEqual({ unit: "none", anchor: "event" });
+    const codeViews = COMPARE_PEOPLE.rows.filter((row) => row.group === "CODE").map((row) => row.drill);
+    expect(codeViews.every((view) => isCodeView(view))).toBe(true);
+    expect(COMPARE_PEOPLE.rows.filter((row) => row.group !== "CODE").some((row) => isCodeView(row.drill))).toBe(false);
+    expect(isCodeView(undefined)).toBe(false);
+  });
+});
+
+describe("the CODE rows' figures", () => {
+  test("lines are written as plain numbers, a volume's gap is the absolute difference, a withheld p50 is a dash, a margin inflects", () => {
+    expect(cellText(rowOf("linesChanged"), rowOf("linesChanged").a)).toBe("3400");
+    expect(differenceText(rowOf("linesChanged"), t)).toBe("1200");
+    expect(cellText(rowOf("mrSizeLinesP50"), rowOf("mrSizeLinesP50").a)).toBe("120");
+    expect(cellText(rowOf("mrSizeLinesP50"), rowOf("mrSizeLinesP50").b)).toBe("—");
+    expect(differenceText(rowOf("mrSizeLinesP50"), t)).toBe("—");
+    expect(marginText({ key: "mrSizeLinesP50", unit: "LINES" }, 1, t)).toBe("1 line");
+    expect(marginText({ key: "mrSizeLinesP50", unit: "LINES" }, 15, t)).toBe("15 lines");
+    expect(betterLabel(rowOf("mrCycleWorkingDaysP50"), t)).toBe("better by 1.5 days");
+    // A volume never has a better side; a count with items behind it is a button, a zero is plain text.
+    expect(betterLabel(rowOf("commits"), t)).toBeUndefined();
+    expect(drillCount(rowOf("commits"), rowOf("commits").a)).toBe(52);
+    expect(drillCount(rowOf("reviewsGiven"), rowOf("reviewsGiven").a)).toBe(0);
+    expect(drillCount(rowOf("mrSizeLinesP50"), rowOf("mrSizeLinesP50").b)).toBe(0);
+    expect(cellCountOf(COMPARE_PEOPLE, "COMMITS", 1)).toBe(32);
+    expect(cellCountOf(COMPARE_PEOPLE, "MR_CYCLE_WORKING_DAYS", 0)).toBe(14);
   });
 });

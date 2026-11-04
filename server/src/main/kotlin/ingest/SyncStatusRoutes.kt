@@ -3,6 +3,8 @@ package ch.nokillswit.ingest
 import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.orNotFound
 import ch.nokillswit.authz.requireAdmin
+import ch.nokillswit.gitlab.GitLabRawStore
+import ch.nokillswit.gitlab.GitLabRawStoreKey
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraRawStoreKey
 import ch.nokillswit.plugins.servesApi
@@ -32,6 +34,7 @@ fun Application.configureSyncStatusRoutes() {
     val syncJobs = attributes[SyncJobsServiceKey]
     val cursors = attributes[SyncCursorsServiceKey]
     val rawStore = attributes[JiraRawStoreKey]
+    val gitLabStore = attributes.getOrNull(GitLabRawStoreKey)
 
     routing {
         authenticate {
@@ -47,7 +50,7 @@ fun Application.configureSyncStatusRoutes() {
                     cursors = cursors.getAll(connectionId).map {
                         SyncCursorSummary(it.stream, it.watermarkAt, it.cursor, it.lastCompletedAt)
                     },
-                    counts = counts(rawStore, connectionId),
+                    counts = counts(connection.kind, rawStore, gitLabStore, connectionId),
                     lastJobs = syncJobs.lastJobsByKind(connectionId),
                     currentJob = openJob,
                 )
@@ -57,7 +60,20 @@ fun Application.configureSyncStatusRoutes() {
     }
 }
 
-private suspend fun counts(rawStore: JiraRawStore, connectionId: UInt): SyncCounts = SyncCounts(
+/**
+ * The counts of the connection's own kind: a GitLab row reports `gitlab` (null when this process has no GitLab store) and zeros for the
+ * Jira integers, which count `raw.jira_*` rows it can never have.
+ */
+private suspend fun counts(kind: DataSourceKind, rawStore: JiraRawStore, gitLabStore: GitLabRawStore?, connectionId: UInt): SyncCounts =
+    when (kind) {
+        DataSourceKind.JIRA_CLOUD -> jiraCounts(rawStore, connectionId)
+        DataSourceKind.GITLAB -> SyncCounts(
+            rawIssues = 0, tombstonedDeleted = 0, tombstonedMovedOut = 0, changelogs = 0, worklogs = 0, entitiesByKind = emptyMap(),
+            needsProcessing = 0, gitlab = gitLabStore?.counts(connectionId),
+        )
+    }
+
+private suspend fun jiraCounts(rawStore: JiraRawStore, connectionId: UInt): SyncCounts = SyncCounts(
     rawIssues = rawStore.countIssues(connectionId),
     tombstonedDeleted = rawStore.countIssuesDeleted(connectionId),
     tombstonedMovedOut = rawStore.countIssuesMovedOut(connectionId),

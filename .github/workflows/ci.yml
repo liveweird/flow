@@ -261,11 +261,11 @@ jobs:
       - name: Toolchain pins agree (mise.toml, .nvmrc, ci.yml, Dockerfile)
         working-directory: ${{ github.workspace }}
         run: node scripts/check-toolchain-pins.mjs
-      # The sample-data generators' own self-test (the hostile Jira host of the worker-heap measurement, build-times WHY 48):
-      # dependency-free node, no stub needed.
+      # The sample-data generators' own self-tests (the hostile Jira host of the worker-heap measurement, build-times WHY 48; the
+      # GitLab stub generator: determinism, committed stub current, invariants): dependency-free node, no stub needed.
       - name: Sample-data generator self-tests
         working-directory: ${{ github.workspace }}
-        run: node --test sample-data/jira/hostile.test.mjs
+        run: node --test sample-data/jira/hostile.test.mjs sample-data/gitlab/generate.test.mjs
       # Last on purpose (see the web job): an overnight advisory must not hide the real gates. Everything
       # in e2e/ is a dev tool (Playwright and its lint stack), so the full tree is audited.
       - name: Audit dependencies (high+)

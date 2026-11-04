@@ -96,7 +96,9 @@ export default defineConfig({
       // 2026-10-23, checkup 3 B9 (direct tests for the branchiest untested components): lines 99.19 / statements 98.57 /
       // functions 98.57 / branches 94.48; the branch floor moved up with it.
       // 2026-10-23, checkup 3 A2 (re-measured): lines 99.19 / statements 98.56 / functions 98.57 /
-      // branches 94.42; lines, statements and functions moved up to the integer below.)
+      // branches 94.42; lines, statements and functions moved up to the integer below.
+      // 2026-10-31, PR 11 fix round (the Identities page and link modal, tested): lines 99.19 / statements 98.56 /
+      // functions 98.62 / branches 94.52; every floor is already the integer below its actual.)
       thresholds: {
         lines: 99,
         statements: 98,

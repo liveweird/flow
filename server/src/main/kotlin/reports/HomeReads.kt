@@ -2,6 +2,7 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.ingest.DataSourceService
+import ch.nokillswit.ingest.derivesMetrics
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.teams.TeamService
 import java.math.BigDecimal
@@ -151,13 +152,13 @@ internal suspend fun fetchHomeTeams(): List<HomeTeamRef> =
         .orderBy(TeamService.Teams.name)
         .toList().map { HomeTeamRef(it[TeamService.Teams.id].value, it[TeamService.Teams.name]) }
 
-/** An active connection (paused ones included — they still own what they derived). */
+/** An active connection of a kind that derives metrics (paused ones included — they still own what they derived). */
 internal data class HomeConnection(val id: UInt, val name: String, val lastSyncAt: Long?)
 
 internal suspend fun fetchHomeConnections(): List<HomeConnection> =
     DataSourceService.Connections.let { c ->
         c.select(c.id, c.name, c.lastSyncSucceededAt)
-            .where { c.active() }
+            .where { c.active() and c.derivesMetrics() }
             .orderBy(c.name)
             .toList().map { HomeConnection(it[c.id].value, it[c.name], it[c.lastSyncSucceededAt]) }
     }
