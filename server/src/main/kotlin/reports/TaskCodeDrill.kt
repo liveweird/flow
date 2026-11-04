@@ -96,19 +96,30 @@ internal suspend fun ReportService.taskCodeItems(filter: ReportFilter, query: Ta
         val read = readTaskCode(filter, nowMs)
         val scope = read.scope
         val selection = selectTaskCodeDrill(read.data.rows, query, scope.calendar, scope.settings.minSampleSize, filter.tailPercent)
-        val ordered = selection.rows.associateBy { it.drillRow.connectionId to it.drillRow.issueId }
-        val listed = selection.rows.map { it.drillRow }.sortedWith(DRILL_ORDER).take(DRILL_MAX_ITEMS)
-        // The GitLab keys are fetched for the LISTED tasks' merge requests only (labels, like every drill).
-        val mrsOf = listed.associate { row ->
-            val key = row.connectionId to row.issueId
-            key to ordered.getValue(key).linked.listedMrs(query.view)
-        }
-        val keys = fetchMergeRequestKeys(mrsOf.values.flatten())
-        val linkedKeys = mrsOf.mapValues { (_, refs) -> refs.map { keys.getValue(it) }.sortedWith(MERGE_REQUEST_KEY_ORDER) }
-        val measuredKeys = if (query.view == TaskCodeDrillView.TASKS_WITHOUT_MR) null else mrsOf.keys.mapNotNull { key ->
-            ordered.getValue(key).linked.lastMergedMr?.let { key to keys.getValue(it) }
-        }.toMap()
-        listedDrillItems(
-            scope.meta, selection.bar, listed, total = selection.rows.size, linkedKeys = linkedKeys, measuredKeys = measuredKeys,
-        )
+        taskCodeDrillItems(scope.meta, query.view, selection)
     }
+
+/**
+ * The listed items of a [selection] [selectTaskCodeDrill] made for [view]: the rows in drill order (at most [DRILL_MAX_ITEMS]) with their
+ * merge request keys. Shared with Home's `CODE_TASKS_WITHOUT_MR` drill (`HomeTaskCode.kt`), so a Home list is the report's own list. Runs
+ * inside the caller's [reportTransaction].
+ */
+internal suspend fun taskCodeDrillItems(
+    meta: ReportMeta,
+    view: TaskCodeDrillView,
+    selection: DistributionSelection<TaskDrillRow>,
+): ReportDrillItems {
+    val ordered = selection.rows.associateBy { it.drillRow.connectionId to it.drillRow.issueId }
+    val listed = selection.rows.map { it.drillRow }.sortedWith(DRILL_ORDER).take(DRILL_MAX_ITEMS)
+    // The GitLab keys are fetched for the LISTED tasks' merge requests only (labels, like every drill).
+    val mrsOf = listed.associate { row ->
+        val key = row.connectionId to row.issueId
+        key to ordered.getValue(key).linked.listedMrs(view)
+    }
+    val keys = fetchMergeRequestKeys(mrsOf.values.flatten())
+    val linkedKeys = mrsOf.mapValues { (_, refs) -> refs.map { keys.getValue(it) }.sortedWith(MERGE_REQUEST_KEY_ORDER) }
+    val measuredKeys = if (view == TaskCodeDrillView.TASKS_WITHOUT_MR) null else mrsOf.keys.mapNotNull { key ->
+        ordered.getValue(key).linked.lastMergedMr?.let { key to keys.getValue(it) }
+    }.toMap()
+    return listedDrillItems(meta, selection.bar, listed, total = selection.rows.size, linkedKeys = linkedKeys, measuredKeys = measuredKeys)
+}

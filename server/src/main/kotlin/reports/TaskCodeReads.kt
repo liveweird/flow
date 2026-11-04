@@ -35,16 +35,22 @@ private const val IN_CHUNK = 5_000
 /** The historic-key read repeats the chunk in four columns, so its chunks are a quarter as long. */
 private const val HISTORIC_CHUNK = 1_000
 
-/** The DONE level-0 tasks of the period credited to the request's team / domain slice (the cycle-time population, with key and start). */
+/**
+ * The DONE level-0 tasks of the period credited to the request's team / domain slice (the cycle-time population, with key and start).
+ * [creditTeams] (Home's one combined read of its listed teams) adds `credit_team_id IN (…)` to a filter that names no team of its own;
+ * null leaves the slice exactly Report 22's.
+ */
 internal suspend fun fetchTaskCodePopulation(
     filter: ReportFilter,
     connectionIds: List<UInt>,
     window: Pair<Long, Long>,
+    creditTeams: Collection<UInt>? = null,
 ): List<TaskCodeTask> {
-    if (connectionIds.isEmpty()) return emptyList()
+    if (connectionIds.isEmpty() || creditTeams?.isEmpty() == true) return emptyList()
     val t = MetricsTables.FactTaskDelivery
-    val predicate = taskFactSlice(filter, connectionIds) and
+    var predicate = taskFactSlice(filter, connectionIds) and
         t.doneAt.isNotNull() and (t.doneAt greaterEq window.first) and (t.doneAt less window.second)
+    if (creditTeams != null) predicate = predicate and (t.creditTeamId inList creditTeams)
     return t.select(t.connectionId, t.issueId, t.issueKey, t.startedAt, t.doneAt, t.assigneeAccountIdAtDone, t.creditTeamId)
         .where { predicate }
         .map {

@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.53.0",
+    date: "2026-11-04",
+    en: `**Home: done tasks without a merged merge request.**
+
+- The Code section has a new column for each team: how many of the tasks done in the window have no merged merge request naming them, and what share of the done tasks that is.
+- It is context, not a verdict: there is no arrow and no good or bad colour, because a task may need no code. A team with no done task says so instead of showing 0%.
+- Click the count to see the tasks, each with the merge requests that are still open or closed. The column shows even when nobody in the team has linked a GitLab identity.`,
+    pl: `**Strona główna: zakończone zadania bez scalonego merge requestu.**
+
+- Sekcja Kod ma nową kolumnę dla każdego zespołu: ile zadań zakończonych w okresie nie ma scalonego merge requestu, który je wymienia, i jaki to udział zakończonych zadań.
+- To kontekst, nie ocena: nie ma strzałki ani koloru dobrego lub złego, bo zadanie może nie wymagać kodu. Zespół bez zakończonych zadań mówi o tym, zamiast pokazywać 0%.
+- Kliknij liczbę, aby zobaczyć zadania, każde z merge requestami, które są jeszcze otwarte lub zamknięte. Kolumna jest widoczna także wtedy, gdy nikt w zespole nie ma połączonej tożsamości GitLab.`,
+  },
+  {
     version: "1.52.0",
     date: "2026-11-04",
     en: `**Tasks and code: a domain across the whole unit.**

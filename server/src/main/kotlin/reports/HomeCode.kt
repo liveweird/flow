@@ -28,6 +28,8 @@ internal class HomeCodeRead(
     /** Null while there is no source or the read was over the row budget. */
     val data: CodeActivityData?,
     val overBudget: Boolean,
+    /** Report 22's `tasks` per listed team (`HomeTaskCode.kt`); null while [data] is, or when THAT read was over the row budget. */
+    val tasks: Map<UInt, TaskCodeTasks>? = null,
 ) {
     companion object {
         val NONE = HomeCodeRead(emptyList(), emptyList(), emptyMap(), emptySet(), null, false)
@@ -56,7 +58,8 @@ internal suspend fun ReportService.readHomeCode(ctx: HomeContext, listed: Collec
         log.info("Home's code section is over reports.codeMaxRows ({}): teams {} listed without it", deps.maxRows, listed.sorted())
         null
     }
-    return HomeCodeRead(sources, freshness, rosters, linked, data, overBudget = data == null)
+    val tasks = if (data == null) null else ctx.readHomeTaskCode(deps, sources, listed)
+    return HomeCodeRead(sources, freshness, rosters, linked, data, overBudget = data == null, tasks = tasks)
 }
 
 /** The cycle p50 of the merged merge requests, literally Report 21's `cycleWorkingDays` distribution read as a figure. */
@@ -96,12 +99,18 @@ internal fun HomeContext.homeTeamCode(read: HomeCodeRead, team: UInt): HomeTeamC
         openDrafts = open.drafts,
         openAgeP50 = Measured(open.ageP50, open.count, open.ageHidden).toFigure(),
         mergedWithoutReview = trended(HomeMeasure.CODE_WITHOUT_REVIEW, before.withoutReview(minSample), now.withoutReview(minSample)),
+        tasks = read.tasks?.get(team),
     )
 }
 
-/** Whether [this] lists merge requests of the code layer (its tag carries the GitLab stamp lines, a Jira view's does not). */
+/**
+ * Whether [this] reads the code layer (its tag carries the GitLab stamp lines, a Jira view's does not): the merge request lists and
+ * `CODE_TASKS_WITHOUT_MR`, whose TASKS are joined to the merge requests that name them.
+ */
 internal fun HomeDrillView.isCodeView(): Boolean = when (this) {
-    HomeDrillView.CODE_MERGED, HomeDrillView.CODE_OPEN, HomeDrillView.CODE_MERGED_WITHOUT_REVIEW -> true
+    HomeDrillView.CODE_MERGED, HomeDrillView.CODE_OPEN, HomeDrillView.CODE_MERGED_WITHOUT_REVIEW,
+    HomeDrillView.CODE_TASKS_WITHOUT_MR,
+    -> true
     else -> false
 }
 
@@ -110,7 +119,7 @@ internal fun HomeDrillView.codeView(): CodeDrillView = when (this) {
     HomeDrillView.CODE_MERGED -> CodeDrillView.MRS_MERGED
     HomeDrillView.CODE_OPEN -> CodeDrillView.OPEN_MRS_WAITING
     HomeDrillView.CODE_MERGED_WITHOUT_REVIEW -> CodeDrillView.MERGED_WITHOUT_REVIEW
-    else -> error("$this is no code view")
+    else -> error("$this is no Report 21 code view")
 }
 
 /**

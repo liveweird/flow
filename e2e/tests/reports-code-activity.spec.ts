@@ -67,6 +67,7 @@ interface HomeBody {
       merged: { n: number };
       openCount: { n: number };
       mergedWithoutReview: { n: number; numerator: number | null };
+      tasks: { done: number; withoutMergeRequest: number } | null;
     } | null;
   }[];
 }
@@ -145,10 +146,14 @@ async function expectHomeCode(page: Page, api: APIRequestContext, own: { teamId:
   const homeCells = await homeRow.getByRole("cell").allInnerTexts();
   // A count starts its cell (a trend may follow it); the medians and the share are the window's own and are checked through the counts.
   const startsWith = (cell: string, count: number) => new RegExp(`^${count}(\\D|$)`).test(cell);
-  expect(homeCells, "five figures, not the no-linked-identities row").toHaveLength(5);
+  expect(homeCells, "six figures, not the no-linked-identities row").toHaveLength(6);
   expect(startsWith(homeCells[0], figures.merged.n), `merged: ${homeCells[0]}`).toBeTruthy();
   expect(startsWith(homeCells[2], figures.openCount.n), `open now: ${homeCells[2]}`).toBeTruthy();
   expect(startsWith(homeCells[4], figures.mergedWithoutReview.numerator ?? 0), `merged without review: ${homeCells[4]}`).toBeTruthy();
+  // The done tasks without a merged merge request: the API's count, or the sentence that says there is none to count.
+  if (figures.tasks === null) expect(homeCells[5]).toBe("Too many to count here");
+  else if (figures.tasks.done === 0) expect(homeCells[5]).toBe("No task done in the window");
+  else expect(startsWith(homeCells[5], figures.tasks.withoutMergeRequest), `tasks without a merge request: ${homeCells[5]}`).toBeTruthy();
   // The title is the way into Code activity for the team and the overview's window.
   const title = codeSection.getByRole("heading", { level: 3 }).getByRole("link");
   const target = new URL((await title.getAttribute("href")) ?? "", "http://flow.test");

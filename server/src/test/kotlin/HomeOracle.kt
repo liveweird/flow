@@ -221,7 +221,9 @@ internal fun oracleViewItems(
         HomeDrillView.QUALITY_EPICS_ESTIMATE_GAP ->
             population.filter { it.gap(tolerance) }.associate { it.issueId to (it.childSum - it.ownCurrent!!).toDouble() }
         // Code items are merge requests, not issues: `oracleCodeKeys` is their independent listing (ReportHomeCodeTest).
-        HomeDrillView.CODE_MERGED, HomeDrillView.CODE_OPEN, HomeDrillView.CODE_MERGED_WITHOUT_REVIEW -> emptyMap()
+        HomeDrillView.CODE_MERGED, HomeDrillView.CODE_OPEN, HomeDrillView.CODE_MERGED_WITHOUT_REVIEW,
+        HomeDrillView.CODE_TASKS_WITHOUT_MR,
+        -> emptyMap()
     }
 }
 

@@ -46,23 +46,30 @@ internal suspend fun ReportService.taskCode(filter: ReportFilter, nowMs: Long): 
     )
 }
 
-/**
- * The read plan, in the task -> merge request direction and bounded by the done tasks: the tasks; their old keys (`issuekey` changes);
- * each task's keys cut to the KNOWN Jira projects ([knownProjectKeys], one definition with Report 21's drill) and resolved to the live
- * issues that name them - current key or old key, across EVERY active Jira source whatever `connectionId` says (it narrows the
- * population only), which decides ambiguity; then the link rows of the keys that name their task alone, charged to the row budget.
- * Without a GitLab source nothing is linked.
- */
+/** [loadTaskCode]'s read for the request's slice: the done tasks, then [linkTasksToMergeRequests]. */
 private suspend fun ReportService.loadTaskCode(
     deps: CodeActivityDeps,
     filter: ReportFilter,
     scope: ReportScope,
     sources: List<CodeSource>,
     window: Pair<Long, Long>,
-): TaskCodeData {
-    val tasks = fetchTaskCodePopulation(filter, scope.connectionIds, window)
+): TaskCodeData = TaskCodeData(linkTasksToMergeRequests(deps, fetchTaskCodePopulation(filter, scope.connectionIds, window), sources))
+
+/**
+ * The read plan, in the task -> merge request direction and bounded by the done [tasks]: their old keys (`issuekey` changes);
+ * each task's keys cut to the KNOWN Jira projects ([knownProjectKeys], one definition with Report 21's drill) and resolved to the live
+ * issues that name them - current key or old key, across EVERY active Jira source whatever `connectionId` says (it narrows the
+ * population only), which decides ambiguity; then the link rows of the keys that name their task alone, charged to the row budget.
+ * Without a GitLab source nothing is linked. Shared by the report, its drill and Home's combined read (`HomeTaskCode.kt`): the
+ * statements do not depend on how many teams the [tasks] belong to.
+ */
+internal suspend fun linkTasksToMergeRequests(
+    deps: CodeActivityDeps,
+    tasks: List<TaskCodeTask>,
+    sources: List<CodeSource>,
+): List<TaskMergeRequests> {
     val gitlabIds = sources.map { it.connectionId }
-    if (gitlabIds.isEmpty() || tasks.isEmpty()) return TaskCodeData(linkTasks(tasks, emptyMap(), emptyMap(), emptyMap()))
+    if (gitlabIds.isEmpty() || tasks.isEmpty()) return linkTasks(tasks, emptyMap(), emptyMap(), emptyMap())
     val known = knownProjectKeys(deps.dataSources)
     val oldKeys = fetchKeysOfIssues(tasks.map { it.ref })
     val keysOf = tasks.associate { task ->
@@ -75,5 +82,5 @@ private suspend fun ReportService.loadTaskCode(
     val resolution = lookup.associateWith { current[it].orEmpty() + historic[it].orEmpty() }
     val wanted = tasks.flatMap { task -> keysOf.getValue(task.ref).filter { resolution[it] == setOf(task.ref) } }.toSet()
     val links = fetchTaskLinks(gitlabIds, wanted, CodeRowBudget(deps.maxRows)).groupBy { it.key }
-    return TaskCodeData(linkTasks(tasks, keysOf, links, resolution))
+    return linkTasks(tasks, keysOf, links, resolution)
 }

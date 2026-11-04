@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Anchor, Stack, Table, Text } from "@mantine/core";
 import { Link as RouterLink } from "react-router-dom";
-import type { HomeFigure, HomeOverview, HomeTeam } from "../api/home";
+import type { HomeFigure, HomeOverview, HomeTeam, HomeTeamCode } from "../api/home";
 import { useAdmin } from "../auth";
 import classes from "../theme.module.css";
 import { overviewLink, sectionAnchor, trendOf, windowFilter, type OpenDrill } from "../utils/homeOverview";
@@ -16,7 +16,7 @@ import ScrollRegion from "./ScrollRegion";
 
 const ANCHOR = sectionAnchor("code");
 
-/** The columns of the figures (the team and the "no linked identities" row aside). */
+/** The columns of Report 21's figures (the team, the tasks column and the "no linked identities" row aside). */
 const COLUMN_COUNT = 5;
 
 /**
@@ -26,8 +26,13 @@ const COLUMN_COUNT = 5;
  * to GitLab); the cycle and age medians have no drill of their own (their merge requests are the first two lists). Three figures
  * carry a trend (arrow plus the verdict as a word; the directions are in the caption in words, never a colour); the open ones are a
  * snapshot of now. A statistic under the minimum sample reads "Below the minimum sample", but the merged-without-review COUNT stays.
- * A team with no linked GitLab identity has no figures to show and says so (an administrator gets the way to link them). When the
+ * A team with no linked GitLab identity has no merge request figures to show and says so (an administrator gets the way to link them). When the
  * code read exceeded the server's row budget the section keeps its title and says so instead of a table (the report has the detail).
+ *
+ * The last column is Report 22's: the team's done tasks that no MERGED merge request names, with their share of the done tasks. It is neutral
+ * context (a count and a share over the current window, no arrow, no verdict: a task may need no code) and it does not depend on linked
+ * people, so a team without links still shows it. No task done reads so, never "0 %"; if the server left it out (its read was over the row
+ * budget) the cell says so; the count drills to the tasks, each beside the merge requests that kept it out of "with".
  */
 export default function HomeCodeSection({ overview, open }: { overview: HomeOverview; open: OpenDrill }) {
   const { t } = useTranslation();
@@ -84,7 +89,7 @@ export default function HomeCodeSection({ overview, open }: { overview: HomeOver
     value: number,
     figure: HomeFigure | null,
     column: string,
-    view: "CODE_MERGED" | "CODE_OPEN" | "CODE_MERGED_WITHOUT_REVIEW",
+    view: "CODE_MERGED" | "CODE_OPEN" | "CODE_MERGED_WITHOUT_REVIEW" | "CODE_TASKS_WITHOUT_MR",
     extra: ReactNode = null,
     format: (value: number) => string = String,
   ) => {
@@ -117,23 +122,52 @@ export default function HomeCodeSection({ overview, open }: { overview: HomeOver
     open: t("home.code.open"),
     age: t("home.code.age"),
     withoutReview: t("home.code.withoutReview"),
+    tasksWithoutMr: t("home.code.tasksWithoutMr"),
+  };
+  /** Report 22's block: the count that drills to the tasks and its share of the done tasks, as words, with nothing coloured. */
+  const tasksCell = (team: HomeTeam, tasks: HomeTeamCode["tasks"]) => {
+    if (tasks === null) {
+      return (
+        <Text size="sm" c="dimmed">
+          {t("home.code.tasksUnavailable")}
+        </Text>
+      );
+    }
+    if (tasks.done === 0 || tasks.withoutShare == null) {
+      return (
+        <Text size="sm" c="dimmed">
+          {t("home.code.tasksNoneDone")}
+        </Text>
+      );
+    }
+    const share = (
+      <Text component="span" size="xs" c="dimmed">
+        {" "}
+        {t("home.code.tasksShare", { share: formatPercent(tasks.withoutShare), count: tasks.done })}
+      </Text>
+    );
+    return count(team, tasks.withoutMergeRequest, null, columns.tasksWithoutMr, "CODE_TASKS_WITHOUT_MR", share);
   };
   const row = (team: HomeTeam) => {
     const code = team.code;
     if (code === null) return null;
+    const tasks = <Table.Td ta="right">{tasksCell(team, code.tasks)}</Table.Td>;
     if (code.linkedMembers === 0) {
       return (
-        <Table.Td colSpan={COLUMN_COUNT}>
-          <Text size="sm" c="dimmed">
-            {t("home.code.noLinks")}
-          </Text>
-          {admin &&
-            overview.code.sources.map((source) => (
-              <Anchor key={source.connectionId} component={RouterLink} to={dataSourceIdentitiesPath(source.connectionId)} size="sm" display="block">
-                {t("home.code.linkIdentities", { name: source.name })}
-              </Anchor>
-            ))}
-        </Table.Td>
+        <>
+          <Table.Td colSpan={COLUMN_COUNT}>
+            <Text size="sm" c="dimmed">
+              {t("home.code.noLinks")}
+            </Text>
+            {admin &&
+              overview.code.sources.map((source) => (
+                <Anchor key={source.connectionId} component={RouterLink} to={dataSourceIdentitiesPath(source.connectionId)} size="sm" display="block">
+                  {t("home.code.linkIdentities", { name: source.name })}
+                </Anchor>
+              ))}
+          </Table.Td>
+          {tasks}
+        </>
       );
     }
     const review = code.mergedWithoutReview;
@@ -169,13 +203,14 @@ export default function HomeCodeSection({ overview, open }: { overview: HomeOver
             formatPercent,
           )}
         </Table.Td>
+        {tasks}
       </>
     );
   };
   return (
     <HomeTile title={t("home.code.title")} to={report} caption={caption} drillAnchor={ANCHOR}>
       <Stack gap="sm">
-        <ScrollRegion label={label} minWidth={640}>
+        <ScrollRegion label={label} minWidth={800}>
           <Table aria-label={label} verticalSpacing="xs" className={classes.findingTable}>
             <Table.Thead>
               <Table.Tr>

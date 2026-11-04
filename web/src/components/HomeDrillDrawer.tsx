@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { getHomeItems, type HomeOverview } from "../api/home";
 import { getSprintScopeItems, getThroughputItems } from "../api/reportDrill";
 import { getReportFilters } from "../api/reports";
-import { drillDrawn, HOME_VIEWS, isCodeView, sprintBucketItems } from "../utils/homeOverview";
+import { drillDrawn, HOME_VIEWS, isMergeRequestView, isTaskCodeView, sprintBucketItems } from "../utils/homeOverview";
 import { serializeDrill, type DrillTarget, type HomeDrillTarget, type WeekDrillTarget } from "../utils/reportDrill";
 import { reportQuery, type ReportFilterState } from "../utils/reportFilter";
 import ReportDrillDrawer from "./ReportDrillDrawer";
@@ -43,7 +43,8 @@ function ViewDrawer({ overview, opened, target, onClose }: Pick<Props, "overview
       anchor={open ? HOME_VIEWS[open.view].anchor : "done"}
       timeZone={overview.timeZone}
       chartCount={open && team ? HOME_VIEWS[open.view].count(team) : undefined}
-      codeSources={open && isCodeView(open.view) ? overview.code.sources : undefined}
+      codeSources={open && isMergeRequestView(open.view) ? overview.code.sources : undefined}
+      taskSources={open && isTaskCodeView(open.view) ? overview.code.sources : undefined}
     />
   );
 }
