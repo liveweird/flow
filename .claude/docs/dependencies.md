@@ -339,6 +339,21 @@ pass and a strict validation from a second empty home with `--rerun-tasks`.
   did not move. `gradle/verification-metadata.xml` only gained entries (339 added lines, 0 removed); no
   trusted-artifact patterns.
 
+## Dependency batch 2026-11-04
+
+Weekly Dependabot round. #412 (Mailpit), #413 (e2e group) and #414 (web group) were green once refreshed and merged as they were. The other four failed for
+the known reasons and were redone by hand: #415 and #416 here (Dependabot does not regenerate locks and checksums), #411 as one PR moving Node 24.22.1 in the
+`Dockerfile`, `.nvmrc` and `mise.toml`, and #410 as one PR moving the Postgres digest in all three places. Both image digests were re-derived with
+`docker buildx imagetools inspect` and matched Dependabot's.
+
+- **PR #415:** Flyway 13.10.3 → 13.11.1, Logback 1.6.5 → 1.6.6, `reactor-bom` 2025.0.7 → 2025.0.8 (reactor-core 3.8.8, reactor-pool 1.2.8, reactor-netty-core 1.3.8).
+  reactor-netty 1.3.8's published pom asks for Netty 4.2.19, exactly the `netty` pin, so the pin stays.
+- **PR #416:** OpenTelemetry instrumentation 2.33.0-alpha → 2.33.1-alpha. Its BOM still imports `opentelemetry-bom` 1.67.0, so the SDK stays; `checkDependencyAlignment`:
+  `io.opentelemetry aligned at 1.67.0 (17 modules)`.
+- **Lock movement:** exactly those families, in the `core` and `server` project locks; the settings, root and buildscript locks did not move.
+  `gradle/verification-metadata.xml` only gained entries (132 added lines, 0 removed); no trusted-artifact patterns. As in earlier rounds, the new checksums come from
+  the empty-home run against the configured repositories, which is not independent provenance (signature verification is not enabled).
+
 ## New dependencies (v0.3.0 M4 commit 11 — the reports SPA)
 
 All four are `/web` runtime dependencies, installed with `npm install --legacy-peer-deps` (the
