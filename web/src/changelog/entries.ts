@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.51.0",
+    date: "2026-11-04",
+    en: `**Tasks and code: the tasks with no team.**
+
+- The Team control now ends with "Unassigned": the done tasks that no team gets the credit for, with their merge requests.
+- Beside "Unassigned" the period is chosen by dates (sprints belong to a team); the domain and the other filters still apply, and the lists behind the figures open for the same tasks.`,
+    pl: `**Zadania i kod: zadania bez zespołu.**
+
+- Lista zespołów kończy się teraz pozycją „Nieprzypisane”: ukończone zadania, za które nie odpowiada żaden zespół, razem z ich merge requestami.
+- Przy „Nieprzypisane” okres wybiera się datami (sprinty należą do zespołu); domena i pozostałe filtry nadal działają, a listy pod liczbami otwierają te same zadania.`,
+  },
+  {
     version: "1.50.0",
     date: "2026-11-04",
     en: `**Tasks and code: see which merge request a figure measured.**

@@ -347,8 +347,8 @@ export interface ReportControls {
    */
   teamRequired?: boolean;
   /**
-   * With `teamRequired` (Code activity only): the team control also offers "Unassigned", `teamId=0` -- the work no team holds (the undecided GitLab
-   * identities and linked people with no team), which the server answers for this report. The choice is kept as written (`requiredTeamId` does not
+   * With `teamRequired` (Code activity and Tasks and code): the team control also offers "Unassigned", `teamId=0` -- the work no team holds (Code activity: the undecided GitLab
+   * identities and linked people with no team; Tasks and code: the done tasks with no credit team), which the server answers for those reports. The choice is kept as written (`requiredTeamId` does not
    * rewrite it), is not remembered as the shared team, and has no members to pick.
    */
   teamUnassigned?: boolean;

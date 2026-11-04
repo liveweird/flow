@@ -26,7 +26,7 @@ export default function ReportScopeControls({
   const { t } = useTranslation();
   const team = filters.teams.find((candidate) => candidate.id === filter.teamId);
   const teamOptions = filters.teams.map((candidate) => ({ value: String(candidate.id), label: candidate.name }));
-  // Code activity's "Unassigned" (`teamId=0`) closes the list: it is a bucket beside the teams, not one of them.
+  // "Unassigned" (`teamId=0`; Code activity, Tasks and code) closes the list: it is a bucket beside the teams, not one of them.
   if (controls.teamUnassigned) teamOptions.push({ value: UNASSIGNED_VALUE, label: t("reports.groups.unassigned") });
   const memberOptions = (team?.members ?? []).map((member) => ({ value: member.accountId, label: member.displayName }));
 
@@ -41,7 +41,7 @@ export default function ReportScopeControls({
       next.teamId = Number(value);
       if (controls.domainExcludesTeam) delete next.domain;
     }
-    // A sprint belongs to one team — it survives only a change to a team that lists it. ("Unassigned" lists none, and Code activity's `normalizeCodeActivityFilter` drops a sprint-relative period beside it.)
+    // A sprint belongs to one team — it survives only a change to a team that lists it. ("Unassigned" lists none, and the page's normalize (`normalizeCodeActivityFilter`, `normalizeTaskCodeFilter`) drops a sprint-relative period beside it.)
     const stillListed = filters.teams
       .find((candidate) => String(candidate.id) === value)
       ?.sprints.some((sprint) => sprint.sprintId === filter.sprintId);
