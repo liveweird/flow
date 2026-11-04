@@ -28,10 +28,11 @@ class ReportScopeGuardTest {
     private val guarded: Map<String, String> = buildMap {
         listOf(
             "throughput", "task-estimation-accuracy", "task-estimates", "epic-estimation-accuracy", "estimate-adjustments",
-            "cycle-time", "reported-time-ratio", "blocked-time", "costs",
+            "cycle-time", "reported-time-ratio", "blocked-time", "costs", "task-code",
         ).forEach { put(it, teamOrDomain); put("$it/items", teamOrDomain) }
         listOf("wip", "backlog", "aging-wip", "data-quality").forEach { put(it, teamOrDomain) }
-        listOf("commitments", "sprint-consistency", "sprint-consistency/items").forEach { put(it, teamOnly) }
+        listOf("commitments", "sprint-consistency", "sprint-consistency/items", "code-activity", "code-activity/items")
+            .forEach { put(it, teamOnly) }
         put("epic-progress", epicDomainOrTeam)
     }
 

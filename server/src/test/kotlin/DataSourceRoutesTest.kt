@@ -107,7 +107,7 @@ class DataSourceRoutesTest {
         assertFalse(token in createdBody, "the token must never appear in the response")
         val created = create.body<DataSourceResponse>()
         assertEquals(name, created.name)
-        assertTrue(created.jira.hasApiToken)
+        assertTrue(created.jira!!.hasApiToken)
         assertEquals(DataSourceState.NEVER_SYNCED, created.status.state)
         assertEquals(1L, created.configRevision)
 
@@ -118,13 +118,13 @@ class DataSourceRoutesTest {
         val renamedKeys = uniqueProjectKeys(2)
         val update = admin.putJson(
             "/api/v1/data-sources/${created.id}",
-            request(renamed, jira(siteUrl = created.jira.siteUrl, apiToken = null, projectKeys = renamedKeys)),
+            request(renamed, jira(siteUrl = created.jira!!.siteUrl, apiToken = null, projectKeys = renamedKeys)),
         )
         assertEquals(HttpStatusCode.NoContent, update.status)
         val afterRename = admin.get("/api/v1/data-sources/${created.id}").body<DataSourceResponse>()
         assertEquals(renamed, afterRename.name)
-        assertEquals(renamedKeys, afterRename.jira.projectKeys)
-        assertTrue(afterRename.jira.hasApiToken, "omitting apiToken keeps the current token")
+        assertEquals(renamedKeys, afterRename.jira!!.projectKeys)
+        assertTrue(afterRename.jira!!.hasApiToken, "omitting apiToken keeps the current token")
         assertEquals(2L, afterRename.configRevision, "any successful update bumps configRevision")
 
         assertEquals(HttpStatusCode.NoContent, admin.delete("/api/v1/data-sources/${created.id}").status)
@@ -159,7 +159,7 @@ class DataSourceRoutesTest {
         val other = admin.postJson("/api/v1/data-sources", request(unique("other"))).body<DataSourceResponse>()
         val renameOther = admin.putJson(
             "/api/v1/data-sources/${other.id}",
-            request(n, jira(siteUrl = other.jira.siteUrl)),
+            request(n, jira(siteUrl = other.jira!!.siteUrl)),
         )
         assertEquals(HttpStatusCode.Conflict, renameOther.status)
 
@@ -260,17 +260,22 @@ class DataSourceRoutesTest {
                 it.message == "data_source.created" && it.hasKeyValue("dataSourceId", created.id.toLong())
             }
             assertNotNull(createdEvent)
+            assertTrue(createdEvent.hasKeyValue("kind", "JIRA_CLOUD"))
+            assertTrue(createdEvent.keyValuePairs.any { it.key == "host" && it.value.toString().endsWith(".atlassian.net") })
+            assertTrue(createdEvent.keyValuePairs.none { it.key == "siteHost" }, "the field is called host")
             assertFalse(createdEvent.formattedMessage.contains(token))
             assertTrue(createdEvent.keyValuePairs.none { it.value.toString().contains(token) }, "no audit field may carry the token")
 
             admin.putJson(
                 "/api/v1/data-sources/${created.id}",
-                request(created.name, jira(siteUrl = created.jira.siteUrl, apiToken = "rotated-${UUID.randomUUID()}")),
+                request(created.name, jira(siteUrl = created.jira!!.siteUrl, apiToken = "rotated-${UUID.randomUUID()}")),
             )
             val updatedEvent = capture.awaitEvent {
                 it.message == "data_source.updated" && it.hasKeyValue("dataSourceId", created.id.toLong())
             }
             assertNotNull(updatedEvent)
+            assertTrue(updatedEvent.hasKeyValue("kind", "JIRA_CLOUD"))
+            assertTrue(updatedEvent.keyValuePairs.any { it.key == "host" })
             val rotatedEvent = capture.awaitEvent {
                 it.message == "data_source.token_rotated" && it.hasKeyValue("dataSourceId", created.id.toLong())
             }
@@ -292,7 +297,7 @@ class DataSourceRoutesTest {
             val created = admin.postJson("/api/v1/data-sources", request(unique("norotate"))).body<DataSourceResponse>()
             admin.putJson(
                 "/api/v1/data-sources/${created.id}",
-                request(created.name, jira(siteUrl = created.jira.siteUrl, apiToken = null)),
+                request(created.name, jira(siteUrl = created.jira!!.siteUrl, apiToken = null)),
             )
             val updatedEvent = capture.awaitEvent {
                 it.message == "data_source.updated" && it.hasKeyValue("dataSourceId", created.id.toLong())
@@ -316,7 +321,7 @@ class DataSourceRoutesTest {
         val newToken = "rotated-${UUID.randomUUID()}"
         val rotatePut = admin.putJson(
             "/api/v1/data-sources/${created.id}",
-            request(created.name, jira(siteUrl = created.jira.siteUrl, apiToken = newToken)),
+            request(created.name, jira(siteUrl = created.jira!!.siteUrl, apiToken = newToken)),
         )
         assertEquals(HttpStatusCode.NoContent, rotatePut.status)
         val rawAfterRotate = rawSecret(created.id)
@@ -330,7 +335,7 @@ class DataSourceRoutesTest {
 
         val omitPut = admin.putJson(
             "/api/v1/data-sources/${created.id}",
-            request(created.name, jira(siteUrl = created.jira.siteUrl, apiToken = null)),
+            request(created.name, jira(siteUrl = created.jira!!.siteUrl, apiToken = null)),
         )
         assertEquals(HttpStatusCode.NoContent, omitPut.status, "an omitted apiToken must be accepted, not 400")
         val rawAfterOmitted = rawSecret(created.id)
@@ -338,7 +343,7 @@ class DataSourceRoutesTest {
 
         val blankPut = admin.putJson(
             "/api/v1/data-sources/${created.id}",
-            request(created.name, jira(siteUrl = created.jira.siteUrl, apiToken = "   ")),
+            request(created.name, jira(siteUrl = created.jira!!.siteUrl, apiToken = "   ")),
         )
         assertEquals(HttpStatusCode.NoContent, blankPut.status, "a blank apiToken must be accepted (treated as unchanged), not 400")
         val rawAfterBlank = rawSecret(created.id)
@@ -374,7 +379,7 @@ class DataSourceRoutesTest {
 
         val read = admin.get("/api/v1/data-sources/${created.id}")
         assertEquals(HttpStatusCode.OK, read.status, "an unknown settings key must not 500 a rolling-deploy read")
-        assertEquals(created.jira.siteUrl, read.body<DataSourceResponse>().jira.siteUrl)
+        assertEquals(created.jira!!.siteUrl, read.body<DataSourceResponse>().jira!!.siteUrl)
     }
 
     @Test
@@ -391,8 +396,8 @@ class DataSourceRoutesTest {
             assertFailsWith<BadRequestException> { service.update(id, valid.copy(reconcileHourUtc = 99)) }
             assertFailsWith<BadRequestException> { service.update(id, valid.copy(name = " ")) }
             // apiToken stays optional on update (null keeps the stored secret) — the route's own rule.
-            val siteUrl = assertNotNull(service.read(id)).jira.siteUrl
-            assertNotNull(service.update(id, valid.copy(jira = valid.jira.copy(siteUrl = siteUrl, apiToken = null))))
+            val siteUrl = assertNotNull(service.read(id)).jira!!.siteUrl
+            assertNotNull(service.update(id, valid.copy(jira = valid.jira!!.copy(siteUrl = siteUrl, apiToken = null))))
         }
     }
 }

@@ -6,12 +6,12 @@ import ch.nokillswit.ingest.JiraConnectionRequest
 import ch.nokillswit.infra.json.canonicalJson
 import ch.nokillswit.infra.json.sha256Hex
 import ch.nokillswit.infra.db.StatementProbe
+import ch.nokillswit.ingest.RawUpsertOutcome
 import ch.nokillswit.ingest.defaultBackfillFrom
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.RawChangelogInput
 import ch.nokillswit.jira.RawEntityInput
 import ch.nokillswit.jira.RawIssueInput
-import ch.nokillswit.jira.RawUpsertOutcome
 import ch.nokillswit.jira.RawWorklogInput
 import ch.nokillswit.jira.trimmedWorklogCanonicalJson
 import kotlinx.coroutines.flow.toList

@@ -42,6 +42,10 @@ ktor:
       # The guarded Jira HTTP stack (outbound guard + Test-connection service + the Connector
       # registry) — before the data-sources/sync-job routes, which read it off attributes.
       - ch.nokillswit.jira.JiraKt.configureJira
+      # The GitLab connector (gitlab/GitLab.kt; `.claude/docs/gitlab-integration.md`): validates `gitlab.*`, builds the ONE guarded client
+      # for a self-managed host, registers the base-URL policy and (when GitLab is enabled) the GITLAB connector. After configureJira:
+      # its response ceiling may not exceed jira.maxResponseBytes and its calls share Jira's request permits. Runs in every role.
+      - ch.nokillswit.gitlab.GitLabKt.configureGitLab
       # The metrics layer's composition root (v0.3.0 M1 commit 3, `.claude/docs/domain-model.md`
       # "Configuration"; `.claude/docs/metrics.md` is its own guide):
       # publishes MetricsConfigService/TeamMembershipService and registers the tiny
@@ -65,6 +69,9 @@ ktor:
       - ch.nokillswit.ingest.SyncStatusRoutesKt.configureSyncStatusRoutes
       - ch.nokillswit.ingest.RawIssueInspectorRoutesKt.configureRawIssueInspectorRoutes
       - ch.nokillswit.ingest.DataProfileRoutesKt.configureDataProfileRoutes
+      # The GitLab identity mapping (V45): publishes the resolver and the service in EVERY role, the ADMIN routes where the API is served;
+      # after the Jira/GitLab modules (WorkItemStoreKey, CodeActivityStoreKey) and the database (R2dbcDatabaseKey).
+      - ch.nokillswit.identities.CodeIdentityRoutesKt.configureCodeIdentities
       - ch.nokillswit.metrics.MetricsConfigRoutesKt.configureMetricsConfigRoutes
       - ch.nokillswit.metrics.TeamMembershipRoutesKt.configureTeamMembershipRoutes
       - ch.nokillswit.metrics.TeamMembershipSeedRoutesKt.configureTeamMembershipSeedRoutes
@@ -243,6 +250,15 @@ reports:
   # problem, so one pathological selection cannot pin a pooled connection. WHOLE SECONDS (the unit Exposed's
   # per-statement timeout takes), 1..3600.
   statementTimeoutSeconds: "$REPORTS_STATEMENT_TIMEOUT_SECONDS:30"
+  # Per-request ROW budget of the GitLab code reads (reports/CodeActivityBudget.kt): the most commit, merge request and review event
+  # rows one Code activity / Compare people / Person trend request may load into the JVM. A selection over it answers a 400 ("narrow the
+  # period or pick fewer people"), never a silently cut figure. The default (100000) is far above a real selection and bounds the heap one
+  # request can take (build-times.md WHY 61); 1..5000000 (the floor is a test seam, production values are thousands).
+  codeMaxRows: "$REPORTS_CODE_MAX_ROWS:100000"
+  # How many Code activity computations (the report and its drill) one web process runs at once (reports/CodeActivityBudget.kt
+  # CodeReadPermits). Together with codeMaxRows it bounds the heap those reads can take (permits x rows); a request waits up to
+  # statementTimeoutSeconds for a permit, then answers a 429. Taken before any pooled connection is. 1..64.
+  codeReadPermits: "$REPORTS_CODE_READ_PERMITS:2"
   peerCellCache:
     # Person trend's peer-cell cache (reports/PersonTrendCache.kt, WHY 49): at most this many cached (account, window) cells per data-stamp
     # generation, per web instance. Entries are fixed-size (~0.4 KiB measured), so the default holds ~8 MiB; a full generation refuses
@@ -292,7 +308,7 @@ jira:
   # document of minimal objects, 4 in flight (maxConcurrentRequests), in a worker of -Xmx512m. So it closes the risk of a legitimate
   # tenant's biggest response. A body is also refused (LIMIT_EXCEEDED, before it is parsed) past a structural node ceiling of
   # maxResponseBytes / 8 tokens (derived from this value, so there is no second knob to raise with it: 1,048,576 at the default) or past
-  # 512 levels of nesting (jira/JiraNodeCeiling.kt), and a body over 1 MiB is parsed under one lock, one big tree at a time. A dense
+  # 512 levels of nesting (fetch/NodeCeiling.kt), and a body over 1 MiB is parsed under one lock, one big tree at a time. A dense
   # hostile document is still ~108 MiB of tree per response at the default (~230-300 MiB before), and an OOM exits the worker
   # (ExitOnOutOfMemoryError): narrowed, not closed (`.claude/docs/jira-integration.md` "Node and depth ceiling", BACKLOG). A boot check
   # (jira/JiraHeapFit.kt) refuses a worker role whose heap cannot hold ingest.workerSlots slots, each the largest of one such tree
@@ -339,6 +355,49 @@ jira:
   # (sample-data/jira-stub) — DEVELOPMENT ONLY; production startup refuses a non-blank value
   # (jira/Jira.kt's fail-closed check, ported from the crypto-key/mail-transport precedent).
   stubBaseUrl: "$JIRA_STUB_BASE_URL:"
+
+gitlab:
+  # The self-managed GitLab outbound side (gitlab/GitLab.kt, infra/outbound/SelfManagedHosts.kt; `.claude/docs/security.md`
+  # "Outbound HTTP calls", `.claude/docs/gitlab-integration.md`). Operator-only: nothing in the UI or API can widen these lists.
+  # Comma-separated exact DNS names, each `host` or `host:port` (no port = 443); no wildcard, no IP literal, no scheme/path/
+  # credentials. Empty = the GitLab kind is OFF (no client is built). A malformed entry refuses startup.
+  allowedHosts: "$GITLAB_ALLOWED_HOSTS:"
+  # Comma-separated IPv4/IPv6 CIDRs a LISTED host may resolve to (a self-managed GitLab usually sits on a private address). Any other
+  # host keeps the full address check. Startup refuses /0, IPv4 wider than /8, IPv6 wider than /32, any range that overlaps loopback,
+  # link-local (169.254/16 incl. the cloud metadata address, fe80::/10), any-local, multicast, 6to4 (2002::/16), Teredo (2001:0::/32)
+  # or NAT64, and CIDRs without allowedHosts.
+  allowedCidrs: "$GITLAB_ALLOWED_CIDRS:"
+  # A PEM file with one or more X.509 CA certificates, added to the GitLab client's trust ALONGSIDE the JVM default CAs (the Jira
+  # client is untouched). Startup refuses an unreadable or certificate-less file, and a bundle without allowedHosts. There is no
+  # skip-TLS / trust-all setting.
+  caBundle: "$GITLAB_CA_BUNDLE:"
+  # Reroutes GitLab calls to the in-JVM/compose GitLab stub (an http(s) origin) - DEVELOPMENT ONLY; production startup refuses a
+  # non-blank value (gitlab/GitLabConfig.kt), like jira.stubBaseUrl.
+  stubBaseUrl: "$GITLAB_STUB_BASE_URL:"
+  # Per-attempt request and connect timeout (1..120 s), like jira.requestTimeoutSeconds.
+  requestTimeoutSeconds: "$GITLAB_REQUEST_TIMEOUT_SECONDS:30"
+  # The bounded-read ceiling on one GitLab response body (1 KiB..128 MiB). BLANK (the default) = min(8 MiB, jira.maxResponseBytes), so
+  # lowering only the Jira ceiling just works. An explicit value may not exceed jira.maxResponseBytes (startup refuses otherwise, even
+  # while GitLab is disabled). GitLab's calls SHARE Jira's request permits (fetch/OutboundPermits.kt, published by configureJira), so
+  # the worker's heap fit (jira/JiraHeapFit.kt: jira.maxConcurrentRequests x jira.maxResponseBytes in flight, a response tree per
+  # slot sized from the Jira ceiling) already covers GitLab's bodies (`.claude/docs/gitlab-integration.md` "Outbound calls").
+  maxResponseBytes: "$GITLAB_MAX_RESPONSE_BYTES:"
+  # Retries (0..10) on 429/5xx/IOException before a GitLab call fails terminally, like jira.maxRetries.
+  maxRetries: "$GITLAB_MAX_RETRIES:4"
+  # The TOTAL budget (1..1800 s) of one logical GitLab call across every attempt and backoff, like jira.requestDeadlineSeconds.
+  requestDeadlineSeconds: "$GITLAB_REQUEST_DEADLINE_SECONDS:180"
+  # How old (hours, 0..168) a data source's GitLab users may get before a SYNC fetches them again (`/users`, plus one `/users/:id/emails`
+  # call per user for an admin token). "Sync now" always refreshes. 0 = every SYNC.
+  usersRefreshHours: "$GITLAB_USERS_REFRESH_HOURS:24"
+  # The diff CALLS (pages, 10..100000) one SYNC run spends on the COMMIT FILES backlog (the per-file line counts of the default-branch
+  # commits, newest first; `.claude/docs/gitlab-integration.md` "Streams"). A run that reaches it ends normally with `commitFilesPending`
+  # in its progress and the next run continues, so a first backfill drains over several runs. At ~20 calls/s the default is a few
+  # minutes, well inside ingest.maxJobMinutes.
+  commitFilesPerRun: "$GITLAB_COMMIT_FILES_PER_RUN:5000"
+  # The REST and GraphQL CALLS (10..100000) one SYNC run spends on the MR DETAILS backlog (a merge request's notes, approvals, reviewers and
+  # diff stats, newest first; about 3 calls per merge request; `.claude/docs/gitlab-integration.md` "Streams"). A run that reaches it ends
+  # normally with `mrDetailsPending` in its progress and the next run continues. At ~20 calls/s the default is a few minutes.
+  mrDetailsPerRun: "$GITLAB_MR_DETAILS_PER_RUN:3000"
 
 ingest:
   # The sync-job queue and worker scheduler (v0.2.0 plan §5/§9, ingest/IngestWorker.kt,

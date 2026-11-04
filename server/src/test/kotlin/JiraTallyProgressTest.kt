@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.fetch.SourceHttp
 import ch.nokillswit.ingest.DataSourceKind
 import ch.nokillswit.ingest.IngestConfig
 import ch.nokillswit.ingest.IngestWorker
@@ -11,9 +12,9 @@ import ch.nokillswit.ingest.SyncJobResponse
 import ch.nokillswit.ingest.SyncJobStatus
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.jira.JiraConnector
-import ch.nokillswit.jira.JiraHttp
 import ch.nokillswit.jira.JiraSearchPage
 import ch.nokillswit.jira.JiraSyncDependencies
+import ch.nokillswit.jira.createJiraHttp
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -42,8 +43,8 @@ import kotlin.test.assertTrue
 
 private const val CLOUD_ID = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
 
-/** A client whose only call is a sweep page, fetched through a REAL [JiraHttp] over a scripted [MockEngine]. */
-private class HttpBackedClient(private val http: JiraHttp, private val cloudIdViaHttp: Boolean) : UnsupportedJiraClient() {
+/** A client whose only call is a sweep page, fetched through a REAL [SourceHttp] over a scripted [MockEngine]. */
+private class HttpBackedClient(private val http: SourceHttp, private val cloudIdViaHttp: Boolean) : UnsupportedJiraClient() {
     override suspend fun resolveCloudId(): String {
         if (cloudIdViaHttp) http.request(HttpMethod.Get, "https://tenant.test/_edge/tenant_info", pauseKey = CLOUD_ID)
         return CLOUD_ID
@@ -57,7 +58,7 @@ private class HttpBackedClient(private val http: JiraHttp, private val cloudIdVi
 
 /**
  * The Jira call tally reaching an operator (`.claude/docs/ingestion.md` "Progress counters"): a RECONCILE job run by the REAL
- * `IngestWorker` through the REAL `JiraConnector`, whose client calls a real `JiraHttp` (a scripted 429 with `Retry-After`), ends with
+ * `IngestWorker` through the REAL `JiraConnector`, whose client calls a real `SourceHttp` (a scripted 429 with `Retry-After`), ends with
  * `jiraRateLimited` / `jiraBackoffMs` in its `sync_jobs.progress`; a job that was not rate limited carries none of the keys.
  */
 class JiraTallyProgressTest {
@@ -91,7 +92,7 @@ class JiraTallyProgressTest {
         }
         // A virtual clock the sleeper moves: the call's own back-off then also ends the tenant pause it set, as real time would.
         val clock = AtomicLong(1_000)
-        val http = JiraHttp(
+        val http = createJiraHttp(
             HttpClient(engine) { expectSuccess = false; followRedirects = false },
             maxRetries = if (mode == Mode.ALWAYS_LIMITED) 1 else 2, maxResponseBytes = 1_000_000, maxConcurrentRequests = 2,
             sleeper = { clock.addAndGet(it) }, clock = { clock.get() },

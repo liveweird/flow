@@ -22,7 +22,7 @@ internal const val MAX_TREND_POINTS = MAX_PERIOD_SPAN_DAYS / TREND_STEP_DAYS + 1
 internal val TREND_ROW_KEYS: List<String> = listOf(
     "cycleWorkingDaysP50", "cycleWorkingDaysP90", "flowEfficiencyP50", "deliveredItems", "deliveredMd", "accuracyAtStartPred25",
     "avgWip", "wipAtEndMedianAgeWd", "blockedItemsShare", "worklogCoverage", "lateLoggingShare", "noEstimateShare", "reopenedShare",
-    "taskSizeP50",
+    "taskSizeP50", "mrsMerged", "mrCycleWorkingDaysP50", "reviewsGiven",
 )
 
 /** [TREND_ROW_KEYS] resolved against Compare people's table; a capacity row is refused (this report shows none, A39). */

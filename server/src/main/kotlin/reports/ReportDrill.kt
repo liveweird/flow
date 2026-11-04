@@ -9,9 +9,12 @@ import kotlinx.serialization.Serializable
 /** The most items one drill answers with (the Aging WIP idiom); [ReportDrillItems.total] and [ReportDrillBar] cover them all. */
 internal const val DRILL_MAX_ITEMS = 500
 
-/** What a drilled row is: a task, an epic, or (the data-quality late-logging drill) one worklog. */
+/**
+ * What a drilled row is: a task, an epic, (the data-quality late-logging drill) one worklog, or (Report 21's code drill) a commit or a
+ * merge request of the GitLab code layer, whose `issueKey` is `<project path>@<sha12>` / `<project path>!<iid>`.
+ */
 @Serializable
-enum class DrillItemKind { TASK, EPIC, WORKLOG }
+enum class DrillItemKind { TASK, EPIC, WORKLOG, COMMIT, MERGE_REQUEST }
 
 /**
  * The bar the listed items add up to, recomputed by the server over the SAME rows the report's own bar used: [count] items,
@@ -36,6 +39,18 @@ data class ReportDrillItem(
     val teamId: UInt?,
     val anchorAt: Long?,
     val figure: Double?,
+    /**
+     * The OTHER layer's keys the item is linked to, sorted (A51; empty = none), their kind said by [itemKind]: on a `MERGE_REQUEST` item
+     * (Report 21's drill, Home's `CODE_*` lists) the Jira issue keys its title or branch names within the known Jira projects; on a `TASK`
+     * item of Report 22's drill the GitLab merge requests (`<project path>!<iid>`) linked to the task (all its merged ones; the
+     * unmerged ones on TASKS_WITHOUT_MR). Null for every other kind and report.
+     */
+    val linkedKeys: List<String>? = null,
+    /**
+     * Report 22's drill only (null elsewhere, and on TASKS_WITHOUT_MR): the `<project path>!<iid>` of the merge request whose merge the
+     * item's [figure] measured -- the task's LAST merge (`TaskMergeRequests.lastMergedMr`), one of [linkedKeys].
+     */
+    val measuredKey: String? = null,
 )
 
 /**
@@ -83,9 +98,18 @@ internal suspend fun drillItems(meta: ReportMeta, bar: ReportDrillBar, rows: Lis
 /**
  * [drillItems] for a read that already ordered ([DRILL_ORDER], `ORDER BY ... LIMIT` [DRILL_MAX_ITEMS]) and counted in SQL: [listed] is
  * the first page of the set and [total] the size of the WHOLE set (the figures of [bar] are the caller's, over that same set). The
- * rows are re-sorted by the issue key tie-break only, like [drillItems].
+ * rows are re-sorted by the issue key tie-break only, like [drillItems]. [linkedKeys] (by `(connectionId, issueId)`; null = none of the
+ * items carries any) fills [ReportDrillItem.linkedKeys]: a listed row the map has no entry for gets an empty list. [measuredKeys]
+ * (same key; null = none) fills [ReportDrillItem.measuredKey]: a row the map has no entry for gets null.
  */
-internal suspend fun listedDrillItems(meta: ReportMeta, bar: ReportDrillBar, listed: List<DrillRow>, total: Int): ReportDrillItems {
+internal suspend fun listedDrillItems(
+    meta: ReportMeta,
+    bar: ReportDrillBar,
+    listed: List<DrillRow>,
+    total: Int,
+    linkedKeys: Map<Pair<UInt, Long>, List<String>>? = null,
+    measuredKeys: Map<Pair<UInt, Long>, String>? = null,
+): ReportDrillItems {
     val labels = workItemLabels(listed.map { it.connectionId to it.issueId })
     val names = accountDisplayNames(listed.filter { it.assignee == null }.mapNotNull { it.accountId }.distinct())
     val items = listed.map { row ->
@@ -99,6 +123,8 @@ internal suspend fun listedDrillItems(meta: ReportMeta, bar: ReportDrillBar, lis
             teamId = row.teamId,
             anchorAt = row.anchorAt,
             figure = row.figure,
+            linkedKeys = linkedKeys?.let { it[row.connectionId to row.issueId].orEmpty() },
+            measuredKey = measuredKeys?.get(row.connectionId to row.issueId),
         )
     }.sortedWith(
         compareByDescending<ReportDrillItem, Double?>(nullsFirst()) { it.figure }
@@ -125,7 +151,10 @@ internal inline fun <reified E : Enum<E>> Parameters.requireEnum(name: String): 
     optionalEnum<E>(name) ?: throw BadRequestException("$name is required (allowed: ${enumValues<E>().joinToString { it.name }})")
 
 /** The required `bucketIndex` of a histogram drill: a non-negative integer (`400` otherwise); the histogram checks its range. */
-internal fun Parameters.requireBucketIndex(): Int {
-    val raw = optionalString("bucketIndex") ?: throw BadRequestException("bucketIndex is required")
-    return raw.toIntOrNull()?.takeIf { it >= 0 } ?: throw BadRequestException("Invalid bucketIndex: $raw")
-}
+internal fun Parameters.requireBucketIndex(): Int = optionalBucketIndex() ?: throw BadRequestException("bucketIndex is required")
+
+/** An optional `bucketIndex`: absent is `null`, anything but a non-negative integer is a `400`. */
+internal fun Parameters.optionalBucketIndex(): Int? =
+    optionalString("bucketIndex")?.let { raw ->
+        raw.toIntOrNull()?.takeIf { it >= 0 } ?: throw BadRequestException("Invalid bucketIndex: $raw")
+    }

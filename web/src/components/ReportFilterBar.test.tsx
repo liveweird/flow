@@ -128,6 +128,29 @@ describe("ReportFilterBar", () => {
     expect(params.has("accountId")).toBe(false);
   });
 
+  test("Unassigned closes the team list only for a report that asks for it (Code activity), and picking it drops the member and leaves a dates-only Period control", async () => {
+    const user = userEvent.setup();
+    const { unmount } = await renderOpen(<Harness controls={{ teamRequired: true, multiMember: true }} />, { route: "/reports/commitments?teamId=1" });
+    await user.click(screen.getByRole("combobox", { name: "Team" }));
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual(["Alpha", "Beta", "Gamma"]);
+    unmount();
+
+    await renderOpen(<Harness controls={{ teamRequired: true, teamUnassigned: true, multiMember: true }} />, {
+      route: "/reports/commitments?teamId=1&accountId=acc-ann",
+    });
+    await user.click(screen.getByRole("combobox", { name: "Team" }));
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual(["Alpha", "Beta", "Gamma", "Unassigned"]);
+    await user.click(screen.getByRole("option", { name: "Unassigned" }));
+    expect(search().toString()).toBe("teamId=0");
+    expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Unassigned");
+    // There is no roster to pick from, and no sprint to read a period by: dates only (a team still offers its sprints).
+    expect(screen.queryByRole("combobox", { name: "Member" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("combobox", { name: "Period" }));
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent)).not.toContain("Last 3 sprints");
+    expect(screen.queryByRole("option", { name: "One sprint" })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Last 90 days" })).toBeInTheDocument();
+  });
+
   test("the member select appears with a team and writes accountId; clearing the team clears it", async () => {
     const user = userEvent.setup();
     await renderOpen(<Harness />, { route: "/reports/commitments" });
@@ -272,6 +295,37 @@ describe("ReportFilterBar", () => {
     localStorage.setItem("flow.viewSettings.reports.teamId", "99");
     await renderOpen(<Harness />, { route: "/reports/commitments" });
     expect(search().has("teamId")).toBe(false);
+  });
+});
+
+describe("ReportFilterBar team control on a teamRequired report", () => {
+  test("a teamRequired report with no teamOrDomain cannot clear its team, domain or not", async () => {
+    await renderOpen(<Harness controls={{ teamRequired: true, domain: true }} />, { route: "/reports/commitments?teamId=1&domain=FLO" });
+    expect(screen.queryByLabelText("Clear Team")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Clear Domain")).toBeInTheDocument();
+  });
+
+  test("a teamRequired + teamOrDomain report whose domain excludes the team cannot clear its team either", async () => {
+    await renderOpen(<Harness controls={{ teamRequired: true, teamOrDomain: true, domainExcludesTeam: true, domain: true }} />, {
+      route: "/reports/commitments?teamId=1&domain=FLO",
+    });
+    expect(screen.queryByLabelText("Clear Team")).not.toBeInTheDocument();
+  });
+
+  test("a teamRequired + teamOrDomain report that keeps both clears the team under a domain only, and the domain stays", async () => {
+    const user = userEvent.setup();
+    const controls = { teamRequired: true, teamOrDomain: true, domain: true } as const;
+    await renderOpen(<Harness controls={controls} />, { route: "/reports/commitments?teamId=1&domain=FLO" });
+    await user.click(screen.getByLabelText("Clear Team"));
+    await waitFor(() => expect(search().has("teamId")).toBe(false));
+    expect(search().get("domain")).toBe("FLO");
+    expect(screen.getByRole("combobox", { name: "Team" })).toHaveAttribute("placeholder", "No team: a domain is picked");
+    expect(screen.queryByLabelText("Clear Team")).not.toBeInTheDocument();
+  });
+
+  test("with no domain the same report keeps its team too", async () => {
+    await renderOpen(<Harness controls={{ teamRequired: true, teamOrDomain: true, domain: true }} />, { route: "/reports/commitments?teamId=1" });
+    expect(screen.queryByLabelText("Clear Team")).not.toBeInTheDocument();
   });
 });
 

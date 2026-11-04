@@ -126,6 +126,34 @@ ch/nokillswit/authz/NotFoundException
 ch/nokillswit/authz/PrincipalKt
 ch/nokillswit/authz/TooManyRequestsException
 ch/nokillswit/authz/UnauthorizedException
+ch/nokillswit/fetch/AnswerCeiling
+ch/nokillswit/fetch/BoundedAnswer
+ch/nokillswit/fetch/CallTally
+ch/nokillswit/fetch/CallTally$Key
+ch/nokillswit/fetch/Done
+ch/nokillswit/fetch/FetchException
+ch/nokillswit/fetch/NodeCeilingKt
+ch/nokillswit/fetch/Outcome
+ch/nokillswit/fetch/PageCeiling
+ch/nokillswit/fetch/PageTokenGuard
+ch/nokillswit/fetch/PendingCall
+ch/nokillswit/fetch/Permit
+ch/nokillswit/fetch/Permit$acquire$1
+ch/nokillswit/fetch/Retry
+ch/nokillswit/fetch/RunBudget
+ch/nokillswit/fetch/RunCeiling
+ch/nokillswit/fetch/SourceHttp
+ch/nokillswit/fetch/SourceHttp$1
+ch/nokillswit/fetch/SourceHttp$2
+ch/nokillswit/fetch/SourceHttp$3
+ch/nokillswit/fetch/SourceHttp$Companion
+ch/nokillswit/fetch/SourceHttp$acquireClear$1
+ch/nokillswit/fetch/SourceHttp$attemptOnce$1
+ch/nokillswit/fetch/SourceHttp$attemptOnce$2
+ch/nokillswit/fetch/SourceHttp$awaitPause$1
+ch/nokillswit/fetch/SourceHttp$handleResponse$1
+ch/nokillswit/fetch/SourceHttp$readBounded$1
+ch/nokillswit/fetch/SourceHttp$requestAs$1
 ch/nokillswit/flowusers/Feature
 ch/nokillswit/flowusers/Feature$Companion
 ch/nokillswit/flowusers/FlowUser
@@ -589,8 +617,6 @@ ch/nokillswit/ingest/WorkflowStatusProfile$Companion
 ch/nokillswit/ingest/WorklogsProfile
 ch/nokillswit/ingest/WorklogsProfile$$serializer
 ch/nokillswit/ingest/WorklogsProfile$Companion
-ch/nokillswit/jira/AnswerCeiling
-ch/nokillswit/jira/BoundedAnswer
 ch/nokillswit/jira/BulkChangelogPageTexts
 ch/nokillswit/jira/BulkOutcome
 ch/nokillswit/jira/ChangelogPageTexts
@@ -598,7 +624,6 @@ ch/nokillswit/jira/ChangelogsCursor
 ch/nokillswit/jira/ChangelogsCursor$$serializer
 ch/nokillswit/jira/ChangelogsCursor$Companion
 ch/nokillswit/jira/CustomFieldFill
-ch/nokillswit/jira/Done
 ch/nokillswit/jira/FetchedBatch
 ch/nokillswit/jira/HeapFitRole
 ch/nokillswit/jira/HeapFitVerdict
@@ -625,8 +650,6 @@ ch/nokillswit/jira/HttpJiraClient$worklogUpdated$1
 ch/nokillswit/jira/IssuesCursor
 ch/nokillswit/jira/IssuesCursor$$serializer
 ch/nokillswit/jira/IssuesCursor$Companion
-ch/nokillswit/jira/JiraCallTally
-ch/nokillswit/jira/JiraCallTally$Key
 ch/nokillswit/jira/JiraCeilingTripKt
 ch/nokillswit/jira/JiraChangelogPage
 ch/nokillswit/jira/JiraChangelogPage$$serializer
@@ -673,23 +696,10 @@ ch/nokillswit/jira/JiraEntityReadsKt
 ch/nokillswit/jira/JiraFetchAheadKt
 ch/nokillswit/jira/JiraFetchAheadKt$fetchAheadInOrder$4
 ch/nokillswit/jira/JiraFetchAheadKt$fetchAheadInOrder$4$outcome$1
-ch/nokillswit/jira/JiraFetchException
 ch/nokillswit/jira/JiraFieldIds
 ch/nokillswit/jira/JiraHeapFitKt
 ch/nokillswit/jira/JiraHeapShare
 ch/nokillswit/jira/JiraHeapShareKt
-ch/nokillswit/jira/JiraHttp
-ch/nokillswit/jira/JiraHttp$1
-ch/nokillswit/jira/JiraHttp$2
-ch/nokillswit/jira/JiraHttp$3
-ch/nokillswit/jira/JiraHttp$Companion
-ch/nokillswit/jira/JiraHttp$acquireClear$1
-ch/nokillswit/jira/JiraHttp$attemptOnce$1
-ch/nokillswit/jira/JiraHttp$attemptOnce$2
-ch/nokillswit/jira/JiraHttp$awaitPause$1
-ch/nokillswit/jira/JiraHttp$handleResponse$1
-ch/nokillswit/jira/JiraHttp$readBounded$1
-ch/nokillswit/jira/JiraHttp$requestAs$1
 ch/nokillswit/jira/JiraHttpKt
 ch/nokillswit/jira/JiraHttpKt$WhenMappings
 ch/nokillswit/jira/JiraIssuesCursorKt
@@ -705,7 +715,6 @@ ch/nokillswit/jira/JiraJql
 ch/nokillswit/jira/JiraJql$Clause
 ch/nokillswit/jira/JiraJsonFieldsKt
 ch/nokillswit/jira/JiraKt
-ch/nokillswit/jira/JiraNodeCeilingKt
 ch/nokillswit/jira/JiraNormalizer
 ch/nokillswit/jira/JiraNormalizerKt
 ch/nokillswit/jira/JiraPageTextsKt
@@ -937,13 +946,7 @@ ch/nokillswit/jira/JiraWorklogStream$runIncrementalUpdated$3
 ch/nokillswit/jira/JiraWorklogStream$settleFetch$1
 ch/nokillswit/jira/JiraWorklogStreamKt
 ch/nokillswit/jira/ListAsk
-ch/nokillswit/jira/Outcome
 ch/nokillswit/jira/PageAsk
-ch/nokillswit/jira/PageCeiling
-ch/nokillswit/jira/PageTokenGuard
-ch/nokillswit/jira/PendingCall
-ch/nokillswit/jira/Permit
-ch/nokillswit/jira/Permit$acquire$1
 ch/nokillswit/jira/ProcessClaim
 ch/nokillswit/jira/ProjectFieldsCeilings
 ch/nokillswit/jira/RawChangelogInput
@@ -959,9 +962,6 @@ ch/nokillswit/jira/ReferenceCeilings
 ch/nokillswit/jira/ReferenceCursor
 ch/nokillswit/jira/ReferenceCursor$$serializer
 ch/nokillswit/jira/ReferenceCursor$Companion
-ch/nokillswit/jira/Retry
-ch/nokillswit/jira/RunBudget
-ch/nokillswit/jira/RunCeiling
 ch/nokillswit/jira/SkipBudget
 ch/nokillswit/jira/SlotTerm
 ch/nokillswit/jira/StoredIssueSize
@@ -13439,6 +13439,8 @@ sun/util/spi/CalendarProvider
 @lambda-proxy ch/nokillswit/auth/TokenBlocklistService$insertRevocation$2 invoke ()Lkotlin/jvm/functions/Function1; (Ljava/lang/Object;)Ljava/lang/Object; REF_invokeStatic ch/nokillswit/auth/TokenBlocklistService$insertRevocation$2 invokeSuspend$lambda$0 (Lch/nokillswit/auth/TokenBlocklistService$RevokedTokens;)Lorg/jetbrains/exposed/v1/core/Op; (Lch/nokillswit/auth/TokenBlocklistService$RevokedTokens;)Lorg/jetbrains/exposed/v1/core/Op;
 @lambda-proxy ch/nokillswit/auth/TokenBlocklistService$insertRevocation$2 invoke (Ljava/lang/String;J)Lkotlin/jvm/functions/Function2; (Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object; REF_invokeStatic ch/nokillswit/auth/TokenBlocklistService$insertRevocation$2 invokeSuspend$lambda$1 (Ljava/lang/String;JLch/nokillswit/auth/TokenBlocklistService$RevokedTokens;Lorg/jetbrains/exposed/v1/core/statements/UpdateBuilder;)Lkotlin/Unit; (Lch/nokillswit/auth/TokenBlocklistService$RevokedTokens;Lorg/jetbrains/exposed/v1/core/statements/UpdateBuilder;)Lkotlin/Unit;
 @lambda-proxy ch/nokillswit/auth/TokenBlocklistService$isRevoked$2 invoke (Ljava/lang/String;)Lkotlin/jvm/functions/Function0; ()Ljava/lang/Object; REF_invokeStatic ch/nokillswit/auth/TokenBlocklistService$isRevoked$2 invokeSuspend$lambda$0 (Ljava/lang/String;)Lorg/jetbrains/exposed/v1/core/Op; ()Lorg/jetbrains/exposed/v1/core/Op;
+@lambda-proxy ch/nokillswit/fetch/SourceHttp invoke ()Lkotlin/jvm/functions/Function0; ()Ljava/lang/Object; REF_invokeStatic ch/nokillswit/fetch/SourceHttp acquireClear$lambda$0 ()Lkotlin/Unit; ()Lkotlin/Unit;
+@lambda-proxy ch/nokillswit/fetch/SourceHttp invoke ()Lkotlin/jvm/functions/Function1; (Ljava/lang/Object;)Ljava/lang/Object; REF_invokeStatic ch/nokillswit/fetch/SourceHttp request$lambda$0 (Lkotlinx/serialization/json/JsonElement;)Lkotlinx/serialization/json/JsonElement; (Lkotlinx/serialization/json/JsonElement;)Lkotlinx/serialization/json/JsonElement;
 @lambda-proxy ch/nokillswit/flowusers/Feature invoke ()Lkotlin/jvm/functions/Function0; ()Ljava/lang/Object; REF_invokeStatic ch/nokillswit/flowusers/Feature _init_$_anonymous_ ()Lkotlinx/serialization/KSerializer; ()Lkotlinx/serialization/KSerializer;
 @lambda-proxy ch/nokillswit/flowusers/FlowUser invoke ()Lkotlin/jvm/functions/Function0; ()Ljava/lang/Object; REF_invokeStatic ch/nokillswit/flowusers/FlowUser _childSerializers$_anonymous_ ()Lkotlinx/serialization/KSerializer; ()Lkotlinx/serialization/KSerializer;
 @lambda-proxy ch/nokillswit/flowusers/FlowUser invoke ()Lkotlin/jvm/functions/Function0; ()Ljava/lang/Object; REF_invokeStatic ch/nokillswit/flowusers/FlowUser _childSerializers$_anonymous_$0 ()Lkotlinx/serialization/KSerializer; ()Lkotlinx/serialization/KSerializer;
@@ -13599,20 +13601,18 @@ sun/util/spi/CalendarProvider
 @lambda-proxy ch/nokillswit/jira/JiraChangelogStream invoke (Lch/nokillswit/jira/JiraChangelogStream;)Lkotlin/jvm/functions/Function1; (Ljava/lang/Object;)Ljava/lang/Object; REF_invokeStatic ch/nokillswit/jira/JiraChangelogStream fetchBulk$lambda$1 (Lch/nokillswit/jira/JiraChangelogStream;Lkotlinx/serialization/json/JsonObject;)Lch/nokillswit/jira/BulkChangelogPageTexts; (Lkotlinx/serialization/json/JsonObject;)Lch/nokillswit/jira/BulkChangelogPageTexts;
 @lambda-proxy ch/nokillswit/jira/JiraChangelogStream invoke (Lch/nokillswit/jira/JiraChangelogStream;J)Lkotlin/jvm/functions/Function1; (Ljava/lang/Object;)Ljava/lang/Object; REF_invokeStatic ch/nokillswit/jira/JiraChangelogStream fetchIssueHistories$lambda$0 (Lch/nokillswit/jira/JiraChangelogStream;JLch/nokillswit/jira/JiraChangelogPage;)Lch/nokillswit/jira/ChangelogPageTexts; (Lch/nokillswit/jira/JiraChangelogPage;)Lch/nokillswit/jira/ChangelogPageTexts;
 @lambda-proxy ch/nokillswit/jira/JiraClientKt invoke ()Lkotlin/jvm/functions/Function1; (Ljava/lang/Object;)Ljava/lang/Object; REF_invokeStatic ch/nokillswit/jira/JiraClientKt LENIENT_JSON$lambda$0 (Lkotlinx/serialization/json/JsonBuilder;)Lkotlin/Unit; (Lkotlinx/serialization/json/JsonBuilder;)Lkotlin/Unit;
-@lambda-proxy ch/nokillswit/jira/JiraConnector invoke (Ljava/util/Map;Lch/nokillswit/jira/JiraCallTally;)Lkotlin/jvm/functions/Function0; ()Ljava/lang/Object; REF_invokeStatic ch/nokillswit/jira/JiraConnector withTally$lambda$1 (Ljava/util/Map;Lch/nokillswit/jira/JiraCallTally;)Ljava/util/Map; ()Ljava/util/Map;
+@lambda-proxy ch/nokillswit/jira/JiraConnector invoke (Ljava/util/Map;Lch/nokillswit/fetch/CallTally;)Lkotlin/jvm/functions/Function0; ()Ljava/lang/Object; REF_invokeStatic ch/nokillswit/jira/JiraConnector withTally$lambda$1 (Ljava/util/Map;Lch/nokillswit/fetch/CallTally;)Ljava/util/Map; ()Ljava/util/Map;
 @lambda-proxy ch/nokillswit/jira/JiraCursorKt invoke ()Lkotlin/jvm/functions/Function1; (Ljava/lang/Object;)Ljava/lang/Object; REF_invokeStatic ch/nokillswit/jira/JiraCursorKt CURSOR_JSON$lambda$0 (Lkotlinx/serialization/json/JsonBuilder;)Lkotlin/Unit; (Lkotlinx/serialization/json/JsonBuilder;)Lkotlin/Unit;
 @lambda-proxy ch/nokillswit/jira/JiraEntityReads invoke (Lkotlin/jvm/functions/Function2;Ljava/util/List;)Lkotlin/jvm/functions/Function2; (Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object; REF_invokeStatic ch/nokillswit/jira/JiraEntityReads mapEntities_SGjrQA4$lambda$0 (Lkotlin/jvm/functions/Function2;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;)Lkotlin/Unit; (Ljava/lang/String;Ljava/lang/String;)Lkotlin/Unit;
 @lambda-proxy ch/nokillswit/jira/JiraEntityReads$planWindow$2 invoke ()Lkotlin/jvm/functions/Function1; (Ljava/lang/Object;)Ljava/lang/Object; REF_invokeStatic ch/nokillswit/jira/JiraEntityReads$planWindow$2 invokeSuspend$lambda$0 (Lio/r2dbc/spi/Row;)Lkotlin/Pair; (Lio/r2dbc/spi/Row;)Lkotlin/Pair;
 @lambda-proxy ch/nokillswit/jira/JiraEntityReads$readChunk$2 invoke (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lkotlin/jvm/functions/Function0; ()Ljava/lang/Object; REF_invokeStatic ch/nokillswit/jira/JiraEntityReads$readChunk$2 invokeSuspend$lambda$0 (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lorg/jetbrains/exposed/v1/core/Op; ()Lorg/jetbrains/exposed/v1/core/Op;
-@lambda-proxy ch/nokillswit/jira/JiraHttp invoke ()Lkotlin/jvm/functions/Function0; ()Ljava/lang/Object; REF_invokeStatic ch/nokillswit/jira/JiraHttp acquireClear$lambda$0 ()Lkotlin/Unit; ()Lkotlin/Unit;
-@lambda-proxy ch/nokillswit/jira/JiraHttp invoke ()Lkotlin/jvm/functions/Function1; (Ljava/lang/Object;)Ljava/lang/Object; REF_invokeStatic ch/nokillswit/jira/JiraHttp request$lambda$0 (Lkotlinx/serialization/json/JsonElement;)Lkotlinx/serialization/json/JsonElement; (Lkotlinx/serialization/json/JsonElement;)Lkotlinx/serialization/json/JsonElement;
 @lambda-proxy ch/nokillswit/jira/JiraJql invoke ()Lkotlin/jvm/functions/Function1; (Ljava/lang/Object;)Ljava/lang/Object; REF_invokeStatic ch/nokillswit/jira/JiraJql scope$lambda$0 (Ljava/lang/String;)Ljava/lang/CharSequence; (Ljava/lang/String;)Ljava/lang/CharSequence;
 @lambda-proxy ch/nokillswit/jira/JiraKt invoke ()Lkotlin/jvm/functions/Function1; (Ljava/lang/Object;)Ljava/lang/Object; REF_invokeStatic ch/nokillswit/jira/JiraKt buildGuardedJiraHttpClient$lambda$0 (Ljava/lang/String;)Ljava/util/List; (Ljava/lang/String;)Ljava/util/List;
 @lambda-proxy ch/nokillswit/jira/JiraKt invoke (J)Lkotlin/jvm/functions/Function1; (Ljava/lang/Object;)Ljava/lang/Object; REF_invokeStatic ch/nokillswit/jira/JiraKt buildGuardedJiraHttpClient$lambda$3$1 (JLio/ktor/client/plugins/HttpTimeoutConfig;)Lkotlin/Unit; (Lio/ktor/client/plugins/HttpTimeoutConfig;)Lkotlin/Unit;
 @lambda-proxy ch/nokillswit/jira/JiraKt invoke (Lio/ktor/client/HttpClient;)Lkotlin/jvm/functions/Function1; (Ljava/lang/Object;)Ljava/lang/Object; REF_invokeStatic ch/nokillswit/jira/JiraKt configureJira$lambda$6 (Lio/ktor/client/HttpClient;Lio/ktor/server/application/Application;)Lkotlin/Unit; (Lio/ktor/server/application/Application;)Lkotlin/Unit;
 @lambda-proxy ch/nokillswit/jira/JiraKt invoke (Lio/ktor/server/application/Application;Ljava/lang/String;)Lkotlin/jvm/functions/Function1; (Ljava/lang/Object;)Ljava/lang/Object; REF_invokeStatic ch/nokillswit/jira/JiraKt configureJira$lambda$4 (Lio/ktor/server/application/Application;Ljava/lang/String;Ljava/lang/String;)Z (Ljava/lang/String;)Ljava/lang/Boolean;
 @lambda-proxy ch/nokillswit/jira/JiraKt invoke (Lio/ktor/server/application/Application;Ljava/lang/String;Ljava/lang/String;)Lkotlin/jvm/functions/Function1; (Ljava/lang/Object;)Ljava/lang/Object; REF_invokeStatic ch/nokillswit/jira/JiraKt configureJira$lambda$5 (Lio/ktor/server/application/Application;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String; (Ljava/lang/String;)Ljava/lang/String;
-@lambda-proxy ch/nokillswit/jira/JiraKt invoke (Ljava/lang/String;Lch/nokillswit/jira/JiraHttp;)Lkotlin/jvm/functions/Function4; (Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object; REF_invokeStatic ch/nokillswit/jira/JiraKt configureJira$lambda$7 (Ljava/lang/String;Lch/nokillswit/jira/JiraHttp;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lch/nokillswit/ingest/JiraAuthScheme;)Lch/nokillswit/jira/JiraClient; (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lch/nokillswit/ingest/JiraAuthScheme;)Lch/nokillswit/jira/JiraClient;
+@lambda-proxy ch/nokillswit/jira/JiraKt invoke (Ljava/lang/String;Lch/nokillswit/fetch/SourceHttp;)Lkotlin/jvm/functions/Function4; (Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object; REF_invokeStatic ch/nokillswit/jira/JiraKt configureJira$lambda$7 (Ljava/lang/String;Lch/nokillswit/fetch/SourceHttp;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lch/nokillswit/ingest/JiraAuthScheme;)Lch/nokillswit/jira/JiraClient; (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lch/nokillswit/ingest/JiraAuthScheme;)Lch/nokillswit/jira/JiraClient;
 @lambda-proxy ch/nokillswit/jira/JiraKt invoke (Ljava/lang/String;Lio/ktor/server/application/Application;)Lkotlin/jvm/functions/Function1; (Ljava/lang/Object;)Ljava/lang/Object; REF_invokeStatic ch/nokillswit/jira/JiraKt configureJira$lambda$3 (Ljava/lang/String;Lio/ktor/server/application/Application;Ljava/lang/String;)Z (Ljava/lang/String;)Ljava/lang/Boolean;
 @lambda-proxy ch/nokillswit/jira/JiraKt invoke (Lokhttp3/OkHttpClient;)Lkotlin/jvm/functions/Function1; (Ljava/lang/Object;)Ljava/lang/Object; REF_invokeStatic ch/nokillswit/jira/JiraKt buildGuardedJiraHttpClient$lambda$3$0 (Lokhttp3/OkHttpClient;Lio/ktor/client/engine/okhttp/OkHttpConfig;)Lkotlin/Unit; (Lio/ktor/client/engine/okhttp/OkHttpConfig;)Lkotlin/Unit;
 @lambda-proxy ch/nokillswit/jira/JiraKt invoke (Lokhttp3/OkHttpClient;J)Lkotlin/jvm/functions/Function1; (Ljava/lang/Object;)Ljava/lang/Object; REF_invokeStatic ch/nokillswit/jira/JiraKt buildGuardedJiraHttpClient$lambda$3 (Lokhttp3/OkHttpClient;JLio/ktor/client/HttpClientConfig;)Lkotlin/Unit; (Lio/ktor/client/HttpClientConfig;)Lkotlin/Unit;

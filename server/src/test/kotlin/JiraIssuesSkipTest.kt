@@ -8,7 +8,7 @@ import ch.nokillswit.jira.JiraIssuesStream
 import ch.nokillswit.jira.JiraReconcileStream
 import ch.nokillswit.jira.JiraSearchPage
 import ch.nokillswit.jira.JiraRawStore
-import ch.nokillswit.jira.backfillFromEpochMillis
+import ch.nokillswit.ingest.backfillFromEpochMillis
 import com.github.tomakehurst.wiremock.client.WireMock.absent
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.equalTo

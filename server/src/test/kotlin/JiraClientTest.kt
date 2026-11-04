@@ -1,9 +1,10 @@
 package ch.nokillswit
 
+import ch.nokillswit.fetch.FetchException
+import ch.nokillswit.fetch.SourceHttp
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.jira.HttpJiraClient
-import ch.nokillswit.jira.JiraFetchException
-import ch.nokillswit.jira.JiraHttp
+import ch.nokillswit.jira.createJiraHttp
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -21,7 +22,7 @@ import kotlin.test.assertTrue
 private val JSON_HEADERS = headersOf(HttpHeaders.ContentType, "application/json")
 
 /**
- * `JiraHttp`/`HttpJiraClient` against a scripted Ktor `MockEngine` (v0.2.0 plan §11) — no network,
+ * `SourceHttp`/`HttpJiraClient` against a scripted Ktor `MockEngine` (v0.2.0 plan §11) — no network,
  * no WireMock needed for this suite (that's `DataSourceTestConnectionTest`, over the real stub).
  */
 class JiraClientTest {
@@ -32,15 +33,15 @@ class JiraClientTest {
         maxResponseBytes: Long = 1_000_000,
         requestDeadlineMillis: Long = 180_000,
         clock: () -> Long = { 0L },
-    ): JiraHttp {
+    ): SourceHttp {
         val httpClient = HttpClient(engine) {
             expectSuccess = false
             // Ktor's client-side HttpRedirect plugin (separate from the OkHttp engine's own
-            // followRedirects, which JiraHttp/OutboundGuard never enable in production either)
-            // must be off too, or a 3xx never reaches JiraHttp's own REDIRECT mapping.
+            // followRedirects, which SourceHttp/OutboundGuard never enable in production either)
+            // must be off too, or a 3xx never reaches SourceHttp's own REDIRECT mapping.
             followRedirects = false
         }
-        return JiraHttp(
+        return createJiraHttp(
             httpClient,
             maxRetries,
             maxResponseBytes,
@@ -70,7 +71,7 @@ class JiraClientTest {
             respond("{}", HttpStatusCode.TooManyRequests, JSON_HEADERS)
         }
         val http = jiraHttp(engine, maxRetries = 2)
-        val error = assertFailsWith<JiraFetchException> { http.request(HttpMethod.Get, "https://example.atlassian.net/probe") }
+        val error = assertFailsWith<FetchException> { http.request(HttpMethod.Get, "https://example.atlassian.net/probe") }
         assertEquals("RATE_LIMITED", error.code)
         assertEquals(3, calls, "the initial attempt plus 2 retries")
     }
@@ -83,7 +84,7 @@ class JiraClientTest {
             respond("{}", HttpStatusCode.ServiceUnavailable, JSON_HEADERS)
         }
         val http = jiraHttp(engine, maxRetries = 1)
-        val error = assertFailsWith<JiraFetchException> { http.request(HttpMethod.Get, "https://example.atlassian.net/probe") }
+        val error = assertFailsWith<FetchException> { http.request(HttpMethod.Get, "https://example.atlassian.net/probe") }
         assertEquals("UPSTREAM_UNAVAILABLE", error.code)
         assertEquals(2, calls)
     }
@@ -111,7 +112,7 @@ class JiraClientTest {
             runBlocking {
                 val engine = MockEngine { respond("{}", HttpStatusCode.fromValue(status), JSON_HEADERS) }
                 val http = jiraHttp(engine, maxRetries = 0)
-                val error = assertFailsWith<JiraFetchException> { http.request(HttpMethod.Get, "https://example.atlassian.net/probe") }
+                val error = assertFailsWith<FetchException> { http.request(HttpMethod.Get, "https://example.atlassian.net/probe") }
                 assertEquals(code, error.code, "status $status")
             }
         }
@@ -123,7 +124,7 @@ class JiraClientTest {
             respond("", HttpStatusCode.Found, headersOf(HttpHeaders.Location, "https://evil.example/"))
         }
         val http = jiraHttp(engine, maxRetries = 0)
-        val error = assertFailsWith<JiraFetchException> { http.request(HttpMethod.Get, "https://example.atlassian.net/probe") }
+        val error = assertFailsWith<FetchException> { http.request(HttpMethod.Get, "https://example.atlassian.net/probe") }
         assertEquals("REDIRECT", error.code)
     }
 
@@ -131,7 +132,7 @@ class JiraClientTest {
     fun `malformed JSON is INVALID_RESPONSE`() = runBlocking {
         val engine = MockEngine { respond("{ not json", HttpStatusCode.OK, JSON_HEADERS) }
         val http = jiraHttp(engine, maxRetries = 0)
-        val error = assertFailsWith<JiraFetchException> { http.request(HttpMethod.Get, "https://example.atlassian.net/probe") }
+        val error = assertFailsWith<FetchException> { http.request(HttpMethod.Get, "https://example.atlassian.net/probe") }
         assertEquals("INVALID_RESPONSE", error.code)
     }
 
@@ -139,7 +140,7 @@ class JiraClientTest {
     fun `a response over the byte cap is LIMIT_EXCEEDED`() = runBlocking {
         val engine = MockEngine { respond("x".repeat(100), HttpStatusCode.OK, JSON_HEADERS) }
         val http = jiraHttp(engine, maxRetries = 0, maxResponseBytes = 10)
-        val error = assertFailsWith<JiraFetchException> { http.request(HttpMethod.Get, "https://example.atlassian.net/probe") }
+        val error = assertFailsWith<FetchException> { http.request(HttpMethod.Get, "https://example.atlassian.net/probe") }
         assertEquals("LIMIT_EXCEEDED", error.code)
     }
 
@@ -224,7 +225,7 @@ class JiraClientTest {
         }
         val client = jiraClient(engine, JiraAuthScheme.BASIC, apiToken = "tok")
         client.resolveCloudId()
-        val error = assertFailsWith<JiraFetchException> { client.projectFields(7, listOf(10001)) }
+        val error = assertFailsWith<FetchException> { client.projectFields(7, listOf(10001)) }
         assertEquals("FORBIDDEN_SCOPE", error.code)
         assertTrue(error.message.orEmpty().endsWith("/rest/api/3/projects/fields"), error.message)
         assertTrue("?" !in error.message.orEmpty() && "projectId" !in error.message.orEmpty(), error.message)
@@ -246,7 +247,7 @@ class JiraClientTest {
     fun `a non-UUID cloudId is INVALID_RESPONSE and never becomes the gateway path`() = runBlocking {
         val engine = MockEngine { respond("""{"cloudId":"not-a-uuid"}""", HttpStatusCode.OK, JSON_HEADERS) }
         val client = jiraClient(engine, JiraAuthScheme.BASIC, apiToken = "tok")
-        val error = assertFailsWith<JiraFetchException> { client.resolveCloudId() }
+        val error = assertFailsWith<FetchException> { client.resolveCloudId() }
         assertEquals("INVALID_RESPONSE", error.code)
     }
 
@@ -269,7 +270,7 @@ class JiraClientTest {
         }
         val client = jiraClient(engine, JiraAuthScheme.BASIC, apiToken = "tok")
         client.resolveCloudId()
-        val error = assertFailsWith<JiraFetchException> { client.myself() }
+        val error = assertFailsWith<FetchException> { client.myself() }
         assertEquals("INVALID_RESPONSE", error.code)
     }
 
@@ -285,7 +286,7 @@ class JiraClientTest {
             )
         }
         val http = jiraHttp(engine, maxRetries = 5, requestDeadlineMillis = 5_000, clock = { 0L })
-        val error = assertFailsWith<JiraFetchException> { http.request(HttpMethod.Get, "https://example.atlassian.net/probe") }
+        val error = assertFailsWith<FetchException> { http.request(HttpMethod.Get, "https://example.atlassian.net/probe") }
         assertEquals("RATE_LIMITED", error.code)
         assertEquals(1, calls, "must fail on the first attempt once Retry-After alone exceeds the whole budget")
     }
@@ -295,7 +296,7 @@ class JiraClientTest {
         var calls = 0
         val engine = MockEngine { calls++; respond("{}", HttpStatusCode.ServiceUnavailable, JSON_HEADERS) }
         val http = jiraHttp(engine, maxRetries = 5, requestDeadlineMillis = 1_000, clock = { 0L })
-        val error = assertFailsWith<JiraFetchException> { http.request(HttpMethod.Get, "https://example.atlassian.net/probe") }
+        val error = assertFailsWith<FetchException> { http.request(HttpMethod.Get, "https://example.atlassian.net/probe") }
         assertEquals("UPSTREAM_UNAVAILABLE", error.code)
         assertEquals(1, calls, "the backoff itself already exceeds the 1s deadline, so no retry happens")
     }

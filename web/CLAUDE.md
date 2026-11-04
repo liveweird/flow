@@ -2,9 +2,9 @@
 
 Vite + React 19 + TypeScript SPA: the shell + auth, user/feature management, MFA, password reset,
 the changelog, and the flat-teams registry — v0.1.0's foundation — plus, since v0.2.0, the Data
-sources pages (ADMIN-managed Jira Cloud connections, their sync jobs, data profile and raw-issue
+sources pages (ADMIN-managed Jira Cloud and self-managed GitLab connections, their sync jobs, data profile and raw-issue
 inspector — see `.claude/docs/web-features.md`) and, since v0.3.0, the metrics configuration pages and the
-nineteen report pages (twenty reports; `pages/Report*.tsx`; `pages/Home.tsx` is the overview of up to three picked teams, one request and seven sections (six of small-multiple charts, the last a table of counts) — see "Home overview" in `.claude/docs/web-features.md`). Routes are lazy. New capability that Covenant, Toadie or
+twenty-one report pages (twenty-two reports; `pages/Report*.tsx`; `pages/Home.tsx` is the overview of up to three picked teams, one request and eight sections (six of small-multiple charts, the last two tables: the code figures and the counts of findings) — see "Home overview" in `.claude/docs/web-features.md`). Routes are lazy. New capability that Covenant, Toadie or
 Lettuce already has? Port their building blocks (see "Not yet ported" at the bottom) rather than
 inventing new ones.
 
@@ -144,7 +144,7 @@ scratch, use `npm install --legacy-peer-deps`.
 - **Messages**: never render `error.message` (it's the internal `API <status>` / the browser's
   "Failed to fetch") — map statuses to i18n keys via the shared mappers in `utils/saveError.ts`:
   `saveErrorMessage(err, t, keys)` for mutations (per-status keys + a `failed` fallback) and
-  `loadErrorMessage(err, t)` for list loads. Errors render inline as `color="red" variant="light"`
+  `loadErrorMessage(err, t)` for list loads (it also tells Report 21's two code-read refusals, a `400` row budget and a `429` permit, in the app's own words, matched by status plus a phrase of the problem `detail`; `web-features.md` "Code activity"). Errors render inline as `color="red" variant="light"`
   Alerts — never as toasts. A failed QUERY renders through `components/ErrorAlert.tsx`
   (`error`, optional `title`), never an inline `<Alert>{loadErrorMessage(…)}</Alert>`; a form/action failure
   (an already-mapped string) renders through `components/FormErrorAlert.tsx`, never a hand-written red `<Alert>`.
@@ -248,7 +248,7 @@ are English (THE default and fallback everywhere) and Polish. All user-facing st
 `const { t } = useTranslation()` / `<Trans>` — **no hardcoded UI text**. Conventions:
 
 - **Resources** live in `src/locales/{en,pl}/<area>.json`, one file per area (`appShell`, `auth`, `capacity`,
-  `changelog`, `common`, `dataSources`, `flowUsers`, `home`, `metrics`, `publicHolidays`, `reports`, `teams`, `telemetry`); `i18n.ts` merges them into a single
+  `changelog`, `codeIdentities`, `common`, `dataSources`, `flowUsers`, `home`, `metrics`, `publicHolidays`, `reports`, `teams`, `telemetry`); `i18n.ts` merges them into a single
   `translation` namespace, so keys read `area.key` (e.g. `t("auth.signIn")`). Only EN is
   statically imported — its typed `en` tree is the key canon AND the runtime fallback; every other
   language is auto-discovered from `locales/<lang>/` via `import.meta.glob`. Bundles are eager on

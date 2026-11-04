@@ -27,7 +27,9 @@
     "backlog": "Oszacowany backlog",
     "agingWip": "Wiek WIP",
     "blockedTime": "Czas zablokowania",
-    "epicProgress": "Postęp epików"
+    "epicProgress": "Postęp epików",
+    "codeActivity": "Aktywność w kodzie",
+    "taskCode": "Zadania i kod"
   },
   "meta": {
     "derived": "Wyliczono {{date}} · wersja konfiguracji {{revision}}",
@@ -209,14 +211,21 @@
         "reopens": "Liczba ponownych otwarć",
         "ageWd": "Wiek (dni robocze)",
         "actualMd": "Zalogowane (MD)",
-        "gapMd": "Różnica (MD)"
+        "gapMd": "Różnica (MD)",
+        "lines": "Zmienione linie",
+        "files": "Zmienione pliki"
       },
       "authors": "Autorzy",
       "completed": "Sprint zakończony",
       "logged": "Ostatnio zalogowano",
       "started": "Rozpoczęto",
       "worklog": "Zalogowano dnia",
-      "kind": "Rodzaj"
+      "kind": "Rodzaj",
+      "person": "Osoba",
+      "merged": "Scalono",
+      "created": "Otwarto",
+      "committed": "Zatwierdzono",
+      "event": "Wykonano"
     },
     "sprintFallback": "Sprint {{id}}",
     "epicTitle": "{{bucket}} — {{epic}}",
@@ -721,7 +730,9 @@
   },
   "kind": {
     "TASK": "Zadanie",
-    "EPIC": "Epik"
+    "EPIC": "Epik",
+    "COMMIT": "Commit",
+    "MERGE_REQUEST": "Merge request"
   },
   "agingWip": {
     "noTeams": "Wiek WIP liczymy dla zespołu, a nie ma jeszcze żadnego zespołu. Administrator/ka dodaje zespoły na stronie Zespoły.",
@@ -1342,7 +1353,7 @@
   },
   "comparePeople": {
     "title": "Porównanie osób",
-    "description": "Dwie osoby „twarzą w twarz” w wybranym okresie, we wszystkich zespołach, do których należały. Wskaż osobę A i osobę B: lepsza liczba każdej miary (wyższa, niższa albo bliższa 1 — zależnie od tego, co jest dla niej lepsze) ma turkusowe tło i znacznik ✓. Remis, miara neutralna i osoba ze zbyt małą liczbą zadań nie mają oznaczenia. Każda liczba otwiera zadania, które za nią stoją.",
+    "description": "Dwie osoby „twarzą w twarz” w wybranym okresie, we wszystkich zespołach, do których należały. Wskaż osobę A i osobę B: lepsza liczba każdej miary (wyższa, niższa albo bliższa 1 — zależnie od tego, co jest dla niej lepsze) ma turkusowe tło i znacznik ✓. Remis, miara neutralna i osoba ze zbyt małą liczbą zadań nie mają oznaczenia. Grupa Kod liczy commity, merge requesty i przeglądy danej osoby w GitLabie przez tożsamości, które połączył z nią administrator (osoba bez połączenia ma zera), i pomija filtry poniżej; jej liczby to kontekst i nigdy nie są oznaczane. Każda liczba otwiera elementy, które za nią stoją.",
     "pickTwo": "Wskaż dwie osoby, aby je porównać.",
     "tableTitle": "Zestawienie",
     "tableCaption": "Różnica to odstęp między dwiema liczbami; lepsza liczba ma turkusowe tło i znacznik ✓.",
@@ -1381,6 +1392,10 @@
       "DAYS_few": "{{value}} dni",
       "DAYS_many": "{{value}} dni",
       "DAYS_other": "{{value}} dnia",
+      "LINES_one": "{{value}} linia",
+      "LINES_few": "{{value}} linie",
+      "LINES_many": "{{value}} linii",
+      "LINES_other": "{{value}} linii",
       "RATIO": "{{value}}",
       "SHARE": "{{value}} p.p."
     },
@@ -1394,7 +1409,8 @@
       "ESTIMATION": "Szacowanie",
       "WIP": "Praca w toku",
       "TIME": "Zalogowany czas",
-      "QUALITY": "Jakość danych"
+      "QUALITY": "Jakość danych",
+      "CODE": "Kod (GitLab)"
     },
     "row": {
       "deliveredMd": "Dostarczone (MD)",
@@ -1424,7 +1440,15 @@
       "foreignShare": "Udział pracy obcej w zalogowanym czasie",
       "worklogCoverage": "Zakończone zadania z zalogowanym czasem",
       "lateLoggingShare": "Wpisy czasu zalogowane z ponad dobowym opóźnieniem",
-      "noEstimateShare": "Zakończone zadania bez szacunku"
+      "noEstimateShare": "Zakończone zadania bez szacunku",
+      "commits": "Commity",
+      "linesChanged": "Linie zmienione w commitach (dodane + usunięte)",
+      "mrsMerged": "Scalone merge requesty",
+      "mrCycleWorkingDaysP50": "Czas cyklu merge requesta, dni robocze — mediana",
+      "mrSizeLinesP50": "Rozmiar merge requesta (linie) — mediana",
+      "reviewsGiven": "Przejrzane merge requesty",
+      "approvalsGiven": "Zatwierdzone merge requesty",
+      "comments": "Komentarze"
     },
     "view": {
       "DELIVERED": "Dostarczone zadania",
@@ -1445,7 +1469,14 @@
       "NO_WORKLOGS": "Zadania bez zalogowanego czasu",
       "NO_ESTIMATE": "Zadania bez szacunku",
       "TASK_SIZE": "Rozmiar zadania na starcie",
-      "REOPENED": "Zadania otwarte ponownie"
+      "REOPENED": "Zadania otwarte ponownie",
+      "COMMITS": "Commity",
+      "MRS_MERGED": "Scalone merge requesty",
+      "MR_CYCLE_WORKING_DAYS": "Czas cyklu merge requesta (dni robocze)",
+      "MR_SIZE_LINES": "Rozmiar merge requesta (linie)",
+      "REVIEWS_GIVEN": "Przejrzane merge requesty",
+      "APPROVALS_GIVEN": "Zatwierdzone merge requesty",
+      "COMMENTS": "Komentarze"
     },
     "drill": {
       "mix": "{{slice}}: {{key}}"
@@ -1506,6 +1537,7 @@
     },
     "cue": {
       "caption": "Znacznik porównuje pierwsze i ostatnie pełne okno zakresu.",
+      "captionNeutral": "Nie ma znacznika: to kontekst, a nie miara tego, jak komuś idzie. Zmiana porównuje pierwsze i ostatnie pełne okno zakresu.",
       "none": "Brak znacznika: w tym zakresie jest mniej niż dwa pełne okna z liczbą.",
       "better": "Lepiej",
       "worse": "Gorzej",
@@ -1539,8 +1571,13 @@
       "ITEMS_PER_DAY": "Zadania na dzień",
       "ITEMS_PER_MD": "Zadania na dostępny MD",
       "DAYS": "Dni",
+      "LINES": "Linie",
       "RATIO": "Stosunek",
       "SHARE": "Udział"
+    },
+    "codeAxis": {
+      "mrsMerged": "Merge requesty",
+      "reviewsGiven": "Przejrzane merge requesty"
     },
     "table": {
       "label": "{{name}}: liczby okno po oknie",
@@ -1558,6 +1595,185 @@
       "caption": "Co osoba dostarczyła w każdym oknie — udział osobodni tego okna według typu aktywności i według kategorii pracy (każdy podział daje razem 100%). Żadna struktura nie jest lepsza od innej, więc nic nie jest oznaczane.",
       "axis": "Udział dostarczonych osobodni",
       "empty": "W żadnym oknie nic nie dostarczono."
+    }
+  },
+  "codeActivity": {
+    "title": "Aktywność w kodzie",
+    "description": "Gdzie merge requesty zespołu czekają i jak są duże, z podłączonego GitLaba: czas cyklu, czas do pierwszego przeglądu, rozmiar, to, co jest scalane co tydzień, co jest teraz otwarte i jak rozłożona jest praca przeglądowa. Te liczby przepływu mówią, który kierunek jest lepszy; tabela członków obok to tylko kontekst, wolumeny pracy, nigdy ranking. Osoba jest liczona, gdy administrator połączy jej tożsamość w GitLabie z kontem w Jirze.",
+    "noTeams": "Aktywność w kodzie liczymy dla zespołu, a nie ma jeszcze żadnego zespołu. Administrator/ka dodaje zespoły na stronie Zespoły.",
+    "noSources": "Żadne źródło danych GitLab nie jest aktywne.",
+    "noSourcesHint": "Administrator podłącza je w Źródłach danych; jego commity i merge requesty są tu czytane.",
+    "sources": {
+      "synced": "{{name}}: ostatnia synchronizacja {{date}}.",
+      "neverSynced": "{{name}}: jeszcze niezsynchronizowane.",
+      "filesPending": "Commity, których pliki czekają jeszcze na odczyt: {{n}}. Ich liczby linii są na razie nieznane.",
+      "detailsPending": "Merge requesty, których szczegóły czekają jeszcze na odczyt: {{n}}. Na razie są poza liczbami o przeglądach.",
+      "metaHint": "Data wyliczenia i rewizja konfiguracji powyżej dotyczą danych z Jiry (skład zespołu, nazwy i sprinty); świeżość liczb z kodu podana jest tu przy każdym źródle."
+    },
+    "quality": {
+      "title": "Do przypisania lub jeszcze nieznane",
+      "unlinked": "Tożsamości GitLab z aktywnością w tym okresie, których nikt jeszcze nie połączył z osobą: {{n}}. Ich commity ({{commits}}), merge requesty ({{mrs}}) i działania przeglądowe ({{events}}) nie wchodzą do liczb żadnego członka, dopóki administrator nie zdecyduje.",
+      "link": "Otwórz tożsamości źródła {{name}}",
+      "commitsLinesUnknown": "Commity z nieznanymi liniami, pominięte w sumach linii: {{n}}.",
+      "mrsSizeUnknown": "Scalone merge requesty z nieznanym rozmiarem, pominięte w liczbach o rozmiarze: {{n}}.",
+      "mrsDetailsNotRead": "Scalone merge requesty, których szczegółów jeszcze nie odczytano, pominięte w liczbach o przeglądach: {{n}}.",
+      "eventsUndated": "Działania przeglądowe bez daty, w żadnym okresie: {{n}}."
+    },
+    "flow": {
+      "title": "Przepływ merge requestów",
+      "caption": "Merge requesty scalone w okresie, według zespołu autora w dniu scalenia. Niższe jest lepsze dla czasów, rozmiaru i liczb scalonych bez przeglądu.",
+      "merged": "Scalone",
+      "closedUnmerged": "Zamknięte bez scalenia: {{n}}",
+      "withoutReview": "Scalone bez przeglądu",
+      "withoutApproval": "Scalone bez zatwierdzenia",
+      "withoutReviewRule": "Bez komentarza, zatwierdzenia ani przeglądu innej osoby do chwili scalenia. Niższe jest lepsze.",
+      "withoutApprovalRule": "Bez zatwierdzenia przez inną osobę przed scaleniem. Niższe jest lepsze.",
+      "share": "To {{share}} scalonych merge requestów, których szczegóły odczytano.",
+      "noShare": "Żaden scalony merge request nie ma jeszcze odczytanych szczegółów.",
+      "cycleWorking": {
+        "title": "Czas cyklu, dni robocze",
+        "caption": "Od utworzenia do scalenia, w dniach roboczych. Niższe jest lepsze.",
+        "axis": "dni robocze"
+      },
+      "cycleElapsed": {
+        "title": "Czas cyklu, dni kalendarzowe",
+        "caption": "Od utworzenia do scalenia, w dniach kalendarzowych. Niższe jest lepsze.",
+        "axis": "dni kalendarzowe"
+      },
+      "firstReview": {
+        "title": "Czas do pierwszego przeglądu, dni robocze",
+        "caption": "Od utworzenia do pierwszego komentarza, zatwierdzenia lub przeglądu innej osoby. Merge request scalony bez żadnego jest liczony wyżej, nie tu. Niższe jest lepsze.",
+        "axis": "dni robocze"
+      },
+      "sizeLines": {
+        "title": "Rozmiar merge requestu, linie",
+        "caption": "Linie dodane plus usunięte w całym diffie, razem z plikami generowanymi i zewnętrznymi. Niższe jest lepsze.",
+        "axis": "linie"
+      },
+      "sizeFiles": {
+        "title": "Rozmiar merge requestu, pliki",
+        "caption": "Pliki dotknięte diffem. Niższe jest lepsze.",
+        "axis": "pliki"
+      }
+    },
+    "weekly": {
+      "title": "Scalone tygodniowo",
+      "caption": "Merge requesty scalone w każdym tygodniu (tydzień zaczyna się w poniedziałek), razem z tygodniami bez żadnego.",
+      "chartLabel": "Wykres: merge requesty scalone tygodniowo",
+      "series": "Scalone",
+      "yAxis": "Merge requesty",
+      "tableLabel": "Scalone tygodniowo, jako tabela",
+      "week": "Tydzień od",
+      "merged": "Scalone"
+    },
+    "open": {
+      "title": "Otwarte merge requesty teraz",
+      "caption": "Merge requesty otwarte dziś, których autor jest dziś w zespole, niezależnie od wieku. Niższe jest lepsze.",
+      "waiting": "Czekają na przegląd",
+      "drafts": "Wersje robocze",
+      "ageLabel": "Wiek czekających merge requestów",
+      "ageP50": "Wiek, mediana (dni robocze)",
+      "ageP85": "Wiek, p85 (dni robocze)",
+      "ageHidden": "Czeka mniej niż {{min}} merge requestów, więc nie pokazujemy wieku.",
+      "hint": "Wersje robocze liczymy osobno: wersja robocza nie czeka na przegląd, a wiek dotyczy tylko oczekujących."
+    },
+    "review": {
+      "title": "Jak rozłożona jest praca przeglądowa",
+      "caption": "Sygnał wąskiego gardła w pracy przeglądowej zespołu, a nie ocena żadnej osoby.",
+      "reviewers": "Osoby przeglądające na scalony merge request (mediana)",
+      "topShare": "Udział przeglądów w rękach najbardziej zajętej osoby przeglądającej",
+      "basis": "Ze scalonych merge requestów, których szczegóły odczytano: {{n}}.",
+      "withheld": "Liczba pokazana jako kreska jest wstrzymana poniżej {{min}} takich merge requestów."
+    },
+    "members": {
+      "title": "Aktywność według członków",
+      "caption": "Kontekst, nie wydajność: to wolumeny pracy, bez żadnej kolejności zasług, które nic nie mówią o tym, kto radzi sobie lepiej. Rozmiar merge requestu liczy każdą linię jego diffa, a linie commita pomijają pliki generowane i zewnętrzne, więc to dwie różne liczby linii. Członek pojawia się tu dzięki połączeniu przez administratora jego tożsamości w GitLabie z kontem w Jirze.",
+      "unlabelled": "Niepołączone z osobą",
+      "unassignedHint": "Nieprzypisane: praca tożsamości z GitLaba, których żaden administrator nie połączył jeszcze z osobą (po jednym wierszu na tożsamość, pod nazwą z GitLaba), oraz połączonych osób, które w chwili pracy nie należały do żadnego zespołu. Te nazwy nie są linkami: nie ma zespołu, do którego można zawęzić widok.",
+      "linesUnknown": "niepoliczone commity: {{n}}",
+      "column": {
+        "commits": "Commity",
+        "linesAdded": "Linie dodane",
+        "linesDeleted": "Linie usunięte",
+        "mrsMerged": "Scalone",
+        "mrsOpened": "Otwarte w okresie",
+        "openMrs": "Otwarte teraz",
+        "reviewsGiven": "Przeglądy",
+        "approvalsGiven": "Zatwierdzenia",
+        "comments": "Komentarze"
+      },
+      "hintRows": "Kliknij liczbę w tabeli, aby zobaczyć commity lub merge requesty, które za nią stoją."
+    },
+    "drill": {
+      "view": {
+        "COMMITS": "Commity",
+        "MRS_MERGED": "Scalone merge requesty",
+        "MRS_OPENED": "Otwarte merge requesty",
+        "OPEN_MRS": "Otwarte merge requesty teraz",
+        "OPEN_MRS_WAITING": "Merge requesty czekające na przegląd",
+        "MERGED_WITHOUT_REVIEW": "Scalone bez przeglądu",
+        "MERGED_WITHOUT_APPROVAL": "Scalone bez zatwierdzenia",
+        "REVIEWS_GIVEN": "Przejrzane merge requesty",
+        "APPROVALS_GIVEN": "Zatwierdzone merge requesty",
+        "CHANGES_REQUESTED_GIVEN": "Merge requesty z żądanymi zmianami",
+        "COMMENTS": "Komentarze",
+        "REVIEW_REQUESTS_RECEIVED": "Otrzymane prośby o przegląd",
+        "WEEK": "Scalone w tygodniu"
+      },
+      "weekOf": "Tydzień od {{date}}"
+    }
+  },
+  "taskCode": {
+    "title": "Zadania i kod",
+    "description": "Jak zadania zakończone w okresie mają się do kodu, który je dostarczył, z podłączonego GitLaba. Merge request należy do zadania, gdy jego tytuł lub gałąź wskazuje klucz zgłoszenia tego zadania. Strona pokazuje, ile zakończonych zadań ma scalony merge request, a ile nie ma żadnego scalonego, ile dni roboczych mija od startu zadania do scalenia jego ostatniego merge requestu oraz jak często kod jest scalany już po zakończeniu zadania. Udział zadań bez merge requestu to kontekst, nie ocena: zadanie może nie wymagać kodu. Niższe jest lepsze dla czasu realizacji kodu i dla kodu scalonego po zakończeniu.",
+    "noTeams": "Zadania i kod liczymy dla jednego zespołu lub jednej domeny, a nie ma jeszcze żadnych. Administrator/ka dodaje zespoły na stronie Zespoły.",
+    "pickScope": "Wybierz zespół lub domenę, dla których pokazać zadania i kod.",
+    "noSources": "Żadne źródło danych GitLab nie jest aktywne.",
+    "noSourcesHint": "Bez warstwy kodu żadnego zadania nie da się powiązać z merge requestem, więc nie ma czego porównywać — to nic nie mówi o zadaniach. Administrator/ka podłącza źródło GitLab w Źródłach danych.",
+    "sources": {
+      "metaHint": "Data wyliczenia i rewizja konfiguracji powyżej dotyczą danych z Jiry (zakończone zadania); świeżość merge requestów podana jest tu przy każdym źródle."
+    },
+    "quality": {
+      "title": "Czego powiązanie zadań z merge requestami nie obejmuje",
+      "neverStarted": "Zakończone zadania, które nigdy nie zostały rozpoczęte, więc bez czasu realizacji kodu: {{n}}.",
+      "onlyUnmergedMrs": "Zakończone zadania, których wszystkie merge requesty są niescalone (otwarte, zamknięte lub zablokowane); liczą się jako bez scalonego merge requestu: {{n}}.",
+      "tasksWithAmbiguousKey": "Zakończone zadania z kluczem zgłoszenia, który wskazuje więcej niż jedno zadanie (klucz użyto ponownie albo trzyma go kilka źródeł Jiry); ten klucz nie łączy żadnego merge requestu: {{n}}."
+    },
+    "tasks": {
+      "title": "Zakończone zadania i ich merge requesty",
+      "caption": "Zadania zakończone w okresie, według zespołu, któremu je przypisano. Zadanie jest „z merge requestem”, gdy co najmniej jeden scalony merge request wskazuje jego klucz zgłoszenia. Żaden kierunek nie jest tu lepszy: zadanie może nie wymagać kodu.",
+      "done": "Zakończone zadania",
+      "doneHint": "Zadania, bez podzadań.",
+      "withMr": "Ze scalonym merge requestem",
+      "withMrHint": "Co najmniej jeden scalony merge request wskazuje to zadanie.",
+      "withoutMr": "Bez scalonego merge requestu",
+      "withoutShare": "{{share}} zakończonych zadań.",
+      "noShare": "W okresie nie zakończono żadnego zadania."
+    },
+    "leadTime": {
+      "title": "Czas realizacji kodu",
+      "caption": "Od startu zadania do scalenia jego ostatniego merge requestu, w dniach roboczych: ten sam start co w czasie cyklu. Liczone są tylko rozpoczęte zadania ze scalonym merge requestem. Niższe jest lepsze.",
+      "panelTitle": "Od startu zadania do ostatniego scalenia, dni robocze",
+      "axis": "dni robocze"
+    },
+    "mergedAfter": {
+      "title": "Kod scalony po zakończeniu zadania",
+      "caption": "Zadania, których ostatni merge request scalono po oznaczeniu zadania jako zakończonego. Niższe jest lepsze: kod powinien być scalony, zanim zadanie zostanie zamknięte.",
+      "tile": "Scalone po zakończeniu",
+      "share": "{{share}} zadań ze scalonym merge requestem.",
+      "noShare": "Żadne zakończone zadanie nie ma scalonego merge requestu.",
+      "lagTitle": "Od zakończenia do ostatniego scalenia, dni robocze",
+      "lagCaption": "Dni robocze między zakończeniem zadania a scaleniem jego ostatniego merge requestu.",
+      "axis": "dni robocze"
+    },
+    "drill": {
+      "tilesHint": "Kliknij liczbę, aby wyświetlić zadania, które za nią stoją.",
+      "view": {
+        "TASKS_WITH_MR": "Zadania ze scalonym merge requestem",
+        "TASKS_WITHOUT_MR": "Zadania bez scalonego merge requestu",
+        "MERGED_AFTER_DONE": "Zadania scalone po zakończeniu"
+      },
+      "lastMerge": "ostatni merge"
     }
   },
   "deepDive": {

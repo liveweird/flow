@@ -17,6 +17,7 @@ import {
   reportQuery,
   requiredTeamId,
   serializeReportFilter,
+  teamClearableUnderDomain,
   wipColumnAvailable,
   withFilterKey,
   withPeriod,
@@ -407,6 +408,29 @@ describe("domainStandsForTeam", () => {
   });
 });
 
+describe("teamClearableUnderDomain", () => {
+  const taskCode = { teamRequired: true, teamOrDomain: true } as const;
+
+  test("a teamRequired + teamOrDomain report without domainExcludesTeam may clear a held team once a domain is set", () => {
+    expect(teamClearableUnderDomain(taskCode, { teamId: 1, domain: "FLO" })).toBe(true);
+    // "Unassigned" is a held team too.
+    expect(teamClearableUnderDomain(taskCode, { teamId: 0, domain: "FLO" })).toBe(true);
+  });
+
+  test("no domain, or no team held, is nothing to clear", () => {
+    expect(teamClearableUnderDomain(taskCode, { teamId: 1 })).toBe(false);
+    expect(teamClearableUnderDomain(taskCode, { domain: "FLO" })).toBe(false);
+    expect(teamClearableUnderDomain(taskCode, {})).toBe(false);
+  });
+
+  test("every other teamRequired report keeps its team: no teamOrDomain, or a domain that excludes the team", () => {
+    expect(teamClearableUnderDomain({ teamRequired: true }, { teamId: 1, domain: "FLO" })).toBe(false);
+    expect(teamClearableUnderDomain({ teamRequired: true, teamOrDomain: true, domainExcludesTeam: true }, { teamId: 1, domain: "FLO" })).toBe(false);
+    expect(teamClearableUnderDomain({ teamOrDomain: true }, { teamId: 1, domain: "FLO" })).toBe(false);
+    expect(teamClearableUnderDomain({}, { teamId: 1, domain: "FLO" })).toBe(false);
+  });
+});
+
 describe("requiredTeamId", () => {
   const teams = [
     { id: 2, name: "Beta", sprints: [{ sprintId: 21 }] },
@@ -424,6 +448,15 @@ describe("requiredTeamId", () => {
     expect(requiredTeamId({ teamId: 0 }, teams, 99)).toBe(1);
     expect(requiredTeamId({ teamId: 99, sprintId: 21 }, teams, 3)).toBe(2);
     expect(requiredTeamId({ teamId: 99 }, [], undefined)).toBeUndefined();
+  });
+
+  test("0 = unassigned is kept as written only where the report offers it", () => {
+    expect(requiredTeamId({ teamId: 0 }, teams, 99, true)).toBeUndefined();
+    expect(requiredTeamId({ teamId: 0, sprintId: 21 }, teams, 99, true)).toBeUndefined();
+    expect(requiredTeamId({ teamId: 0 }, teams, 99, false)).toBe(1);
+    // An unknown team is still absent, and a filter with no team still gets one.
+    expect(requiredTeamId({ teamId: 99 }, teams, 3, true)).toBe(3);
+    expect(requiredTeamId({}, teams, undefined, true)).toBe(1);
   });
 
   test("the team that lists a linked sprint wins, then the remembered team, then the first by name", () => {

@@ -4,6 +4,8 @@ import ch.nokillswit.infra.db.insertRows
 import ch.nokillswit.infra.db.insertRowsIgnoringConflicts
 import ch.nokillswit.infra.json.canonicalJson
 import ch.nokillswit.infra.json.sha256Hex
+import ch.nokillswit.ingest.RawUpsertOutcome
+import ch.nokillswit.ingest.classifyUpsert
 import ch.nokillswit.jira.JiraRawStore.Changelogs
 import ch.nokillswit.jira.JiraRawStore.Entities
 import ch.nokillswit.jira.JiraRawStore.Issues

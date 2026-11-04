@@ -17,6 +17,322 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.53.0",
+    date: "2026-11-04",
+    en: `**Home: done tasks without a merged merge request.**
+
+- The Code section has a new column for each team: how many of the tasks done in the window have no merged merge request naming them, and what share of the done tasks that is.
+- It is context, not a verdict: there is no arrow and no good or bad colour, because a task may need no code. A team with no done task says so instead of showing 0%.
+- Click the count to see the tasks, each with the merge requests that are still open or closed. The column shows even when nobody in the team has linked a GitLab identity.`,
+    pl: `**Strona główna: zakończone zadania bez scalonego merge requestu.**
+
+- Sekcja Kod ma nową kolumnę dla każdego zespołu: ile zadań zakończonych w okresie nie ma scalonego merge requestu, który je wymienia, i jaki to udział zakończonych zadań.
+- To kontekst, nie ocena: nie ma strzałki ani koloru dobrego lub złego, bo zadanie może nie wymagać kodu. Zespół bez zakończonych zadań mówi o tym, zamiast pokazywać 0%.
+- Kliknij liczbę, aby zobaczyć zadania, każde z merge requestami, które są jeszcze otwarte lub zamknięte. Kolumna jest widoczna także wtedy, gdy nikt w zespole nie ma połączonej tożsamości GitLab.`,
+  },
+  {
+    version: "1.52.0",
+    date: "2026-11-04",
+    en: `**Tasks and code: a domain across the whole unit.**
+
+- Once you pick a domain, the Team control can be cleared: the page then reads that domain across all teams, and the Team control says "No team: a domain is picked".
+- Clearing the domain brings a team back. The choice survives a reload and the next visit, and the lists behind the figures open for the same tasks.`,
+    pl: `**Zadania i kod: domena w całej jednostce.**
+
+- Po wybraniu domeny można wyczyścić pole Zespół: strona pokazuje wtedy tę domenę we wszystkich zespołach, a pole Zespół podpowiada „Brak zespołu: wybrano domenę”.
+- Wyczyszczenie domeny przywraca zespół. Wybór przetrwa odświeżenie strony i kolejną wizytę, a listy pod liczbami otwierają te same zadania.`,
+  },
+  {
+    version: "1.51.0",
+    date: "2026-11-04",
+    en: `**Tasks and code: the tasks with no team.**
+
+- The Team control now ends with "Unassigned": the done tasks that no team gets the credit for, with their merge requests.
+- Beside "Unassigned" the period is chosen by dates (sprints belong to a team); the domain and the other filters still apply, and the lists behind the figures open for the same tasks.`,
+    pl: `**Zadania i kod: zadania bez zespołu.**
+
+- Lista zespołów kończy się teraz pozycją „Nieprzypisane”: ukończone zadania, za które nie odpowiada żaden zespół, razem z ich merge requestami.
+- Przy „Nieprzypisane” okres wybiera się datami (sprinty należą do zespołu); domena i pozostałe filtry nadal działają, a listy pod liczbami otwierają te same zadania.`,
+  },
+  {
+    version: "1.50.0",
+    date: "2026-11-04",
+    en: `**Tasks and code: see which merge request a figure measured.**
+
+- When a task has several merged merge requests, the list now marks the one that counts: its last merge, the one the code lead time and the merge lag are measured to.
+- Merge requests in the list are ordered by project and then by number, so !2 comes before !10.`,
+    pl: `**Zadania i kod: zobacz, który merge request mierzy liczba.**
+
+- Gdy zadanie ma kilka scalonych merge requestów, lista oznacza ten, który się liczy: jego ostatnie scalenie, do którego mierzony jest czas realizacji kodu i opóźnienie scalenia.
+- Merge requesty na liście są uporządkowane według projektu, a potem numeru, więc !2 jest przed !10.`,
+  },
+  {
+    version: "1.49.0",
+    date: "2026-11-01",
+    en: `**Tasks and code: open the tasks behind a figure.**
+
+- On the Tasks and code page, the counts of tasks with and without a merged merge request, the count merged after done and every bar of the code lead time and merge lag histograms now open a list of the tasks behind them (and their tables' figures open it from the keyboard).
+- Each task shows its Jira key and, beside it, its merged merge requests as links to GitLab. Tasks without a merged merge request list the open or closed ones that kept them out. The list always adds up to the figure it came from.`,
+    pl: `**Zadania i kod: otwórz zadania stojące za liczbą.**
+
+- Na stronie Zadania i kod liczby zadań ze scalonym merge requestem i bez niego, liczba zadań scalonych po zakończeniu oraz każdy słupek histogramów czasu realizacji kodu i opóźnienia scalenia otwierają teraz listę zadań, które za nimi stoją (a figury w ich tabelach robią to z klawiatury).
+- Każde zadanie pokazuje klucz z Jiry, a obok jego scalone merge requesty jako linki do GitLaba. Zadania bez scalonego merge requestu wymieniają te otwarte lub zamknięte, przez które się w nim nie znalazły. Lista zawsze sumuje się do liczby, z której powstała.`,
+  },
+  {
+    version: "1.48.0",
+    date: "2026-11-01",
+    en: `**A new report, Tasks and code, shows how done tasks line up with their merge requests.**
+
+- Reports gains a Code group with two tabs: Code activity and the new Tasks and code. Pick a team (and, if you like, a domain) and a period to see how many done tasks have a merged merge request and how many have none merged, how many working days pass from a task's start to the merge of its last merge request, and how often code is merged after the task was already done.
+- A merge request is matched to a task by the Jira issue key in its title or branch. The share of tasks without a merge request is context, not a verdict, because a task may need no code; a shorter code lead time and less code merged after done are better. Without an active GitLab source the page says there is no code data to compare.`,
+    pl: `**Nowy raport, Zadania i kod, pokazuje, jak zakończone zadania mają się do swoich merge requestów.**
+
+- W Raportach pojawia się grupa Kod z dwiema kartami: Aktywność w kodzie i nowe Zadania i kod. Wybierz zespół (a jeśli chcesz, także domenę) i okres, aby zobaczyć, ile zakończonych zadań ma scalony merge request, a ile nie ma żadnego scalonego, ile dni roboczych mija od startu zadania do scalenia jego ostatniego merge requestu i jak często kod jest scalany już po zakończeniu zadania.
+- Merge request jest dopasowywany do zadania po kluczu zgłoszenia z Jiry w tytule lub gałęzi. Udział zadań bez merge requestu to kontekst, nie ocena, bo zadanie może nie wymagać kodu; lepszy jest krótszy czas realizacji kodu i mniej kodu scalonego po zakończeniu. Bez aktywnego źródła GitLab strona informuje, że nie ma danych o kodzie do porównania.`,
+  },
+  {
+    version: "1.47.0",
+    date: "2026-11-01",
+    en: `**A new report endpoint ties done tasks to their merge requests.**
+
+- The API gains \`GET /api/v1/reports/task-code\` (Tasks and code): for a team or domain it counts the done tasks that have a merged merge request and those that have none, measures the working days from a task's start to its last merge, and counts tasks whose code merged after they were done.
+- Merge requests are matched to tasks by the Jira keys in their title or branch. There is no page for it yet; this release is for API consumers.`,
+    pl: `**Nowy punkt końcowy raportu łączy ukończone zadania z ich merge requestami.**
+
+- API zyskuje \`GET /api/v1/reports/task-code\` (Zadania i kod): dla zespołu lub domeny zlicza ukończone zadania ze scalonym merge requestem i te bez niego, mierzy dni robocze od startu zadania do ostatniego scalenia oraz zlicza zadania, których kod scalono po ich ukończeniu.
+- Merge requesty są dopasowywane do zadań po kluczach Jiry w tytule lub gałęzi. Strony dla tego raportu jeszcze nie ma; to wydanie jest dla użytkowników/użytkowniczek API.`,
+  },
+  {
+    version: "1.46.0",
+    date: "2026-11-01",
+    en: `**Code activity links merge requests to their Jira tasks.**
+
+- In the lists behind the Code activity figures (and the code lists on Home), each merge request now shows the Jira issues its title or branch names, as links to Jira.
+- Only keys of the Jira projects you have connected are shown. A key is shown even if Jira has no such issue, and then the link leads to Jira's "not found" page.`,
+    pl: `**Aktywność w kodzie łączy merge requesty z zadaniami w Jirze.**
+
+- W listach za wartościami raportu Aktywność w kodzie (oraz w listach kodu na stronie głównej) każdy merge request pokazuje teraz zadania z Jiry, które wskazuje jego tytuł lub gałąź, jako odnośniki do Jiry.
+- Pokazywane są tylko klucze z podłączonych projektów Jiry. Klucz jest widoczny także wtedy, gdy w Jirze nie ma takiego zadania, a odnośnik prowadzi wtedy na stronę „nie znaleziono”.`,
+  },
+  {
+    version: "1.45.0",
+    date: "2026-11-01",
+    en: `**The data profile counts merge requests that name a Jira task.**
+
+- The data profile of a GitLab data source now shows how many merge requests mention a Jira issue key (such as \`FLO-123\`) in their title or branch name, and how many such keys were found.
+- These are only candidates: they are not yet matched to Jira tasks, and a few will be look-alikes such as \`UTF-8\`. This is groundwork for linking code to tasks.`,
+    pl: `**Profil danych zlicza merge requesty, które wskazują zadanie z Jiry.**
+
+- Profil danych źródła GitLab pokazuje teraz, ile merge requestów wspomina klucz zadania Jiry (na przykład \`FLO-123\`) w tytule lub nazwie gałęzi oraz ile takich kluczy znaleziono.
+- To tylko kandydaci: nie są jeszcze dopasowani do zadań w Jirze, a część to coś podobnego do klucza, na przykład \`UTF-8\`. To przygotowanie do powiązania kodu z zadaniami.`,
+  },
+  {
+    version: "1.44.0",
+    date: "2026-11-01",
+    en: `**Home shows the code of each team.**
+
+- A new **Code** section appears on Home while a GitLab data source is connected. For each team you picked it shows the merge requests merged in the last 90 days with their median cycle time, the merge requests open right now (drafts counted apart) with their median age, and how many were merged without a review — each beside the previous 90 days, with the same "Better", "Worse" and "No change" words as the rest of the page.
+- The counts open the merge requests behind them, each key a link to GitLab. The figures are the ones the Code activity report shows for the same team and period; the section title opens that report.
+- A team with no linked GitLab identity says so (an administrator gets the link to the Identities page), and a figure resting on too few merge requests says so instead of showing a share. When the code is too large to summarise, the section says so and the rest of Home loads as usual.`,
+    pl: `**Strona główna pokazuje kod każdego zespołu.**
+
+- Nowa sekcja **Kod** pojawia się na stronie głównej, gdy podłączone jest źródło danych GitLab. Dla każdego wybranego zespołu pokazuje merge requesty scalone w ostatnich 90 dniach z medianą czasu cyklu, merge requesty otwarte teraz (wersje robocze liczone osobno) z medianą wieku oraz liczbę scalonych bez przeglądu — każdą obok poprzednich 90 dni, z tymi samymi słowami „Lepiej”, „Gorzej” i „Bez zmian” co reszta strony.
+- Liczby otwierają merge requesty, które za nimi stoją, a każdy klucz jest linkiem do GitLaba. Wartości są takie same jak w raporcie Aktywność w kodzie dla tego samego zespołu i okresu; tytuł sekcji otwiera ten raport.
+- Zespół bez połączonej tożsamości GitLab mówi o tym wprost (administrator/ka dostaje link do strony Tożsamości), a wartość oparta na zbyt małej liczbie merge requestów to zaznacza zamiast pokazywać udział. Gdy kodu jest zbyt dużo, by go podsumować, sekcja mówi o tym, a reszta strony głównej ładuje się jak zwykle.`,
+  },
+  {
+    version: "1.43.0",
+    date: "2026-11-01",
+    en: `**Code activity can show the work no team holds, and says why a selection was refused.**
+
+- The Team control of the Code activity page has a new last choice, **Unassigned**: the work of GitLab identities that no administrator has linked to a person yet, and of linked people who were in no team when they did it. The members' table lists each unlinked identity by the name GitLab gives it, the flow cards and the lists behind the figures read the same bucket, and the choice stays in the address, so a reload or a shared link opens it again. Other reports are unchanged.
+- A selection that is too large to read (a long period for the whole bucket, or for a big team) now says so — "narrow the period or pick fewer people" — instead of a bare "Load failed (400)", on the page and in the lists behind its figures. When the server is busy computing other Code activity reports, the page asks you to retry in a moment.`,
+    pl: `**Aktywność w kodzie pokazuje pracę, której nie ma żaden zespół, i mówi, dlaczego odrzuciła wybór.**
+
+- Kontrolka Zespół na stronie Aktywność w kodzie ma nowy, ostatni wybór: **Nieprzypisane**. To praca tożsamości z GitLaba, których żaden administrator nie połączył jeszcze z osobą, oraz połączonych osób, które w chwili pracy nie należały do żadnego zespołu. Tabela członków wypisuje każdą niepołączoną tożsamość pod nazwą, jaką nadaje jej GitLab, karty przepływu i listy za liczbami czytają ten sam zbiór, a wybór zostaje w adresie, więc odświeżenie strony lub udostępniony link otwiera go ponownie. Pozostałe raporty się nie zmieniają.
+- Wybór zbyt duży, żeby go wczytać (długi okres dla całego zbioru albo dla dużego zespołu), mówi to teraz wprost — „zawęź okres lub wybierz mniej osób” — zamiast gołego „Wczytywanie nie powiodło się (400)”, na stronie i na listach za jej liczbami. Gdy serwer jest zajęty liczeniem innych raportów Aktywności w kodzie, strona prosi o ponowną próbę za chwilę.`,
+  },
+  {
+    version: "1.42.2",
+    date: "2026-11-01",
+    en: `**Code activity can no longer exhaust the server's memory.**
+
+- A very wide selection on the Code activity page (a long period for a whole team, or the unassigned work of a large source) is now refused with a clear message — "narrow the period or pick fewer people" — instead of loading every commit, merge request and review event it touches. A selection that fits answers exactly as before; the same limit applies to the lists behind the figures and to the code figures of Compare people and Person trend.
+- When several Code activity reports are being computed at once, the extra ones wait a moment for their turn and, if the server stays busy, ask you to retry shortly.
+- Administrators can tune both limits (\`REPORTS_CODE_MAX_ROWS\`, \`REPORTS_CODE_READ_PERMITS\`); the defaults suit a unit of about seventy developers.`,
+    pl: `**Aktywność w kodzie nie przeciąży już pamięci serwera.**
+
+- Bardzo szeroki wybór na stronie Aktywność w kodzie (długi okres dla całego zespołu albo nieprzypisana praca dużego źródła) jest teraz odrzucany z czytelnym komunikatem — „zawęź okres lub wybierz mniej osób” — zamiast wczytywać każdy commit, merge request i zdarzenie przeglądu, których dotyczy. Wybór, który się mieści, odpowiada dokładnie jak dotąd; ten sam limit obejmuje listy za liczbami oraz liczby z kodu w Porównaniu osób i Trendzie osoby.
+- Gdy naraz liczy się kilka raportów Aktywności w kodzie, kolejne chwilę czekają na swoją kolej, a jeśli serwer pozostaje zajęty, proszą o ponowną próbę za moment.
+- Administratorzy mogą dostroić oba limity (\`REPORTS_CODE_MAX_ROWS\`, \`REPORTS_CODE_READ_PERMITS\`); wartości domyślne pasują do jednostki liczącej około siedemdziesięciu programistów.`,
+  },
+  {
+    version: "1.42.1",
+    date: "2026-11-01",
+    en: `**Code activity loads a team's review requests faster.**
+
+- The review requests received by a team's members are now picked out by the database before they reach the report, instead of the report reading every review request of the period and discarding the ones for other teams. The figures, the lists behind them and the report's cache are unchanged; a team's report on a large source just answers sooner and uses less memory.
+- It applies to the Code activity page and its lists; nothing to configure.`,
+    pl: `**Aktywność w kodzie szybciej wczytuje prośby o przegląd zespołu.**
+
+- Prośby o przegląd, które otrzymali członkowie zespołu, wybiera teraz baza danych, zanim trafią do raportu, zamiast czytać wszystkie prośby z okresu i odrzucać te dla innych zespołów. Liczby, listy za nimi i pamięć podręczna raportu pozostają bez zmian; raport zespołu na dużym źródle po prostu odpowiada szybciej i zużywa mniej pamięci.
+- Dotyczy strony Aktywność w kodzie i jej list; nic nie trzeba konfigurować.`,
+  },
+  {
+    version: "1.42.0",
+    date: "2026-11-01",
+    en: `**Compare two people's code, and follow a person's merge requests over time.**
+
+- Compare people has a new "Code (GitLab)" group: each person's commits, lines changed, merge requests merged, the median cycle time and size of those merge requests, and the merge requests they reviewed and approved and their comments. It counts the GitLab identities an administrator linked to the person, in every team, and the filters do not apply to it; a person with no link shows zeros. Every figure opens the commits or merge requests behind it.
+- Counts are plain context and are never marked as better or worse; only the median cycle time and size of a person's merge requests (lower is better) can name a side.
+- Person trend gains three charts, one per window: merge requests merged, their median cycle time and merge requests reviewed, with the team's median beside them like the others. The two counts show their change over the range without a verdict.`,
+    pl: `**Porównaj kod dwóch osób i śledź merge requesty osoby w czasie.**
+
+- Porównanie osób ma nową grupę „Kod (GitLab)”: commity, zmienione linie, scalone merge requesty, mediana czasu cyklu i rozmiaru tych merge requestów oraz merge requesty, które osoba przejrzała i zatwierdziła, i jej komentarze. Liczy tożsamości GitLaba, które administrator połączył z osobą, we wszystkich zespołach, a filtry jej nie dotyczą; osoba bez połączenia ma zera. Każda liczba otwiera commity lub merge requesty, które za nią stoją.
+- Liczby są samym kontekstem i nigdy nie są oznaczane jako lepsze lub gorsze; stronę może wskazać tylko mediana czasu cyklu i rozmiaru merge requestów osoby (im mniej, tym lepiej).
+- Trend osoby ma trzy nowe wykresy, po jednym punkcie na okno: scalone merge requesty, ich mediana czasu cyklu i przejrzane merge requesty, a obok nich mediana zespołu jak przy pozostałych. Dwie liczby pokazują zmianę w zakresie bez oceny.`,
+  },
+  {
+    version: "1.41.0",
+    date: "2026-11-01",
+    en: `**See the commits and merge requests behind a Code activity figure.**
+
+- On the Code activity page, double-click a bar of any histogram or of the merged-per-week chart, or click a figure — a tile, the open-now count or a count in the members' table — to list the merge requests or commits it counts. Each line shows the project, the number or commit, the title, who did it, when and the figure's own value; the key opens it in GitLab in a new tab.
+- The list always adds up to the figure it came from, and the cell of one member lists only that member's items. The members' table stays plain context: the figures are underlined buttons and nothing more.`,
+    pl: `**Zobacz commity i merge requesty stojące za liczbą w Aktywności w kodzie.**
+
+- Na stronie Aktywność w kodzie kliknij dwukrotnie słupek dowolnego histogramu lub wykresu scalonych w tygodniu albo kliknij liczbę — kafel, liczbę otwartych teraz lub liczbę w tabeli osób — aby zobaczyć listę merge requestów lub commitów, które ona liczy. Każdy wiersz pokazuje projekt, numer lub commit, tytuł, kto to zrobił, kiedy i własną wartość liczby; klucz otwiera element w GitLabie w nowej karcie.
+- Lista zawsze sumuje się do liczby, z której powstała, a komórka jednej osoby pokazuje tylko jej elementy. Tabela osób pozostaje samym tłem: liczby są podkreślonymi przyciskami i niczym więcej.`,
+  },
+  {
+    version: "1.40.0",
+    date: "2026-11-01",
+    en: `**The Code activity page.**
+
+- A new page under Reports, **Code activity**, shows how a team's merge requests flow through GitLab: how long they take from creation to merge, how long they wait for a first review, how big they are, how many are merged each week, how many were merged without a review or an approval, how many are open now and how review work is spread among reviewers. Pick the team, optionally up to eight members, and a period of dates or sprints.
+- Beside the flow, a table lists each member's commits, lines, merge requests, reviews, approvals and comments. It is context, not a score: it has no ranking, no colours and no order of merit.
+- People appear once an administrator has linked their GitLab identity to their Jira account on the data source's Identities page; the page tells you how many identities are still waiting for that, and what is not read yet.`,
+    pl: `**Strona Aktywność w kodzie.**
+
+- Nowa strona w Raportach, **Aktywność w kodzie**, pokazuje, jak merge requesty zespołu płyną przez GitLaba: ile trwają od utworzenia do scalenia, ile czekają na pierwszy przegląd, jak są duże, ile scalono co tydzień, ile scalono bez przeglądu lub zatwierdzenia, ile jest teraz otwartych i jak rozkłada się praca przeglądowa między osoby przeglądające. Wybierz zespół, opcjonalnie do ośmiu osób oraz okres z dat lub sprintów.
+- Obok przepływu tabela podaje commity, linie, merge requesty, przeglądy, zatwierdzenia i komentarze poszczególnych osób. To tło, a nie ocena: bez rankingu, bez kolorów i bez kolejności zasług.
+- Osoby pojawiają się, gdy administrator połączy ich tożsamość w GitLabie z kontem w Jirze na stronie Tożsamości źródła danych; strona mówi, ile tożsamości na to czeka i czego jeszcze nie odczytano.`,
+  },
+  {
+    version: "1.39.0",
+    date: "2026-11-01",
+    en: `**The API for the coming Code activity report.**
+
+- A new endpoint, \`GET /api/v1/reports/code-activity\`, reports a team's merge-request flow over the GitLab data: cycle time, time to first review, merge requests merged without review or approval, open merge requests waiting, size, the weekly merged count and review concentration. Next to them it lists each member's commits, merge requests and reviews as plain context, not a score.
+- Code is attributed through the GitLab identity links an administrator confirmed, and to the team the person belonged to on the day of each commit, merge request or review. Identities still waiting for a decision are counted, so you can see how much is left unattributed; identities marked as bots or ignored count nowhere.
+- There is no page for it yet: the Code activity page comes in the next release.`,
+    pl: `**API nadchodzącego raportu Aktywność w kodzie.**
+
+- Nowy punkt końcowy, \`GET /api/v1/reports/code-activity\`, raportuje przepływ merge requestów zespołu na podstawie danych z GitLaba: czas realizacji, czas do pierwszego przeglądu, merge requesty scalone bez przeglądu lub zatwierdzenia, otwarte merge requesty czekające na przegląd, rozmiar, tygodniową liczbę scalonych oraz koncentrację przeglądów. Obok podaje commity, merge requesty i przeglądy poszczególnych osób jako samo tło, a nie ocenę.
+- Kod jest przypisywany przez powiązania tożsamości GitLab potwierdzone przez administratora oraz do zespołu, do którego osoba należała w dniu danego commita, merge requesta lub przeglądu. Tożsamości czekające jeszcze na decyzję są liczone, więc widać, ile pozostaje nieprzypisane; tożsamości oznaczone jako boty lub pomijane nie są liczone nigdzie.
+- Strony dla tego raportu jeszcze nie ma: strona Aktywność w kodzie pojawi się w następnym wydaniu.`,
+  },
+  {
+    version: "1.38.1",
+    date: "2026-11-01",
+    en: `**A second data source's metrics no longer wait on stale database statistics.**
+
+- When a sync rewrites a large share of a source's normalized data (a first sync, a second source of a similar size, a reprocess), Flow now refreshes the database's planner statistics for those tables right after it. Before, the metrics calculation that followed could plan the new source's rows as if there were one and run about three times longer, depending on when the database's own maintenance happened to run.
+- It applies to Jira and GitLab sources alike, costs a fraction of a second and is skipped for small incremental syncs.
+- Nothing to configure; a source that is busy with another maintenance task simply keeps the statistics it had, and the sync still succeeds.`,
+    pl: `**Metryki drugiego źródła danych nie czekają już na nieaktualne statystyki bazy.**
+
+- Gdy synchronizacja przepisuje dużą część znormalizowanych danych źródła (pierwsza synchronizacja, drugie źródło o podobnej wielkości, ponowne przetworzenie), Flow odświeża zaraz potem statystyki planera bazy dla tych tabel. Wcześniej następujące po niej obliczanie metryk mogło zaplanować wiersze nowego źródła tak, jakby był jeden, i trwać około trzy razy dłużej, zależnie od tego, kiedy akurat uruchomiła się własna konserwacja bazy.
+- Dotyczy źródeł Jira i GitLab, kosztuje ułamek sekundy i jest pomijane przy małych synchronizacjach przyrostowych.
+- Nic nie trzeba konfigurować; źródło zajęte inną czynnością konserwacyjną zachowuje po prostu dotychczasowe statystyki, a synchronizacja i tak się udaje.`,
+  },
+  {
+    version: "1.38.0",
+    date: "2026-10-31",
+    en: `**GitLab identities are linked to Jira people.**
+
+- A GitLab source's new **Identities** page lists every GitLab user and commit address the sync found, proposes the matching Jira person by e-mail (a bot account is proposed as a bot), and lets an administrator confirm all proposals at once or decide row by row: link to a Jira person from the site directory, mark as bot, ignore, or remove a decision.
+- Decisions belong to the GitLab instance, not to the connection: deleting and re-creating the source, or a purge, keeps them.
+- Only confirmed links attribute code activity; the reports that read them come in a later release.`,
+    pl: `**Tożsamości GitLab są powiązane z osobami z Jiry.**
+
+- Nowa strona **Tożsamości** źródła GitLab wyświetla każdego użytkownika GitLab i adres commitu znaleziony podczas synchronizacji, proponuje pasującą osobę z Jiry po adresie e-mail (konto bota jest proponowane jako bot) i pozwala administratorowi potwierdzić wszystkie propozycje naraz albo decydować wiersz po wierszu: powiązać z osobą z katalogu witryny, oznaczyć jako bota, zignorować lub usunąć decyzję.
+- Decyzje należą do instancji GitLab, nie do połączenia: usunięcie i ponowne utworzenie źródła albo czyszczenie danych je zachowuje.
+- Tylko potwierdzone powiązania przypisują aktywność w kodzie; raporty, które je odczytują, pojawią się w późniejszym wydaniu.`,
+  },
+  {
+    version: "1.37.0",
+    date: "2026-10-31",
+    en: `**GitLab: commits, merge requests and review activity become normalized facts.**
+
+- Every sync now turns the stored GitLab data into the normalized code layer: commits with their author identity and their lines counted after the excluded paths, merge requests with their size and state, and review events (comments, diff comments, approvals, review requests, reviews, changes requested). Merge commits are kept but never counted; a commit whose file details are still pending stays "unknown" rather than undercounted.
+- Identities are keys, not people yet: a GitLab user, or a commit e-mail that matches no user. Linking them to Jira people comes in the next release.
+- A changed excluded-paths list is applied at the next sync, or at once with Reprocess, which is now offered for GitLab sources. The data profile is available for GitLab sources and summarizes projects, commits, merge requests, review events and identities.
+- Deleting a GitLab source now purges its normalized rows with the raw ones.`,
+    pl: `**GitLab: commity, merge requesty i aktywność przeglądowa stają się znormalizowanymi faktami.**
+
+- Każda synchronizacja przetwarza teraz zapisane dane GitLab do znormalizowanej warstwy kodu: commity z tożsamością autora i liczbą linii policzoną po wyłączeniu wskazanych ścieżek, merge requesty z rozmiarem i stanem oraz zdarzenia przeglądu (komentarze, komentarze do zmian, zatwierdzenia, prośby o przegląd, przeglądy, prośby o zmiany). Commity merge są zachowywane, ale nigdy nie liczone; commit, którego szczegóły plików jeszcze nie dotarły, pozostaje „nieznany” zamiast zaniżony.
+- Tożsamości to na razie klucze, nie osoby: użytkownik GitLab albo adres e-mail commitu, który nie pasuje do żadnego użytkownika. Powiązanie ich z osobami z Jiry przyjdzie w następnym wydaniu.
+- Zmieniona lista wykluczonych ścieżek jest stosowana przy następnej synchronizacji albo od razu przez „Przetwórz ponownie”, dostępne teraz także dla źródeł GitLab. Profil danych jest dostępny dla źródeł GitLab i podsumowuje projekty, commity, merge requesty, zdarzenia przeglądu i tożsamości.
+- Usunięcie źródła GitLab czyści teraz jego znormalizowane wiersze razem z surowymi.`,
+  },
+  {
+    version: "1.36.1",
+    date: "2026-10-31",
+    en: `**GitLab: a daily reconcile catches what the incremental syncs cannot.**
+
+- Once a day, and on "Reconcile now" (now offered for GitLab sources too), Flow re-lists every project's default branch and every group's merge requests from the backfill date. A commit or merge request that is no longer listed is confirmed before it is marked deleted - a commit against the branch, a merge request against its project - so a listing hiccup never loses data. The size statistics GitLab did not answer are asked again, and a few merge requests whose details could not be read are read again.
+- A project GitLab no longer answers for is marked deleted; a moved or archived project keeps its data.
+- The data source details show two more counts: merge requests marked deleted and merge requests whose details could not be read.`,
+    pl: `**GitLab: codzienne uzgadnianie wychwytuje to, czego nie widzą synchronizacje przyrostowe.**
+
+- Raz dziennie oraz po „Uzgodnij teraz” (dostępnym teraz także dla źródeł GitLab) Flow ponownie listuje domyślną gałąź każdego projektu i merge requesty każdej grupy od daty początkowej. Commit lub merge request, którego nie ma już na liście, jest potwierdzany, zanim zostanie oznaczony jako usunięty - commit względem gałęzi, merge request względem projektu - więc chwilowy błąd listowania nigdy nie usuwa danych. Statystyki rozmiaru, których GitLab nie podał, są pobierane ponownie, a kilka merge requestów, których szczegółów nie udało się odczytać, jest odczytywanych jeszcze raz.
+- Projekt, o którym GitLab już nie odpowiada, jest oznaczany jako usunięty; przeniesiony lub zarchiwizowany zachowuje dane.
+- Szczegóły źródła danych pokazują dwie nowe liczby: merge requesty oznaczone jako usunięte i merge requesty, których szczegółów nie udało się odczytać.`,
+  },
+  {
+    version: "1.36.0",
+    date: "2026-10-31",
+    en: `**GitLab: merge requests and review activity are read.**
+
+- A sync now reads the merge requests of the configured groups (state, times, branches, title, head, merge and squash commits, reviewers and assignees) and, for each one, its notes and system events as action codes (approved, changes requested, review requested, merged, …), its approvals and reviewer states, and its size (lines added and deleted, files changed) from one batched GraphQL query. Note bodies and descriptions are never stored.
+- Later syncs read only the merge requests updated since the last run; a merge request's details are refreshed when it changes, newest first, under a per-run budget.
+- The data source details show the merge-request counts: total, merged, review events, those still awaiting details and those without size statistics.`,
+    pl: `**GitLab: odczyt merge requestów i aktywności review.**
+
+- Synchronizacja odczytuje teraz merge requesty skonfigurowanych grup (stan, czasy, gałęzie, tytuł, commity head, merge i squash, recenzentów i przypisanych), a dla każdego z nich notatki i zdarzenia systemowe jako kody akcji (zatwierdzono, poproszono o zmiany, poproszono o review, scalono, …), zatwierdzenia i stany recenzentów oraz rozmiar (dodane i usunięte linie, zmienione pliki) z jednego zbiorczego zapytania GraphQL. Treści notatek i opisy nigdy nie są zapisywane.
+- Kolejne synchronizacje odczytują tylko merge requesty zmienione od ostatniego przebiegu; szczegóły merge requesta są odświeżane, gdy się zmieni, od najnowszych, w ramach budżetu na przebieg.
+- Szczegóły źródła danych pokazują liczby merge requestów: łącznie, scalone, zdarzenia review, czekające jeszcze na szczegóły i bez statystyk rozmiaru.`,
+  },
+  {
+    version: "1.35.0",
+    date: "2026-10-31",
+    en: `**GitLab: commits are read, with per-file line counts.**
+
+- A sync now reads each project's default-branch commits (within the backfill window), then the files each commit changed with their added and deleted lines; merge commits are flagged and left out of the counts. Later syncs read only what is new, and a force-pushed branch is listed again so the commits that vanished are marked.
+- A GitLab data source has an "Excluded paths" list (glob patterns, prefilled with lock files, minified bundles, vendored and generated directories) that the upcoming code-activity reports will leave out of the line counts.
+- The data source details show the commit counts and how many commits still wait for their file details.`,
+    pl: `**GitLab: odczyt commitów z liczbą linii na plik.**
+
+- Synchronizacja odczytuje teraz commity domyślnej gałęzi każdego projektu (w oknie historii), a potem pliki zmienione w każdym commicie z liczbą dodanych i usuniętych linii; commity scalające są oznaczane i pomijane w zliczeniach. Kolejne synchronizacje odczytują tylko nowe commity, a gałąź po force-pushu jest odczytywana ponownie, by oznaczyć commity, które zniknęły.
+- Źródło danych GitLab ma listę „Wykluczone ścieżki” (wzorce glob, wstępnie wypełnioną plikami lock, zminifikowanymi paczkami oraz katalogami vendor i generowanymi), których nadchodzące raporty aktywności w kodzie nie uwzględnią w liczbie linii.
+- Szczegóły źródła danych pokazują liczbę commitów i to, ile commitów czeka jeszcze na szczegóły plików.`,
+  },
+  {
+    version: "1.34.0",
+    date: "2026-10-31",
+    en: `**Data sources: a GitLab instance can be connected.**
+
+- A data source now has a kind: Jira Cloud, or a self-managed GitLab instance (its address, a read-only access token and the groups to read; subgroups are included, archived projects are not).
+- Test connection checks the instance version, the token's owner and scopes (a token that could write is refused) and each group; a sync stores the groups' projects and the instance's users. Commits and merge requests follow in a later version.
+- The data source list and details show each source's kind; the Jira-only pages (data profile, raw issue inspector, metrics configuration) stay with Jira sources.`,
+    pl: `**Źródła danych: można podłączyć instancję GitLab.**
+
+- Źródło danych ma teraz rodzaj: Jira Cloud albo własna instancja GitLab (jej adres, token dostępu tylko do odczytu i grupy do odczytania; podgrupy są uwzględniane, zarchiwizowane projekty nie).
+- Test połączenia sprawdza wersję instancji, właściciela/właścicielkę tokenu i jego zakresy (token, który mógłby zapisywać, jest odrzucany) oraz każdą grupę; synchronizacja zapisuje projekty grup i użytkowników/użytkowniczki instancji. Commity i merge requesty pojawią się w kolejnej wersji.
+- Lista i szczegóły źródeł danych pokazują rodzaj każdego źródła; strony tylko dla Jiry (profil danych, inspektor surowych zgłoszeń, konfiguracja metryk) pozostają przy źródłach Jira.`,
+  },
+  {
     version: "1.33.0",
     date: "2026-10-30",
     en: `**Epic progress: an epic that changed domain is split between its domains.**

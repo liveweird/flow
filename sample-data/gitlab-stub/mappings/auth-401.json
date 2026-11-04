@@ -1,0 +1,36 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "ANY",
+    "urlPathPattern": "/api/.*",
+    "headers": {
+      "PRIVATE-TOKEN": {
+        "or": [
+          {
+            "absent": true
+          },
+          {
+            "doesNotMatch": ".+"
+          }
+        ]
+      },
+      "Authorization": {
+        "or": [
+          {
+            "absent": true
+          },
+          {
+            "doesNotMatch": "^Bearer .+$"
+          }
+        ]
+      }
+    }
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "bodyFileName": "auth-401.json"
+  }
+}

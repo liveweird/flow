@@ -55,12 +55,12 @@ class ReportPersonTrendTest {
                 assertEquals("2026-01-01", trend.meta.from, "meta is the requested range, not the first window")
                 assertEquals("2026-01-29", trend.meta.to)
                 assertEquals("USER", trend.meta.level.name)
-                assertEquals(TREND_ROW_KEYS, trend.rows.map { it.key }, "the fourteen rows in display order")
+                assertEquals(TREND_ROW_KEYS, trend.rows.map { it.key }, "the rows in display order")
                 assertTrue(trend.rows.all { row -> row.points.size == 3 && row.points.map { it.end } == trend.windows.map { it.end } })
 
                 val count = admin.assertPersonTrendIsComparePeople(trend, w.alice, w.bob, base)
                 assertEquals(3, count.windows)
-                assertEquals(3 * 14, count.cells)
+                assertEquals(3 * TREND_ROW_KEYS.size, count.cells)
                 assertTrue(count.mixPoints > 0, "the work mix was compared")
 
                 // Nothing is derived for the hand-built connection: every window is NONE, so no row has a cue.

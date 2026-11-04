@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ParseKeys } from "i18next";
 import { useTranslation } from "react-i18next";
 import { Link as RouterLink, useParams } from "react-router-dom";
@@ -13,6 +13,7 @@ import {
   IconRefresh,
   IconReportAnalytics,
   IconRotateClockwise,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 import { ApiError } from "../api/http";
 import { useAdmin } from "../auth";
@@ -21,6 +22,7 @@ import {
   getDataSourceStatus,
   listSyncJobs,
   requestSyncJob,
+  type DataSourceResponse,
   type SyncCounts,
   type SyncJobKind,
   type SyncJobResponse,
@@ -36,7 +38,7 @@ import JobScheduledNote from "../components/JobScheduledNote";
 import JobStateBadge from "../components/JobStateBadge";
 import PageHeader from "../components/PageHeader";
 import SyncJobsTable from "../components/SyncJobsTable";
-import { dataSourceInspectPath, dataSourceMetricsConfigPath, dataSourceProfilePath, dataSourcesPath } from "../utils/dataSourceLinks";
+import { dataSourceIdentitiesPath, dataSourceInspectPath, dataSourceMetricsConfigPath, dataSourceProfilePath, dataSourcesPath } from "../utils/dataSourceLinks";
 import { dataSourceStateColor, formatEpochMillis } from "../utils/dataSourceState";
 import { CONTENT_MAX_WIDTH } from "../utils/layout";
 import { loadErrorMessage, saveErrorMessage } from "../utils/saveError";
@@ -107,49 +109,95 @@ function CurrentJobSection({ job }: { job: SyncJobResponse }) {
   );
 }
 
-/** The raw-store counts table — split out to keep the page under the line cap. */
-function CountsSection({ counts }: { counts: SyncCounts }) {
+/** One label/value row of a details table. */
+function DetailRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Table.Tr>
+      <Table.Th>{label}</Table.Th>
+      <Table.Td>{children}</Table.Td>
+    </Table.Tr>
+  );
+}
+
+/** A GitLab connection's raw-store counts (`counts.gitlab`; null when this process has no GitLab store, which shows dashes). */
+function GitLabCountRows({ counts }: { counts: SyncCounts }) {
   const { t } = useTranslation();
-  const entitiesText =
-    Object.entries(counts.entitiesByKind).length > 0
-      ? Object.entries(counts.entitiesByKind)
-          .map(([kind, count]) => `${kind}: ${count}`)
-          .join(", ")
-      : "—";
+  const gitlab = counts.gitlab;
+  return (
+    <>
+      <DetailRow label={t("dataSources.details.count.projects")}>{gitlab?.projects ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.projectsMovedOut")}>{gitlab?.projectsMovedOut ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.projectsDeleted")}>{gitlab?.projectsDeleted ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.users")}>{gitlab?.users ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.usersDeleted")}>{gitlab?.usersDeleted ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.commits")}>{gitlab?.commits ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.commitsMerge")}>{gitlab?.commitsMerge ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.commitsDeleted")}>{gitlab?.commitsDeleted ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.commitFilesPending")}>{gitlab?.commitFilesPending ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.mergeRequests")}>{gitlab?.mergeRequests ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.mergeRequestsMerged")}>{gitlab?.mergeRequestsMerged ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.mrEvents")}>{gitlab?.mrEvents ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.mrDetailsPending")}>{gitlab?.mrDetailsPending ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.mrDiffStatsMissing")}>{gitlab?.mrDiffStatsMissing ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.mergeRequestsDeleted")}>{gitlab?.mergeRequestsDeleted ?? "—"}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.mrDetailsUnread")}>{gitlab?.mrDetailsUnread ?? "—"}</DetailRow>
+    </>
+  );
+}
+
+/** The connection table's kind rows: Jira's site, service account and project keys, or GitLab's instance and group paths. */
+function ConnectionKindRows({ connection }: { connection: DataSourceResponse }) {
+  const { t } = useTranslation();
+  const { jira, gitlab } = connection;
+  return (
+    <>
+      <DetailRow label={t("dataSources.column.kind")}>{t(`dataSources.kind.${connection.kind}`)}</DetailRow>
+      {jira && (
+        <>
+          <DetailRow label={t("dataSources.field.siteUrl")}>{jira.siteUrl}</DetailRow>
+          <DetailRow label={t("dataSources.field.email")}>{jira.email}</DetailRow>
+          <DetailRow label={t("dataSources.column.scope")}>{jira.projectKeys.join(", ")}</DetailRow>
+        </>
+      )}
+      {gitlab && (
+        <>
+          <DetailRow label={t("dataSources.field.baseUrl")}>{gitlab.baseUrl}</DetailRow>
+          <DetailRow label={t("dataSources.column.scope")}>{gitlab.groupPaths.join(", ")}</DetailRow>
+          <DetailRow label={t("dataSources.field.pathExclusions")}>
+            {gitlab.pathExclusions.length > 0 ? gitlab.pathExclusions.join(", ") : t("dataSources.details.pathExclusionsNone")}
+          </DetailRow>
+        </>
+      )}
+    </>
+  );
+}
+
+/** A Jira connection's raw-store counts. */
+function JiraCountRows({ counts }: { counts: SyncCounts }) {
+  const { t } = useTranslation();
+  const entities = Object.entries(counts.entitiesByKind);
+  const entitiesText = entities.length > 0 ? entities.map(([entity, count]) => `${entity}: ${count}`).join(", ") : "—";
+  return (
+    <>
+      <DetailRow label={t("dataSources.details.count.rawIssues")}>{counts.rawIssues}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.tombstonedDeleted")}>{counts.tombstonedDeleted}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.tombstonedMovedOut")}>{counts.tombstonedMovedOut}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.changelogs")}>{counts.changelogs}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.worklogs")}>{counts.worklogs}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.entitiesByKind")}>{entitiesText}</DetailRow>
+      <DetailRow label={t("dataSources.details.count.needsProcessing")}>{counts.needsProcessing}</DetailRow>
+    </>
+  );
+}
+
+/** The raw-store counts table: the connection's kind picks the rows (GitLab's projects and users, or Jira's issue store). */
+function CountsSection({ counts, kind }: { counts: SyncCounts; kind: DataSourceResponse["kind"] }) {
+  const { t } = useTranslation();
   return (
     <Stack gap="xs">
       <Title order={3} size="h4">{t("dataSources.details.counts")}</Title>
       <Table aria-label={t("dataSources.details.counts")}>
-        <Table.Tbody>
-          <Table.Tr>
-            <Table.Th>{t("dataSources.details.count.rawIssues")}</Table.Th>
-            <Table.Td>{counts.rawIssues}</Table.Td>
-          </Table.Tr>
-          <Table.Tr>
-            <Table.Th>{t("dataSources.details.count.tombstonedDeleted")}</Table.Th>
-            <Table.Td>{counts.tombstonedDeleted}</Table.Td>
-          </Table.Tr>
-          <Table.Tr>
-            <Table.Th>{t("dataSources.details.count.tombstonedMovedOut")}</Table.Th>
-            <Table.Td>{counts.tombstonedMovedOut}</Table.Td>
-          </Table.Tr>
-          <Table.Tr>
-            <Table.Th>{t("dataSources.details.count.changelogs")}</Table.Th>
-            <Table.Td>{counts.changelogs}</Table.Td>
-          </Table.Tr>
-          <Table.Tr>
-            <Table.Th>{t("dataSources.details.count.worklogs")}</Table.Th>
-            <Table.Td>{counts.worklogs}</Table.Td>
-          </Table.Tr>
-          <Table.Tr>
-            <Table.Th>{t("dataSources.details.count.entitiesByKind")}</Table.Th>
-            <Table.Td>{entitiesText}</Table.Td>
-          </Table.Tr>
-          <Table.Tr>
-            <Table.Th>{t("dataSources.details.count.needsProcessing")}</Table.Th>
-            <Table.Td>{counts.needsProcessing}</Table.Td>
-          </Table.Tr>
-        </Table.Tbody>
+        <Table.Tbody>{kind === "GITLAB" ? <GitLabCountRows counts={counts} /> : <JiraCountRows counts={counts} />}</Table.Tbody>
       </Table>
     </Stack>
   );
@@ -272,6 +320,7 @@ export default function DataSourceDetails() {
   const data = status.data;
   const connection = data.connection;
   const currentJob = data.currentJob;
+  const jiraKind = connection.kind === "JIRA_CLOUD";
 
   return (
     <Stack gap="md">
@@ -298,6 +347,7 @@ export default function DataSourceDetails() {
             >
               {t("dataSources.details.reconcileNow")}
             </Button>
+            {/* REPROCESS rebuilds every normalized row of either kind; a GitLab reprocess also applies a changed exclusion list at once. */}
             <Button
               variant="default"
               leftSection={<IconRecycle size={16} />}
@@ -322,7 +372,8 @@ export default function DataSourceDetails() {
             )}
           </>
         }
-        toolbar={
+        // The data profile is offered for both kinds. The raw-issue inspector and metrics configuration read Jira's issue store: 409 for GitLab.
+        toolbar={(
           <Group gap="sm">
             <Button
               component={RouterLink}
@@ -333,26 +384,42 @@ export default function DataSourceDetails() {
             >
               {t("dataSources.profile.title")}
             </Button>
-            <Button
-              component={RouterLink}
-              to={dataSourceInspectPath(id)}
-              variant="subtle"
-              size="xs"
-              leftSection={<IconFileSearch size={14} />}
-            >
-              {t("dataSources.inspect.title")}
-            </Button>
-            <Button
-              component={RouterLink}
-              to={dataSourceMetricsConfigPath(id)}
-              variant="subtle"
-              size="xs"
-              leftSection={<IconAdjustments size={14} />}
-            >
-              {t("metrics.config.title")}
-            </Button>
+            {/* The identity links are the code layer's: 409 for a Jira source. */}
+            {connection.kind === "GITLAB" && (
+              <Button
+                component={RouterLink}
+                to={dataSourceIdentitiesPath(id)}
+                variant="subtle"
+                size="xs"
+                leftSection={<IconUsersGroup size={14} />}
+              >
+                {t("codeIdentities.title")}
+              </Button>
+            )}
+            {jiraKind && (
+              <>
+                <Button
+                  component={RouterLink}
+                  to={dataSourceInspectPath(id)}
+                  variant="subtle"
+                  size="xs"
+                  leftSection={<IconFileSearch size={14} />}
+                >
+                  {t("dataSources.inspect.title")}
+                </Button>
+                <Button
+                  component={RouterLink}
+                  to={dataSourceMetricsConfigPath(id)}
+                  variant="subtle"
+                  size="xs"
+                  leftSection={<IconAdjustments size={14} />}
+                >
+                  {t("metrics.config.title")}
+                </Button>
+              </>
+            )}
           </Group>
-        }
+        )}
       />
 
       {actionError && (
@@ -379,18 +446,7 @@ export default function DataSourceDetails() {
                     </Group>
                   </Table.Td>
                 </Table.Tr>
-                <Table.Tr>
-                  <Table.Th>{t("dataSources.field.siteUrl")}</Table.Th>
-                  <Table.Td>{connection.jira.siteUrl}</Table.Td>
-                </Table.Tr>
-                <Table.Tr>
-                  <Table.Th>{t("dataSources.field.email")}</Table.Th>
-                  <Table.Td>{connection.jira.email}</Table.Td>
-                </Table.Tr>
-                <Table.Tr>
-                  <Table.Th>{t("dataSources.column.projects")}</Table.Th>
-                  <Table.Td>{connection.jira.projectKeys.join(", ")}</Table.Td>
-                </Table.Tr>
+                <ConnectionKindRows connection={connection} />
                 <Table.Tr>
                   <Table.Th>{t("dataSources.column.enabled")}</Table.Th>
                   <Table.Td>{connection.enabled ? t("dataSources.yes") : t("dataSources.no")}</Table.Td>
@@ -434,7 +490,7 @@ export default function DataSourceDetails() {
             <CursorTable cursors={data.cursors} />
           </Stack>
 
-          <CountsSection counts={data.counts} />
+          <CountsSection counts={data.counts} kind={connection.kind} />
 
           <Stack gap="xs">
             <Title order={3} size="h4">{t("dataSources.details.jobsTitle")}</Title>

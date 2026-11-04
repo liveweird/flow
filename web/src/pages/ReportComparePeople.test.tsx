@@ -241,7 +241,7 @@ describe("ReportComparePeople page", () => {
           .getAllByRole("rowheader")
           .filter((header) => header.getAttribute("scope") === "rowgroup")
           .map((header) => header.textContent),
-      ).toEqual(["Delivery", "Cycle time", "Estimation", "Work in progress", "Logged time", "Data quality"]);
+      ).toEqual(["Delivery", "Cycle time", "Estimation", "Work in progress", "Logged time", "Data quality", "Code (GitLab)"]);
       // The Difference column is the absolute gap (no sign); the better figure's cell carries the words after its sample.
       expect(cellsOf("Delivered (MD)")).toEqual(["31.5n = 14 (better by 7.5 MD)", "24n = 10", "7.5"]);
       expect(cellsOf("Delivered (items)")).toEqual(["14n = 14 (better by 4 items)", "10n = 10", "4"]);

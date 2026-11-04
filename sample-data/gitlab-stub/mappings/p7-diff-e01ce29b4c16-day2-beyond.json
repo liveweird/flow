@@ -1,0 +1,39 @@
+{
+  "priority": 8,
+  "request": {
+    "method": "GET",
+    "urlPath": "/api/v4/projects/7/repository/commits/e01ce29b4c16d7c4be530fcddd7ff28f95573876/diff",
+    "queryParameters": {
+      "per_page": {
+        "equalTo": "100"
+      },
+      "page": {
+        "matches": "\\d+"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json",
+      "RateLimit-Limit": "2000",
+      "RateLimit-Observed": "10",
+      "RateLimit-Remaining": "1990",
+      "RateLimit-Reset": "1788220860",
+      "RateLimit-ResetTime": "Tue, 01 Sep 2026 00:01:00 GMT",
+      "X-Next-Page": "",
+      "X-Page": "{{request.query.page}}",
+      "X-Per-Page": "100",
+      "X-Prev-Page": "",
+      "X-Total": "2",
+      "X-Total-Pages": "1",
+      "Link": "<{{request.baseUrl}}/api/v4/projects/7/repository/commits/e01ce29b4c16d7c4be530fcddd7ff28f95573876/diff?id=7&page=1&per_page=100&sha=e01ce29b4c16d7c4be530fcddd7ff28f95573876>; rel=\"first\", <{{request.baseUrl}}/api/v4/projects/7/repository/commits/e01ce29b4c16d7c4be530fcddd7ff28f95573876/diff?id=7&page=1&per_page=100&sha=e01ce29b4c16d7c4be530fcddd7ff28f95573876>; rel=\"last\""
+    },
+    "bodyFileName": "empty-page.json",
+    "transformers": [
+      "response-template"
+    ]
+  },
+  "scenarioName": "gitlab-day2",
+  "requiredScenarioState": "day2"
+}

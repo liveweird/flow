@@ -95,7 +95,7 @@ class EncryptedAtRestBootTest {
                 val event = capture.events.singleOrNull { it.message == "crypto.reencrypted" }
                 assertNotNull(event, "the rotation backfill must leave an audit event")
                 assertTrue(event.hasKeyValue("rotating", true))
-                assertTrue(event.hasKeyValue("label", "Jira API token"))
+                assertTrue(event.hasKeyValue("label", "data source token"))
                 val rows = event.keyValuePairs.single { it.key == "rows" }.value as Int
                 assertTrue(rows >= 1, "at least the seeded row was re-encrypted: $rows")
                 assertTrue(

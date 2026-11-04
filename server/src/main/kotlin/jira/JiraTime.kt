@@ -1,10 +1,8 @@
 package ch.nokillswit.jira
 
 import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
+import ch.nokillswit.infra.time.parseIsoOffsetInstant
 import java.time.Instant
-import java.time.OffsetDateTime
-import java.time.format.DateTimeFormatter
-import java.time.format.DateTimeFormatterBuilder
 
 /**
  * The ONE shared timestamp parser for every Jira-sourced instant string in this codebase (v0.3.0
@@ -16,22 +14,11 @@ import java.time.format.DateTimeFormatterBuilder
  * tenant: `Instant.parse("2024-01-15T10:20:30.123+0000")` throws
  * `DateTimeParseException: ... could not be parsed at index 23`. The Agile API (a sprint's
  * `startDate`/`endDate`/`completeDate`) returns the ordinary colon-offset/`Z` ISO-8601 shape
- * instead — [JIRA_INSTANT_FORMATTER] accepts BOTH, so every stream/normalizer call site can read
+ * instead — [ISO_OFFSET_INSTANT] accepts BOTH, so every stream/normalizer call site can read
  * either API's timestamps through the same function. See `.claude/docs/jira-integration.md`
- * "Timestamps" — never call `Instant.parse` directly on Jira-sourced text again.
+ * "Timestamps" — never call `Instant.parse` directly on Jira-sourced text again. The formatter itself was lifted to
+ * `infra/time/IsoOffsetInstant.kt` for the GitLab connector; this function adds Jira's epoch-millis form on top.
  *
- * `DateTimeFormatter.ISO_LOCAL_DATE_TIME` parses the `yyyy-MM-dd'T'HH:mm:ss[.SSS...]` local part
- * (fractional seconds are already optional/variable-width there); the bracketed `[XXX][XX][X]`
- * offset patterns are tried in order — `XXX` (`+01:00`/`Z`), then `XX` (`+0100`/`Z`), then `X`
- * (`+01`/`Z`) — so a colon offset, a colonless offset and a bare `Z` all resolve to the same
- * [OffsetDateTime].
- */
-private val JIRA_INSTANT_FORMATTER: DateTimeFormatter = DateTimeFormatterBuilder()
-    .append(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
-    .appendPattern("[XXX][XX][X]")
-    .toFormatter()
-
-/**
  * Parses a Jira-sourced timestamp string, accepting both the REST API v3 form (`+0000`, no colon)
  * and the Agile API/ordinary ISO-8601 form (`Z`, `+02:00`, `-0500`), plus bulkfetch's epoch millis
  * ([EPOCH_MILLIS]). A malformed value throws
@@ -44,7 +31,7 @@ fun parseJiraInstant(text: String): Instant =
     if (EPOCH_MILLIS.matches(text)) {
         Instant.ofEpochMilli(text.toLong())
     } else {
-        OffsetDateTime.parse(text, JIRA_INSTANT_FORMATTER).toInstant()
+        parseIsoOffsetInstant(text)
     }
 
 /**
@@ -57,15 +44,6 @@ private val EPOCH_MILLIS = Regex("^[0-9]{12,18}$")
 
 /** Convenience for the overwhelmingly common `parseJiraInstant(text).toEpochMilli()` call shape. */
 fun parseJiraInstantEpochMillis(text: String): Long = parseJiraInstant(text).toEpochMilli()
-
-/**
- * A connection's `backfillFrom` (`yyyy-MM-dd`, `source_connections.backfill_from`) as epoch millis —
- * UTC midnight of that day. The ONE conversion shared by the ISSUES stream's first-run window and
- * the RECONCILE stream's sweep window (`JiraConnector.runSync`/`runReconcile`), so both name the
- * same instant.
- */
-fun backfillFromEpochMillis(backfillFrom: String): Long =
-    java.time.LocalDate.parse(backfillFrom).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
 
 /**
  * Minutes between two epoch-millis instants, rounded UP (never under-covers a partial minute) and

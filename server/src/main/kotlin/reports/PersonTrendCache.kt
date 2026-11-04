@@ -8,12 +8,14 @@ import java.util.concurrent.atomic.AtomicReference
 import org.slf4j.LoggerFactory
 
 /*
- * Person trend's peer-cell cache (WHY 49, `.claude/docs/reports.md` "Report 20", Cost): a teammate's per-window cells -- the 14
- * [TREND_ROWS] cells and whether they were active -- kept for the next request, so the second person of a team fetches ONE person's rows
- * instead of the whole team's. Per process and per `Application` (the web tier runs one replica), no caller-shaped data (D12).
+ * Person trend's peer-cell cache (WHY 49, `.claude/docs/reports.md` "Report 20", Cost): a teammate's per-window cells -- the
+ * [TREND_ROWS] cells (17 since the CODE rows) and whether they were active -- kept for the next request, so the second person of a team
+ * fetches ONE person's rows instead of the whole team's. Per process and per `Application` (the web tier runs one replica), no
+ * caller-shaped data (D12).
  *
- * GENERATION = the report data stamp (`dataStamp`, the ETag's own lines), read ONCE in the route BEFORE the report transaction. An entry is
- * therefore never OLDER than its generation promises; a write finishing in between only makes it newer than its key, and the next request
+ * GENERATION = the report data stamp (`dataStamp` PLUS Report 21's `codeStamp`, the ETag's own lines), read ONCE in the route BEFORE the
+ * report transaction. An entry is therefore never OLDER than its generation promises; a write finishing in between only makes it newer
+ * than its key, and the next request
  * (a new stamp) misses. Each stamp read takes a TICKET (a monotonic counter) just BEFORE the read. A request whose stamp differs swaps a
  * fresh generation in (compare-and-set from the one it observed) only if the observed generation's ticket is older than its own; a
  * straggler that took its ticket earlier than the generation in place works on a private generation instead. Best effort: two stamp
@@ -29,9 +31,14 @@ import org.slf4j.LoggerFactory
  *   minSampleSize, zone, weekend, hours, holidays, membership   `settings:` (every write bumps the revision);
  *   the backfill start       the `connection:` line (`backfill_from`; its PUT bumps only the connection's own revision);
  *   the DERIVE clock / coverage day                   `run:`; "today"                         `clock:` (the DAY token);
+ *   the CODE rows' inputs (A50: `norm.code_*`, the GitLab sources, the admin's identity links -- read LIVE, no DERIVE writes them)
+ *                            the `code:` / `code-ingest:` / `links:` lines (`codeStamp`), which the route appends to the stamp, so
+ *                            the generation IS the stamp the ETag carries and a link decision or a GitLab SYNC page is a new generation;
  *   team membership          no cell: the peers are re-read live per request; `tailPercent` never reaches a cell;
  *   the caller               nothing (D12; no capacity in Person trend).
- * An input added to the stamp later invalidates the cache for free (`ReportValidatorInputsTest` pins the stamp).
+ * An input added to the stamp later invalidates the cache for free (`ReportValidatorInputsTest` pins the stamp). The entry stays
+ * fixed-size: `TREND_ROWS.size` values, counts and two masks (422 B retained in-test with 17 rows, 382 B with 14: `PersonTrendCacheTest`'s
+ * `in-test peer-cell-bytes`).
  *
  * BOUND: [maxEntries] entries per generation, every entry fixed-size, so the entry cap IS the byte cap (`0` = off). A full generation
  * REFUSES writes (the auth stores' rule, never evict live state): the request already did the work and answers correctly. A peer is
@@ -69,6 +76,8 @@ internal class PeerCellEntry private constructor(
     private val present: Int,
     private val hiddenMask: Int,
     val active: Boolean,
+    /** Whether the account had a LINKED GitLab identity: the only peers whose `CODE` rows count (an unlinked person's 0 is no fact). */
+    val linked: Boolean,
 ) {
     /** The cell of the [row]-th [TREND_ROWS] row. */
     fun cell(row: Int): CompareCell =
@@ -80,7 +89,7 @@ internal class PeerCellEntry private constructor(
         }
 
         /** The entry of [cells] ([cellsOf] of one account over one window) and its [active] flag. */
-        fun of(cells: Map<String, CompareCell>, active: Boolean): PeerCellEntry {
+        fun of(cells: Map<String, CompareCell>, active: Boolean, linked: Boolean): PeerCellEntry {
             val values = DoubleArray(TREND_ROWS.size)
             val counts = IntArray(TREND_ROWS.size)
             var present = 0
@@ -94,7 +103,7 @@ internal class PeerCellEntry private constructor(
                 counts[row] = cell.n
                 if (cell.hidden) hidden = hidden or (1 shl row)
             }
-            return PeerCellEntry(values, counts, present, hidden, active)
+            return PeerCellEntry(values, counts, present, hidden, active, linked)
         }
     }
 }

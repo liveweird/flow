@@ -184,7 +184,7 @@ dependencies {
     implementation(ktorLibs.server.callLogging)
     // The Jira Cloud HTTP client (v0.2.0 plan §6): Ktor's client core plus the OkHttp engine, so
     // `infra/outbound/OutboundGuard.kt`'s guarded `okhttp3.OkHttpClient` (Dns pinning, no
-    // redirects/proxy/connection-failure-retry) preconfigures the transport `jira/JiraHttp.kt` runs on.
+    // redirects/proxy/connection-failure-retry) preconfigures the transport `fetch/SourceHttp.kt` runs on.
     implementation(ktorLibs.client.core)
     implementation(ktorLibs.client.okhttp)
     implementation(ktorLibs.server.compression)
@@ -240,7 +240,7 @@ dependencies {
     // Test-only: the test HTTP clients (TestEnvironment.kt's jsonClient()/authedClient()) negotiate
     // application/json and application/problem+json bodies.
     testImplementation(ktorLibs.client.contentNegotiation)
-    // Test-only: JiraClientTest exercises HttpJiraClient/JiraHttp against a scripted Ktor
+    // Test-only: JiraClientTest exercises HttpJiraClient/SourceHttp against a scripted Ktor
     // MockEngine instead of a real socket — no network, no WireMock needed for that suite.
     testImplementation(ktorLibs.client.mock)
     // Test-only: JiraStubServer runs the real sample-data/jira-stub WireMock mappings in-JVM
@@ -532,6 +532,9 @@ tasks.test {
         }
     }
     maxParallelForks = forks
+    // The test fork HEAP stays at Gradle's default (512 MiB): a fork's post-GC floor is flat at ~130-290 MiB over a full run since the
+    // OpenAPI validator's schema cache was capped (`OpenApiConformance.kt` SCHEMA_CACHE_ENTRIES; build-times.md WHY 62). Do not raise
+    // it to hide growth - a floor that climbs again means something else is retaining data; measure it with `-Xlog:gc` first.
     // Candidates are selected by FILE NAME, not by scanning class files for @Test (Gradle's documented pairing: with
     // scanning off, `include` patterns decide). A later change relies on the exact candidate set; the naming rule
     // behind it is pinned by `TestClassNamingTest`.

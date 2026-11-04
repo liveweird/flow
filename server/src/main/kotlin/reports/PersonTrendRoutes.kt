@@ -31,9 +31,11 @@ internal fun Route.personTrendRoutes(reportService: ReportService) {
         call.caller()
         val scope = reportService.stampScope(StampClock.DAY)
         val filter = call.request.queryParameters.parsePersonTrend(scope.calendar, scope.nowMs, scope.historyHorizon)
-        // The stamp is read ONCE, before the report transaction: it is both the ETag's and the peer-cell cache's generation.
+        // The stamp is read ONCE, before the report transaction: it is both the ETag's and the peer-cell cache's generation. It carries
+        // the GitLab lines too (the CODE rows read `norm.code_*` and the identity links live): a link decision or a GitLab sync moves the
+        // tag AND swaps the generation, so no cached peer cell outlives the data it was computed from.
         val ticket = reportService.peerCells.nextTicket()
-        val stamp = reportService.dataStamp(scope.settings, scope.calendar, scope.clock, scope.nowMs)
+        val stamp = reportService.dataStamp(scope.settings, scope.calendar, scope.clock, scope.nowMs) + reportService.codeStamp()
         val tag = reportEtag(reportService.codeIdentity, call.request.path(), call.request.queryParameters, stamp)
         call.respondRevalidated(tag) { reportService.personTrend(filter, scope.nowMs, stamp, ticket) }
     }
@@ -53,7 +55,9 @@ internal fun Route.personTrendRoutes(reportService: ReportService) {
             throw BadRequestException("bucketIndex does not apply to a trend point: the list is the person's whole set in the window")
         }
         val pointFilter = filter.atPoint(params.optionalString("pointEnd"), scope.calendar)
-        call.respondRevalidated(reportService.etagFor(call, scope)) {
+        // Only a code view reads the GitLab rows and links: a Jira view's tag must not move on a link write.
+        val extra = if (view.codeView() != null) reportService.codeStamp() else emptyList()
+        call.respondRevalidated(reportService.etagFor(call, scope, extraStamp = extra)) {
             reportService.comparePeopleItems(pointFilter, view, null, filter.accountIds.single(), scope.nowMs)
         }
     }

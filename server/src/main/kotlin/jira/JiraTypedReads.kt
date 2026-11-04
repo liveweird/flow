@@ -1,5 +1,6 @@
 package ch.nokillswit.jira
 
+import ch.nokillswit.fetch.FetchException
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -13,7 +14,7 @@ import java.time.format.DateTimeParseException
  * quotes its input). Ported from the WORKLOGS reads of #369 and shared by every stream that reads an id or a date off a page.
  */
 internal fun invalidField(endpoint: String, what: String, field: String) =
-    JiraFetchException("INVALID_RESPONSE", null, endpoint, "$what without a usable $field")
+    FetchException(JIRA_SOURCE, "INVALID_RESPONSE", null, endpoint, "$what without a usable $field")
 
 /** [key] as a number (a JSON number or numeric string), else `INVALID_RESPONSE`. [what] names the object ("a worklog"). */
 internal fun JsonObject.requireLong(key: String, endpoint: String, what: String): Long =

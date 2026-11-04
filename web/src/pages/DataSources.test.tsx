@@ -78,6 +78,15 @@ const ROW_RECONCILE_PAUSED = {
   },
 };
 
+const ROW_GITLAB = {
+  ...ROW_CURRENT,
+  id: 5,
+  kind: "GITLAB",
+  name: "Platform GitLab",
+  jira: null,
+  gitlab: { baseUrl: "http://gitlab-stub:8080", hasToken: true, groupPaths: ["platform", "apps/web"] },
+};
+
 const PAGE = { items: [ROW_CURRENT, ROW_FAILED], page: 1, pageSize: 20, total: 2 };
 
 function serve(mockFetch: FetchMock, mutations: Record<string, { status: number; body?: unknown }> = {}) {
@@ -133,6 +142,24 @@ describe("DataSources page", () => {
     expect(screen.getByText("Current")).toBeInTheDocument();
     expect(screen.getByText("Failed")).toBeInTheDocument();
     expect(screen.getByText("Never")).toBeInTheDocument();
+  });
+
+  test("each row shows its kind badge, host and scope: Jira project keys, GitLab group paths", async () => {
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(jsonResponse(200, { ...PAGE, items: [ROW_CURRENT, ROW_GITLAB], total: 2 })),
+    );
+    renderWithProviders(<DataSources />, { route: "/data-sources" });
+
+    const gitlabRow = (await screen.findByRole("link", { name: "Open Platform GitLab" })).closest("tr")!;
+    expect(within(gitlabRow).getByText("GitLab")).toBeInTheDocument();
+    expect(within(gitlabRow).getByText("gitlab-stub:8080")).toBeInTheDocument();
+    expect(within(gitlabRow).getByText("platform, apps/web")).toBeInTheDocument();
+    const jiraRow = screen.getByRole("link", { name: "Open Acme Jira" }).closest("tr")!;
+    expect(within(jiraRow).getByText("Jira Cloud")).toBeInTheDocument();
+    expect(within(jiraRow).getByText("acme.atlassian.net")).toBeInTheDocument();
+    expect(within(jiraRow).getByText("ENG, OPS")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Kind" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Scope" })).toBeInTheDocument();
   });
 
   test("a paused data source carries an orange Paused badge beside its state; the others do not", async () => {

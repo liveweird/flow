@@ -44,4 +44,35 @@ data class SyncCounts(
     val worklogs: Long,
     val entitiesByKind: Map<String, Long>,
     val needsProcessing: Long,
+    /** A GITLAB connection's counts; null for a Jira one (and when GitLab is off in this process, with no store to count). */
+    val gitlab: GitLabSyncCounts? = null,
+)
+
+/**
+ * Raw-layer row counts of one GitLab connection (V41, V42): live projects, projects moved out of scope or deleted, live users and
+ * deleted users, and the commits - live ([commits], merges included), the live merges among them ([commitsMerge], `parent_count > 1`),
+ * the tombstoned ([commitsDeleted]) and the COMMIT FILES backlog ([commitFilesPending]: diff unread, not a merge, not tombstoned), and
+ * (V43) the live merge requests ([mergeRequests]), the merged ones among them ([mergeRequestsMerged]), the stored review events
+ * ([mrEvents]), the MR DETAILS backlog ([mrDetailsPending]) and the settled merge requests whose diff stats GraphQL did not answer
+ * ([mrDiffStatsMissing]), the merge requests a reconcile tombstoned ([mergeRequestsDeleted]) and the live ones whose details could not
+ * be read ([mrDetailsUnread]: a `details_error` stamp). Counts only: never a title, a branch or a username.
+ */
+@Serializable
+data class GitLabSyncCounts(
+    val projects: Long,
+    val projectsMovedOut: Long,
+    val projectsDeleted: Long,
+    val users: Long,
+    val usersDeleted: Long,
+    val commits: Long,
+    val commitsMerge: Long,
+    val commitsDeleted: Long,
+    val commitFilesPending: Long,
+    val mergeRequests: Long,
+    val mergeRequestsMerged: Long,
+    val mrEvents: Long,
+    val mrDetailsPending: Long,
+    val mrDiffStatsMissing: Long,
+    val mergeRequestsDeleted: Long,
+    val mrDetailsUnread: Long,
 )

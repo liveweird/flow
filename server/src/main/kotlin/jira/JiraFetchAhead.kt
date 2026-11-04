@@ -21,7 +21,7 @@ import kotlinx.coroutines.coroutineScope
  * [budget] plus the results of the fetches that were already running when the budget was crossed (at most [window] of them).
  *
  * This is only the look-ahead. It is NOT a request limit: how many calls actually run at once is decided by the caller's
- * client (`JiraHttp`'s semaphore), and [window] is that same number, so the semaphore is never the second limit.
+ * client (`SourceHttp`'s semaphore), and [window] is that same number, so the semaphore is never the second limit.
  */
 internal suspend fun <T, R> fetchAheadInOrder(
     items: List<T>,

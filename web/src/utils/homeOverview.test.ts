@@ -4,7 +4,11 @@ import { HOME, HOME_NOT_DERIVED, previous } from "../test/homeFixtures";
 import {
   drillAnchorOf,
   drillDrawn,
+  hasCodeSection,
   HOME_VIEWS,
+  isCodeView,
+  isMergeRequestView,
+  isTaskCodeView,
   nothingDerived,
   overviewLink,
   sprintBucketItems,
@@ -108,6 +112,46 @@ describe("the drill", () => {
     expect(HOME_VIEWS.WIP_EPICS.count(alpha)).toBe(2);
     expect(HOME_VIEWS.QUALITY_TASKS_NO_ESTIMATE.count(alpha)).toBe(3);
     expect(HOME_VIEWS.TASK_COST.count(gamma)).toBe(2);
+  });
+
+  test("a code view's count is its figure's count: the merged n, the open n, the unreviewed numerator — zero where the team has no code figures", () => {
+    expect(HOME_VIEWS.CODE_MERGED.count(alpha)).toBe(9);
+    expect(HOME_VIEWS.CODE_OPEN.count(alpha)).toBe(3);
+    expect(HOME_VIEWS.CODE_MERGED_WITHOUT_REVIEW.count(alpha)).toBe(2);
+    expect(HOME_VIEWS.CODE_MERGED_WITHOUT_REVIEW.count(beta)).toBe(1);
+    expect(HOME_VIEWS.CODE_MERGED.count({ ...alpha, code: null })).toBe(0);
+    expect(isCodeView("CODE_OPEN")).toBe(true);
+    expect(isCodeView("TASK_COST")).toBe(false);
+  });
+
+  test("the tasks-without-a-merge-request view counts the figure's withoutMergeRequest, lists tasks rather than merge requests, and is stale without the figure", () => {
+    expect(HOME_VIEWS.CODE_TASKS_WITHOUT_MR.count(alpha)).toBe(10);
+    expect(HOME_VIEWS.CODE_TASKS_WITHOUT_MR.count(beta)).toBe(0);
+    expect(HOME_VIEWS.CODE_TASKS_WITHOUT_MR.count({ ...alpha, code: null })).toBe(0);
+    expect(HOME_VIEWS.CODE_TASKS_WITHOUT_MR.unit).toBe("none");
+    // A code view of the section, but its rows are tasks: the drawer links the Jira key and the merge requests beside it.
+    expect(isCodeView("CODE_TASKS_WITHOUT_MR")).toBe(true);
+    expect(isTaskCodeView("CODE_TASKS_WITHOUT_MR")).toBe(true);
+    expect(isMergeRequestView("CODE_TASKS_WITHOUT_MR")).toBe(false);
+    expect(isMergeRequestView("CODE_MERGED")).toBe(true);
+    expect(isTaskCodeView("CODE_MERGED")).toBe(false);
+    expect(drillAnchorOf({ kind: "home", view: "CODE_TASKS_WITHOUT_MR", teamId: 1 })).toBe("home-code");
+    const target = { kind: "home", view: "CODE_TASKS_WITHOUT_MR", teamId: 1 } as const;
+    expect(drillDrawn(target, HOME)).toBe(true);
+    // The server left the figure out (that read was over the row budget): the list is a stale link, the other code views are not.
+    const left = { ...HOME, teams: HOME.teams.map((team) => (team.teamId === 1 ? { ...team, code: { ...team.code!, tasks: null } } : team)) };
+    expect(drillDrawn(target, left)).toBe(false);
+    expect(drillDrawn({ kind: "home", view: "CODE_MERGED", teamId: 1 }, left)).toBe(true);
+  });
+
+  test("the Code section is drawn only while a GitLab source is active, and a code view of a team with no code figures is not drawn", () => {
+    expect(hasCodeSection(HOME)).toBe(true);
+    expect(hasCodeSection(HOME_NOT_DERIVED)).toBe(false);
+    expect(drillAnchorOf({ kind: "home", view: "CODE_OPEN", teamId: 1 })).toBe("home-code");
+    expect(drillDrawn({ kind: "home", view: "CODE_MERGED", teamId: 1 }, HOME)).toBe(true);
+    const overBudget = { ...HOME, code: { ...HOME.code, overBudget: true }, teams: HOME.teams.map((team) => ({ ...team, code: null })) };
+    expect(drillDrawn({ kind: "home", view: "CODE_MERGED", teamId: 1 }, overBudget)).toBe(false);
+    expect(drillDrawn({ kind: "home", view: "TASK_CYCLE", teamId: 1 }, overBudget)).toBe(true);
   });
 
   test("focus returns to the card of the section a bar belongs to", () => {

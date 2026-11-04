@@ -59,6 +59,13 @@ class MigrationChecksumTest {
         "V37__source_connection_pause.sql" to 1262797409,
         "V38__source_connection_reconcile_pause.sql" to -1348539040,
         "V39__history_horizon_months.sql" to -441676957,
+        "V40__source_connection_kind_gitlab.sql" to 58882136,
+        "V41__gitlab_raw_store.sql" to 1702253531,
+        "V42__gitlab_commits_raw_store.sql" to 565422636,
+        "V43__gitlab_merge_requests_raw_store.sql" to -1734985487,
+        "V44__norm_code_layer.sql" to 186702799,
+        "V45__code_identity_links.sql" to 217915256,
+        "V46__norm_code_mr_issue_keys.sql" to -1800751679,
     )
 
     @Test

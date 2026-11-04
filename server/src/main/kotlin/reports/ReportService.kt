@@ -3,6 +3,7 @@ package ch.nokillswit.reports
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.ingest.DataSourceService
+import ch.nokillswit.ingest.derivesMetrics
 import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.TeamMembershipService
@@ -54,6 +55,8 @@ class ReportService(
     internal val codeIdentity: String = REPORT_CODE_IDENTITY,
     /** Person trend's peer-cell cache (`PersonTrendCache.kt`): one per `Application`, sized by `reports.peerCellCache.maxEntries`. */
     internal val peerCells: PeerCellCache = PeerCellCache(),
+    /** What Report 21 (Code activity) reads beyond the Jira star; null where nothing serves it (the other reports never need it). */
+    internal val codeDeps: CodeActivityDeps? = null,
 ) {
     /**
      * The clock every report route reads `now` from — the figures' and the ETag stamp's alike. `var` only so a test can pin it
@@ -159,7 +162,7 @@ class ReportService(
         // `settings` is read for ONE key (`siteUrl`, the Jira origin a report links its issue keys to) and dropped at once.
         val connections = DataSourceService.Connections
             .select(DataSourceService.Connections.id, DataSourceService.Connections.name, DataSourceService.Connections.settings)
-            .where { DataSourceService.Connections.active() }
+            .where { DataSourceService.Connections.active() and DataSourceService.Connections.derivesMetrics() }
             .orderBy(DataSourceService.Connections.name)
             .toList()
             .map {

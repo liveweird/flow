@@ -38,6 +38,7 @@ const FeatureFlags = lazy(() => import("./pages/FeatureFlags"));
 const DataSources = lazy(() => import("./pages/DataSources"));
 const DataSourceDetails = lazy(() => import("./pages/DataSourceDetails"));
 const DataSourceProfile = lazy(() => import("./pages/DataSourceProfile"));
+const DataSourceIdentities = lazy(() => import("./pages/DataSourceIdentities"));
 const RawIssueInspector = lazy(() => import("./pages/RawIssueInspector"));
 const DataSourceMetricsConfig = lazy(() => import("./pages/DataSourceMetricsConfig"));
 const MetricsSettings = lazy(() => import("./pages/MetricsSettings"));
@@ -60,6 +61,8 @@ const ReportDataQuality = lazy(() => import("./pages/ReportDataQuality"));
 const ReportCosts = lazy(() => import("./pages/ReportCosts"));
 const ReportComparePeople = lazy(() => import("./pages/ReportComparePeople"));
 const ReportPersonTrend = lazy(() => import("./pages/ReportPersonTrend"));
+const ReportCodeActivity = lazy(() => import("./pages/ReportCodeActivity"));
+const ReportTaskCode = lazy(() => import("./pages/ReportTaskCode"));
 const ReportDeepDive = lazy(() => import("./pages/ReportDeepDive"));
 const CreateFlowUser = lazy(() => import("./pages/CreateFlowUser"));
 const EditFlowUser = lazy(() => import("./pages/EditFlowUser"));
@@ -295,6 +298,8 @@ export default function App() {
             <Route path="reports/cost-matrix/*" element={<LegacyCostMatrixRedirect />} />
             <Route path="reports/compare-people" element={<ReportComparePeople />} />
             <Route path="reports/person-trend" element={<ReportPersonTrend />} />
+            <Route path="reports/code-activity" element={<ReportCodeActivity />} />
+            <Route path="reports/task-code" element={<ReportTaskCode />} />
             <Route path="reports/deep-dive" element={<ReportDeepDive />} />
             {/* The management surface — ADMIN only, guarded once here (the pages no longer redirect themselves). */}
             <Route element={<RequireAdmin />}>
@@ -308,6 +313,7 @@ export default function App() {
               <Route path="data-sources" element={<DataSources />} />
               <Route path="data-sources/:id" element={<DataSourceDetails />} />
               <Route path="data-sources/:id/profile" element={<DataSourceProfile />} />
+              <Route path="data-sources/:id/identities" element={<DataSourceIdentities />} />
               <Route path="data-sources/:id/inspect" element={<RawIssueInspector />} />
               <Route path="data-sources/:id/metrics-config" element={<DataSourceMetricsConfig />} />
               <Route path="metrics-settings" element={<MetricsSettings />} />

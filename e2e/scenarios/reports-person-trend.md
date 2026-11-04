@@ -17,11 +17,11 @@
    - *Expected*: the heading "Person trend", the picker and "Pick a person to see how their figures changed."; the URL has been
      given a period (`from`/`to`, the last 365 days); nothing is requested.
 2. They open the deep link of the shared fixture's connection and the window naming the busiest stub person.
-   - *Expected*: the URL carries the `accountId` and no team; the Person select shows the person's name; fourteen cards (level-3
-     headings) appear — thirteen charts (the two cycle-time percentiles share one) and the "Work mix" — and the "Delivered (items)" chart is drawn.
+   - *Expected*: the URL carries the `accountId` and no team; the Person select shows the person's name; seventeen cards (level-3
+     headings) appear — sixteen charts (the two cycle-time percentiles share one; the last three are the GitLab code rows) and the "Work mix" — and the "Delivered (items)" chart is drawn.
 3. They read the cue under each chart.
-   - *Expected*: fourteen cue lines (the cycle chart has one per percentile); each is either an arrow with "Better", "Worse", "No change" or "Too few items to call"
-     followed by "first window ending <date>, last ending <date>" and the change, or "No mark: fewer than two full windows with a figure in this range."
+   - *Expected*: seventeen cue lines (the cycle chart has one per percentile); each is either an arrow with "Better", "Worse", "No change" or "Too few items to call"
+     (a code volume has no arrow: only the change) followed by "first window ending <date>, last ending <date>" and the change, or "No mark: fewer than two full windows with a figure in this range."
 4. They open the numbers behind "Delivered (items)" ("Show the numbers").
    - *Expected*: the table "Delivered (items): figures by window" has one row per window of the API's answer, each equal to it: the window's end, the
      figure ("—" for a window with nothing derived), the sample, and the coverage in words ("complete", "partial", "no data derived").

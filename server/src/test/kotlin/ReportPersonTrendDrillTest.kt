@@ -4,6 +4,7 @@ import ch.nokillswit.flowusers.FlowUserRole
 import ch.nokillswit.reports.PersonTrendReport
 import ch.nokillswit.reports.PersonTrendRow
 import ch.nokillswit.reports.ReportDrillItems
+import ch.nokillswit.reports.TREND_ROW_KEYS
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
@@ -26,7 +27,7 @@ class ReportPersonTrendDrillTest {
 
     private val byN = setOf(
         "deliveredMd", "deliveredItems", "cycleWorkingDaysP50", "cycleWorkingDaysP90", "flowEfficiencyP50", "accuracyAtStartPred25",
-        "taskSizeP50",
+        "taskSizeP50", "mrsMerged", "mrCycleWorkingDaysP50", "reviewsGiven",
     )
     private val numeratorShares = setOf("blockedItemsShare", "lateLoggingShare", "noEstimateShare", "reopenedShare")
 
@@ -91,7 +92,7 @@ class ReportPersonTrendDrillTest {
                     for ((person, other) in listOf(w.alice to w.bob, w.bob to w.alice)) {
                         val trend = client.personTrend("$base&from=2026-01-01&to=2026-01-29&accountId=$person")
                         val (checked, listed) = client.checkEveryPoint(trend, person, other, base)
-                        assertEquals(3 * 14, checked, "every point of every row")
+                        assertEquals(3 * TREND_ROW_KEYS.size, checked, "every point of every row")
                         assertTrue(listed >= 15, "the world's items are really listed ($listed)")
                     }
                     // A hand-computed anchor: alice's four tasks are all done inside the last window (task 4 has no estimate).
@@ -116,7 +117,7 @@ class ReportPersonTrendDrillTest {
                 for ((person, other) in listOf(w.a1 to w.a2, w.a2 to w.a1, w.a3 to w.a1)) {
                     val trend = client.personTrend("$base&from=2026-01-01&to=2026-01-29&accountId=$person")
                     val (checked, listed) = client.checkEveryPoint(trend, person, other, base)
-                    assertEquals(3 * 14, checked)
+                    assertEquals(3 * TREND_ROW_KEYS.size, checked)
                     assertTrue(listed > 0, "something is listed")
                     val query = "$base&from=2026-01-01&to=2026-01-29&accountId=$person"
                     held += trend.windows.sumOf { client.trendItems(query, "WIP_TASK_DAYS", it.end).items.size }
@@ -144,7 +145,7 @@ class ReportPersonTrendDrillTest {
         val trend = client.personTrend("$base&from=2025-12-11&to=2026-03-05&accountId=$person")
         assertEquals(7, trend.windows.size)
         val (checked, listed) = client.checkEveryPoint(trend, person, other, base)
-        assertEquals(7 * 14, checked)
+        assertEquals(7 * TREND_ROW_KEYS.size, checked)
         assertTrue(listed >= 20, "the person's real items are listed ($listed)")
     }
 
