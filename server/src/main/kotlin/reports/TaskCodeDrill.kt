@@ -9,8 +9,9 @@ import io.ktor.server.plugins.BadRequestException
  * report. Every view runs the report's OWN read ([readTaskCode], shared with `taskCode`) and the report's OWN per-task properties
  * ([TaskMergeRequests.hasMerged], `mergedAfterDone`, `codeLeadWorkingDays`, `mergeLagWorkingDays`) and, for the two histograms, the one
  * bucket rule ([distributionDrillSelection]), so a figure and its items cannot disagree. An item is a TASK (its Jira key and summary);
- * its `linkedKeys` are the merge requests linked to it, `<project path>!<iid>` (all its merged ones, not only the last merge a
- * figure measured).
+ * its `linkedKeys` are the merge requests linked to it, `<project path>!<iid>` (all its merged ones, sorted by path then numeric iid),
+ * and, on the four views that measure the last merge, its `measuredKey` is the one of those whose merge the figure measured
+ * ([TaskMergeRequests.lastMergedMr]); null on TASKS_WITHOUT_MR.
  */
 
 /**
@@ -103,6 +104,11 @@ internal suspend fun ReportService.taskCodeItems(filter: ReportFilter, query: Ta
             key to ordered.getValue(key).linked.listedMrs(query.view)
         }
         val keys = fetchMergeRequestKeys(mrsOf.values.flatten())
-        val linkedKeys = mrsOf.mapValues { (_, refs) -> refs.map { keys.getValue(it) }.sorted() }
-        listedDrillItems(scope.meta, selection.bar, listed, total = selection.rows.size, linkedKeys = linkedKeys)
+        val linkedKeys = mrsOf.mapValues { (_, refs) -> refs.map { keys.getValue(it) }.sortedWith(MERGE_REQUEST_KEY_ORDER) }
+        val measuredKeys = if (query.view == TaskCodeDrillView.TASKS_WITHOUT_MR) null else mrsOf.keys.mapNotNull { key ->
+            ordered.getValue(key).linked.lastMergedMr?.let { key to keys.getValue(it) }
+        }.toMap()
+        listedDrillItems(
+            scope.meta, selection.bar, listed, total = selection.rows.size, linkedKeys = linkedKeys, measuredKeys = measuredKeys,
+        )
     }

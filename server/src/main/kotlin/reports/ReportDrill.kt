@@ -46,6 +46,11 @@ data class ReportDrillItem(
      * unmerged ones on TASKS_WITHOUT_MR). Null for every other kind and report.
      */
     val linkedKeys: List<String>? = null,
+    /**
+     * Report 22's drill only (null elsewhere, and on TASKS_WITHOUT_MR): the `<project path>!<iid>` of the merge request whose merge the
+     * item's [figure] measured -- the task's LAST merge (`TaskMergeRequests.lastMergedMr`), one of [linkedKeys].
+     */
+    val measuredKey: String? = null,
 )
 
 /**
@@ -94,7 +99,8 @@ internal suspend fun drillItems(meta: ReportMeta, bar: ReportDrillBar, rows: Lis
  * [drillItems] for a read that already ordered ([DRILL_ORDER], `ORDER BY ... LIMIT` [DRILL_MAX_ITEMS]) and counted in SQL: [listed] is
  * the first page of the set and [total] the size of the WHOLE set (the figures of [bar] are the caller's, over that same set). The
  * rows are re-sorted by the issue key tie-break only, like [drillItems]. [linkedKeys] (by `(connectionId, issueId)`; null = none of the
- * items carries any) fills [ReportDrillItem.linkedKeys]: a listed row the map has no entry for gets an empty list.
+ * items carries any) fills [ReportDrillItem.linkedKeys]: a listed row the map has no entry for gets an empty list. [measuredKeys]
+ * (same key; null = none) fills [ReportDrillItem.measuredKey]: a row the map has no entry for gets null.
  */
 internal suspend fun listedDrillItems(
     meta: ReportMeta,
@@ -102,6 +108,7 @@ internal suspend fun listedDrillItems(
     listed: List<DrillRow>,
     total: Int,
     linkedKeys: Map<Pair<UInt, Long>, List<String>>? = null,
+    measuredKeys: Map<Pair<UInt, Long>, String>? = null,
 ): ReportDrillItems {
     val labels = workItemLabels(listed.map { it.connectionId to it.issueId })
     val names = accountDisplayNames(listed.filter { it.assignee == null }.mapNotNull { it.accountId }.distinct())
@@ -117,6 +124,7 @@ internal suspend fun listedDrillItems(
             anchorAt = row.anchorAt,
             figure = row.figure,
             linkedKeys = linkedKeys?.let { it[row.connectionId to row.issueId].orEmpty() },
+            measuredKey = measuredKeys?.get(row.connectionId to row.issueId),
         )
     }.sortedWith(
         compareByDescending<ReportDrillItem, Double?>(nullsFirst()) { it.figure }

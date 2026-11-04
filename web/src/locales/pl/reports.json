@@ -1772,7 +1772,8 @@
         "TASKS_WITH_MR": "Zadania ze scalonym merge requestem",
         "TASKS_WITHOUT_MR": "Zadania bez scalonego merge requestu",
         "MERGED_AFTER_DONE": "Zadania scalone po zakończeniu"
-      }
+      },
+      "lastMerge": "ostatni merge"
     }
   },
   "deepDive": {

@@ -5,6 +5,7 @@ import ch.nokillswit.reports.CodeMrRef
 import ch.nokillswit.reports.IssueRef
 import ch.nokillswit.reports.TaskCodeLink
 import ch.nokillswit.reports.TaskCodeTask
+import ch.nokillswit.reports.MERGE_REQUEST_KEY_ORDER
 import ch.nokillswit.reports.linkTasks
 import ch.nokillswit.reports.taskCodeFigures
 import java.time.LocalDate
@@ -104,6 +105,24 @@ class TaskCodeKernelsTest {
     }
 
     @Test
+    fun `lastMergedMr is the merge request of lastMergedAt - the latest merge, never the highest id, and a tie goes to the greatest id`() {
+        val tasks = listOf(task(1, 0, 8, key = "FLO-1"), task(2, 0, 8, key = "FLO-2"), task(3, 0, 8, key = "FLO-3"))
+        val rows = link(
+            tasks,
+            listOf(
+                merged("FLO-1", 20, 3), merged("FLO-1", 5, 6), open("FLO-1", 99),
+                merged("FLO-2", 7, 4, hour = 12), merged("FLO-2", 3, 4, hour = 12),
+            ),
+        )
+        assertEquals(CodeMrRef(9u, 5), rows[0].lastMergedMr, "mr 5 merged last although mr 20 has the higher id")
+        assertEquals(at(6), rows[0].lastMergedAt)
+        assertEquals(CodeMrRef(9u, 7), rows[1].lastMergedMr, "merged at the very same instant: the greatest id, deterministically")
+        assertEquals(at(4, 12), rows[1].lastMergedAt)
+        assertNull(rows[2].lastMergedMr)
+        assertNull(rows[2].lastMergedAt)
+    }
+
+    @Test
     fun `a task with only unmerged merge requests is without a merge request and counted apart, never a zero lead time`() {
         val rows = link(listOf(task(1, 0, 8), task(2, 0, 8)), listOf(open("FLO-1", 10), open("FLO-1", 11), merged("FLO-2", 12, 3)))
         val figures = taskCodeFigures(rows, calendar)
@@ -163,5 +182,23 @@ class TaskCodeKernelsTest {
         assertEquals(listOf(4.0, 5.0), figures.leadTimes)
         assertEquals(listOf(3.0), figures.lags)
         assertEquals(0, figures.neverStarted)
+    }
+
+    @Test
+    fun `merge request keys sort by path then numeric iid, and what does not parse comes last by plain string`() {
+        val expected = listOf(
+            "grp/app!2",
+            "grp/app!10",
+            "grp/web!1",
+            "odd!path!3",
+            "!7",
+            "#mr-12",
+            "#mr-9",
+            "grp/app!",
+            "grp/app!99999999999999999999",
+        )
+        assertEquals(expected, expected.reversed().sortedWith(MERGE_REQUEST_KEY_ORDER))
+        val sameIid = listOf("a!2", "a!02").sortedWith(MERGE_REQUEST_KEY_ORDER)
+        assertEquals(listOf("a!02", "a!2"), sameIid, "the same iid falls back to the string")
     }
 }

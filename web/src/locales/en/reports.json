@@ -1722,7 +1722,8 @@
         "TASKS_WITH_MR": "Tasks with a merged merge request",
         "TASKS_WITHOUT_MR": "Tasks without a merged merge request",
         "MERGED_AFTER_DONE": "Tasks merged after done"
-      }
+      },
+      "lastMerge": "last merge"
     }
   },
   "deepDive": {

@@ -57,6 +57,8 @@ class ReportTaskCodeDrillTest {
 
     private fun ReportDrillItems.linked() = items.associate { it.issueKey to it.linkedKeys }
 
+    private fun ReportDrillItems.measured() = items.associate { it.issueKey to it.measuredKey }
+
     /**
      * The reconciliation gate for one request: the five views against the report's figures. A shown histogram's every bucket is drilled
      * (count, range, items inside the range, the buckets together hold exactly the distribution's `n`), a hidden one has no bar to list.
@@ -123,6 +125,12 @@ class ReportTaskCodeDrillTest {
                 ),
                 with.linked(),
             )
+            // The merge request each figure measured is the task's LAST merge: TCA-1's is the glB one (d3 12:00, after glA's d3),
+            // TCB-7's is !7 (d10 12:00) although !8 has the higher iid.
+            assertEquals(
+                mapOf("TCA-2" to "grp/app!3", "TCB-7" to "grp/app!7", "TCA-1" to "grp/web!1", "TCA-4" to "grp/app!6"),
+                with.measured(),
+            )
             assertEquals(listOf(teamA), with.items.map { it.teamId }.distinct())
             assertEquals(with.items.map { it.anchorAt }, listOf(at(3), at(10), at(4), at(9)))
             // Without: the unmerged merge requests that kept TCA-3 out; TCA-6's only merge request is deleted, so it has none.
@@ -130,15 +138,55 @@ class ReportTaskCodeDrillTest {
             assertEquals(listOf("TCA-6", "TCA-3"), without.keys())
             assertEquals(mapOf("TCA-6" to emptyList<String>(), "TCA-3" to listOf("grp/app!4", "grp/app!5")), without.linked())
             assertTrue(without.items.all { it.figure == null })
+            assertTrue(without.items.all { it.measuredKey == null }, "the without list measures no merge")
             // Merged after done: the lag from done to the last merge.
             val late = client.drill(query, "view=MERGED_AFTER_DONE")
             assertEquals(listOf("TCA-2", "TCB-7"), late.keys())
             assertEquals(listOf(3.0, 0.5), late.items.map { it.figure })
             assertEquals(mapOf("TCA-2" to listOf("grp/app!3"), "TCB-7" to listOf("grp/app!7", "grp/app!8")), late.linked())
+            assertEquals(mapOf("TCA-2" to "grp/app!3", "TCB-7" to "grp/app!7"), late.measured())
             // The lead time histogram (n = 3 shown): its bars together are the three tasks with a lead time, never TCA-4.
             val seen = client.report(query).codeLeadTimeWorkingDays.histogram.indices
                 .flatMap { client.drill(query, "view=CODE_LEAD_TIME&bucketIndex=$it").keys() }
             assertEquals(listOf("TCA-1", "TCA-2", "TCB-7"), seen.sorted())
+            val bars = client.report(query).codeLeadTimeWorkingDays.histogram.indices
+                .flatMap { client.drill(query, "view=CODE_LEAD_TIME&bucketIndex=$it").items }
+            assertEquals(
+                mapOf("TCA-1" to "grp/web!1", "TCA-2" to "grp/app!3", "TCB-7" to "grp/app!7"),
+                bars.associate { it.issueKey to it.measuredKey },
+            )
+            reconcile(client, query)
+        }
+    }
+
+    @Test
+    fun `measuredKey is the last merge, not the highest iid, and the linked keys sort by numeric iid`() = testApplication {
+        usePostgresTestcontainer()
+        val client = seededClient("task-code-drill-last-merge", FlowUserRole.USER)
+        inWorld(minSample = 1) {
+            pin(this)
+            // TCA-8 (done d5) has two merged merge requests on one project: !10 merged on d6, then !2 on d7. The last MERGE is !2,
+            // the lower iid; a plain string sort would put !10 first, the numeric one puts !2 first.
+            task(108, "TCA-8", 1, 5)
+            publish()
+            write(glB, mr(10, "TCA-8 first part", 6), mr(2, "TCA-8 second part", 7))
+            val query = team()
+            for (view in listOf("TASKS_WITH_MR", "MERGED_AFTER_DONE")) {
+                val item = client.drill(query, "view=$view").items.single { it.issueKey == "TCA-8" }
+                assertEquals(listOf("grp/web!2", "grp/web!10"), item.linkedKeys, view)
+                assertEquals("grp/web!2", item.measuredKey, view)
+            }
+            for (view in listOf("CODE_LEAD_TIME", "MERGED_AFTER_DONE_LAG")) {
+                val report = client.report(query)
+                val distribution = if (view == "CODE_LEAD_TIME") report.codeLeadTimeWorkingDays else report.mergedAfterDone.lagWorkingDays
+                val item = distribution.histogram.indices
+                    .flatMap { client.drill(query, "view=$view&bucketIndex=$it").items }.single { it.issueKey == "TCA-8" }
+                assertEquals("grp/web!2", item.measuredKey, view)
+            }
+            // TCA-1 keeps its by-path order (app before web) and TASKS_WITHOUT_MR carries none.
+            val with = client.drill(query, "view=TASKS_WITH_MR")
+            assertEquals(listOf("grp/app!1", "grp/app!2", "grp/web!1"), with.linked().getValue("TCA-1"))
+            assertTrue(client.drill(query, "view=TASKS_WITHOUT_MR").items.all { it.measuredKey == null })
             reconcile(client, query)
         }
     }

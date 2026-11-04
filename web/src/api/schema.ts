@@ -2830,9 +2830,10 @@ export interface paths {
          *     `codeLeadTimeWorkingDays` and `MERGED_AFTER_DONE_LAG` a bar of `mergedAfterDone.lagWorkingDays` (`bar.count` equals
          *     `histogram[bucketIndex].count`, `bar.from`/`bar.to` its range, `to` null = the open tail). `itemKind` is `TASK`; `issueKey` and
          *     `summary` are the Jira task's, `accountId`/`assignee` its assignee at done, `teamId` its credit team and `anchorAt` its `done_at`.
-         *     The item's `linkedKeys` are the GitLab merge requests linked to the task, `<project path>!<iid>`, sorted: ALL its MERGED
-         *     ones for every view but `TASKS_WITHOUT_MR`, which lists the task's linked merge requests that are NOT merged (open, closed, locked;
-         *     `[]` for a task no merge request names). They link to the GitLab host of `sources[].baseUrl` of the parent. Sorted by `figure`
+         *     The item's `linkedKeys` are the GitLab merge requests linked to the task, `<project path>!<iid>`, sorted by path then
+         *     numeric iid (`!2` before `!10`): ALL its MERGED ones for every view but `TASKS_WITHOUT_MR`, which lists the task's linked merge requests that are NOT merged (open, closed, locked;
+         *     `[]` for a task no merge request names). They link to the GitLab host of `sources[].baseUrl` of the parent. The item's `measuredKey` names
+         *     the one of them whose merge the `figure` measured (the task's last merge); null on `TASKS_WITHOUT_MR`. Sorted by `figure`
          *     descending (nulls last), newest `anchorAt`, then key; at most 500 listed — `total` (equal to `bar.count`) says how many are behind
          *     the figure. 400: a missing or unknown `view`, a `bucketIndex` that is missing for a histogram view, is sent with another view, is
          *     not a non-negative integer or lies outside the histogram, a hidden distribution (fewer than `meta.minSampleSize` values: no bar
@@ -4974,9 +4975,16 @@ export interface components {
              *     drill and Home's `CODE_*` lists) they are the Jira issue keys its title or source branch names, uppercased, only those of a KNOWN
              *     Jira project (a configured `projectKeys` entry of an active Jira data source, or an old project of a moved issue); a key is listed
              *     whether or not Jira has such an issue. On a `TASK` item of Report 22's drill (`/reports/task-code/items`) they are the GitLab merge
-             *     requests linked to the task, `<project path>!<iid>` (all its merged ones; the unmerged ones on `TASKS_WITHOUT_MR`). `[]` = none; null for every other kind and report.
+             *     requests linked to the task, `<project path>!<iid>` (all its merged ones; the unmerged ones on `TASKS_WITHOUT_MR`). Sorted by path, then numeric iid. `[]` = none; null for every other kind and report.
              */
             linkedKeys?: string[] | null;
+            /**
+             * @description Report 22's drill only: the `<project path>!<iid>` of the merge request whose merge the item's `figure` measured, the task's LAST
+             *     merge (an entry of `linkedKeys`; of several merged at the same instant the one with the greatest connection and merge request id).
+             *     Set on `TASKS_WITH_MR`, `CODE_LEAD_TIME`, `MERGED_AFTER_DONE` and `MERGED_AFTER_DONE_LAG`; null on `TASKS_WITHOUT_MR` and on every
+             *     other report's drill.
+             */
+            measuredKey?: string | null;
         };
         /**
          * @description A drill list: the report's `meta`, the recomputed `bar`, at most 500 `items` (largest figure first) and the `total` behind
