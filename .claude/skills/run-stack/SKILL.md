@@ -133,7 +133,7 @@ The root `Dockerfile` is a 3-stage build: (1) Node 24.22.1 builds `web/dist` (`n
 with the committed Gradle project and plugin locks, (3) the matching Temurin JRE bundles the
 install image **and** the built SPA, sets `WEB_STATIC_DIR=/app/web` and `KTOR_DEVELOPMENT=false`,
 and runs `bin/server` as an unprivileged uid. The runtime stage upgrades libexpat1, libsqlite3-0,
-perl-base, libssl3t64 and libbrotli1 from Noble's signed repositories and enforces fixed-version floors until the
+perl-base, libssl3t64, libbrotli1, apt and libapt-pkg6.0t64 from Noble's signed repositories and enforces fixed-version floors until the
 Temurin image includes them. Every external base uses an exact tag and reviewed multi-platform
 manifest digest. The `app` Compose service points the `POSTGRES_*` env vars at the `postgres`
 service host (`postgres:5432` in-network) and waits on its healthcheck. Compose and
