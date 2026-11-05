@@ -63,7 +63,7 @@
 1. Through the API, leftover GitLab-stub sources of earlier runs are deleted, the shared Jira fixture is made ready, a GitLab-stub source is created and synced, and a
    reader is created. The test reads `GET /api/v1/reports/task-code?domain=<domain>&from=2025-09-01&to=2026-09-30` (the whole history of the Jira stub) for every domain
    in `GET /api/v1/reports/filters` and keeps the answer of the domain with the most done tasks that have a merged merge request (a tie goes to the one with more done tasks, then the first) as the oracle.
-   - *Expected*: the sources list is exactly the spec's own source, there are done tasks, and `withMergeRequest + withoutMergeRequest` equals `done`. Nothing is asserted as
+   - *Expected*: the sources list is exactly the spec's own source, there are done tasks, and `withMergeRequest + withoutMergeRequest` equals `done` and `namedByCommitsOnly` is at most `withoutMergeRequest`. Nothing is asserted as
      "above zero" for the links (the stub's dates are fixed but another Jira source could make a key ambiguous); the oracle is recorded as a test annotation.
 2. The reader signs in and opens `/reports/code-activity?teamId=<the shared fixture's team>&from=2025-09-01&to=2026-09-30`, then presses the **Tasks and code** tab of the Code group.
    - *Expected*: the heading "Tasks and code" is shown, the address is `/reports/task-code` with the same `teamId`, `from` and `to`, and the tab is selected.
@@ -73,7 +73,8 @@
 3. They read the Code group's tabs.
    - *Expected*: the tab list "Reports in this group" has two tabs, "Code activity" and "Tasks and code"; the second is selected, and the first links to `/reports/code-activity`.
 4. They read the counts.
-   - *Expected*: the tiles "Done tasks", "With a merged merge request" and "Without a merged merge request" show the API's three counts; the last ends in "% of the done tasks.";
+   - *Expected*: the tiles "Done tasks", "With a merged merge request" and "Without a merged merge request" show the API's three counts; the last ends in "% of the done tasks."; the fourth tile
+     "Named by a commit only" (a part of the without count) shows the API's `namedByCommitsOnly` and its hint "A commit on the default branch names the task, no merge request does.";
      the "Merged after done" tile shows the API's count, "% of the tasks with a merged merge request." when the API has a share and "No done task has a merged merge request."
      otherwise; the sentence "Lower is better: code should be merged before the task is closed." is shown (the direction is in words).
 5. They read the two distributions ("Task start to last merge, working days", "Done to last merge, working days").
@@ -84,12 +85,17 @@
      (never started, only unmerged merge requests, an ambiguous key) is above zero, and then each non-zero count is stated with the API's number.
 7. They run an accessibility scan.
    - *Expected*: an axe scan (WCAG 2.0/2.1 A+AA, `color-contrast` included) reports zero violations.
-8. They press the **With a merged merge request** count (a button only when the API's count is above zero; at zero it is plain text and the test ends here). The test also reads
+8. They press the **Named by a commit only** count (a button only when the API's count is above zero; at zero it is plain text and this step ends here). The test also reads
+   `GET /api/v1/reports/task-code/items?domain=<domain>&from=2025-09-01&to=2026-09-30&view=TASKS_COMMITS_ONLY`.
+   - *Expected*: the API's drill `total` equals the count; the dialog "Tasks named by a commit only" opens and says "<count> items" (or "1 item"); its table "Items behind the bar" has as many rows
+     as the count (at most 500); each task lists the commits that name it as links ending "(opens in GitLab)", each to the stub source's base URL and a `/-/commit/` path, opening in a new tab; Escape closes the dialog and
+     focus returns to the count.
+9. They press the **With a merged merge request** count (a button only when the API's count is above zero; at zero it is plain text and the test ends here). The test also reads
    `GET /api/v1/reports/task-code/items?domain=<domain>&from=2025-09-01&to=2026-09-30&view=TASKS_WITH_MR`.
    - *Expected*: the API's drill `total` equals the count; the dialog "Tasks with a merged merge request" opens and says "<count> items" (or "1 item"); its table "Items behind the bar" has
      as many rows as the count (at most 500); each task lists its merge requests as links ending "(opens in GitLab)", each to the stub source's base URL and a `/-/merge_requests/` path,
      opening in a new tab with `rel="noopener noreferrer"`; Escape closes the dialog and focus returns to the count.
-9. Whatever the outcome, the test removes the reader and the connection.
+10. Whatever the outcome, the test removes the reader and the connection.
 
 ## Not covered here (and why)
 

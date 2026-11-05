@@ -22,8 +22,9 @@ import kotlin.test.assertTrue
 /**
  * Report 22's drill over HTTP (`GET /api/v1/reports/task-code/items`, `.claude/docs/reports.md` "Report 22") on the hand-written two-layer
  * [TaskCodeWorld] (its KDoc lists the tasks and merge requests). The tasks and merge-request keys of every view are written out by hand;
- * [reconcile] is the gate: for a request, EVERY figure of the report (with, without, merged after done, every bucket of both histograms)
- * equals its drill's `bar.count` / `total`, the listed items are the bar's and the bucket range is the histogram's own.
+ * [reconcile] is the gate: for a request, EVERY figure of the report (with, without, named by a commit only, merged after done, every
+ * bucket of both histograms) equals its drill's `bar.count` / `total`, the listed items are the bar's and the bucket range is the
+ * histogram's own.
  */
 class ReportTaskCodeDrillTest {
     private suspend fun <T> inWorld(minSample: Int = 3, body: suspend TaskCodeWorld.() -> T): T =
@@ -75,6 +76,12 @@ class ReportTaskCodeDrillTest {
         assertEquals(report.tasks.done, with.total + without.total, "$query with + without = done")
         assertTrue(with.keys().toSet().intersect(without.keys().toSet()).isEmpty(), "a task is in one of the two lists")
         assertTrue(with.items.all { it.itemKind == DrillItemKind.TASK && it.anchorAt != null }, "task items anchored by done_at")
+        val commitsOnly = client.drill(query, "view=TASKS_COMMITS_ONLY")
+        assertEquals(report.tasks.namedByCommitsOnly, commitsOnly.bar.count, "$query named by a commit only")
+        assertEquals(commitsOnly.bar.count, commitsOnly.total, "$query named by a commit only total")
+        assertTrue(commitsOnly.items.size == commitsOnly.total && !commitsOnly.truncated)
+        assertTrue(commitsOnly.keys().all { it in without.keys() }, "$query named by a commit only is a subset of without")
+        assertTrue(commitsOnly.items.all { it.figure == null && it.measuredKey == null && it.itemKind == DrillItemKind.TASK })
         val late = client.drill(query, "view=MERGED_AFTER_DONE")
         assertEquals(report.mergedAfterDone.count, late.bar.count, "$query merged after done")
         assertEquals(late.bar.count, late.total)
@@ -155,6 +162,63 @@ class ReportTaskCodeDrillTest {
                 mapOf("TCA-1" to "grp/web!1", "TCA-2" to "grp/app!3", "TCB-7" to "grp/app!7"),
                 bars.associate { it.issueKey to it.measuredKey },
             )
+            reconcile(client, query)
+        }
+    }
+
+    @Test
+    fun `the commits-only view lists the tasks only a commit names, with the commits as path and sha12 keys sorted by path then sha`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val client = seededClient("task-code-drill-commits", FlowUserRole.USER)
+            inWorld {
+                pin(this)
+                val query = team()
+                // TCA-6: no live merge request, named by a plain commit and a merge commit (glA, grp/app) and the other source's commit
+                // (grp/web); its deleted commit is not listed. TCA-1 is named by a commit too but has merged merge requests; TCA-3's only
+                // commit is deleted.
+                val only = client.drill(query, "view=TASKS_COMMITS_ONLY")
+                assertEquals(listOf("TCA-6"), only.keys())
+                val keys = listOf("grp/app@${SHA_DIRECT.take(12)}", "grp/app@${SHA_MERGE.take(12)}", "grp/web@${SHA_MIRROR.take(12)}")
+                assertEquals(mapOf("TCA-6" to keys), only.linked())
+                assertEquals(listOf(at(11)), only.items.map { it.anchorAt })
+                assertEquals(listOf(teamA), only.items.map { it.teamId })
+                assertEquals(1, only.bar.count)
+                assertNull(only.bar.from)
+                // The merge-request views are the ones they were: the commits are neither merge requests nor links.
+                val without = client.drill(query, "view=TASKS_WITHOUT_MR")
+                assertEquals(mapOf("TCA-6" to emptyList<String>(), "TCA-3" to listOf("grp/app!4", "grp/app!5")), without.linked())
+                assertEquals(listOf("TCA-2", "TCB-7", "TCA-1", "TCA-4"), client.drill(query, "view=TASKS_WITH_MR").keys())
+                // The other team, and the credit-less task: no commit names theirs.
+                assertEquals(0, client.drill(team(teamB), "view=TASKS_COMMITS_ONLY").total)
+                assertEquals(0, client.drill(team(0u), "view=TASKS_COMMITS_ONLY").total)
+                // The domain adds the other teams' tasks, none of them named by a commit.
+                val domainQuery = "domain=$domain&$period&connectionId=$jiraA"
+                assertEquals(listOf("TCA-6"), client.drill(domainQuery, "view=TASKS_COMMITS_ONLY").keys())
+                reconcile(client, query)
+                reconcile(client, domainQuery)
+            }
+        }
+
+    @Test
+    fun `the commits-only view gains a task when a commit names it and loses it once a merged merge request does`() = testApplication {
+        usePostgresTestcontainer()
+        val client = seededClient("task-code-drill-commits-merge", FlowUserRole.USER)
+        inWorld {
+            pin(this)
+            val query = team()
+            task(108, "TCA-8", 1, 5)
+            publish()
+            writeCommits(glB, commit(repeatedSha('4'), "TCA-8 pushed to main"))
+            val before = client.drill(query, "view=TASKS_COMMITS_ONLY")
+            assertEquals(listOf("TCA-6", "TCA-8"), before.keys().sorted())
+            assertEquals(listOf("grp/web@${repeatedSha('4').take(12)}"), before.linked().getValue("TCA-8"))
+            reconcile(client, query)
+            // A merged merge request now names the task: it is "with", the commit stays a fact and the view drops it.
+            write(glB, mr(10, "TCA-8 reviewed", 6))
+            val after = client.drill(query, "view=TASKS_COMMITS_ONLY")
+            assertEquals(listOf("TCA-6"), after.keys())
+            assertEquals(listOf("grp/web!10"), client.drill(query, "view=TASKS_WITH_MR").linked()["TCA-8"])
             reconcile(client, query)
         }
     }
@@ -254,6 +318,10 @@ class ReportTaskCodeDrillTest {
                     "bucketIndex applies to the histogram views only",
                     client.refused(query, "view=TASKS_WITH_MR&bucketIndex=0"),
                 )
+                assertEquals(
+                    "bucketIndex applies to the histogram views only",
+                    client.refused(query, "view=TASKS_COMMITS_ONLY&bucketIndex=0"),
+                )
                 assertTrue(client.refused(query, "view=CODE_LEAD_TIME&bucketIndex=-1").contains("Invalid bucketIndex"))
                 assertTrue(client.refused(query, "view=CODE_LEAD_TIME&bucketIndex=x").contains("Invalid bucketIndex"))
                 val last = client.report(query).codeLeadTimeWorkingDays.histogram.size
@@ -289,7 +357,9 @@ class ReportTaskCodeDrillTest {
             val detail = "The selection reads more than 3 code rows (commits, merge requests and review events) - " +
                 "narrow the period or pick fewer people"
             assertEquals(detail, client.refused(team(), "view=TASKS_WITH_MR"))
+            assertEquals(detail, client.refused(team(), "view=TASKS_COMMITS_ONLY"))
             assertEquals(listOf("TCA-11"), client.drill(team(teamB), "view=TASKS_WITH_MR").keys())
+            assertEquals(0, client.drill(team(teamB), "view=TASKS_COMMITS_ONLY").total)
         }
     }
 }

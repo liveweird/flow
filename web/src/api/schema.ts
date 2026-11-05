@@ -2830,15 +2830,17 @@ export interface paths {
          *     an `accountId` included) plus the figure's identity: `view` (REQUIRED) and, for the two histogram views, a REQUIRED `bucketIndex`.
          *     The list is read by the report's own plan and per-task properties, so `bar.count` equals the figure it stands behind:
          *     `TASKS_WITH_MR` `tasks.withMergeRequest` (`figure` the task's code lead time in working days, null if it never started),
-         *     `TASKS_WITHOUT_MR` `tasks.withoutMergeRequest` (no `figure`), `MERGED_AFTER_DONE` `mergedAfterDone.count` (`figure` the lag in
+         *     `TASKS_WITHOUT_MR` `tasks.withoutMergeRequest` (no `figure`), `TASKS_COMMITS_ONLY` `tasks.namedByCommitsOnly` (a SUBSET of
+         *     `TASKS_WITHOUT_MR`: no `figure`; the commits that name the task are its `linkedKeys`), `MERGED_AFTER_DONE` `mergedAfterDone.count` (`figure` the lag in
          *     working days) and, with a `bucketIndex` (0-based into that distribution's `histogram`, the open tail last), `CODE_LEAD_TIME` a bar of
          *     `codeLeadTimeWorkingDays` and `MERGED_AFTER_DONE_LAG` a bar of `mergedAfterDone.lagWorkingDays` (`bar.count` equals
          *     `histogram[bucketIndex].count`, `bar.from`/`bar.to` its range, `to` null = the open tail). `itemKind` is `TASK`; `issueKey` and
          *     `summary` are the Jira task's, `accountId`/`assignee` its assignee at done, `teamId` its credit team and `anchorAt` its `done_at`.
          *     The item's `linkedKeys` are the GitLab merge requests linked to the task, `<project path>!<iid>`, sorted by path then
          *     numeric iid (`!2` before `!10`): ALL its MERGED ones for every view but `TASKS_WITHOUT_MR`, which lists the task's linked merge requests that are NOT merged (open, closed, locked;
-         *     `[]` for a task no merge request names). They link to the GitLab host of `sources[].baseUrl` of the parent. The item's `measuredKey` names
-         *     the one of them whose merge the `figure` measured (the task's last merge); null on `TASKS_WITHOUT_MR`. Sorted by `figure`
+         *     `[]` for a task no merge request names), and `TASKS_COMMITS_ONLY`, which lists the live default-branch COMMITS whose title names the
+         *     task, `<project path>@<sha12>`, sorted by path then sha. They link to the GitLab host of `sources[].baseUrl` of the parent. The item's `measuredKey` names
+         *     the one of them whose merge the `figure` measured (the task's last merge); null on `TASKS_WITHOUT_MR` and `TASKS_COMMITS_ONLY`. Sorted by `figure`
          *     descending (nulls last), newest `anchorAt`, then key; at most 500 listed — `total` (equal to `bar.count`) says how many are behind
          *     the figure. 400: a missing or unknown `view`, a `bucketIndex` that is missing for a histogram view, is sent with another view, is
          *     not a non-negative integer or lies outside the histogram, a hidden distribution (fewer than `meta.minSampleSize` values: no bar
@@ -4990,13 +4992,13 @@ export interface components {
              *     drill and Home's `CODE_*` lists) they are the Jira issue keys its title or source branch names, uppercased, only those of a KNOWN
              *     Jira project (a configured `projectKeys` entry of an active Jira data source, or an old project of a moved issue); a key is listed
              *     whether or not Jira has such an issue. On a `TASK` item of Report 22's drill (`/reports/task-code/items`) they are the GitLab merge
-             *     requests linked to the task, `<project path>!<iid>` (all its merged ones; the unmerged ones on `TASKS_WITHOUT_MR`). Sorted by path, then numeric iid. `[]` = none; null for every other kind and report.
+             *     requests linked to the task, `<project path>!<iid>` (all its merged ones; the unmerged ones on `TASKS_WITHOUT_MR`), sorted by path, then numeric iid; on the `TASKS_COMMITS_ONLY` view the commits that name it, `<project path>@<sha12>`, sorted by path, then sha. `[]` = none; null for every other kind and report.
              */
             linkedKeys?: string[] | null;
             /**
              * @description Report 22's drill only: the `<project path>!<iid>` of the merge request whose merge the item's `figure` measured, the task's LAST
              *     merge (an entry of `linkedKeys`; of several merged at the same instant the one with the greatest connection and merge request id).
-             *     Set on `TASKS_WITH_MR`, `CODE_LEAD_TIME`, `MERGED_AFTER_DONE` and `MERGED_AFTER_DONE_LAG`; null on `TASKS_WITHOUT_MR` and on every
+             *     Set on `TASKS_WITH_MR`, `CODE_LEAD_TIME`, `MERGED_AFTER_DONE` and `MERGED_AFTER_DONE_LAG`; null on `TASKS_WITHOUT_MR`, `TASKS_COMMITS_ONLY` and on every
              *     other report's drill.
              */
             measuredKey?: string | null;
@@ -5144,8 +5146,8 @@ export interface components {
             openDrafts: number;
             openAgeP50: components["schemas"]["HomeFigure"];
             mergedWithoutReview: components["schemas"]["HomeFigure"];
-            /** @description The team's done tasks of the window and how many have no MERGED merge request naming them (`GET /reports/task-code` for the same team and window prints the same block). NEUTRAL context: no trend and no verdict, and independent of the team's linked people. Null = that read was over `reports.codeMaxRows` (the other figures stay). */
-            tasks: components["schemas"]["TaskCodeTasks"] | null;
+            /** @description The team's done tasks of the window and how many have no MERGED merge request naming them (`GET /reports/task-code` for the same team and window prints the same figures, and `namedByCommitsOnly` besides). NEUTRAL context: no trend and no verdict, and independent of the team's linked people. Null = that read was over `reports.codeMaxRows` (the other figures stay). */
+            tasks: components["schemas"]["HomeTaskCodeTasks"] | null;
         };
         /** @description The code layer's side of the overview. */
         HomeCode: {
@@ -6010,6 +6012,34 @@ export interface components {
             /**
              * Format: int32
              * @description `done − withMergeRequest`: no linked merge request, or only unmerged ones (`quality.onlyUnmergedMrs`).
+             */
+            withoutMergeRequest: number;
+            /**
+             * Format: int32
+             * @description A SUBSET of `withoutMergeRequest`: done tasks with no linked MERGED merge request that at least one live default-branch commit names (by its title, the same keys and scope as the merge-request links). Moves no other figure. NEUTRAL: no verdict (a task may need no code).
+             */
+            namedByCommitsOnly: number;
+            /**
+             * Format: double
+             * @description `withoutMergeRequest` over `done`; absent when nothing is done. NEUTRAL: no verdict (a task may need no code).
+             */
+            withoutShare?: number;
+        };
+        /** @description Report 22's `tasks` WITHOUT `namedByCommitsOnly`: Home's combined read does not run the commit statement, so it prints no figure it did not read. */
+        HomeTaskCodeTasks: {
+            /**
+             * Format: int32
+             * @description Level-0 tasks done in the window (the cycle-time population).
+             */
+            done: number;
+            /**
+             * Format: int32
+             * @description Of them, with at least one linked MERGED merge request.
+             */
+            withMergeRequest: number;
+            /**
+             * Format: int32
+             * @description `done − withMergeRequest`: no linked merge request, or only unmerged ones.
              */
             withoutMergeRequest: number;
             /**
@@ -11832,7 +11862,7 @@ export interface operations {
                 /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
                 tailPercent?: components["parameters"]["ReportTailPercent"];
                 /** @description Which figure's tasks — see the operation description. */
-                view: "TASKS_WITH_MR" | "TASKS_WITHOUT_MR" | "CODE_LEAD_TIME" | "MERGED_AFTER_DONE" | "MERGED_AFTER_DONE_LAG";
+                view: "TASKS_WITH_MR" | "TASKS_WITHOUT_MR" | "TASKS_COMMITS_ONLY" | "CODE_LEAD_TIME" | "MERGED_AFTER_DONE" | "MERGED_AFTER_DONE_LAG";
                 /** @description The histogram views only (`CODE_LEAD_TIME`, `MERGED_AFTER_DONE_LAG`), and REQUIRED there — a bar of that distribution's `histogram`, 0-based (the open tail bucket last). A 400 on any other view or outside the histogram. */
                 bucketIndex?: number;
             };

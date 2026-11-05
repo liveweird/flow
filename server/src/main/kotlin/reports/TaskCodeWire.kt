@@ -13,11 +13,26 @@ import kotlinx.serialization.Serializable
 /**
  * The done tasks of the period and how many of them have a MERGED merge request naming them. [withoutShare] is
  * [withoutMergeRequest] over [done] (absent while no task is done): a neutral figure, no verdict is drawn on it (a task may
- * legitimately need no code).
+ * legitimately need no code). [namedByCommitsOnly] is a SUBSET of [withoutMergeRequest]: the tasks with no merged merge request that at
+ * least one live default-branch commit names; it moves no other figure.
  */
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class TaskCodeTasks(
+    val done: Int,
+    val withMergeRequest: Int,
+    val withoutMergeRequest: Int,
+    val namedByCommitsOnly: Int,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val withoutShare: Double? = null,
+)
+
+/**
+ * Home's `tasks` per team: Report 22's [TaskCodeTasks] WITHOUT [TaskCodeTasks.namedByCommitsOnly] - Home's combined read never runs the
+ * commit statement, so it must not print a figure it did not read (a zero would be false). The other four are Report 22's own.
+ */
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+data class HomeTaskCodeTasks(
     val done: Int,
     val withMergeRequest: Int,
     val withoutMergeRequest: Int,

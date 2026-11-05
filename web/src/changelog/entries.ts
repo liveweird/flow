@@ -17,6 +17,22 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.56.0",
+    date: "2026-11-05",
+    en: `**Tasks and code: tasks named by a commit only.**
+
+- The Done-tasks card has a new count, "Named by a commit only": done tasks with no merged merge request that a commit on the default branch names in its title. It is a part of "Without a merged merge request", not a further group, so every figure published so far stays as it was, and so does Home.
+- Open the count to see the tasks. Each one lists the commits that name it, as links to GitLab.
+- The page cannot tell a commit pushed without a merge request from one that came in through a rebased merge request, and a task may need no code at all, so read the count as context, not as a verdict.
+- The count reads 0 until the first sync after 1.55.0 has re-processed the code layer.`,
+    pl: `**Zadania i kod: zadania wskazane tylko przez commit.**
+
+- Karta zakończonych zadań ma nową liczbę, „Wskazane tylko przez commit”: zakończone zadania bez scalonego merge requestu, których klucz podaje w tytule commit na domyślnej gałęzi. To część „Bez scalonego merge requestu”, a nie kolejna grupa, więc wszystkie dotychczas publikowane liczby zostają bez zmian, tak samo jak Home.
+- Otwórz liczbę, żeby zobaczyć zadania. Każde z nich wymienia wskazujące je commity jako linki do GitLaba.
+- Strona nie odróżnia commitu wypchniętego bez merge requestu od commitu, który trafił na gałąź przez merge request scalony metodą rebase, a zadanie może w ogóle nie wymagać kodu, więc traktuj tę liczbę jako kontekst, a nie ocenę.
+- Liczba pokazuje 0 do pierwszej synchronizacji po wersji 1.55.0, która ponownie przetworzy warstwę kodu.`,
+  },
+  {
     version: "1.55.0",
     date: "2026-11-05",
     en: `**Data profile: commits that name a task.**

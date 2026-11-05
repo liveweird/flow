@@ -65,6 +65,10 @@ class ReportTaskCodeTest {
                 // (its one merge request is deleted). The other team's task, the credit-less one, the one done on day 40 and the sub-task
                 // are not in the team's population.
                 assertEquals(listOf(6, 4, 2), report.counts())
+                // Named by a commit only: of the two without a merged merge request, TCA-6 (a plain commit, a merge commit carrying the
+                // branch key and the other source's commit; its deleted commit adds nothing). TCA-3 has only a DELETED commit, TCA-1 is
+                // named by a commit too but has merged merge requests, and the candidates naming nobody link nothing.
+                assertEquals(1, report.tasks.namedByCommitsOnly)
                 assertEquals(2.0 / 6.0, assertNotNull(report.tasks.withoutShare), 1e-12)
                 // Code lead time = start -> LAST merge, in working days: TCA-1 d0 -> d3 12:00 (the glB merge request, the same mr id as
                 // glA's first) = 3.5; TCA-2 d1 -> d8 over the weekend = 5; TCB-7 d7 -> d10 12:00 (the merge request naming its OLD key,
@@ -95,15 +99,18 @@ class ReportTaskCodeTest {
             // The domain adds the other team's TCA-11 (d1 -> d3 = 2) and the credit-less TCA-13 (d1 -> d4 = 3), both merged on time.
             val domainReport = client.taskCode("domain=$domain&$period&connectionId=$jiraA")
             assertEquals(listOf(8, 6, 2), domainReport.counts())
+            assertEquals(1, domainReport.tasks.namedByCommitsOnly)
             assertDistribution("domain lead", listOf(3.5, 5.0, 3.5, 2.0, 3.0), domainReport.codeLeadTimeWorkingDays, 3)
             assertEquals(2, domainReport.mergedAfterDone.count)
             assertEquals(2.0 / 6.0, assertNotNull(domainReport.mergedAfterDone.share), 1e-12)
             // A team and the domain agree on the team's own tasks: the other team is its own.
             val other = client.taskCode(team(teamB))
             assertEquals(listOf(1, 1, 0), other.counts())
+            assertEquals(0, other.tasks.namedByCommitsOnly)
             assertDistribution("other lead", listOf(2.0), other.codeLeadTimeWorkingDays, 3)
             val unassigned = client.taskCode(team(0u))
             assertEquals(listOf(1, 1, 0), unassigned.counts())
+            assertEquals(0, unassigned.tasks.namedByCommitsOnly)
             assertDistribution("unassigned lead", listOf(3.0), unassigned.codeLeadTimeWorkingDays, 3)
             assertEquals(0.0, assertNotNull(unassigned.tasks.withoutShare), 1e-12)
         }
@@ -137,13 +144,82 @@ class ReportTaskCodeTest {
         }
 
     @Test
+    fun `a commit naming a moved task's old key counts it, and the merge-request figures do not move`() = testApplication {
+        usePostgresTestcontainer()
+        val client = seededClient("task-code-commit-old-key", FlowUserRole.USER)
+        inWorld {
+            pin(this)
+            val before = client.taskCode(team())
+            // TCB-8 (done d7) was TCA-60 until day 6. Nothing names it but a commit titled with its OLD key.
+            task(108, "TCB-8", 2, 7, movedFrom = "TCA-60")
+            publish()
+            val unnamed = client.taskCode(team())
+            assertEquals(listOf(7, 4, 3), unnamed.counts())
+            assertEquals(1, unnamed.tasks.namedByCommitsOnly)
+            writeCommits(glA, commit(repeatedSha('2'), "TCA-60 direct to main", day = 6))
+            val named = client.taskCode(team())
+            assertEquals(2, named.tasks.namedByCommitsOnly)
+            assertTrue(named.tasks.namedByCommitsOnly <= named.tasks.withoutMergeRequest)
+            // Everything else is the world without the commit: it is a subset count, not a link.
+            assertEquals(unnamed.counts(), named.counts())
+            assertEquals(unnamed.tasks.withoutShare, named.tasks.withoutShare)
+            assertEquals(unnamed.quality.asList(), named.quality.asList())
+            assertEquals(before.codeLeadTimeWorkingDays.n, named.codeLeadTimeWorkingDays.n, "TCB-8 has no merge request: no lead time")
+        }
+    }
+
+    @Test
+    fun `a commit naming a key of two Jira sources links to none, whatever connectionId narrows the tasks to`() = testApplication {
+        usePostgresTestcontainer()
+        val client = seededClient("task-code-commit-ambiguous", FlowUserRole.USER)
+        inWorld {
+            pin(this)
+            task(107, "TCA-9", 1, 4)
+            publish()
+            writeCommits(glA, commit(repeatedSha('3'), "TCA-9: straight to main"))
+            val all = "teamId=$teamA&$period"
+            val scoped = "teamId=$teamA&$period&connectionId=$jiraA"
+            assertEquals(2, client.taskCode(all).tasks.namedByCommitsOnly, "TCA-6 and TCA-9 while one source names TCA-9")
+            task(207, "TCA-9", null, null, connId = withSecondJira())
+            for (query in listOf(all, scoped)) {
+                val after = client.taskCode(query)
+                assertEquals(1, after.tasks.namedByCommitsOnly, "TCA-9 names two issues: the commit links to none ($query)")
+                assertEquals(1, after.quality.tasksWithAmbiguousKey, query)
+            }
+        }
+    }
+
+    @Test
+    fun `commit rows never push a selection the merge-request read answers over the budget`() = testApplication {
+        // The team's nine live merge-request link rows fit exactly. Its three commit rows would be over a budget they shared.
+        configureApp("reports.codeMaxRows" to "9")
+        startApplication()
+        val client = seededClient("task-code-own-budget", FlowUserRole.USER)
+        inWorld {
+            pin(this)
+            assertEquals(1, client.taskCode(team()).tasks.namedByCommitsOnly)
+        }
+    }
+
+    @Test
+    fun `one row under the merge-request link rows still refuses, as it did without the commit read`() = testApplication {
+        configureApp("reports.codeMaxRows" to "8")
+        startApplication()
+        val client = seededClient("task-code-tight-budget", FlowUserRole.USER)
+        inWorld {
+            pin(this)
+            assertTrue(client.refused(team()).startsWith("The selection reads more than 8 code rows"))
+        }
+    }
+
+    @Test
     fun `a selection over the code-row budget is a 400 that says to narrow it, and one under it answers`() = testApplication {
         configureApp("reports.codeMaxRows" to "3")
         startApplication()
         val client = seededClient("task-code-budget", FlowUserRole.USER)
         inWorld {
             pin(this)
-            // The team's keys name six merge requests' worth of link rows (TCA-1 alone three): over a budget of 3, never a cut figure.
+            // The team's keys name nine live merge-request link rows (TCA-1 alone three): over a budget of 3, never a cut figure.
             val detail = "The selection reads more than 3 code rows (commits, merge requests and review events) - " +
                 "narrow the period or pick fewer people"
             assertEquals(detail, client.refused(team()))
@@ -171,6 +247,7 @@ class ReportTaskCodeTest {
                 // A sprint period with no sprint to resolve reads nothing: every figure is empty, the quality included.
                 val empty = client.taskCode("teamId=$teamA&lastSprints=1&connectionId=$jiraA")
                 assertEquals(listOf(0, 0, 0), empty.counts())
+                assertEquals(0, empty.tasks.namedByCommitsOnly)
                 assertNull(empty.tasks.withoutShare)
                 assertNull(empty.mergedAfterDone.share)
                 assertTrue(empty.codeLeadTimeWorkingDays.hidden && empty.mergedAfterDone.lagWorkingDays.hidden)

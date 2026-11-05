@@ -114,7 +114,7 @@ data class HomeTeamCode(
      * and how many have no MERGED merge request naming them. Neutral context, no trend and no verdict. It does not depend on the
      * team's linked people. `null` = that read was over `reports.codeMaxRows` (the rest of the section is intact).
      */
-    val tasks: TaskCodeTasks?,
+    val tasks: HomeTaskCodeTasks?,
 )
 
 /**

@@ -21,7 +21,7 @@ const hidden = (n: number): Distribution => ({ n, hidden: true, histogram: [] })
 export const TASK_CODE: TaskCodeReport = {
   meta: META,
   sources: [{ connectionId: 7, name: "Stub GitLab", baseUrl: "http://gitlab-stub:8080", lastSyncAt: 1_780_000_000_000, commitFilesPending: 0, mrDetailsPending: 0 }],
-  tasks: { done: 40, withMergeRequest: 24, withoutMergeRequest: 16, withoutShare: 0.4 },
+  tasks: { done: 40, withMergeRequest: 24, withoutMergeRequest: 16, namedByCommitsOnly: 5, withoutShare: 0.4 },
   codeLeadTimeWorkingDays: shownDistribution([6, 9, 5, 3, 1], 0, 2, { p50: 3.5, p90: 7.5, p95: 8.5, mean: 3.9 }),
   mergedAfterDone: {
     count: 6,
@@ -38,7 +38,7 @@ export const TASK_CODE_CLEAN: TaskCodeReport = { ...TASK_CODE, quality: { neverS
 export const TASK_CODE_NO_SOURCES: TaskCodeReport = {
   ...TASK_CODE,
   sources: [],
-  tasks: { done: 40, withMergeRequest: 0, withoutMergeRequest: 40, withoutShare: 1 },
+  tasks: { done: 40, withMergeRequest: 0, withoutMergeRequest: 40, namedByCommitsOnly: 0, withoutShare: 1 },
   codeLeadTimeWorkingDays: hidden(0),
   mergedAfterDone: { count: 0, lagWorkingDays: hidden(0) },
   quality: { neverStarted: 0, onlyUnmergedMrs: 0, tasksWithAmbiguousKey: 0 },
@@ -47,7 +47,7 @@ export const TASK_CODE_NO_SOURCES: TaskCodeReport = {
 /** Few tasks with a merged merge request: both distributions withheld, the counts stay. */
 export const TASK_CODE_SMALL: TaskCodeReport = {
   ...TASK_CODE,
-  tasks: { done: 9, withMergeRequest: 3, withoutMergeRequest: 6, withoutShare: 6 / 9 },
+  tasks: { done: 9, withMergeRequest: 3, withoutMergeRequest: 6, namedByCommitsOnly: 0, withoutShare: 6 / 9 },
   codeLeadTimeWorkingDays: hidden(3),
   mergedAfterDone: { count: 1, share: 1 / 3, lagWorkingDays: hidden(1) },
   quality: { neverStarted: 0, onlyUnmergedMrs: 0, tasksWithAmbiguousKey: 0 },
@@ -56,7 +56,7 @@ export const TASK_CODE_SMALL: TaskCodeReport = {
 /** A source is active but no task was done in the period: no share to print, three cards that say there is no data. */
 export const TASK_CODE_QUIET: TaskCodeReport = {
   ...TASK_CODE,
-  tasks: { done: 0, withMergeRequest: 0, withoutMergeRequest: 0 },
+  tasks: { done: 0, withMergeRequest: 0, withoutMergeRequest: 0, namedByCommitsOnly: 0 },
   codeLeadTimeWorkingDays: hidden(0),
   mergedAfterDone: { count: 0, lagWorkingDays: hidden(0) },
   quality: { neverStarted: 0, onlyUnmergedMrs: 0, tasksWithAmbiguousKey: 0 },
@@ -65,7 +65,7 @@ export const TASK_CODE_QUIET: TaskCodeReport = {
 /** Done tasks, none with a merged merge request: no share for the merged-after-done tile. */
 export const TASK_CODE_NO_MERGES: TaskCodeReport = {
   ...TASK_CODE,
-  tasks: { done: 12, withMergeRequest: 0, withoutMergeRequest: 12, withoutShare: 1 },
+  tasks: { done: 12, withMergeRequest: 0, withoutMergeRequest: 12, namedByCommitsOnly: 0, withoutShare: 1 },
   codeLeadTimeWorkingDays: hidden(0),
   mergedAfterDone: { count: 0, lagWorkingDays: hidden(0) },
   quality: { neverStarted: 0, onlyUnmergedMrs: 4, tasksWithAmbiguousKey: 0 },
@@ -89,5 +89,18 @@ export function taskCodeItems(count: number, over: Partial<ReportDrillItems> = {
     total: count,
     truncated: count > 3,
     ...over,
+  };
+}
+
+/** The tasks behind "Named by a commit only": their `linkedKeys` are the naming commits, `<project path>@<sha12>`, not merge requests. */
+export function taskCodeCommitItems(count: number): ReportDrillItems {
+  const base = taskCodeItems(count);
+  return {
+    ...base,
+    items: [
+      { ...base.items[0], linkedKeys: ["grp/app@3f9a1c2b4d5e", "grp/sub/api@0123456789ab"] },
+      { ...base.items[1], linkedKeys: ["grp/app@abcdef012345"] },
+      { ...base.items[2], figure: null, linkedKeys: [] },
+    ],
   };
 }

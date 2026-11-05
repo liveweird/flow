@@ -105,6 +105,22 @@ internal suspend fun fetchMergeRequestKeys(refs: Collection<CodeMrRef>): Map<Cod
 }
 
 /**
+ * The `<project path>@<sha12>` key of each of [refs] (a project whose row is gone, not expected, is `#<projectId>@<sha12>`): the commit
+ * side of Report 22's `TASKS_COMMITS_ONLY` drill, which lists the commits that name a task by these keys (the SPA links `@` keys to
+ * `/-/commit/`). Like every label read it runs for the LISTED rows only.
+ */
+internal suspend fun fetchCommitKeys(refs: Collection<CodeCommitRef>): Map<CodeCommitRef, String> {
+    val paths = fetchProjectPaths(refs.map { it.connectionId to it.projectId }.distinct())
+    return refs.associateWith { ref ->
+        "${paths[ref.connectionId to ref.projectId] ?: "#${ref.projectId}"}@${ref.sha.take(CODE_SHA_KEY_LENGTH)}"
+    }
+}
+
+/** The order of `<project path>@<sha12>` keys: by path, then sha (not the plain string, where `a@x` would sort after `a/b@x`). */
+internal val COMMIT_KEY_ORDER: Comparator<String> =
+    compareBy<String> { it.substringBeforeLast('@') }.thenBy { it.substringAfterLast('@', "") }
+
+/**
  * The order of `<project path>!<iid>` keys: by path, then NUMERIC iid (`!2` before `!10`), then the plain string. A key that does not
  * parse (the `#mr-<id>` of a vanished row, or any text without a numeric iid after the last `!`) sorts after every parsed one, among
  * its kind by plain string, so the order is total and deterministic.

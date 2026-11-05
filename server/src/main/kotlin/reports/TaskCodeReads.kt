@@ -2,6 +2,8 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.metrics.ISSUE_KEY_FIELD_ID
 import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.norm.CodeActivityStore.CodeCommitIssueKeys
+import ch.nokillswit.norm.CodeActivityStore.CodeCommits
 import ch.nokillswit.norm.CodeActivityStore.CodeMergeRequests
 import ch.nokillswit.norm.CodeActivityStore.CodeMrIssueKeys
 import ch.nokillswit.norm.WorkItemStore.FieldChanges
@@ -132,6 +134,31 @@ internal suspend fun fetchTaskLinks(gitlabIds: Collection<UInt>, keys: Collectio
             .toBudgetedList(budget) {
                 val merged = it[m.state] == MR_MERGED
                 TaskCodeLink(it[k.issueKey], CodeMrRef(it[k.connectionId].value, it[k.mrId]), if (merged) it[m.mergedAt] else null)
+            }
+    }
+}
+
+/**
+ * The live commits of [gitlabIds] whose title names one of [keys] (V47 `norm.code_commit_issue_keys`, joined to `code_commits` on the
+ * PK prefix `(connection_id, project_id, sha)` for `deleted_at`), one row per (commit, key) - the twin of [fetchTaskLinks] on
+ * `idx_norm_code_commit_issue_keys_key`. Charged to its own [budget], separate from the merge-request read's; over it, the same 400.
+ */
+internal suspend fun fetchTaskCommitLinks(
+    gitlabIds: Collection<UInt>,
+    keys: Collection<String>,
+    budget: CodeRowBudget,
+): List<TaskCodeCommitLink> {
+    if (gitlabIds.isEmpty() || keys.isEmpty()) return emptyList()
+    val k = CodeCommitIssueKeys
+    val c = CodeCommits
+    val source = k.join(c, JoinType.INNER, k.connectionId, c.connectionId, additionalConstraint = {
+        (k.projectId eq c.projectId) and (k.sha eq c.sha)
+    })
+    return keys.distinct().chunked(IN_CHUNK).flatMap { chunk ->
+        source.select(k.issueKey, k.connectionId, k.projectId, k.sha)
+            .where { (k.connectionId inList gitlabIds) and (k.issueKey inList chunk) and c.deletedAt.isNull() }
+            .toBudgetedList(budget) {
+                TaskCodeCommitLink(it[k.issueKey], CodeCommitRef(it[k.connectionId].value, it[k.projectId], it[k.sha]))
             }
     }
 }

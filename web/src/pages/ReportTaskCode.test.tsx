@@ -99,9 +99,35 @@ describe("ReportTaskCode page", () => {
     // Neutral: no direction is claimed for these counts. The two counts open their tasks (the drill's own tests are in ReportTaskCodeDrill.test.tsx); the Done total is text.
     expect(screen.getByText(/No direction is better here: a task may need no code\./)).toBeInTheDocument();
     expect(within(tile("Done tasks")).queryAllByRole("button")).toHaveLength(0);
-    for (const name of ["With a merged merge request", "Without a merged merge request"]) {
+    for (const name of ["With a merged merge request", "Without a merged merge request", "Named by a commit only"]) {
       expect(within(tile(name)).getAllByRole("button")).toHaveLength(1);
     }
+  });
+
+  test("named by a commit only: a fourth, neutral tile that says it is part of the without count, not a fourth group; zero is plain text", async () => {
+    serve(mockFetch);
+    const { unmount } = renderPage();
+    await screen.findByRole("heading", { level: 3, name: "Done tasks and their merge requests" });
+    const commits = tile("Named by a commit only");
+    expect(within(commits).getByText("5")).toBeInTheDocument();
+    expect(commits).toHaveTextContent("A commit on the default branch names the task, no merge request does.");
+    // A subset of "without" (16), so it comes after the three tiles that add up to the done tasks (the order, the caption and the hint say so). Slice 0 is the long-tail group.
+    expect(screen.getByText(/“Named by a commit only” is part of the tasks without a merged merge request, not a further group\./)).toBeInTheDocument();
+    expect(screen.getAllByRole("group").map((group) => group.getAttribute("aria-label")).slice(1, 5)).toEqual([
+      "Done tasks",
+      "With a merged merge request",
+      "Without a merged merge request",
+      "Named by a commit only",
+    ]);
+    // The description says what a commit is matched on, and that a pushed commit cannot be told from a rebased merge request's.
+    expect(screen.getByText(/a commit on the default branch names a task when its title does, and the page cannot tell a commit pushed without a merge request/)).toBeInTheDocument();
+    unmount();
+
+    serve(mockFetch, () => jsonResponse(200, TASK_CODE_NO_MERGES));
+    renderPage();
+    await screen.findByRole("heading", { level: 3, name: "Done tasks and their merge requests" });
+    expect(within(tile("Named by a commit only")).getByText("0")).toBeInTheDocument();
+    expect(within(tile("Named by a commit only")).queryAllByRole("button")).toHaveLength(0);
   });
 
   test("the code lead time: a distribution in working days with its numbers as a table, lower is better in words", async () => {

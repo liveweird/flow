@@ -43,7 +43,15 @@ class ReportTaskCodeFixtureTest {
     private class OracleMr(val key: String, val connectionId: Int, val mrId: Long, val mergedAt: Long?, val mrKey: String)
 
     /** What one done task got: the `<path>!<iid>` keys of its merged and unmerged linked merge requests, its lead time and its lag. */
-    private class OracleResult(val key: String, val merged: Set<String>, val unmerged: Set<String>, val lead: Double?, val lag: Double?)
+    private class OracleResult(
+        val key: String,
+        val merged: Set<String>,
+        val unmerged: Set<String>,
+        val lead: Double?,
+        val lag: Double?,
+        /** The `<path>@<sha12>` keys of the live default-branch commits naming the task (V47). */
+        val commits: Set<String>,
+    )
 
     private fun placeholders(n: Int) = List(n) { "?" }.joinToString(",", "(", ")")
 
@@ -77,6 +85,24 @@ class ReportTaskCodeFixtureTest {
             OracleMr(it[0] as String, (it[1] as Number).toInt(), (it[2] as Number).toLong(), mergedAt, it[5] as String)
         }
     }
+
+    /** The live commits of the active GitLab sources whose title names one of [keys] (V47): (key, `<path>@<sha12>`) pairs. */
+    private fun commitLinks(keys: Collection<String>): List<Pair<String, String>> {
+        val gitlab = gitlabIds()
+        if (keys.isEmpty() || gitlab.isEmpty()) return emptyList()
+        return jdbcRows(
+            "SELECT DISTINCT k.issue_key, p.path_with_namespace || '@' || left(k.sha, 12) " +
+                "FROM norm.code_commit_issue_keys k " +
+                "JOIN norm.code_commits c ON c.connection_id = k.connection_id AND c.project_id = k.project_id AND c.sha = k.sha " +
+                "JOIN norm.code_projects p ON p.connection_id = c.connection_id AND p.project_id = c.project_id " +
+                "WHERE c.deleted_at IS NULL AND k.connection_id IN ${placeholders(gitlab.size)} " +
+                "AND k.issue_key IN ${placeholders(keys.size)}",
+            *gitlab.toTypedArray(), *keys.toTypedArray(),
+        ).map { it[0] as String to it[1] as String }
+    }
+
+    /** `<path>@<sha12>` keys by path, then sha (the oracle's own order). */
+    private fun List<String>.byPathThenSha() = sortedWith(compareBy({ it.substringBeforeLast('@') }, { it.substringAfterLast('@') }))
 
     /** The ids of the active Jira sources: the ones that decide whether a key names one issue. */
     private fun activeJiraIds(): List<Int> = jdbcRows(
@@ -126,6 +152,7 @@ class ReportTaskCodeFixtureTest {
         val done: Int,
         val withMr: Int,
         val onlyUnmerged: Int,
+        val commitsOnly: Int,
         val neverStarted: Int,
         val ambiguous: Int,
         val late: Int,
@@ -138,7 +165,9 @@ class ReportTaskCodeFixtureTest {
         val keys = population.map { it.key }.distinct()
         val perKey = issuesPerKey(keys)
         val byKey = links(keys.filter { perKey[it] == 1 }).groupBy { it.key }
+        val commitsByKey = commitLinks(keys.filter { perKey[it] == 1 }).groupBy({ it.first }) { it.second }
         var withMr = 0
+        var commitsOnly = 0
         var onlyUnmerged = 0
         var late = 0
         val leads = mutableListOf<Double>()
@@ -157,11 +186,13 @@ class ReportTaskCodeFixtureTest {
                 lags += it
             }
             val (merged, unmerged) = mrs.partition { it.mergedAt != null }
-            results += OracleResult(task.key, merged.map { it.mrKey }.toSet(), unmerged.map { it.mrKey }.toSet(), lead, lag)
+            val commits = commitsByKey[task.key].orEmpty().toSet()
+            if (merges.isEmpty() && commits.isNotEmpty()) commitsOnly++
+            results += OracleResult(task.key, merged.map { it.mrKey }.toSet(), unmerged.map { it.mrKey }.toSet(), lead, lag, commits)
         }
         val ambiguous = population.count { (perKey[it.key] ?: 0) > 1 }
         val neverStarted = population.count { it.startedAt == null }
-        return Expected(population.size, withMr, onlyUnmerged, neverStarted, ambiguous, late, leads, lags, results)
+        return Expected(population.size, withMr, onlyUnmerged, commitsOnly, neverStarted, ambiguous, late, leads, lags, results)
     }
 
     private suspend fun HttpClient.taskCode(query: String): TaskCodeReport {
@@ -176,13 +207,14 @@ class ReportTaskCodeFixtureTest {
         val min = meta.minSampleSize
         val counts = listOf(tasks.done, tasks.withMergeRequest, tasks.withoutMergeRequest)
         assertEquals(listOf(want.done, want.withMr, want.done - want.withMr), counts, "$label tasks")
+        assertEquals(want.commitsOnly, tasks.namedByCommitsOnly, "$label named by a commit only")
         assertEquals(want.onlyUnmerged, quality.onlyUnmergedMrs, "$label only unmerged")
         assertEquals(want.neverStarted, quality.neverStarted, "$label never started")
         assertEquals(want.ambiguous, quality.tasksWithAmbiguousKey, "$label tasks with an ambiguous key")
         assertEquals(want.late, mergedAfterDone.count, "$label merged after done")
         assertDistribution("$label code lead time", want.leads, codeLeadTimeWorkingDays, min)
         assertDistribution("$label merge lag", want.lags, mergedAfterDone.lagWorkingDays, min)
-        val figures = listOf(want.done, want.withMr, want.onlyUnmerged, want.ambiguous, want.late, want.leads.size)
+        val figures = listOf(want.done, want.withMr, want.onlyUnmerged, want.ambiguous, want.late, want.leads.size, want.commitsOnly)
         println("fixture\ttask-code\t$label\t${figures.joinToString("/")}")
     }
 
@@ -212,6 +244,13 @@ class ReportTaskCodeFixtureTest {
         without.assertWhole(want.done - want.withMr, "without")
         val wantWithout = want.results.filter { it.merged.isEmpty() }.associate { it.key to it.unmerged.sorted() }
         assertEquals(wantWithout, without.linked(), "$label without")
+        val commitsOnly = drill(query, "view=TASKS_COMMITS_ONLY")
+        commitsOnly.assertWhole(want.commitsOnly, "commits only")
+        val wantCommits = want.results.filter { it.merged.isEmpty() && it.commits.isNotEmpty() }
+            .associate { it.key to it.commits.toList().byPathThenSha() }
+        assertEquals(wantCommits, commitsOnly.linked(), "$label commits only")
+        assertTrue(commitsOnly.items.all { it.measuredKey == null && it.figure == null }, "$label commits only measures nothing")
+        assertTrue(commitsOnly.keys().all { it in without.keys() }, "$label commits only is a subset of without")
         val late = drill(query, "view=MERGED_AFTER_DONE")
         late.assertWhole(want.late, "late")
         assertEquals(want.results.filter { it.lag != null }.associate { it.key to it.merged.sorted() }, late.linked(), "$label late")
