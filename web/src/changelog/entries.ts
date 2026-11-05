@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.54.0",
+    date: "2026-11-05",
+    en: `**Cycle time: a domain across the whole unit.**
+
+- Once you pick a domain, the Team control can be cleared: the page then reads that domain across all teams, and the Team control says "No team: a domain is picked".
+- Clearing the domain brings a team back. The choice survives a reload and the next visit. People can be picked only within a team, so the member control appears again once a team is back.`,
+    pl: `**Czas cyklu: domena w całej jednostce.**
+
+- Po wybraniu domeny można wyczyścić pole Zespół: strona pokazuje wtedy tę domenę we wszystkich zespołach, a pole Zespół podpowiada „Brak zespołu: wybrano domenę”.
+- Wyczyszczenie domeny przywraca zespół. Wybór przetrwa odświeżenie strony i kolejną wizytę. Osoby można wybierać tylko w ramach zespołu, więc pole wyboru osób wraca razem z zespołem.`,
+  },
+  {
     version: "1.53.0",
     date: "2026-11-04",
     en: `**Home: done tasks without a merged merge request.**

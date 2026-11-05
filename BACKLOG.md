@@ -103,9 +103,8 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   issue's key (and its old keys), from `norm.code_mr_issue_keys` by the same resolution as Report 22, to debug a missing or ambiguous link.
 - [new] **Commit-title keys (A51/D5 alternative).** Also extract keys from `norm.code_commits.title` into a sibling table, so direct-to-default commits that
   bypass a merge request link to their task; a later PR with no schema conflict, plus a "commits with no merge request" figure on Report 21.
-- [new] **Cycle time: a domain across every team.** The API answers a domain with no team, but the page is `teamRequired` without `teamOrDomain`, so a `?domain=` link gets a
-  team swapped in and the page cannot read a domain-wide figure at all. Other `teamRequired` pages with a domain control (Throughput, Task accuracy and more) behave the same way.
-  Tasks and code has this since 1.52.0 (`teamClearableUnderDomain`); decide which of the others should have it.
+- [new] **The other pages' domain across every team.** Tasks and code (1.52.0) and Cycle time (1.54.0) let a team be cleared under a domain (`teamClearableUnderDomain`). The API answers a domain with
+  no team on the other `teamRequired` pages with a domain control too (Throughput, Task accuracy and more), but there a `?domain=` link gets a team swapped in and no domain-wide figure can be read. Decide which should have it.
 - [new] **A scaled measurement of Report 22's reads at plan density.** The 90-day request is measured on the base stub (15 ms in-test); measure the
   four-step read (population, old keys, key resolution, link rows) at 21k merge requests and a whole-domain period, and record it in `build-times.md`.
 - [new] **Tests leave their Jira sources behind, and every report request pays for them.** About 300 per fork at the end of a full run (304 counted 2026-11-04; about

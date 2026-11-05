@@ -356,7 +356,7 @@ export interface ReportControls {
    * With `teamRequired` + `domainExcludesTeam` (WIP): the report needs exactly ONE of a specific team or a specific domain, never neither
    * (the daily aggregate has no whole-unit view here and no team × domain split). A picked domain stands in for the team — the team
    * control then shows no team and is still not clearable — and clearing the domain falls back to the default team (`requiredTeamId`).
-   * Without `domainExcludesTeam` (Tasks and code: the server reads a team x domain) the domain does not replace the team, and a held team may be cleared while a domain is set
+   * Without `domainExcludesTeam` (Tasks and code, Cycle time: the server reads a team x domain) the domain does not replace the team, and a held team may be cleared while a domain is set
    * (`teamClearableUnderDomain`): the report is then read for that domain across the whole unit.
    */
   teamOrDomain?: boolean;
@@ -402,7 +402,7 @@ export function domainStandsForTeam(controls: Pick<ReportControls, "teamOrDomain
 /**
  * True when the team control may be cleared although the report is `teamRequired`: the report reads a team OR a domain (`teamOrDomain`) WITHOUT excluding one by the
  * other (`domainExcludesTeam`, which already swaps them on a pick), the filter names a domain and holds a team. Clearing it leaves the domain alone, a read across the whole unit
- * for that domain (`domainStandsForTeam` then holds). Tasks and code is the only page in this case. ONE definition for the select's `clearable` and the clear handler.
+ * for that domain (`domainStandsForTeam` then holds). Tasks and code and Cycle time are the pages in this case. ONE definition for the select's `clearable` and the clear handler.
  */
 export function teamClearableUnderDomain(
   controls: Pick<ReportControls, "teamRequired" | "teamOrDomain" | "domainExcludesTeam">,

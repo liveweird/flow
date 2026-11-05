@@ -113,6 +113,9 @@ class ReportCycleTimeTest {
             body.assertMatches("$from..$to", expected)
             assertEquals("TASK", body.meta.domainView.name)
         }
+        // A domain with no team and a sprint period (what clearing the team leaves in the bar): every team's last sprints, one window.
+        val bySprints = client.cycleTime("connectionId=$connId&domain=$FLO_DOMAIN&lastSprints=3")
+        assertTrue(bySprints.workingDays.n > 0, "the sprint window holds done tasks")
         // The stub fixture has NO DONE task that never started (every generated DONE task passed through IN_PROGRESS), so
         // the `neverStarted` exclusion is only non-vacuous on the hand-built rows below; here it is pinned as 0 = independent.
     }
