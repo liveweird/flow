@@ -30,12 +30,13 @@ import ScrollRegion from "../components/ScrollRegion";
 const CycleTimeTrendChart = lazy(() => import("../components/CycleTimeTrendChart"));
 
 /**
- * Cycle time is read per team — never the whole unit — and the member control picks several people, whose two histograms stack
- * per person (the trend and the epics stay the whole selection). It honours the domain view (delivered in — the default),
- * domain, activity type and work category, and trends by week or month. A module-level constant: the hook reads its identity.
+ * Cycle time is read per team, or for a domain across the unit once the team is cleared under it (`teamOrDomain`, `teamClearableUnderDomain`, 1.54.0), never for the whole
+ * unit. The member control picks several people, whose two histograms stack per person (the trend and the epics stay the whole selection). It honours the domain view
+ * (delivered in — the default), domain, activity type and work category, and trends by week or month. A module-level constant: the hook reads its identity.
  */
 const CONTROLS: ReportControls = {
   teamRequired: true,
+  teamOrDomain: true,
   multiMember: true,
   domainView: "TASK",
   domain: true,

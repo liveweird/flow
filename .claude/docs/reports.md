@@ -1235,7 +1235,7 @@ AccuracyMeasures { pred10, pred25, pred50, mdmre, smape, iqr, idr, mad, tailShar
   (`accountId` null = unassigned); USER: one per picked account (a pick with no task an empty entry). Each group carries its own two
   distributions -- **hidden below `minSampleSize`, `n` always set**, so `Σ group n == n` -- and its own `excluded`.
 - **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput, cycle time,
-  reported time and adjustments; the web page also requires a team; the server takes a `teamId` or a `domain`, "Scope" above). `atStart` and `atDone` read the UNION of the picked
+  reported time and adjustments; the web page also requires a team (Cycle time reads a domain with no team since 1.54.0, and then has no member control); the server takes a `teamId` or a `domain`, "Scope" above). `atStart` and `atDone` read the UNION of the picked
   people (their done tasks, assignee at done) and carry `byUser`: every histogram bucket split per picked person
   (`buildDistributionByUser`, request order, a zero share for a pick with no task). `excluded` and the accuracy measures stay over the union;
   `groups` lists each pick (the TEAM-level rule per person, ordered label then account id) with its own PLAIN distributions. One `accountId`
@@ -1388,7 +1388,8 @@ tasks (D2) with `done_at` in the window; team = the D5 **credit** team (`teamId=
 at done, domain per `domainView` (default `TASK`, D3), plus `activityType`/`workCategory`; a `lastSprints`/`sprintId`
 period reads the resolved sprints' envelope, as throughput's period view. **Epics are in report 7 only, as its
 separate `epics` block** (from `fact_epic_delivery`, below); report 8 stays tasks-only (the reported-time ratio and flow
-efficiency are task measures).
+efficiency are task measures). The Cycle time page reads a domain across the unit once its team is cleared under the domain (1.54.0, `teamClearableUnderDomain`,
+the way Tasks and code does since 1.52.0); the server already answered it (`TEAM_OR_DOMAIN`), with one group per team.
 
 ### Report 7 -- `GET /api/v1/reports/cycle-time`
 
