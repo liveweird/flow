@@ -66,6 +66,7 @@ class MigrationChecksumTest {
         "V44__norm_code_layer.sql" to 186702799,
         "V45__code_identity_links.sql" to 217915256,
         "V46__norm_code_mr_issue_keys.sql" to -1800751679,
+        "V47__norm_code_commit_issue_keys.sql" to -113469273,
     )
 
     @Test

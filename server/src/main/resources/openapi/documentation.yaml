@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: flow-api
-  version: 1.54.0
+  version: 1.55.0
   description: |
     JWT-authenticated REST API for Flow — a developer-intelligence tool that reads Jira Cloud, stores the raw data
     incrementally and derives flow metrics (cycle and lead time, throughput, WIP, flow efficiency, work-item age),
@@ -5714,7 +5714,7 @@ components:
         archived: { type: integer, format: int64, minimum: 0 }
     GitLabCommitsProfile:
       type: object
-      required: [count, merges, filesPending, filesUnavailable, filesCapped, commitsWithCounts]
+      required: [count, merges, filesPending, filesUnavailable, filesCapped, commitsWithCounts, withIssueKeyCandidates, issueKeyCandidates]
       description: The live commits. `count` is non-merge commits; the commit-time range covers all live commits.
       properties:
         count: { type: integer, format: int64, minimum: 0 }
@@ -5725,6 +5725,8 @@ components:
         filesUnavailable: { type: integer, format: int64, minimum: 0, description: "Live commits whose diff ended in a terminal error." }
         filesCapped: { type: integer, format: int64, minimum: 0, description: "Non-merge commits with more files than were stored (the first 1,000)." }
         commitsWithCounts: { type: integer, format: int64, minimum: 0, description: "Non-merge commits whose counted lines (after the path exclusions) are known." }
+        withIssueKeyCandidates: { type: integer, format: int64, minimum: 0, description: "Live commits (merge commits included) whose title names at least one Jira issue-key CANDIDATE (a KEY-123 token); candidates are not yet matched to a Jira task." }
+        issueKeyCandidates: { type: integer, format: int64, minimum: 0, description: "The distinct (commit, key) candidate rows of the live commits, junk tokens (UTF-8, V2-3) included; not yet matched to a Jira task." }
     GitLabMergeRequestsProfile:
       type: object
       required: [byState, withDiffStats, withDiffStatsPercent, detailsPending, detailsUnreadable, withIssueKeyCandidates, issueKeyCandidates]

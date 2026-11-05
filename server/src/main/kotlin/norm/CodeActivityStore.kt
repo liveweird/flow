@@ -130,6 +130,15 @@ class CodeActivityStore(private val database: R2dbcDatabase, private val analyze
         override val primaryKey = PrimaryKey(connectionId, mrId, issueKey)
     }
 
+    /** V47: one row per (commit, candidate key) of the commit's TITLE; replaced with its commit page, drained by PURGE FIRST. */
+    object CodeCommitIssueKeys : Table("norm.code_commit_issue_keys") {
+        val connectionId = reference("connection_id", DataSourceService.Connections)
+        val projectId = long("project_id")
+        val sha = varchar("sha", MAX_SHA)
+        val issueKey = varchar("issue_key", ISSUE_KEY_MAX_LENGTH)
+        override val primaryKey = PrimaryKey(connectionId, projectId, sha, issueKey)
+    }
+
     suspend fun replaceProjects(connectionId: UInt, rows: List<NormCodeProject>) = writer.replaceProjects(connectionId, rows)
 
     /** Rebuilds the connection's identities wholesale; the rows written. */
@@ -186,6 +195,10 @@ class CodeActivityStore(private val database: R2dbcDatabase, private val analyze
     /** The issue-key candidates by merge request id, each list in key order (the tests' reader; the reports query the table). */
     internal suspend fun mrIssueKeyRows(connectionId: UInt, mrId: Long? = null): Map<Long, List<IssueKeyCandidate>> =
         reads.mrIssueKeyRows(connectionId, mrId)
+
+    /** One batch of the connection's commit issue keys (PURGE, drained FIRST, before the merge requests' keys); the rows deleted. */
+    suspend fun purgeCommitIssueKeysBatch(connectionId: UInt, batchSize: Int = NORM_PURGE_BATCH_SIZE): Int =
+        purge.purgeCommitIssueKeysBatch(connectionId, batchSize)
 
     /** One batch of the connection's issue keys (PURGE, drained before the events); the rows deleted. */
     suspend fun purgeMrIssueKeysBatch(connectionId: UInt, batchSize: Int = NORM_PURGE_BATCH_SIZE): Int =
@@ -271,6 +284,8 @@ data class NormCodeCommit(
     val filesCounted: Int?,
     val filesCapped: Boolean,
     val deletedAt: Long?,
+    /** REPLACES the stored key rows on write (V47): a row read back (`commitOf` leaves this empty) must never be fed to the writer. */
+    val issueKeys: List<String> = emptyList(),
 )
 
 /**
@@ -323,6 +338,8 @@ data class CodeProjectCounts(val live: Long, val movedOut: Long, val deleted: Lo
 /**
  * The live commits: [count] non-merge, [merges], the commit-time range of ALL live commits, [filesCapped] (live non-merge, more files than
  * stored) and [commitsWithCounts] (live non-merge with BOTH counted lines figures known: `additions_counted` and `deletions_counted` set).
+ * The V47 issue-key CANDIDATES of the live commits (merge commits included): [withIssueKeyCandidates] (commits whose title names at least
+ * one) and [issueKeyCandidates] (the distinct rows).
  */
 data class CodeCommitFigures(
     val count: Long,
@@ -331,6 +348,8 @@ data class CodeCommitFigures(
     val latestCommittedAt: Long?,
     val filesCapped: Long,
     val commitsWithCounts: Long,
+    val withIssueKeyCandidates: Long,
+    val issueKeyCandidates: Long,
 )
 
 /**

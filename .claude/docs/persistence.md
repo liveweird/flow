@@ -409,7 +409,7 @@ amendment over the architect's original all-`public`-with-prefixes recommendatio
   alongside these rather than inventing a fourth schema.
 - **`norm`** — the neutral, source-agnostic layer every connector normalizes into (`work_items`,
   `sprints`, `boards`, …) — landed at V13 (plan commit 8a, "The normalized layer (V13)" below); the code layer's
-  `code_projects`, `code_identities`, `code_commits`, `code_merge_requests` and `code_mr_events` joined it at V44 ("The normalized code layer (V44)" below), `code_mr_issue_keys` at V46 ("Merge request issue keys (V46)").
+  `code_projects`, `code_identities`, `code_commits`, `code_merge_requests` and `code_mr_events` joined it at V44 ("The normalized code layer (V44)" below), `code_mr_issue_keys` at V46 ("Merge request issue keys (V46)") and `code_commit_issue_keys` at V47 ("Commit issue keys (V47)").
 - **`metrics`** — the metrics layer's own schema: configuration lands first (V15, v0.3.0 M1 commit
   3, "The `metrics` schema — configuration (V15)" below); the derived star (dimensions/bridges/
   facts/daily aggregates) lands at V16, v0.3.0 M3 commit 7 ("The `metrics` schema — the derived
@@ -1448,11 +1448,11 @@ description or note body, and no key holds an email (decision 10).
   events, `insertRows` the fresh set and `upsertRows` the rows. A tombstone is MIRRORED in `deleted_at`, never deleted. Every write joins the caller's
   transaction (the PROCESS page transaction also holds the raw rows' marks). The fact writers skip empty input; the wholesale rebuilds (`replaceProjects`,
   `replaceIdentities`) always delete first, so an empty list empties them.
-- **`CODE_PROCESSING_VERSION`** (`norm/CodeNormalization.kt`, `2` since V46) is separate from Jira's `PROCESSING_VERSION`: bump it on ANY change to the code layer's
+- **`CODE_PROCESSING_VERSION`** (`norm/CodeNormalization.kt`, `3` since V47; `2` at V46) is separate from Jira's `PROCESSING_VERSION`: bump it on ANY change to the code layer's
   rules, and every raw GitLab commit / merge request is claimed again on the next pass with no migration.
 - **PURGE**: `CodeActivityStore.purgeAll` (`norm/CodeActivityPurge.kt`) drains `code_mr_events` (batches of `NORM_PURGE_BATCH_SIZE` rows by their own
   `(mr_id, seq)` key), `code_merge_requests`, `code_commits` (batches by key), then clears `code_identities` and `code_projects` outright. The telemetry size
-  estimate picks the tables up by their `connection_id` column. Purely additive: an old pod never reads them. `MigrationChecksumTest` pins it. (V46 adds a sixth table, `code_mr_issue_keys`, drained FIRST: "Merge request issue keys (V46)" below.)
+  estimate picks the tables up by their `connection_id` column. Purely additive: an old pod never reads them. `MigrationChecksumTest` pins it. (V46 adds a sixth table, `code_mr_issue_keys`, V47 a seventh, `code_commit_issue_keys`, drained FIRST of all: "Merge request issue keys (V46)" and "Commit issue keys (V47)" below.)
 
 ### Merge request issue keys (V46)
 
@@ -1463,7 +1463,7 @@ BIGINT`, and NO foreign key to `norm.code_merge_requests`.
 - **`norm.code_mr_issue_keys`**: PK `(connection_id, mr_id, issue_key)`; `issue_key VARCHAR(20)` the UPPERCASE key; `in_title` / `in_branch` say where the merge
   request names it (a key in both is ONE row, both flags true; the target branch is never read). Every candidate the token rule admits is stored, with no
   knowledge of which Jira projects exist (`UTF-8`, `SHA-256` and a `v2-3` slug included): the reports scope a candidate to the known project keys at read time.
-  `idx_norm_code_mr_issue_keys_key (connection_id, issue_key)` serves task -> merge requests. Merge requests only: commits are linked through their merge request.
+  `idx_norm_code_mr_issue_keys_key (connection_id, issue_key)` serves task -> merge requests. Merge requests only: a commit's own title keys are `code_commit_issue_keys` (V47, below).
 - **REPLACED per merge request** like the events: `replaceMergeRequests` deletes the page's rows `(connection_id, mr_id IN (...))`, `insertRows` the fresh set
   and upserts the merge request rows, in the page transaction. A tombstoned merge request keeps its rows (the keys follow its title and branch; the reports read
   the live merge requests by joining `code_merge_requests`), exactly as its events do.
@@ -1473,6 +1473,23 @@ BIGINT`, and NO foreign key to `norm.code_merge_requests`.
 - **`idx_norm_work_items_issue_key (connection_id, issue_key)`** on `norm.work_items` (V13 had no index on `issue_key`; the primary key is `(connection_id,
   issue_id)`): the key -> issue resolution. A plain `CREATE INDEX` (Flyway runs the migration in a transaction), built over the existing rows once.
 - Purely additive: an old pod never reads either. `MigrationChecksumTest` pins it.
+
+### Commit issue keys (V47)
+
+`V47__norm_code_commit_issue_keys.sql` (`norm/CodeActivityStore.kt` `CodeCommitIssueKeys`; the pure extractor `norm/IssueKeys.kt` `extractIssueKeys`; design `gitlab-integration.md` "Issue keys", A52)
+adds `norm.code_commit_issue_keys`, the twin of V46's table for COMMITS. Same idiom: `connection_id INTEGER REFERENCES public.source_connections(id)` (no `ON DELETE`), and NO
+foreign key to `norm.code_commits`. Purely additive: an old pod never reads it. `MigrationChecksumTest` pins it.
+
+- **`norm.code_commit_issue_keys`**: PK `(connection_id, project_id, sha, issue_key)`; `issue_key VARCHAR(20)` the UPPERCASE key. One row per (commit, candidate) of the commit's
+  TITLE (GitLab's `title` field, which it may shorten from a long first line, `gitlab-integration.md` "Issue keys"; no body is ever stored), merge commits included, with no knowledge of which Jira projects exist (junk included); there is no `in_title` flag (the title is the
+  only source). `idx_norm_code_commit_issue_keys_key (connection_id, issue_key)` serves task -> commits; the commit side is filtered by joining `code_commits` for the live rows.
+- **REPLACED per commit page** with the commit, in the page transaction (the writer deletes the page's `(project_id, sha)` rows and inserts the fresh set). A commit is immutable by
+  sha, so a row changes only with a `CODE_PROCESSING_VERSION` bump. A tombstoned commit keeps its rows; the reports and the profile count the live commits by joining `code_commits`.
+- **PURGE**: `purgeAll` drains `code_commit_issue_keys` FIRST (batches of `NORM_PURGE_BATCH_SIZE` rows by their own `(project_id, sha, issue_key)` key), then `code_mr_issue_keys`, then the events.
+- **`CODE_PROCESSING_VERSION` 3**: the bump re-claims every raw commit and merge request on the next PROCESS (no migration, no refetch), which fills the table; progress `commitIssueKeysStored`.
+  Not in `NORM_CODE_ANALYZED_TABLES` (the PROFILE's candidate counts join it to the live commits by its primary-key prefix, an index probe whatever the estimate; no DERIVE statement reads it).
+  **Rolling deploy:** a pre-1.55.0 worker's PURGE does not drain this table (nothing references it, so the purge still succeeds and leaves orphan key rows), so replace every worker before deleting a GitLab source. While an old and a new worker overlap, each one's PROCESS re-claims the rows the other stamped (the claim is `processing_version <> version`), and an old PROFILE stores its figures without the new counts; all of it heals at the next sync once the old worker is gone, but scale the old worker to 0 first to avoid the churn.
+- **Permissions**: only `gitlab/GitLabConnector` WRITES it, through `CodeActivityStore` (PROCESS's replace, PURGE's drain); the GitLab PROFILE reads its candidate counts through `CodeActivityStore.commitFigures`. No report reads it yet (Report 22's "named by a commit only", PR 2, 1.56.0, adds its entry to the permission list above).
 
 ### Code identity links (V45)
 

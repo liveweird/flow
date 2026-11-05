@@ -1,5 +1,6 @@
 package ch.nokillswit.norm
 
+import ch.nokillswit.norm.CodeActivityStore.CodeCommitIssueKeys
 import ch.nokillswit.norm.CodeActivityStore.CodeCommits
 import ch.nokillswit.norm.CodeActivityStore.CodeIdentities
 import ch.nokillswit.norm.CodeActivityStore.CodeMergeRequests
@@ -19,11 +20,23 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 /**
  * The PURGE step's deletes over `norm.code_*` ([CodeActivityStore] delegates here): one bounded batch per big table per call (the
  * [NormPurge] shape: select a batch of keys, delete them), so a connection with a large history drains in bounded transactions. Events are
- * batched by their own key `(mr_id, seq)` and issue keys by theirs `(mr_id, issue_key)`, never by merge request: nothing cascades between
- * these FK-free tables, so a statement deletes exactly its batch. The two small reference tables are cleared outright. The drain loop is
- * [purgeAll] below.
+ * batched by their own key `(mr_id, seq)` and issue keys by theirs (`(mr_id, issue_key)`; a commit's `(project_id, sha, issue_key)`), never
+ * by merge request or commit: nothing cascades between these FK-free tables, so a statement deletes exactly its batch. The two small
+ * reference tables are cleared outright. The drain loop is [purgeAll] below.
  */
 internal class CodeActivityPurge(private val database: R2dbcDatabase) {
+
+    suspend fun purgeCommitIssueKeysBatch(connectionId: UInt, batchSize: Int): Int = suspendTransaction(database) {
+        val keys = CodeCommitIssueKeys.select(CodeCommitIssueKeys.projectId, CodeCommitIssueKeys.sha, CodeCommitIssueKeys.issueKey)
+            .where { CodeCommitIssueKeys.connectionId eq connectionId }
+            .limit(batchSize)
+            .map { Triple(it[CodeCommitIssueKeys.projectId], it[CodeCommitIssueKeys.sha], it[CodeCommitIssueKeys.issueKey]) }.toList()
+        if (keys.isEmpty()) return@suspendTransaction 0
+        CodeCommitIssueKeys.deleteWhere {
+            (CodeCommitIssueKeys.connectionId eq connectionId) and
+                (Triple(CodeCommitIssueKeys.projectId, CodeCommitIssueKeys.sha, CodeCommitIssueKeys.issueKey) inList keys)
+        }
+    }
 
     suspend fun purgeMrIssueKeysBatch(connectionId: UInt, batchSize: Int): Int = suspendTransaction(database) {
         val keys = CodeMrIssueKeys.select(CodeMrIssueKeys.mrId, CodeMrIssueKeys.issueKey)
@@ -70,10 +83,12 @@ internal class CodeActivityPurge(private val database: R2dbcDatabase) {
 }
 
 /**
- * Drains a connection's `norm.code_*` rows in batches - the PURGE step, the [WorkItemStore.purgeAll] twin: issue keys, events, merge
- * requests, commits, then the reference tables. The batch size defaults to [NORM_PURGE_BATCH_SIZE].
+ * Drains a connection's `norm.code_*` rows in batches - the PURGE step, the [WorkItemStore.purgeAll] twin: the commits' issue keys FIRST,
+ * the merge requests' issue keys, events, merge requests, commits, then the reference tables. The batch size defaults to
+ * [NORM_PURGE_BATCH_SIZE].
  */
 suspend fun CodeActivityStore.purgeAll(connectionId: UInt, batchSize: Int = NORM_PURGE_BATCH_SIZE) {
+    while (purgeCommitIssueKeysBatch(connectionId, batchSize) > 0) { /* drain */ }
     while (purgeMrIssueKeysBatch(connectionId, batchSize) > 0) { /* drain */ }
     while (purgeMrEventsBatch(connectionId, batchSize) > 0) { /* drain */ }
     while (purgeMergeRequestsBatch(connectionId, batchSize) > 0) { /* drain */ }

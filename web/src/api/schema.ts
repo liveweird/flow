@@ -3878,6 +3878,16 @@ export interface components {
              * @description Non-merge commits whose counted lines (after the path exclusions) are known.
              */
             commitsWithCounts: number;
+            /**
+             * Format: int64
+             * @description Live commits (merge commits included) whose title names at least one Jira issue-key CANDIDATE (a KEY-123 token); candidates are not yet matched to a Jira task.
+             */
+            withIssueKeyCandidates: number;
+            /**
+             * Format: int64
+             * @description The distinct (commit, key) candidate rows of the live commits, junk tokens (UTF-8, V2-3) included; not yet matched to a Jira task.
+             */
+            issueKeyCandidates: number;
         };
         /** @description The live merge requests. */
         GitLabMergeRequestsProfile: {

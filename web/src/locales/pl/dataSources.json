@@ -327,7 +327,9 @@
         "latest": "Najnowszy commit",
         "filesPending": "Oczekujące na szczegóły plików",
         "filesUnavailable": "Szczegóły plików niedostępne",
-        "filesCapped": "Ucięte na 1000 plikach"
+        "filesCapped": "Ucięte na 1000 plikach",
+        "withIssueKeyCandidates": "Z kandydatami na klucz Jira (jeszcze niedopasowanymi do zadań)",
+        "issueKeyCandidates": "Kandydaci na klucz Jira (jeszcze niedopasowani do zadań)"
       },
       "mergeRequests": {
         "withDiffStats": "Ze statystykami rozmiaru",

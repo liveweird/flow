@@ -65,6 +65,8 @@ const GITLAB_PROFILE = {
       filesUnavailable: 3,
       filesCapped: 1,
       commitsWithCounts: 270,
+      withIssueKeyCandidates: 110,
+      issueKeyCandidates: 112,
     },
     mergeRequests: {
       byState: { locked: 2, merged: 34, closed: 8, opened: 16, draft: 5 },
@@ -214,6 +216,8 @@ describe("DataSourceProfile page", () => {
     expect(cell("Commits", "Commits with counted lines")).toHaveTextContent("270");
     expect(cell("Commits", "Earliest commit")).toHaveTextContent("2020-09-13 12:26");
     expect(cell("Commits", "Capped at 1,000 files")).toHaveTextContent("1");
+    expect(cell("Commits", "With Jira key candidates (not yet matched to tasks)")).toHaveTextContent("110");
+    expect(cell("Commits", "Jira key candidates (not yet matched to tasks)")).toHaveTextContent("112");
     expect(cell("Merge requests", "With size statistics")).toHaveTextContent("59 (98.3%)");
     expect(cell("Merge requests", "Awaiting details")).toHaveTextContent("4");
     expect(cell("Merge requests", "Details unreadable")).toHaveTextContent("6");

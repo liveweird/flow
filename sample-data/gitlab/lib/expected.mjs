@@ -251,6 +251,16 @@ export function buildExpected(world, { mappingCount }) {
     diffStats: nullGap && nullGap.projectId === m.projectId && nullGap.iid === m.iid ? null : { additions: sum(m.files, (f) => f.additions), deletions: sum(m.files, (f) => f.deletions), fileCount: m.files.length },
   });
   const started = mrList("Started");
+  // ---- commit-title issue-key candidates (norm.code_commit_issue_keys): the in-scope Started default-branch commits, merge commits included ----
+  const keyedCommits = [];
+  for (const id of inScope) {
+    const repo = repos.get(id);
+    for (const c of logWalk(repo.commits, repo.views.started.tip)) {
+      const keys = [...keysIn(c.title)].filter((k) => k.length <= KEY_MAX_LENGTH).sort();
+      if (keys.length > 0) keyedCommits.push({ projectId: id, sha: c.sha, keys });
+    }
+  }
+  keyedCommits.sort((a, b) => a.projectId - b.projectId || (a.sha < b.sha ? -1 : 1));
   const keyed = started.map((m) => ({ projectId: m.projectId, iid: m.iid, keys: issueKeyCandidates(m.title, m.sourceBranch) })).filter((m) => m.keys.length > 0);
   const eventsOf = (list) => {
     const notes = list.flatMap((m) => m.notes);
@@ -376,6 +386,10 @@ export function buildExpected(world, { mappingCount }) {
         total: sum(inScope, (id) => commitsOut[id].total), nonMerge: sum(inScope, (id) => commitsOut[id].nonMerge), merges: sum(inScope, (id) => commitsOut[id].merges),
       },
       committedBeforeParent: outOfOrder, authoredMoreThanADayBeforeCommitted: rebased,
+      issueKeyCandidates: {
+        note: "Per in-scope default-branch commit (merge commits included) whose TITLE names at least one candidate (case-folded; norm.code_commit_issue_keys): the Jira-agnostic token rule, junk included, distinct and sorted per commit",
+        commits: keyedCommits.length, rows: sum(keyedCommits, (c) => c.keys.length), list: keyedCommits,
+      },
     },
     commitFiles,
     pathExclusions: { globs: DEFAULT_EXCLUSIONS, fileCapPerCommit: FILE_CAP, perProject: excl, inScopeTotals: { raw: sumExcl("raw"), counted: sumExcl("counted"), countedUncapped: sumExcl("countedUncapped") } },

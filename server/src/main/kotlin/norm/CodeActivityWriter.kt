@@ -3,6 +3,7 @@ package ch.nokillswit.norm
 import ch.nokillswit.infra.db.insertRows
 import ch.nokillswit.infra.db.upsertRows
 import ch.nokillswit.infra.json.stringArrayJson
+import ch.nokillswit.norm.CodeActivityStore.CodeCommitIssueKeys
 import ch.nokillswit.norm.CodeActivityStore.CodeCommits
 import ch.nokillswit.norm.CodeActivityStore.CodeIdentities
 import ch.nokillswit.norm.CodeActivityStore.CodeMergeRequests
@@ -19,7 +20,8 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 /**
  * The code layer's PROCESS write path ([CodeActivityStore] delegates here). Two shapes, as V44's header says: the REFERENCE rows
  * (projects, identities) are rebuilt wholesale - the connection's rows deleted and the current set inserted - and the FACTS (commits, merge
- * requests) are upserted on the raw primary key, a merge request's events and issue keys replaced with it. Each method is ONE transaction
+ * requests) are upserted on the raw primary key, a commit's issue keys and a merge request's events and issue keys replaced with it.
+ * Each method is ONE transaction
  * that joins the caller's enclosing one (the PROCESS stream's page transaction also holds the raw rows' marks). The fact writers skip empty
  * input; the wholesale rebuilds (`replaceProjects`, `replaceIdentities`) always delete first, so an empty list empties them.
  * No row is ever deleted outside a wholesale rebuild or a PURGE: a tombstone is MIRRORED in `deleted_at`.
@@ -81,6 +83,19 @@ internal class CodeActivityWriter(private val database: R2dbcDatabase) {
                 this[CodeCommits.deletedAt] = commit.deletedAt
                 this[CodeCommits.processedAt] = now
                 this[CodeCommits.processingVersion] = version
+            }
+            // The title's candidates are REPLACED with the page (V47): a rule change (a version bump) rewrites them without duplicates.
+            val commitKeys = rows.map { it.projectId to it.sha }
+            CodeCommitIssueKeys.deleteWhere {
+                (CodeCommitIssueKeys.connectionId eq connectionId) and
+                    ((CodeCommitIssueKeys.projectId to CodeCommitIssueKeys.sha) inList commitKeys)
+            }
+            val keys = rows.flatMap { commit -> commit.issueKeys.map { commit to it } }
+            CodeCommitIssueKeys.insertRows(keys) { (commit, key) ->
+                this[CodeCommitIssueKeys.connectionId] = connectionId
+                this[CodeCommitIssueKeys.projectId] = commit.projectId
+                this[CodeCommitIssueKeys.sha] = commit.sha
+                this[CodeCommitIssueKeys.issueKey] = key
             }
         }
     }

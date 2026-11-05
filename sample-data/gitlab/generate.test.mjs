@@ -11,7 +11,7 @@ import { generate, parseArgs } from "./generate.mjs";
 import { countDiff, hunksConsistent } from "./lib/diff.mjs";
 import { isExcluded } from "./lib/tree.mjs";
 import { issueKeyCandidates } from "./lib/expected.mjs";
-import { KEY_CASES } from "./lib/keycases.mjs";
+import { COMMIT_KEY_CASES, KEY_CASES } from "./lib/keycases.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const sampleData = path.resolve(here, "..");
@@ -223,10 +223,66 @@ test("the issue-key oracle equals an independent regex over every merge request,
   });
 });
 
+test("the commit-title oracle equals an independent regex over every in-scope default-branch commit, and every commit case landed", () => {
+  inTempDir((dir) => {
+    const { world, expected: e } = generate({ ...defaults(), out: dir });
+    const token = /(?<![A-Za-z0-9])([A-Za-z][A-Za-z0-9_]{1,9})-([1-9][0-9]{0,6})(?![A-Za-z0-9])/g;
+    const viaRegex = (text) => new Set([...text.matchAll(token)].map((m) => `${m[1].toUpperCase()}-${m[2]}`));
+    const block = e.commits.issueKeyCandidates;
+    assert.deepEqual(Object.keys(block), ["note", "commits", "rows", "list"]);
+    const oracle = new Map(block.list.map((c) => [`${c.projectId}/${c.sha}`, c.keys]));
+    let rows = 0;
+    let commits = 0;
+    for (const id of e.projects.inScopeIds) {
+      const repo = world.repos.get(id);
+      const walk = new Set(Object.keys(e.commitFiles[id]));
+      assert.equal(walk.size, e.commits.perProject[id].total, `project ${id} commits`);
+      for (const sha of walk) {
+        const c = repo.commits.get(sha);
+        const wanted = viaRegex(c.title);
+        const got = oracle.get(`${id}/${sha}`) ?? [];
+        assert.deepEqual([...got], [...got].sort(), "sorted");
+        assert.equal(new Set(got).size, got.length, "distinct");
+        for (const k of wanted) assert.ok(got.includes(k), `${id}/${sha} names ${k}`);
+        for (const k of got) assert.ok(wanted.has(k) || [...wanted].some((w) => w.endsWith(`_${k}`)), `${id}/${sha} oracle-only ${k}`);
+        if (got.length) commits++;
+        rows += got.length;
+      }
+    }
+    assert.equal(block.commits, commits);
+    assert.equal(block.rows, rows);
+    assert.equal(block.list.length, commits);
+    assert.ok(block.list.some((c) => e.commitFiles[c.projectId][c.sha].merge), "a merge commit names a key (its branch name)");
+    // The deterministic cases: each landed on a stable human direct commit of its project, with exactly the declared keys.
+    const planted = new Map();
+    for (const repo of world.repos.values()) for (const c of repo.commits.values()) if (c.keyCase) planted.set(c.keyCase, c);
+    for (const [projectId, cases] of Object.entries(COMMIT_KEY_CASES)) {
+      for (const k of cases) {
+        const c = planted.get(k.name);
+        assert.ok(c && c.projectId === Number(projectId), `commit case ${k.name} landed in project ${projectId}`);
+        assert.equal(c.title, k.title, k.name);
+        assert.deepEqual(oracle.get(`${c.projectId}/${c.sha}`), k.wants, k.name);
+        assert.ok(c.kind === "direct" && !c.isMerge && !c.special && c.authorUserId !== null && world.users.find((u) => u.id === c.authorUserId).kind === "human", `${k.name} is a direct human commit`);
+        assert.ok(e.commitFiles[c.projectId][c.sha], `${k.name} is on the Started default branch`);
+      }
+    }
+    assert.equal(planted.size, Object.values(COMMIT_KEY_CASES).flat().length, "every commit case is distinct and present");
+    // GTM-7 is named by a commit only: no merge request (title or source branch) and no other commit carries it.
+    const gtm = block.list.filter((c) => c.keys.includes("GTM-7"));
+    assert.equal(gtm.length, 1);
+    assert.ok(!e.mergeRequests.issueKeyCandidates.list.some((m) => m.keys.some((k) => k.key === "GTM-7")), "no merge request names GTM-7");
+    const all = new Set(block.list.flatMap((c) => c.keys));
+    for (const key of ["FLO-31", "PLT-45", "FLO-120", "FLO-366", "UTF-8", "SEC-5", "ABC-12", "GTM-7"]) assert.ok(all.has(key), key);
+  });
+});
+
 test("the key edge cases leave every other figure of the world alone (no PRNG draw)", () => {
   inTempDir((dir) => {
     const { expected: e } = generate({ ...defaults(), out: dir });
     assert.equal(e.mergeRequests.total, 60);
     assert.equal(e.commits.inScopeTotals.total, 300);
+    assert.equal(e.commits.inScopeTotals.merges, 19);
+    assert.equal(e.mergeRequests.issueKeyCandidates.mergeRequests, 26);
+    assert.equal(e.mergeRequests.issueKeyCandidates.rows, 28);
   });
 });

@@ -84,6 +84,8 @@ export default function GitLabProfileSections({ gitlab }: { gitlab: GitLabDataPr
             [t("dataSources.profile.gitlab.commits.filesPending"), commits.filesPending],
             [t("dataSources.profile.gitlab.commits.filesUnavailable"), commits.filesUnavailable],
             [t("dataSources.profile.gitlab.commits.filesCapped"), commits.filesCapped],
+            [t("dataSources.profile.gitlab.commits.withIssueKeyCandidates"), commits.withIssueKeyCandidates],
+            [t("dataSources.profile.gitlab.commits.issueKeyCandidates"), commits.issueKeyCandidates],
           ]}
         />
       </Section>

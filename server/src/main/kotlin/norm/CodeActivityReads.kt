@@ -55,6 +55,18 @@ internal class CodeActivityReads(private val database: R2dbcDatabase) {
         val range = CodeCommits.select(earliest, latest)
             .where { (CodeCommits.connectionId eq connectionId) and CodeCommits.deletedAt.isNull() }.toList().single()
         val nonMerge = CodeCommits.isMerge eq false
+        // The V47 candidates of the LIVE commits, merge commits included (a tombstoned commit keeps its rows but is not counted):
+        // the commits naming one, and the rows. One indexed join on the commit's primary key, the twin of the merge requests' aggregate.
+        val keyRows: Flow<Pair<Long, Long>?>? = exec(
+            """
+            SELECT count(DISTINCT (k.project_id, k.sha))::bigint, count(*)::bigint FROM norm.code_commit_issue_keys k
+            JOIN norm.code_commits c ON c.connection_id = k.connection_id AND c.project_id = k.project_id AND c.sha = k.sha
+            WHERE k.connection_id = $connectionId AND c.deleted_at IS NULL
+            """.trimIndent(),
+            explicitStatementType = StatementType.SELECT,
+        ) { row -> row.get(0, Long::class.javaObjectType)!! to row.get(1, Long::class.javaObjectType)!! }
+        val (withKeys, keyCount) = keyRows?.toList()?.filterNotNull()?.single()
+            ?: error("commitFigures: the key aggregate returned no row")
         CodeCommitFigures(
             count = commits(nonMerge),
             merges = commits(CodeCommits.isMerge eq true),
@@ -62,6 +74,8 @@ internal class CodeActivityReads(private val database: R2dbcDatabase) {
             latestCommittedAt = range[latest],
             filesCapped = commits(nonMerge and (CodeCommits.filesCapped eq true)),
             commitsWithCounts = commits(nonMerge and CodeCommits.additionsCounted.isNotNull() and CodeCommits.deletionsCounted.isNotNull()),
+            withIssueKeyCandidates = withKeys,
+            issueKeyCandidates = keyCount,
         )
     }
 

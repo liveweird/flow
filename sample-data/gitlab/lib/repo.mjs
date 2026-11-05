@@ -6,6 +6,7 @@ import { aggregateFiles, makeCommitFiles, makeFile, makeTree, modifyEntry, stats
 import { sha1 } from "./rng.mjs";
 import { commitBody, commitTitle } from "./text.mjs";
 import { binaryDiff, modifyDiff, newFileDiff, sourceLine } from "./diff.mjs";
+import { commitKeyCaseFor } from "./keycases.mjs";
 
 let seqCounter = 0;
 export const resetSeq = () => {
@@ -38,7 +39,9 @@ export function makeCommit(rng, ctx, o) {
   const seq = ++seqCounter;
   const author = o.author;
   const committer = o.committer ?? author;
-  const title = o.title ?? commitTitle(rng);
+  // A key case (keycases.mjs) replaces the drawn title AFTER the draw, so the PRNG stream is the one the world had without it.
+  const drawnTitle = o.title ?? commitTitle(rng);
+  const title = o.keyCase?.title ?? drawnTitle;
   const body = o.body ?? commitBody(rng);
   const message = `${title}\n${body ? `\n${body}\n` : ""}${o.trailer ? `\n${o.trailer}\n` : ""}`;
   const files = o.files;
@@ -49,7 +52,7 @@ export function makeCommit(rng, ctx, o) {
     committerName: committer.kind === "human" && committer !== author && rng.bool(0.1) ? committer.username : committer.name,
     committerEmail: o.committerEmail ?? (committer === author ? undefined : emailFor(rng, committer)), committerTz: committer.tz, committerUserId: committer.id,
     authoredMs: o.authoredMs, committedMs: o.committedMs, files, stats: statsOf(files),
-    isMerge: o.parents.length > 1, kind: o.kind, mrIid: o.mrIid ?? null, special: o.special ?? null, offMain: !!o.offMain,
+    isMerge: o.parents.length > 1, kind: o.kind, mrIid: o.mrIid ?? null, special: o.special ?? null, offMain: !!o.offMain, keyCase: o.keyCase?.name ?? null,
   };
   commit.committerEmail ??= commit.authorEmail;
   return commit;
@@ -166,6 +169,7 @@ export function buildRepo(rng, o) {
   const filesKind = () => rng.pickWeighted([["normal", 86], ["deps", 6], ["regen", 5], ["wide", 3]]);
 
   // --- walk -----------------------------------------------------------------------------------------------------
+  let keyEligible = 0; // direct, human, non-special, non-skewed commits so far: the ordinal COMMIT_KEY_CASES counts by
   events.forEach((ev, idx) => {
     if (ev.type === "direct") {
       const special = specialAt.get(idx);
@@ -183,7 +187,9 @@ export function buildRepo(rng, o) {
         authoredMs = committedMs - rng.int(0, 10) * MIN_MS;
       } else if (rng.bool(0.12)) authoredMs = ev.t - rng.int(1, 9) * DAY_MS; // rebased: authored long before committed
       const files = special ? specialFiles(rng, tplName, tree, special) : mkFiles(kind);
+      const keyCase = !special && !skewAt.has(idx) && author.kind === "human" ? commitKeyCaseFor(project, keyEligible++) : null;
       const c = insert(makeCommit(rng, ctx, {
+        keyCase,
         parents: [parent.sha], author, title: special ? SPECIAL_TITLES[special] : author.kind === "bot" ? `chore(deps): bump ${rng.pick(["lodash-es", "zod", "undici", "vite", "react-query"])} to ${rng.int(1, 6)}.${rng.int(0, 20)}.${rng.int(0, 9)}` : undefined,
         authoredMs: Math.max(authoredMs, startMs), committedMs, files, kind: "direct", special,
         committer: rng.bool(0.05) ? pickContributor(rng, contributors) : author,
