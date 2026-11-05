@@ -1,8 +1,11 @@
 package ch.nokillswit
 
 import ch.nokillswit.metrics.WorkingCalendar
+import ch.nokillswit.reports.CodeCommitRef
 import ch.nokillswit.reports.CodeMrRef
+import ch.nokillswit.reports.COMMIT_KEY_ORDER
 import ch.nokillswit.reports.IssueRef
+import ch.nokillswit.reports.TaskCodeCommitLink
 import ch.nokillswit.reports.TaskCodeLink
 import ch.nokillswit.reports.TaskCodeTask
 import ch.nokillswit.reports.MERGE_REQUEST_KEY_ORDER
@@ -43,6 +46,75 @@ class TaskCodeKernelsTest {
         linksByKey = links.groupBy { it.key },
         resolution = resolution ?: tasks.associate { it.issueKey to setOf(it.ref) },
     )
+
+    private fun commit(key: String, project: Long, sha: String) = TaskCodeCommitLink(key, CodeCommitRef(9u, project, sha))
+
+    /** [link] with the commits that name keys ([commits]) as well. */
+    private fun linkWithCommits(
+        tasks: List<TaskCodeTask>,
+        links: List<TaskCodeLink>,
+        commits: List<TaskCodeCommitLink>,
+        keysOf: Map<IssueRef, Set<String>> = tasks.associate { it.ref to setOf(it.issueKey) },
+        resolution: Map<String, Set<IssueRef>> = tasks.associate { it.issueKey to setOf(it.ref) },
+    ) = linkTasks(tasks, keysOf, links.groupBy { it.key }, resolution, commits.groupBy { it.key })
+
+    @Test
+    fun `a task only commits name is named by commits only - a subset of without - and a merged merge request beside them moves nothing`() {
+        val tasks = listOf(task(1, 0, 8), task(2, 0, 8), task(3, 0, 8), task(4, 0, 8))
+        val links = listOf(merged("FLO-2", 10, 3), open("FLO-3", 11))
+        val commits = listOf(
+            commit("FLO-1", 7, "bbb"), commit("FLO-1", 7, "aaa"), commit("FLO-1", 3, "zzz"), commit("FLO-1", 7, "aaa"),
+            commit("FLO-2", 7, "ccc"), commit("FLO-3", 7, "ddd"),
+        )
+        val withCommits = linkWithCommits(tasks, links, commits)
+        val without = link(tasks, links)
+        assertEquals(
+            listOf(CodeCommitRef(9u, 3, "zzz"), CodeCommitRef(9u, 7, "aaa"), CodeCommitRef(9u, 7, "bbb")),
+            withCommits[0].namingCommits,
+            "distinct, by connection, project, sha",
+        )
+        assertEquals(listOf(true, false, true, false), withCommits.map { it.namedByCommitsOnly })
+        assertTrue(withCommits[1].hasMerged && withCommits[1].namingCommits.isNotEmpty(), "named by a commit and merged: still with")
+        val figures = taskCodeFigures(withCommits, calendar)
+        val base = taskCodeFigures(without, calendar)
+        assertEquals(2, figures.namedByCommitsOnly)
+        assertEquals(0, base.namedByCommitsOnly)
+        assertTrue(figures.namedByCommitsOnly <= figures.withoutMergeRequest)
+        // Every merge-request figure is the one without any commit.
+        assertEquals(base.withMergeRequest, figures.withMergeRequest)
+        assertEquals(base.withoutMergeRequest, figures.withoutMergeRequest)
+        assertEquals(base.withoutShare, figures.withoutShare)
+        assertEquals(base.onlyUnmerged, figures.onlyUnmerged)
+        assertEquals(base.leadTimes, figures.leadTimes)
+        assertEquals(base.lags, figures.lags)
+        assertEquals(base.ambiguousKeys, figures.ambiguousKeys)
+    }
+
+    @Test
+    fun `a commit naming an ambiguous or unknown key links nothing, and one naming an old key links while it names the one issue`() {
+        val tasks = listOf(task(1, 0, 8), task(2, 0, 8), task(3, 0, 8, key = "NEW-5"))
+        val other = IssueRef(2u, 1L)
+        val commits = listOf(commit("FLO-1", 1, "a1"), commit("FLO-2", 1, "a2"), commit("OLD-5", 1, "a3"))
+        val keysOf = mapOf(ref(1) to setOf("FLO-1"), ref(2) to setOf("FLO-2"), ref(3) to setOf("NEW-5", "OLD-5"))
+        // FLO-1 also names an issue of another Jira source (ambiguous); FLO-2 names nobody live (unknown); OLD-5 is NEW-5's old key.
+        val resolution = mapOf(
+            "FLO-1" to setOf(ref(1), other), "FLO-2" to emptySet(), "NEW-5" to setOf(ref(3)), "OLD-5" to setOf(ref(3)),
+        )
+        val rows = linkWithCommits(tasks, emptyList(), commits, keysOf, resolution)
+        assertEquals(listOf(false, false, true), rows.map { it.namedByCommitsOnly })
+        assertEquals(listOf(CodeCommitRef(9u, 1, "a3")), rows[2].namingCommits)
+        assertTrue(rows[0].ambiguousKey, "the ambiguity is the existing quality count, whatever names the task")
+        // The old key was reused by another issue: ambiguous, so the commit links to none.
+        val reused = linkWithCommits(tasks, emptyList(), commits, keysOf, resolution + ("OLD-5" to setOf(ref(3), other)))
+        assertTrue(reused.none { it.namedByCommitsOnly })
+    }
+
+    @Test
+    fun `commit keys sort by path then sha, not by the plain string`() {
+        val expected = listOf("a@ff", "a/b@00", "a/c@11", "#7@aa")
+        assertEquals(listOf("#7@aa", "a@ff", "a/b@00", "a/c@11"), expected.shuffled().sortedWith(COMMIT_KEY_ORDER))
+        assertEquals(listOf("g/x@01", "g/x@02"), listOf("g/x@02", "g/x@01").sortedWith(COMMIT_KEY_ORDER))
+    }
 
     @Test
     fun `code lead time runs from the start to the LAST merged merge request in working days`() {

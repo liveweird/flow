@@ -29,7 +29,7 @@ internal class HomeCodeRead(
     val data: CodeActivityData?,
     val overBudget: Boolean,
     /** Report 22's `tasks` per listed team (`HomeTaskCode.kt`); null while [data] is, or when THAT read was over the row budget. */
-    val tasks: Map<UInt, TaskCodeTasks>? = null,
+    val tasks: Map<UInt, HomeTaskCodeTasks>? = null,
 ) {
     companion object {
         val NONE = HomeCodeRead(emptyList(), emptyList(), emptyMap(), emptySet(), null, false)

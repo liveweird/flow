@@ -101,8 +101,8 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - Wait for the real-instance smoke run's per-call cost before deciding: at 12 ms it is minutes, at 100 ms it is hours.
 - [new] **The raw issue inspector's merge requests list.** The admin's raw/normalized issue view (`ingest/`) lists the merge requests that name the
   issue's key (and its old keys), from `norm.code_mr_issue_keys` by the same resolution as Report 22, to debug a missing or ambiguous link.
-- [new] **Commit-title keys: what's left (A52).** The keys are stored since 1.55.0 (V47). Still to do: Report 22's "named by a commit only" (1.56.0), and, after the real-instance
-  smoke run, the decision on Report 21's "commits with no merge request" figure (A52/D6). That run also confirms whether GitLab shortens long commit titles, which would hide a key at the end of one.
+- [new] **Commit-title keys: what's left (A52).** The keys are stored (1.55.0, V47) and Report 22 counts the tasks named by a commit only (1.56.0). Still to do, after the real-instance
+  smoke run: the decision on Report 21's "commits with no merge request" figure (A52/D6). That run also confirms whether GitLab shortens long commit titles, which would hide a key at the end of one.
 - [new] **The other pages' domain across every team.** Tasks and code (1.52.0) and Cycle time (1.54.0) let a team be cleared under a domain (`teamClearableUnderDomain`). The API answers a domain with
   no team on the other `teamRequired` pages with a domain control too (Throughput, Task accuracy and more), but there a `?domain=` link gets a team swapped in and no domain-wide figure can be read. Decide which should have it.
 - [new] **A scaled measurement of Report 22's reads at plan density.** The 90-day request is measured on the base stub (15 ms in-test); measure the
@@ -135,7 +135,8 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [todo] **Atlassian API-token quota: re-check developer.atlassian.com/changelog before releases.**
   - API-token traffic is excluded from the 2026 points-based rate limits.
   - Atlassian is evaluating a quota for tokens "with advance notice".
-  - Last checked 2026-11-04 (1.49.0): no token quota announced (entries through 11-03; the 11-02 draft-workflow removal from the Workflow Rules APIs does not
+  - Last checked 2026-11-05 (1.54.0): no token quota announced (entries through 11-03; none touches Flow's endpoints).
+    2026-11-04 (1.49.0): no token quota announced (entries through 11-03; the 11-02 draft-workflow removal from the Workflow Rules APIs does not
     touch Flow's endpoints).
     2026-10-31 (1.38.0): no token quota announced (the only entry since 10-29, the Forge custom-field UI RFC-154, does not touch
     Flow).

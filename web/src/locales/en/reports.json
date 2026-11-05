@@ -1675,7 +1675,7 @@
   },
   "taskCode": {
     "title": "Tasks and code",
-    "description": "How the tasks done in the period line up with the code that delivered them, from the connected GitLab. A merge request belongs to a task when its title or branch names the task's issue key. The page shows how many done tasks have a merged merge request and how many have none merged, how long it takes from a task's start to the merge of its last merge request, and how often code is merged after the task was already done. The share of tasks without a merge request is context, not a verdict: a task may need no code. Lower is better for the code lead time and for code merged after done.",
+    "description": "How the tasks done in the period line up with the code that delivered them, from the connected GitLab. A merge request belongs to a task when its title or branch names the task's issue key; a commit on the default branch names a task when its title does, and the page cannot tell a commit pushed without a merge request from one that came in through a rebased merge request. The page shows how many done tasks have a merged merge request, how many have none merged and how many of those are named by a commit only, how long it takes from a task's start to the merge of its last merge request, and how often code is merged after the task was already done. The share of tasks without a merge request is context, not a verdict: a task may need no code. Lower is better for the code lead time and for code merged after done.",
     "noTeams": "Tasks and code are read for one team or one domain, and there is neither yet. An administrator adds teams on the Teams page.",
     "pickScope": "Pick a team or a domain to read tasks and code for.",
     "noSources": "No GitLab data source is active.",
@@ -1691,12 +1691,14 @@
     },
     "tasks": {
       "title": "Done tasks and their merge requests",
-      "caption": "Tasks done in the period, by the team credited with them. A task is “with a merge request” when at least one merged merge request names its issue key. No direction is better here: a task may need no code.",
+      "caption": "Tasks done in the period, by the team credited with them. A task is “with a merge request” when at least one merged merge request names its issue key. No direction is better here: a task may need no code. “Named by a commit only” is part of the tasks without a merged merge request, not a further group.",
       "done": "Done tasks",
       "doneHint": "Tasks, not subtasks.",
       "withMr": "With a merged merge request",
       "withMrHint": "At least one merged merge request names the task.",
       "withoutMr": "Without a merged merge request",
+      "namedByCommit": "Named by a commit only",
+      "namedByCommitHint": "A commit on the default branch names the task, no merge request does.",
       "withoutShare": "{{share}} of the done tasks.",
       "noShare": "No task was done in the period."
     },
@@ -1721,6 +1723,7 @@
       "view": {
         "TASKS_WITH_MR": "Tasks with a merged merge request",
         "TASKS_WITHOUT_MR": "Tasks without a merged merge request",
+        "TASKS_COMMITS_ONLY": "Tasks named by a commit only",
         "MERGED_AFTER_DONE": "Tasks merged after done"
       },
       "lastMerge": "last merge"

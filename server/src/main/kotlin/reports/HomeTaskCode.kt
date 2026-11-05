@@ -31,7 +31,8 @@ private suspend fun HomeContext.taskCodeRows(
 ): List<TaskMergeRequests> {
     val window = windows.current.let { it.fromMs to it.toMs }
     val tasks = fetchTaskCodePopulation(filter, connectionIds, window, creditTeams = teams)
-    return linkTasksToMergeRequests(deps, tasks, sources)
+    // commits = false: Home does not print the figure, so its combined read skips the commit statement (and its budget share).
+    return linkTasksToMergeRequests(deps, tasks, sources, commits = false)
 }
 
 /**
@@ -42,7 +43,7 @@ internal suspend fun HomeContext.readHomeTaskCode(
     deps: CodeActivityDeps,
     sources: List<CodeSource>,
     listed: Collection<UInt>,
-): Map<UInt, TaskCodeTasks>? {
+): Map<UInt, HomeTaskCodeTasks>? {
     val rows = try {
         taskCodeRows(deps, sources, listed)
     } catch (_: CodeRowBudgetExceededException) {
@@ -53,7 +54,7 @@ internal suspend fun HomeContext.readHomeTaskCode(
     val byTeam = rows.groupBy { it.task.creditTeamId }
     return listed.associateWith { team ->
         val figures = taskCodeFigures(byTeam[team].orEmpty(), calendar)
-        TaskCodeTasks(figures.done, figures.withMergeRequest, figures.withoutMergeRequest, figures.withoutShare)
+        HomeTaskCodeTasks(figures.done, figures.withMergeRequest, figures.withoutMergeRequest, figures.withoutShare)
     }
 }
 

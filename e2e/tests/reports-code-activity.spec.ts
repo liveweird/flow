@@ -49,7 +49,7 @@ interface CodeActivityBody {
 interface TaskCodeBody {
   meta: { minSampleSize: number };
   sources: { name: string; baseUrl: string }[];
-  tasks: { done: number; withMergeRequest: number; withoutMergeRequest: number; withoutShare?: number };
+  tasks: { done: number; withMergeRequest: number; withoutMergeRequest: number; namedByCommitsOnly: number; withoutShare?: number };
   codeLeadTimeWorkingDays: { n: number; hidden: boolean };
   mergedAfterDone: { count: number; share?: number; lagWorkingDays: { n: number; hidden: boolean } };
   quality: { neverStarted: number; onlyUnmergedMrs: number; tasksWithAmbiguousKey: number };
@@ -320,6 +320,37 @@ test("a regular user reads a team's code activity: the member's commits, the mer
 });
 
 /**
+ * The fourth tile's drill (1.56.0): as many tasks as the API's figure and its own drill answer; each task lists the commits that name it, GitLab links to the stub host's commit
+ * pages. A count of zero is text, not a button.
+ */
+async function expectCommitsOnlyDrill(page: Page, api: APIRequestContext, own: { domain: string; count: number; baseUrl: string }): Promise<void> {
+  const { count } = own;
+  const trigger = page.getByRole("button", { name: `${count} — Named by a commit only: show the items of Done tasks and their merge requests`, exact: true });
+  if (count === 0) {
+    await expect(trigger).toHaveCount(0);
+    return;
+  }
+  const answer = await api.get(`/api/v1/reports/task-code/items?domain=${encodeURIComponent(own.domain)}&${TASK_WINDOW}&view=TASKS_COMMITS_ONLY`);
+  expect(answer.ok(), await answer.text()).toBeTruthy();
+  expect(((await answer.json()) as { total: number }).total).toBe(count);
+  await trigger.click();
+  const drawer = page.getByRole("dialog", { name: "Tasks named by a commit only", exact: true });
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByText(`${count} ${count === 1 ? "item" : "items"}`, { exact: true })).toBeVisible();
+  await expect(drawer.getByRole("table", { name: "Items behind the bar", exact: true }).locator("tbody tr")).toHaveCount(Math.min(count, 500));
+  const commits = drawer.getByRole("link", { name: /\(opens in GitLab\)$/ });
+  expect(await commits.count(), "every listed task is named by a commit").toBeGreaterThanOrEqual(Math.min(count, 500));
+  for (const link of await commits.all()) {
+    const href = (await link.getAttribute("href")) ?? "";
+    expect(href.startsWith(`${own.baseUrl}/`) && href.includes("/-/commit/"), href).toBeTruthy();
+    await expect(link).toHaveAttribute("target", "_blank");
+  }
+  await page.keyboard.press("Escape");
+  await expect(drawer).toBeHidden();
+  await expect(trigger).toBeFocused();
+}
+
+/**
  * One distribution of Tasks and code against the API's: a shown one has its histogram as a table whose counts add up to the API's `n`; a withheld one (under the
  * minimum sample) has no table. Returns whether it was withheld, so the caller can count the notes.
  */
@@ -374,6 +405,7 @@ test("a regular user reads Tasks and code for a domain: the done tasks with and 
     expect(report.sources.map((entry) => entry.name)).toEqual([source.name]);
     expect(report.tasks.done, "the domain has done tasks over the whole history").toBeGreaterThan(0);
     expect(report.tasks.withMergeRequest + report.tasks.withoutMergeRequest).toBe(report.tasks.done);
+    expect(report.tasks.namedByCommitsOnly, "named by a commit only is a part of the without count").toBeLessThanOrEqual(report.tasks.withoutMergeRequest);
     test.info().annotations.push({ type: "oracle", description: `domain ${chosen.domain}: ${report.tasks.done} done, ${report.tasks.withMergeRequest} with a merged merge request` });
 
     await login(page, reader.email, reader.password);
@@ -403,11 +435,13 @@ test("a regular user reads Tasks and code for a domain: the done tasks with and 
     await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
     expect((await tabs.nth(0).getAttribute("href")) ?? "").toMatch(/^\/reports\/code-activity(\?|$)/);
 
-    // The three counts equal the API's, and the without share is plain context (a percentage of the done tasks, or the "no task" line when nothing is done).
+    // The three counts equal the API's, the fourth tile (a part of the without count) too, and the without share is plain context (a percentage of the done tasks, or the "no task" line when nothing is done).
     const figure = (name: string, value: number) => expect(page.getByRole("group", { name, exact: true }).getByText(String(value), { exact: true })).toBeVisible();
     await figure("Done tasks", report.tasks.done);
     await figure("With a merged merge request", report.tasks.withMergeRequest);
     await figure("Without a merged merge request", report.tasks.withoutMergeRequest);
+    await figure("Named by a commit only", report.tasks.namedByCommitsOnly);
+    await expect(page.getByRole("group", { name: "Named by a commit only", exact: true })).toContainText("A commit on the default branch names the task, no merge request does.");
     await expect(page.getByRole("group", { name: "Without a merged merge request", exact: true })).toContainText(/% of the done tasks\./);
     await figure("Merged after done", report.mergedAfterDone.count);
     await expect(page.getByRole("group", { name: "Merged after done", exact: true })).toContainText(
@@ -435,6 +469,8 @@ test("a regular user reads Tasks and code for a domain: the done tasks with and 
     // The pointer is parked off the page first: only the settled page is scanned.
     await page.mouse.move(0, 0);
     expect(await axeViolations(page)).toEqual([]);
+
+    await expectCommitsOnlyDrill(page, api, { domain: chosen.domain, count: report.tasks.namedByCommitsOnly, baseUrl: report.sources[0].baseUrl });
 
     // The drill (1.49.0): the with-a-merge-request count opens the tasks behind it - as many as the API's figure (and its own drill answer), each task's merge requests
     // GitLab links to the stub host. A count of zero is text, not a button.

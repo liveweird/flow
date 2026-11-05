@@ -28,12 +28,24 @@ internal data class TaskCodeTask(
 /** One live merge request that names [key]; [mergedAt] is set exactly when the merge request is MERGED (state `merged` with a date). */
 internal data class TaskCodeLink(val key: String, val mr: CodeMrRef, val mergedAt: Long?)
 
+/** A commit of one connection's project, by its full sha (the PK of `norm.code_commits`). */
+internal data class CodeCommitRef(val connectionId: UInt, val projectId: Long, val sha: String)
+
+/** One live default-branch commit whose title names [key] (V47); a commit is a fact, no merge request is involved. */
+internal data class TaskCodeCommitLink(val key: String, val commit: CodeCommitRef)
+
+/** Distinct commits, in the one order the drill and the tests rely on: connection, project, sha. */
+private val COMMIT_REF_ORDER: Comparator<CodeCommitRef> =
+    compareBy<CodeCommitRef> { it.connectionId }.thenBy { it.projectId }.thenBy { it.sha }
+
 /**
  * A done task and the distinct merge requests linked to it: the [mergedMrs] and the [unmergedMrs], [lastMergedAt] the latest merge and
  * [lastMergedMr] the merge request that merge belongs to (the one every figure measures; of several merged at the very same instant the
  * greatest `(connectionId, mrId)`, so the pick is deterministic).
  * [ambiguousKey] says one of the task's keys names more than one live issue, so it could link nothing through that key. The drill lists
- * the merge requests themselves; the figures count them.
+ * the merge requests themselves; the figures count them. [namingCommits] are the live default-branch commits whose title names one of its
+ * resolved keys (the same rule as the merge requests: a key that names this task alone); they never link a merge request and move no
+ * merge-request figure, they only say which of the "without" tasks some commit names ([namedByCommitsOnly]).
  */
 internal data class TaskMergeRequests(
     val task: TaskCodeTask,
@@ -42,6 +54,7 @@ internal data class TaskMergeRequests(
     val lastMergedAt: Long?,
     val ambiguousKey: Boolean = false,
     val lastMergedMr: CodeMrRef? = null,
+    val namingCommits: List<CodeCommitRef> = emptyList(),
 ) {
     val merged: Int get() = mergedMrs.size
     val unmerged: Int get() = unmergedMrs.size
@@ -51,6 +64,9 @@ internal data class TaskMergeRequests(
 
     /** Linked merge requests exist but none is merged (open, closed unmerged or locked): "without", and counted apart. */
     val onlyUnmerged: Boolean get() = merged == 0 && unmerged > 0
+
+    /** No merged merge request, but at least one live commit names the task: a SUBSET of "without a merge request". */
+    val namedByCommitsOnly: Boolean get() = !hasMerged && namingCommits.isNotEmpty()
 
     /** The last linked merge request merged AFTER the task was done. */
     val mergedAfterDone: Boolean get() = lastMergedAt != null && lastMergedAt > task.doneAt
@@ -81,13 +97,14 @@ private val LAST_MERGE_ORDER: Comparator<TaskCodeLink> =
  * The distinct merge requests of each task. A merge request belongs to a task through a key the task has ([keysOf]: its key and every
  * old or new key of its `issuekey` changes) that names THAT task alone: a key naming several issues ([resolution], across Jira sources or
  * after a project reused a key) is ambiguous and links to none, and a key that names no live issue links to none. A merge request that
- * names two keys of one task counts once.
+ * names two keys of one task counts once. The commits ([commitLinksByKey]) follow the SAME key rule and are kept distinct and sorted.
  */
 internal fun linkTasks(
     tasks: List<TaskCodeTask>,
     keysOf: Map<IssueRef, Set<String>>,
     linksByKey: Map<String, List<TaskCodeLink>>,
     resolution: Map<String, Set<IssueRef>>,
+    commitLinksByKey: Map<String, List<TaskCodeCommitLink>> = emptyMap(),
 ): List<TaskMergeRequests> = tasks.map { task ->
     val linked = keysOf[task.ref].orEmpty()
         .filter { resolution[it] == setOf(task.ref) }
@@ -96,7 +113,11 @@ internal fun linkTasks(
     val (merged, unmerged) = linked.partition { it.mergedAt != null }
     val ambiguous = keysOf[task.ref].orEmpty().any { (resolution[it]?.size ?: 0) > 1 }
     val last = merged.maxWithOrNull(LAST_MERGE_ORDER)
-    TaskMergeRequests(task, merged.map { it.mr }, unmerged.map { it.mr }, last?.mergedAt, ambiguous, last?.mr)
+    val commits = keysOf[task.ref].orEmpty()
+        .filter { resolution[it] == setOf(task.ref) }
+        .flatMap { commitLinksByKey[it].orEmpty() }
+        .map { it.commit }.distinct().sortedWith(COMMIT_REF_ORDER)
+    TaskMergeRequests(task, merged.map { it.mr }, unmerged.map { it.mr }, last?.mergedAt, ambiguous, last?.mr, commits)
 }
 
 /** The counts and the raw values behind Report 22's figures; the distributions are built from [leadTimes] and [lags]. */
@@ -104,6 +125,7 @@ internal class TaskCodeFigures(
     val done: Int,
     val withMergeRequest: Int,
     val onlyUnmerged: Int,
+    val namedByCommitsOnly: Int,
     val neverStarted: Int,
     val ambiguousKeys: Int,
     val mergedAfterDone: Int,
@@ -123,6 +145,7 @@ internal fun taskCodeFigures(rows: List<TaskMergeRequests>, calendar: WorkingCal
     done = rows.size,
     withMergeRequest = rows.count { it.hasMerged },
     onlyUnmerged = rows.count { it.onlyUnmerged },
+    namedByCommitsOnly = rows.count { it.namedByCommitsOnly },
     neverStarted = rows.count { it.task.startedAt == null },
     ambiguousKeys = rows.count { it.ambiguousKey },
     mergedAfterDone = rows.count { it.mergedAfterDone },

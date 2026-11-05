@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.flowusers.FlowUserRole
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.reports.HomeOverview
+import ch.nokillswit.reports.HomeTaskCodeTasks
 import ch.nokillswit.reports.HomeTeamCode
 import ch.nokillswit.reports.ReportDrillItems
 import ch.nokillswit.reports.ReportServiceKey
@@ -60,7 +61,10 @@ class ReportHomeTaskCodeTest {
     private fun HomeOverview.codeOf(team: UInt): HomeTeamCode =
         assertNotNull(teams.single { it.teamId == team }.code, "team $team has a code section")
 
-    private fun TaskCodeTasks.counts() = listOf(done, withMergeRequest, withoutMergeRequest)
+    private fun HomeTaskCodeTasks.counts() = listOf(done, withMergeRequest, withoutMergeRequest)
+
+    /** Report 22's block as Home prints it: the same four figures, without the commit subset Home never reads. */
+    private fun TaskCodeTasks.forHome() = HomeTaskCodeTasks(done, withMergeRequest, withoutMergeRequest, withoutShare)
 
     @Test
     fun `every picked team's figure is the hand-computed block and equals Report 22's own for the same team and window`() =
@@ -85,10 +89,14 @@ class ReportHomeTaskCodeTest {
                 assertNull(c.withoutShare)
                 assertEquals(0, overview.codeOf(teamC).linkedMembers)
                 // The very block of Report 22 for each team over Home's window (the old key of TCB-7, the two Jira sources' keys and the
-                // deleted merge request included): one combined read, the same numbers.
+                // deleted merge request included): one combined read, the same numbers. Report 22 also counts the tasks only a commit names
+                // (team A: TCA-6, one of its two without); Home's combined read skips that statement and prints no such figure.
                 for (team in listOf(teamA, teamB, teamC)) {
-                    assertEquals(client.taskCode(team, overview).tasks, overview.codeOf(team).tasks, "team $team")
+                    val report = client.taskCode(team, overview).tasks
+                    assertEquals(report.forHome(), overview.codeOf(team).tasks, "team $team")
+                    assertEquals(report.withoutMergeRequest, overview.codeOf(team).tasks?.withoutMergeRequest, "team $team: Home's column")
                 }
+                assertEquals(1, client.taskCode(teamA, overview).tasks.namedByCommitsOnly)
                 // A pick of one team reads the same block: the figure does not depend on who else is listed.
                 assertEquals(a, client.home(listOf(teamA)).codeOf(teamA).tasks)
             }

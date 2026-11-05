@@ -4,11 +4,13 @@ import ch.nokillswit.metrics.FactTaskDeliveryRow
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.norm.DetailsState
 import ch.nokillswit.norm.FieldChangeFact
+import ch.nokillswit.norm.NormCodeCommit
 import ch.nokillswit.norm.NormCodeMergeRequest
 import ch.nokillswit.norm.NormCodeProject
 import ch.nokillswit.norm.StatusCategory
 import ch.nokillswit.norm.TombstoneKind
 import ch.nokillswit.norm.extractIssueKeyCandidates
+import ch.nokillswit.norm.extractIssueKeys
 import ch.nokillswit.norm.purgeAll
 import java.time.LocalDate
 import java.time.ZoneId
@@ -34,6 +36,12 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
  *  - Never counted: `TCA-10` done on day 40 (MR 16), a sub-task `TCA-12` (MR 17).
  *  - Two tombstoned issues (ids 901 deleted, 902 moved out) also have the key `TCA-1`: not live, so `TCA-1` still names T1 alone.
  * Candidates that name no task: `TCA-999` (a known project, no such issue), `TCZ-3` (an unknown project) and `UTF-8`.
+ *
+ * Default-branch commits (`norm.code_commits` + `code_commit_issue_keys`, project 1 of each source): `TCA-6`, which no
+ * live merge request names, is named by [SHA_DIRECT] (`glA`, a plain title), [SHA_MERGE] (`glA`, a merge commit whose title carries the
+ * BRANCH key) and [SHA_MIRROR] (`glB`, path `grp/web`), and by a DELETED commit ([SHA_GONE]) that does not count: so `TCA-6` is the
+ * one task "named by a commit only". `TCA-1` (merged merge requests) is named by a commit too ([SHA_BESIDE]) and stays "with"; `TCA-3`
+ * (only unmerged merge requests) by a deleted commit alone, so it stays out; `TCA-999`, `TCZ-3` and `UTF-8` name no task.
  */
 internal class TaskCodeWorld(
     val zone: ZoneId,
@@ -110,6 +118,16 @@ internal class TaskCodeWorld(
     /** The GitLab project path a merge request of [connId] lives under: the drill lists it as `<path>!<iid>`. */
     fun pathOf(connId: UInt): String = if (connId == glB) "grp/web" else "grp/app"
 
+    /** A default-branch commit of project 1 titled [title]; its V47 key rows are the title's candidates ([extractIssueKeys]). */
+    fun commit(sha: String, title: String, deleted: Boolean = false, merge: Boolean = false, day: Int = 3) = NormCodeCommit(
+        1, sha, "user-${sha.take(8)}", title, at(day), at(day), merge, 3, 2, 1, 3, 2, 1, false, if (deleted) 1L else null,
+        extractIssueKeys(title),
+    )
+
+    /** Writes [commits] of the connection's project 1 (its project row comes from [write]). */
+    suspend fun writeCommits(connId: UInt, vararg commits: NormCodeCommit) =
+        GitLabFixtures.codeStore().replaceCommits(connId, commits.toList(), now)
+
     /** Writes the connection's one project (id 1, every merge request's) and [mergeRequests]. */
     suspend fun write(connId: UInt, vararg mergeRequests: NormCodeMergeRequest) {
         val store = GitLabFixtures.codeStore()
@@ -169,6 +187,16 @@ internal suspend fun <T> withTaskCodeWorld(zone: ZoneId, body: suspend TaskCodeW
                 mr(18, "TCA-13 no team", 4),
             )
             write(glB, mr(1, "TCA-1 hotfix", 3, hour = 12))
+            writeCommits(
+                glA,
+                commit(SHA_DIRECT, "TCA-6 direct fix"),
+                commit(SHA_MERGE, "Merge branch 'fix/tca-6-direct' into 'main'", merge = true),
+                commit(SHA_GONE, "TCA-6 reverted, force-pushed away", deleted = true),
+                commit(SHA_BESIDE, "TCA-1 follow-up tweak"),
+                commit(SHA_DELETED_ONLY, "TCA-3 gone", deleted = true),
+                commit(SHA_NOBODY, "TCA-999 TCZ-3 UTF-8 names nobody"),
+            )
+            writeCommits(glB, commit(SHA_MIRROR, "TCA-6 mirrored"))
         }
         return world.body()
     } finally {
@@ -188,3 +216,14 @@ internal suspend fun <T> withTaskCodeWorld(zone: ZoneId, body: suspend TaskCodeW
 /** A second DISABLED Jira connection listing `TCA`, so a `TCA-<n>` key can name an issue in two sources. */
 internal suspend fun TaskCodeWorld.withSecondJira(): UInt =
     SyncedStubFixture.createConnection(projectKeys = listOf("TCA"), enabled = false, namePrefix = "task-code-b").also { extraJira += it }
+
+/** A 40-hex sha of one repeated digit: its first 12 characters are the drill's `<path>@<sha12>` label. */
+internal fun repeatedSha(digit: Char): String = digit.toString().repeat(40)
+
+internal val SHA_DIRECT = repeatedSha('a')
+internal val SHA_MERGE = repeatedSha('b')
+internal val SHA_GONE = repeatedSha('c')
+internal val SHA_BESIDE = repeatedSha('d')
+internal val SHA_DELETED_ONLY = repeatedSha('e')
+internal val SHA_NOBODY = repeatedSha('f')
+internal val SHA_MIRROR = repeatedSha('1')

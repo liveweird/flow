@@ -16,7 +16,7 @@ import ReportTile, { type TileDrill } from "./ReportTile";
 
 /**
  * The three figure groups of Tasks and code (A51), each a card. (1) The done tasks with and without a merged merge request: NEUTRAL, no direction is
- * better (a task may need no code), so the share of tasks without one is context and nothing is coloured. (2) The code lead time, from a task's start to
+ * better (a task may need no code), so the share of tasks without one is context and nothing is coloured; "named by a commit only" is a subset of the without count. (2) The code lead time, from a task's start to
  * the merge of its last merge request. (3) Code merged after the task was done, its share and the lag. The two time figures say "lower is better" in
  * words in their captions and hints, never by a colour. With a `drill` every count lists the done tasks behind it (the Done total opens nothing) and every histogram bar the tasks in it, each task with the merge requests linked to it.
  */
@@ -61,6 +61,16 @@ export default function TaskCodeFigures({ report, isRefreshing, drill }: { repor
             value={String(tasks.withoutMergeRequest)}
             drill={tile("TASKS_WITHOUT_MR", t("reports.taskCode.tasks.withoutMr"), t("reports.taskCode.tasks.title"), TASK_CODE_TASKS_ANCHOR)}
             hint={tasks.withoutShare === undefined ? t("reports.taskCode.tasks.noShare") : t("reports.taskCode.tasks.withoutShare", { share: formatPercent(tasks.withoutShare) })}
+          />
+          {/* Two spacers put the fourth tile under "Without a merged merge request": it is a PART of that count, not a fourth group beside the others (the first three add up to
+              the done tasks, this one does not). Under the sm breakpoint the spacers are gone and it stacks last. */}
+          <Box visibleFrom="sm" aria-hidden />
+          <Box visibleFrom="sm" aria-hidden />
+          <ReportTile
+            label={t("reports.taskCode.tasks.namedByCommit")}
+            value={String(tasks.namedByCommitsOnly)}
+            hint={t("reports.taskCode.tasks.namedByCommitHint")}
+            drill={tile("TASKS_COMMITS_ONLY", t("reports.taskCode.tasks.namedByCommit"), t("reports.taskCode.tasks.title"), TASK_CODE_TASKS_ANCHOR)}
           />
         </SimpleGrid>
       </ReportChartCard>

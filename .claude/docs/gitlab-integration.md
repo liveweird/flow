@@ -462,7 +462,7 @@ request's TITLE and SOURCE branch (the target branch names where code goes, neve
   (`persistence.md` "Commit issue keys (V47)"). EVERY default-branch commit is read, merge commits included (`Merge branch 'fix/plt-77-x'` names `PLT-77`: facts, no
   interpretation), and every candidate is stored, junk included. There is no `in_title` flag (the title is the only source). A commit is immutable by sha, so a row changes
   only with a `CODE_PROCESSING_VERSION` bump. **The stored layer cannot tell a direct push from a rebased or second-parent merge-request commit** (only merge and squash SHAs
-  are kept), so no figure says "direct" from it; Report 22's "named by a commit only" (PR 2, 1.56.0, A52/D4) is the first reader, and the read-time scope and resolution
+  are kept), so no figure says "direct" from it; Report 22's "named by a commit only" (1.56.0, A52/D4; `reports.md` "Report 22") is the reader, and the read-time scope and resolution
   below apply to it unchanged. Merge-request figures never count a commit.
 - **The token rule.** A project part `[A-Za-z][A-Za-z0-9_]{1,9}`, a hyphen, a number `[1-9][0-9]{0,6}`, bounded on both sides by a non-alphanumeric character
   or the text's end. So `[FLO-12]`, `FLO-12:`, `(FLO-12)` and `feature/flo-12-fix` name `FLO-12`; `FLO-12a`, `FLO-012` and `2FLO-12` name nothing. Only ASCII

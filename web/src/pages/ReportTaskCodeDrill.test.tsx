@@ -5,7 +5,7 @@ import ReportTaskCode from "./ReportTaskCode";
 import { jsonResponse } from "../test/http";
 import { showItems } from "../test/drill";
 import { FILTERS } from "../test/reportFixtures";
-import { TASK_CODE, TASK_CODE_NO_MERGES, taskCodeItems } from "../test/taskCodeFixtures";
+import { TASK_CODE, TASK_CODE_NO_MERGES, taskCodeCommitItems, taskCodeItems } from "../test/taskCodeFixtures";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 import type { TaskCodeReport } from "../api/reports";
 
@@ -118,6 +118,46 @@ describe("ReportTaskCode page - the drill to the tasks behind a figure", () => {
     expect(itemsCalls(mockFetch).map(parse)).toEqual([{ teamId: "1", view: "TASKS_WITHOUT_MR" }]);
     expect(within(drawer).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Issue", "Summary", "Assignee", "Done"]);
     expect(within(drawer).getByRole("link", { name: "grp/app!15 (opens in GitLab)" })).toBeInTheDocument();
+  });
+
+  test("the named-by-a-commit-only count lists its tasks, each with the naming commits as links to the GitLab commit page", async () => {
+    serve(mockFetch, TASK_CODE, () => jsonResponse(200, taskCodeCommitItems(5)));
+    const user = userEvent.setup();
+    renderPage();
+    const button = await screen.findByRole("button", { name: showItems(TASKS_CARD, "Named by a commit only") });
+    expect(button).toHaveTextContent("5");
+    await user.click(button);
+
+    const drawer = await screen.findByRole("dialog", { name: "Tasks named by a commit only" });
+    expect(await within(drawer).findByText("5 items")).toBeInTheDocument();
+    expect(itemsCalls(mockFetch).map(parse)).toEqual([{ teamId: "1", view: "TASKS_COMMITS_ONLY" }]);
+    expect(screen.getByTestId("where").textContent).toContain("drill=taskcode%3ATASKS_COMMITS_ONLY");
+    // The count equals the list: no "data changed" note; no figure column (the list is not measured).
+    expect(within(drawer).queryByText("The data changed since the chart was drawn.")).not.toBeInTheDocument();
+    expect(within(drawer).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Issue", "Summary", "Assignee", "Done"]);
+    // A commit key is a link to its commit page on the source's GitLab, not to a merge request.
+    const task = within(drawer).getByRole("row", { name: /FLO-12/ });
+    const first = within(task).getByRole("link", { name: "grp/app@3f9a1c2b4d5e (opens in GitLab)" });
+    expect(first).toHaveAttribute("href", "http://gitlab-stub:8080/grp/app/-/commit/3f9a1c2b4d5e");
+    expect(first).toHaveAttribute("target", "_blank");
+    expect(first).toHaveAttribute("rel", "noopener noreferrer");
+    expect(within(task).getByRole("link", { name: "grp/sub/api@0123456789ab (opens in GitLab)" })).toHaveAttribute(
+      "href",
+      "http://gitlab-stub:8080/grp/sub/api/-/commit/0123456789ab",
+    );
+    expect(within(drawer).queryByText("last merge")).not.toBeInTheDocument();
+
+    await user.click(within(drawer).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(button).toHaveFocus();
+  });
+
+  test("a deep link to the commits-only view opens its list on load", async () => {
+    serve(mockFetch, TASK_CODE, () => jsonResponse(200, taskCodeCommitItems(5)));
+    renderPage("/reports/task-code?teamId=1&drill=taskcode%3ATASKS_COMMITS_ONLY");
+    const drawer = await screen.findByRole("dialog", { name: "Tasks named by a commit only" });
+    expect(await within(drawer).findByText("5 items")).toBeInTheDocument();
+    expect(itemsCalls(mockFetch).map(parse)).toEqual([{ teamId: "1", view: "TASKS_COMMITS_ONLY" }]);
   });
 
   test("the Done total opens nothing: only the counts that have tasks behind them are buttons, and a zero is text", async () => {

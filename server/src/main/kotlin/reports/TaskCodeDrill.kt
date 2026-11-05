@@ -11,18 +11,21 @@ import io.ktor.server.plugins.BadRequestException
  * bucket rule ([distributionDrillSelection]), so a figure and its items cannot disagree. An item is a TASK (its Jira key and summary);
  * its `linkedKeys` are the merge requests linked to it, `<project path>!<iid>` (all its merged ones, sorted by path then numeric iid),
  * and, on the four views that measure the last merge, its `measuredKey` is the one of those whose merge the figure measured
- * ([TaskMergeRequests.lastMergedMr]); null on TASKS_WITHOUT_MR.
+ * ([TaskMergeRequests.lastMergedMr]); null on TASKS_WITHOUT_MR. TASKS_COMMITS_ONLY lists the COMMITS that name the task instead,
+ * `<project path>@<sha12>` (sorted by path then sha), and has no `measuredKey`.
  */
 
 /**
  * The figure a drill lists the tasks of. `TASKS_WITH_MR` / `TASKS_WITHOUT_MR` are the report's `tasks.withMergeRequest` /
- * `withoutMergeRequest`, `MERGED_AFTER_DONE` its `mergedAfterDone.count`; the two histogram views take a REQUIRED `bucketIndex` into that
+ * `withoutMergeRequest`, `TASKS_COMMITS_ONLY` its `namedByCommitsOnly` (a subset of the without view), `MERGED_AFTER_DONE` its
+ * `mergedAfterDone.count`; the two histogram views take a REQUIRED `bucketIndex` into that
  * distribution's `histogram`: `CODE_LEAD_TIME` the tasks behind a bar of `codeLeadTimeWorkingDays`, `MERGED_AFTER_DONE_LAG` of
  * `mergedAfterDone.lagWorkingDays`.
  */
 enum class TaskCodeDrillView(val histogram: Boolean = false) {
     TASKS_WITH_MR,
     TASKS_WITHOUT_MR,
+    TASKS_COMMITS_ONLY,
     CODE_LEAD_TIME(histogram = true),
     MERGED_AFTER_DONE,
     MERGED_AFTER_DONE_LAG(histogram = true),
@@ -73,6 +76,7 @@ internal fun selectTaskCodeDrill(
     return when (query.view) {
         TaskCodeDrillView.TASKS_WITH_MR -> plain(rows, { it.hasMerged }, lead)
         TaskCodeDrillView.TASKS_WITHOUT_MR -> plain(rows, { !it.hasMerged }, { null })
+        TaskCodeDrillView.TASKS_COMMITS_ONLY -> plain(rows, { it.namedByCommitsOnly }, { null })
         TaskCodeDrillView.MERGED_AFTER_DONE -> plain(rows, { it.mergedAfterDone }, lag)
         TaskCodeDrillView.CODE_LEAD_TIME -> histogram(lead)
         TaskCodeDrillView.MERGED_AFTER_DONE_LAG -> histogram(lag)
@@ -81,11 +85,18 @@ internal fun selectTaskCodeDrill(
 
 /**
  * The merge requests an item lists for [view]: the without view lists the task's linked merge requests that are NOT merged (the open or
- * closed ones that kept it out of "with"; none for a task nothing names), every other view the MERGED ones (the merge requests the figure
- * counted).
+ * closed ones that kept it out of "with"; none for a task nothing names), the commits-only view none (it lists commits, [listedCommits]),
+ * every other view the MERGED ones (the merge requests the figure counted).
  */
-private fun TaskMergeRequests.listedMrs(view: TaskCodeDrillView): List<CodeMrRef> =
-    if (view == TaskCodeDrillView.TASKS_WITHOUT_MR) unmergedMrs else mergedMrs
+private fun TaskMergeRequests.listedMrs(view: TaskCodeDrillView): List<CodeMrRef> = when (view) {
+    TaskCodeDrillView.TASKS_WITHOUT_MR -> unmergedMrs
+    TaskCodeDrillView.TASKS_COMMITS_ONLY -> emptyList()
+    else -> mergedMrs
+}
+
+/** The commits an item lists for [view]: the commits-only view lists the commits that name the task, every other view none. */
+private fun TaskMergeRequests.listedCommits(view: TaskCodeDrillView): List<CodeCommitRef> =
+    if (view == TaskCodeDrillView.TASKS_COMMITS_ONLY) namingCommits else emptyList()
 
 /**
  * The items behind one figure of Report 22 (`GET /api/v1/reports/task-code/items`). The parent's parameters decide the scope (a team or a
@@ -93,7 +104,8 @@ private fun TaskMergeRequests.listedMrs(view: TaskCodeDrillView): List<CodeMrRef
  */
 internal suspend fun ReportService.taskCodeItems(filter: ReportFilter, query: TaskCodeDrillQuery, nowMs: Long): ReportDrillItems =
     reportTransaction {
-        val read = readTaskCode(filter, nowMs)
+        // Only the commits-only list uses the commit read: the other views refuse and answer exactly as they did without it.
+        val read = readTaskCode(filter, nowMs, commits = query.view == TaskCodeDrillView.TASKS_COMMITS_ONLY)
         val scope = read.scope
         val selection = selectTaskCodeDrill(read.data.rows, query, scope.calendar, scope.settings.minSampleSize, filter.tailPercent)
         taskCodeDrillItems(scope.meta, query.view, selection)
@@ -117,8 +129,14 @@ internal suspend fun taskCodeDrillItems(
         key to ordered.getValue(key).linked.listedMrs(view)
     }
     val keys = fetchMergeRequestKeys(mrsOf.values.flatten())
-    val linkedKeys = mrsOf.mapValues { (_, refs) -> refs.map { keys.getValue(it) }.sortedWith(MERGE_REQUEST_KEY_ORDER) }
-    val measuredKeys = if (view == TaskCodeDrillView.TASKS_WITHOUT_MR) null else mrsOf.keys.mapNotNull { key ->
+    val commitsOf = mrsOf.keys.associateWith { ordered.getValue(it).linked.listedCommits(view) }
+    val commitKeys = fetchCommitKeys(commitsOf.values.flatten())
+    val linkedKeys = mrsOf.mapValues { (key, refs) ->
+        refs.map { keys.getValue(it) }.sortedWith(MERGE_REQUEST_KEY_ORDER) +
+            commitsOf.getValue(key).map { commitKeys.getValue(it) }.sortedWith(COMMIT_KEY_ORDER)
+    }
+    val noMeasuredKey = view == TaskCodeDrillView.TASKS_WITHOUT_MR || view == TaskCodeDrillView.TASKS_COMMITS_ONLY
+    val measuredKeys = if (noMeasuredKey) null else mrsOf.keys.mapNotNull { key ->
         ordered.getValue(key).linked.lastMergedMr?.let { key to keys.getValue(it) }
     }.toMap()
     return listedDrillItems(meta, selection.bar, listed, total = selection.rows.size, linkedKeys = linkedKeys, measuredKeys = measuredKeys)

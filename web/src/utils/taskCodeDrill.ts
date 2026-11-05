@@ -27,6 +27,7 @@ interface TaskCodeViewSpec {
 export const TASK_CODE_VIEWS: Record<TaskCodeFigureView, TaskCodeViewSpec> = {
   TASKS_WITH_MR: { unit: "wd", anchor: "done" },
   TASKS_WITHOUT_MR: { unit: "none", anchor: "done" },
+  TASKS_COMMITS_ONLY: { unit: "none", anchor: "done" },
   MERGED_AFTER_DONE: { unit: "wd", anchor: "done" },
 };
 
@@ -65,6 +66,8 @@ export function taskCodeDrillCount(report: TaskCodeReport, view: TaskCodeFigureV
       return report.tasks.withMergeRequest;
     case "TASKS_WITHOUT_MR":
       return report.tasks.withoutMergeRequest;
+    case "TASKS_COMMITS_ONLY":
+      return report.tasks.namedByCommitsOnly;
     case "MERGED_AFTER_DONE":
       return report.mergedAfterDone.count;
   }
