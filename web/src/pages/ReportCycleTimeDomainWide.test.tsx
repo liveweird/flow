@@ -4,7 +4,7 @@ import { Route, Routes, useLocation } from "react-router-dom";
 import ReportCycleTime from "./ReportCycleTime";
 import { jsonResponse } from "../test/http";
 import { openReportFilters } from "../test/reportFilters";
-import { CYCLE_TIME, FILTERS, histogramItems } from "../test/reportFixtures";
+import { CYCLE_TIME, FILTERS } from "../test/reportFixtures";
 import { renderWithProviders, screen, waitFor } from "../test/render";
 
 // recharts renders nothing under happy-dom (no layout): the charts are inert probes.
@@ -16,13 +16,11 @@ vi.mock("@mantine/charts", () => ({
 
 type FetchMock = ReturnType<typeof vi.fn>;
 const REPORT_PREFIX = "/api/v1/reports/cycle-time?";
-const ITEMS_PREFIX = "/api/v1/reports/cycle-time/items?";
 const SHARED_TEAM_KEY = "flow.viewSettings.reports.teamId";
 
 function serve(mockFetch: FetchMock) {
   mockFetch.mockImplementation((url: string) => {
     if (url === "/api/v1/reports/filters") return Promise.resolve(jsonResponse(200, FILTERS));
-    if (url.startsWith(ITEMS_PREFIX)) return Promise.resolve(jsonResponse(200, histogramItems(1)));
     if (url.startsWith(REPORT_PREFIX)) return Promise.resolve(jsonResponse(200, CYCLE_TIME));
     return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
   });
