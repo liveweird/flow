@@ -22,7 +22,7 @@ private const val PRIVACY_MIN_CHARS = 20
 
 /**
  * The GitLab privacy whitelist (plan decision 9): the stored data is facts about work, never the work itself. Three pins over the TWELVE
- * GitLab tables (six `raw.gitlab_*`, six `norm.code_*`) of the shared fixture: the exact column names (a new column needs a privacy
+ * GitLab tables (six `raw.gitlab_*`, seven `norm.code_*`) of the shared fixture: the exact column names (a new column needs a privacy
  * decision), the keys of every stored slim payload, and the absence of stub text that must never be stored (merge request descriptions,
  * note bodies, commit message bodies, URLs). Read-only.
  */
@@ -82,10 +82,11 @@ class GitLabRawPayloadWhitelistTest {
         ),
         "norm.code_mr_events" to setOf("connection_id", "mr_id", "seq", "kind", "actor_key", "event_at", "target_keys"),
         "norm.code_mr_issue_keys" to setOf("connection_id", "mr_id", "issue_key", "in_title", "in_branch"),
+        "norm.code_commit_issue_keys" to setOf("connection_id", "project_id", "sha", "issue_key"),
     )
 
     @Test
-    fun `the twelve tables hold exactly the whitelisted columns`() {
+    fun `the thirteen tables hold exactly the whitelisted columns`() {
         assertEquals(GitLabCodeTables.ALL.toSet(), whitelist.keys, "every GitLab table is pinned")
         for ((table, columns) in whitelist) {
             val message = "$table: a new column needs a privacy decision (no code, diffs, descriptions or note bodies)"

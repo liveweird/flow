@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.55.0",
+    date: "2026-11-05",
+    en: `**Data profile: commits that name a task.**
+
+- The data profile of a GitLab source now counts the commits whose title names a task key such as \`ABC-123\`, and how many keys they name in all. Merge commits count too: their title quotes the branch.
+- These are candidates, not yet matched to Jira tasks, so the figures can include text that only looks like a key. No report uses them yet.
+- The next sync re-processes the code layer once from the data already stored, with no new call to GitLab.`,
+    pl: `**Profil danych: commity, które wskazują zadanie.**
+
+- Profil danych źródła GitLab liczy teraz commity, których tytuł wskazuje klucz zadania, na przykład \`ABC-123\`, oraz łączną liczbę wskazanych kluczy. Liczą się też commity scalające: ich tytuł cytuje nazwę gałęzi.
+- To kandydaci, jeszcze niedopasowani do zadań Jira, więc w liczbach mogą się trafić fragmenty tekstu, które tylko wyglądają jak klucz. Żaden raport jeszcze z nich nie korzysta.
+- Najbliższa synchronizacja raz przetworzy warstwę kodu ponownie, z danych już zapisanych, bez nowych zapytań do GitLaba.`,
+  },
+  {
     version: "1.54.0",
     date: "2026-11-05",
     en: `**Cycle time: a domain across the whole unit.**

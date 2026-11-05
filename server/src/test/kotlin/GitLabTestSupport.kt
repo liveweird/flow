@@ -67,6 +67,7 @@ object GitLabFixtures {
         val tables = listOf(
             CodeActivityStore.CodeProjects, CodeActivityStore.CodeIdentities, CodeActivityStore.CodeCommits,
             CodeActivityStore.CodeMergeRequests, CodeActivityStore.CodeMrEvents, CodeActivityStore.CodeMrIssueKeys,
+            CodeActivityStore.CodeCommitIssueKeys,
         )
         return PostgresTestSupport.connect().use { conn ->
             conn.createStatement().use { st ->
@@ -78,6 +79,22 @@ object GitLabFixtures {
                     val query = "SELECT md5(coalesce($aggregate, '')) FROM ${table.tableName} WHERE connection_id = $connId"
                     st.executeQuery(query).use { rs -> rs.next(); rs.getString(1) }
                 }
+            }
+        }
+    }
+
+    /**
+     * The persisted `norm.code_commit_issue_keys` rows of [connId] (V47): `(project_id, sha)` to its keys in key order, read straight from
+     * the table (the store has no reader yet; the live-commit join is the reports' concern, so tombstoned commits show here too).
+     */
+    fun commitIssueKeys(connId: UInt): Map<Pair<Long, String>, List<String>> = PostgresTestSupport.connect().use { conn ->
+        conn.createStatement().use { st ->
+            val query = "SELECT project_id, sha, issue_key FROM norm.code_commit_issue_keys WHERE connection_id = $connId " +
+                "ORDER BY project_id, sha, issue_key"
+            st.executeQuery(query).use { rs ->
+                val rows = mutableListOf<Triple<Long, String, String>>()
+                while (rs.next()) rows += Triple(rs.getLong(1), rs.getString(2), rs.getString(3))
+                rows.groupBy({ it.first to it.second }) { it.third }
             }
         }
     }

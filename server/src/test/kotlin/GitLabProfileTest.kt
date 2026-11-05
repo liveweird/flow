@@ -65,6 +65,12 @@ class GitLabProfileTest {
             mrs.withIssueKeyCandidates to mrs.issueKeyCandidates,
             "the issue-key candidate counts equal the stub oracle's",
         )
+        val commitKeys = expected.getValue("commits").jsonObject.getValue("issueKeyCandidates").jsonObject
+        assertEquals(
+            commitKeys.getValue("commits").jsonPrimitive.long to commitKeys.getValue("rows").jsonPrimitive.long,
+            commits.withIssueKeyCandidates to commits.issueKeyCandidates,
+            "the commit issue-key candidate counts equal the stub oracle's",
+        )
         val events = gitlab.events.byKind
         assertEquals(MrEventKind.entries.map { it.name }.toSet(), events.keys)
         assertEquals(
@@ -100,6 +106,27 @@ class GitLabProfileTest {
         assertEquals(before.withIssueKeyCandidates - 1, after.withIssueKeyCandidates)
         assertEquals(before.issueKeyCandidates - keys.size, after.issueKeyCandidates)
         assertEquals(keys, code.mrIssueKeyRows(own, mrId).getValue(mrId), "the tombstoned merge request keeps its rows")
+    }
+
+    @Test
+    fun `a tombstoned commit leaves the issue-key candidate counts, its rows stay stored`() = runBlocking<Unit> {
+        val own = GitLabFixtures.createConnection().also { connections += it }
+        SyncedGitLabFixture.cloneProcessedData(fixtureId, own)
+        val code = GitLabFixtures.codeStore()
+        val (commit, keys) = GitLabFixtures.commitIssueKeys(own).entries.first()
+        val before = GitLabProfile.compute(own, GitLabFixtures.rawStore(), GitLabFixtures.processStore(), code).commits
+        PostgresTestSupport.connect().use { conn ->
+            conn.createStatement().use { st ->
+                st.executeUpdate(
+                    "UPDATE norm.code_commits SET deleted_at = 5000 " +
+                        "WHERE connection_id = $own AND project_id = ${commit.first} AND sha = '${commit.second}'",
+                )
+            }
+        }
+        val after = GitLabProfile.compute(own, GitLabFixtures.rawStore(), GitLabFixtures.processStore(), code).commits
+        assertEquals(before.withIssueKeyCandidates - 1, after.withIssueKeyCandidates)
+        assertEquals(before.issueKeyCandidates - keys.size, after.issueKeyCandidates)
+        assertEquals(keys, GitLabFixtures.commitIssueKeys(own)[commit], "the tombstoned commit keeps its rows")
     }
 
     @Test

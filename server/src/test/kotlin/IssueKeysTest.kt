@@ -3,11 +3,12 @@ package ch.nokillswit
 import ch.nokillswit.norm.ISSUE_KEY_MAX_LENGTH
 import ch.nokillswit.norm.IssueKeyCandidate
 import ch.nokillswit.norm.extractIssueKeyCandidates
+import ch.nokillswit.norm.extractIssueKeys
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** The pure issue-key extractor (`norm/IssueKeys.kt`, the V46 rows): its token rule, boundaries, folding and candidate semantics. */
+/** The pure issue-key extractor (`norm/IssueKeys.kt`; V46 merge request rows, V47 commit rows): its token rule, boundaries and folding. */
 class IssueKeysTest {
     private fun keys(title: String?, branch: String? = null) = extractIssueKeyCandidates(title, branch).map { it.issueKey }
 
@@ -111,5 +112,31 @@ class IssueKeysTest {
     @Test
     fun `a non-ascii letter beside a key is a boundary`() {
         assertEquals(listOf("FLO-12"), keys("naprawa-FLO-12, żółć FLO-12ż"), "ASCII letters and digits are the only neighbours that bind")
+    }
+
+    @Test
+    fun `a commit title is read through the same rule - sorted, folded and distinct`() {
+        assertEquals(listOf("FLO-31"), extractIssueKeys("flo-31: tighten the retry"))
+        assertEquals(listOf("PLT-45"), extractIssueKeys("[PLT-45] bump the client"))
+        assertEquals(listOf("FLO-120", "PLT-60"), extractIssueKeys("plt-60 and FLO-120 together"), "sorted, not in text order")
+        assertEquals(listOf("FLO-1"), extractIssueKeys("FLO-1 then flo-1 again"), "one row per key")
+        assertEquals(listOf("UTF-8"), extractIssueKeys("switch to UTF-8"), "junk is a candidate by design")
+        assertEquals(listOf("FIX_FLO-8", "FLO-8"), extractIssueKeys("fix_FLO-8: the suffix is a candidate too"))
+        assertEquals(listOf("FLO-9"), extractIssueKeys("Merge branch 'feature/flo-9-x' into 'main'"), "a merge title quotes the branch")
+        assertEquals(emptyList(), extractIssueKeys("FLO-012 and FLO-12a and 2FLO-12"), "leading zero and alphanumeric neighbours")
+    }
+
+    @Test
+    fun `a commit title extraction equals the title side of the merge request rule`() {
+        for (title in listOf("[FLO-12] fix", "a-FLO-12-b", "fix_FLO-12, MY_PROJ-1", "no key", "OPS-1 OPS-2 ops-1", "")) {
+            assertEquals(extractIssueKeyCandidates(title, null).map { it.issueKey }, extractIssueKeys(title), title)
+        }
+    }
+
+    @Test
+    fun `a null or empty commit title gives no keys, and no key is longer than the column`() {
+        assertEquals(emptyList(), extractIssueKeys(null))
+        assertEquals(emptyList(), extractIssueKeys(""))
+        assertTrue(extractIssueKeys("ABCDEFGHIJ-1234567 FLO-1").all { it.length <= ISSUE_KEY_MAX_LENGTH })
     }
 }

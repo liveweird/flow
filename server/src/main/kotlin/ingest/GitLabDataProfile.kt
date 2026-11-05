@@ -19,7 +19,9 @@ data class GitLabProjectsProfile(
 /**
  * The live commits: [count] non-merge, [merges], the commit-time range of all live commits (epoch millis), [filesPending] (the COMMIT FILES
  * backlog), [filesUnavailable] (a terminal diff error), [filesCapped] (more files than stored) and [commitsWithCounts] (non-merge commits
- * whose counted lines are known: the coverage of the exclusion-aware figures).
+ * whose counted lines are known: the coverage of the exclusion-aware figures). The issue-key figures are CANDIDATES, like the merge
+ * requests' below: [withIssueKeyCandidates] live commits (merge commits included) whose title names at least one KEY-123 token and
+ * [issueKeyCandidates] the distinct (commit, key) rows - not yet matched to a Jira task, junk tokens included.
  */
 @Serializable
 data class GitLabCommitsProfile(
@@ -31,6 +33,8 @@ data class GitLabCommitsProfile(
     val filesUnavailable: Long = 0,
     val filesCapped: Long = 0,
     val commitsWithCounts: Long = 0,
+    val withIssueKeyCandidates: Long = 0,
+    val issueKeyCandidates: Long = 0,
 )
 
 /**

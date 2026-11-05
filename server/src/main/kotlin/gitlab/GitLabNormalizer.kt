@@ -15,6 +15,7 @@ import ch.nokillswit.norm.NormCodeMergeRequest
 import ch.nokillswit.norm.NormCodeMrEvent
 import ch.nokillswit.norm.countLines
 import ch.nokillswit.norm.extractIssueKeyCandidates
+import ch.nokillswit.norm.extractIssueKeys
 import ch.nokillswit.norm.identityKeyForEmail
 import ch.nokillswit.norm.identityKeyForUser
 import ch.nokillswit.norm.noreplyUserId
@@ -153,7 +154,7 @@ internal fun codeCommit(
         authoredAt = raw.authoredAt, committedAt = raw.committedAt, isMerge = isMerge, additions = raw.additions,
         deletions = raw.deletions, files = if (known) raw.filesChanged else null,
         additionsCounted = counted?.additions, deletionsCounted = counted?.deletions, filesCounted = counted?.files,
-        filesCapped = raw.filesCapped, deletedAt = raw.deletedAt,
+        filesCapped = raw.filesCapped, deletedAt = raw.deletedAt, issueKeys = extractIssueKeys(raw.title),
     )
 }
 

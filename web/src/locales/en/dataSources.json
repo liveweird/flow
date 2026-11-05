@@ -327,7 +327,9 @@
         "latest": "Latest commit",
         "filesPending": "Awaiting file details",
         "filesUnavailable": "File details unavailable",
-        "filesCapped": "Capped at 1,000 files"
+        "filesCapped": "Capped at 1,000 files",
+        "withIssueKeyCandidates": "With Jira key candidates (not yet matched to tasks)",
+        "issueKeyCandidates": "Jira key candidates (not yet matched to tasks)"
       },
       "mergeRequests": {
         "withDiffStats": "With size statistics",

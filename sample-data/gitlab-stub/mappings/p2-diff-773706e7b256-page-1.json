@@ -2,7 +2,7 @@
   "priority": 6,
   "request": {
     "method": "GET",
-    "urlPath": "/api/v4/projects/3/repository/commits/f3da4274c882296426549ac01ff89ede601a5161/diff",
+    "urlPath": "/api/v4/projects/2/repository/commits/773706e7b25684914ab892873a1f83905c9a6bf7/diff",
     "queryParameters": {
       "per_page": {
         "equalTo": "100"
@@ -32,11 +32,11 @@
       "X-Page": "1",
       "X-Per-Page": "100",
       "X-Prev-Page": "",
-      "X-Total": "2",
+      "X-Total": "1",
       "X-Total-Pages": "1",
-      "Link": "<{{request.baseUrl}}/api/v4/projects/3/repository/commits/f3da4274c882296426549ac01ff89ede601a5161/diff?id=3&page=1&per_page=100&sha=f3da4274c882296426549ac01ff89ede601a5161>; rel=\"first\", <{{request.baseUrl}}/api/v4/projects/3/repository/commits/f3da4274c882296426549ac01ff89ede601a5161/diff?id=3&page=1&per_page=100&sha=f3da4274c882296426549ac01ff89ede601a5161>; rel=\"last\""
+      "Link": "<{{request.baseUrl}}/api/v4/projects/2/repository/commits/773706e7b25684914ab892873a1f83905c9a6bf7/diff?id=2&page=1&per_page=100&sha=773706e7b25684914ab892873a1f83905c9a6bf7>; rel=\"first\", <{{request.baseUrl}}/api/v4/projects/2/repository/commits/773706e7b25684914ab892873a1f83905c9a6bf7/diff?id=2&page=1&per_page=100&sha=773706e7b25684914ab892873a1f83905c9a6bf7>; rel=\"last\""
     },
-    "bodyFileName": "p3-diff-f3da4274c882-page-1.json",
+    "bodyFileName": "p2-diff-773706e7b256-page-1.json",
     "transformers": [
       "response-template"
     ]

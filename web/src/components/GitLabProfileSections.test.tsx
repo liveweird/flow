@@ -16,6 +16,8 @@ const GITLAB: GitLabDataProfile = {
     filesUnavailable: 0,
     filesCapped: 1,
     commitsWithCounts: 280,
+    withIssueKeyCandidates: 110,
+    issueKeyCandidates: 112,
   },
   mergeRequests: {
     byState: { locked: 2, opened: 16, merged: 34, closed: 8, weird: 1 },
@@ -69,6 +71,9 @@ describe("GitLabProfileSections", () => {
     const mrs = within(screen.getByRole("table", { name: "Merge requests" }));
     expect(mrs.getByText("With Jira key candidates (not yet matched to tasks)").closest("tr")).toHaveTextContent("26");
     expect(mrs.getByText("Jira key candidates (not yet matched to tasks)").closest("tr")).toHaveTextContent("28");
+    const commits = within(screen.getByRole("table", { name: "Commits" }));
+    expect(commits.getByText("With Jira key candidates (not yet matched to tasks)").closest("tr")).toHaveTextContent("110");
+    expect(commits.getByText("Jira key candidates (not yet matched to tasks)").closest("tr")).toHaveTextContent("112");
   });
 
   test("zero-fills the review event kinds in the fixed order and shows a dash for no commit time", () => {

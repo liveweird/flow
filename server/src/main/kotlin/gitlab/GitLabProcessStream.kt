@@ -59,7 +59,8 @@ internal class ProcessNormalizers(
  *     for the page and lands after the mark, so its flag is never overwritten. (A files flush INSERTS file rows, which only take
  *     `FOR KEY SHARE` and do not wait; they are invisible until the flush commits, and its UPDATE of the commit row is what waits.) A row a
  *     concurrent PURGE removed is absent and not marked. A merge request's page write also REPLACES its issue-key candidates
- *     (`norm.code_mr_issue_keys`, V46: its title and source branch, `norm/IssueKeys.kt`), tombstones included.
+ *     (`norm.code_mr_issue_keys`, V46: its title and source branch, `norm/IssueKeys.kt`), tombstones included; a commit's page write
+ *     REPLACES its title's candidates (`norm.code_commit_issue_keys`, V47), merge commits and tombstones included.
  *
  * **A failing page is bounded, not fatal.** A page whose rows fault (the normalizer throws, or the database refuses a value, SQLSTATE class
  * 22/23) rolls back, keeps its rows flagged, is counted (`commitPagesFailed` / `mergeRequestPagesFailed`), logs ONE WARN (stage and
@@ -75,7 +76,8 @@ internal class ProcessNormalizers(
  *    at one row (build-times WHY 60). A failure or a lock timeout is one WARN, never a failed run. `code_projects` and
  *    `code_identities` are left out: hundreds of rows, rebuilt wholesale, read only by `connection_id`-filtered counts.
  *
- * Progress: `commitsProcessed`, `mergeRequestsProcessed`, `issueKeysStored` (the `norm.code_mr_issue_keys` rows the committed merge
+ * Progress: `commitsProcessed`, `commitIssueKeysStored` (the `norm.code_commit_issue_keys` rows the committed commit pages wrote; absent
+ * on a run that processed no commit), `mergeRequestsProcessed`, `issueKeysStored` (the `norm.code_mr_issue_keys` rows the committed merge
  * request pages wrote, candidates included: absent on a run that processed no merge request), `identities` (rows written),
  * `exclusionsChanged` / `identityMapChanged` / `usernameMapChanged` (1 when that fingerprint re-flagged), the failed-page counters,
  * `normAnalyzed` / `normAnalyzeMs` / `normAnalyzeReason` (the closing ANALYZE, present only when it ran). Never calls GitLab,
@@ -147,6 +149,7 @@ internal class GitLabProcessStream(
             val keys = staged("commit claim") { processStore.commitsToProcess(connectionId, CODE_PROCESSING_VERSION, PROCESS_PAGE, after) }
             if (keys.isEmpty()) break
             after = keys.last()
+            var pageKeys = 0L
             val processed = page(context, tally, "commit page", "commitPagesFailed", keys.map { "${it.projectId}/${it.sha}" }) {
                 context.transaction {
                     val now = context.clock()
@@ -156,10 +159,13 @@ internal class GitLabProcessStream(
                     val normalized = normalizing { rows.map { normalizers.commit(it, files[it.key].orEmpty(), excluded, map) } }
                     codeStore.replaceCommits(connectionId, normalized, now)
                     processStore.markCommitsProcessed(connectionId, rows.map { it.key }, now, CODE_PROCESSING_VERSION)
+                    pageKeys = normalized.sumOf { it.issueKeys.size }.toLong()
                     rows.size
                 }
             }
             tally.rowsWritten += processed
+            // A failed page returns 0 and rolled back: only a committed page counts.
+            if (processed > 0) context.incrementProgress("commitIssueKeysStored", pageKeys)
             context.incrementProgress("commitsProcessed", processed.toLong())
             context.heartbeat(changed = processed > 0)
         }

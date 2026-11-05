@@ -36,6 +36,8 @@ internal object GitLabProfile {
                 filesUnavailable = processStore.countFilesUnavailable(connectionId),
                 filesCapped = commits.filesCapped,
                 commitsWithCounts = commits.commitsWithCounts,
+                withIssueKeyCandidates = commits.withIssueKeyCandidates,
+                issueKeyCandidates = commits.issueKeyCandidates,
             ),
             mergeRequests = GitLabMergeRequestsProfile(
                 byState = mergeRequests.byState,

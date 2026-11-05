@@ -46,3 +46,41 @@ export function applyIssueKeyCases(plans, project) {
     Object.assign(plan, { title: c.title, sourceBranch: c.branch, keyCase: c.name });
   });
 }
+
+// ---- commit-title cases (gitlab-integration.md "Issue keys", norm.code_commit_issue_keys) -------------------------------------------
+// The same idea for COMMITS: a handful of direct commits get a hand-written TITLE (the only text a commit contributes) so the commit
+// extractor meets every shape too. Unlike a merge request, a commit's sha hashes its title, so the retitle happens as the commit is
+// made (repo.mjs `makeCommit`, AFTER the title draw: no PRNG draw is added or skipped) and the shas that depend on it differ.
+// A case lands on the Nth DIRECT commit (by time) of its project whose author is a human and which is neither a special nor
+// clock-skewed. The expected candidates are not declared here: expected.mjs `commits.issueKeyCandidates` scans every title with
+// the independent scanner and generate.test.mjs pins each case's `wants` against it.
+
+/** Per project id: the cases, in order; case i takes the (COMMIT_OFFSETS[i])-th eligible direct commit. `wants` = the sorted keys. */
+export const COMMIT_KEY_CASES = {
+  1: [
+    { name: "commitLowercase", title: "flo-31: retry the ledger export after a timeout", wants: ["FLO-31"] },
+    { name: "commitBracket", title: "[PLT-45] add the audit column to the order table", wants: ["PLT-45"] },
+  ],
+  2: [
+    { name: "commitTwoKeys", title: "fix(import): align the feed parser with the catalog schema (FLO-120, PLT-60)", wants: ["FLO-120", "PLT-60"] },
+    { name: "commitMovedIssue", title: "FLO-366: rename the pending order state in the importer", wants: ["FLO-366"] },
+  ],
+  3: [
+    { name: "commitJunkUtf8", title: "fix(auth): read the token file as UTF-8", wants: ["UTF-8"] },
+    { name: "commitUnconfiguredProject", title: "SEC-5: bound the session lookup on a cold cache", wants: ["SEC-5"] },
+    { name: "commitUnknownProject", title: "ABC-12: tidy the route table reload", wants: ["ABC-12"] },
+  ],
+  4: [
+    { name: "commitBareKey", title: "GTM-7: expose the tenant quota check", wants: ["GTM-7"] },
+  ],
+};
+
+/** Which eligible direct commit (0-based, in time order) each case of a project takes: spread out so neighbours stay untouched. */
+const COMMIT_OFFSETS = [3, 9, 15];
+
+/** The case (`{name, title, wants}`) for the `ordinal`-th eligible direct commit of the project, or null. */
+export function commitKeyCaseFor(project, ordinal) {
+  const cases = COMMIT_KEY_CASES[project.id] ?? [];
+  const i = COMMIT_OFFSETS.indexOf(ordinal);
+  return i >= 0 ? cases[i] ?? null : null;
+}

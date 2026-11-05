@@ -27,6 +27,13 @@ fun extractIssueKeyCandidates(title: String?, sourceBranch: String?): List<Issue
     return (inTitle + inBranch).sorted().map { IssueKeyCandidate(it, it in inTitle, it in inBranch) }
 }
 
+/**
+ * The issue-key candidates a COMMIT names (V47 `norm.code_commit_issue_keys`): the TITLE (GitLab's `title` field, which it may shorten
+ * from a long first line, `gitlab-integration.md` "Issue keys"; no body is ever stored)
+ * through the same token rule as [extractIssueKeyCandidates], sorted and distinct. Merge commits are no exception (facts only).
+ */
+fun extractIssueKeys(text: String?): List<String> = keysIn(text).sorted()
+
 /** One key a merge request names: the folded [issueKey] and where it was found ([inTitle], [inBranch]; at least one is true). */
 data class IssueKeyCandidate(val issueKey: String, val inTitle: Boolean, val inBranch: Boolean)
 

@@ -24,6 +24,7 @@ import ch.nokillswit.norm.MrEventKind
 import ch.nokillswit.norm.NormCodeCommit
 import ch.nokillswit.norm.IssueKeyCandidate
 import ch.nokillswit.norm.extractIssueKeyCandidates
+import ch.nokillswit.norm.extractIssueKeys
 import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.ingest.SyncCursorsService
 import ch.nokillswit.ingest.failureDetail
@@ -307,7 +308,88 @@ class GitLabProcessStreamTest {
             assertTrue(digest != GitLabFixtures.codeDigest(connId), "the rename and the tombstone are visible in the digest")
         }
 
+    // ---------------------------------------------------------------------------------------------- commit issue keys (V47)
+
+    @Test
+    fun `the fixture's commit-key rows equal a re-extraction over the persisted titles`() = runBlocking<Unit> {
+        val commits = code.commitRows(fixtureId)
+        val expectedKeys = commits.associate { (it.projectId to it.sha) to extractIssueKeys(it.title) }.filterValues { it.isNotEmpty() }
+        assertEquals(expectedKeys, GitLabFixtures.commitIssueKeys(fixtureId), "one row per (commit, title candidate)")
+        val merges = commits.filter { it.isMerge }.map { it.projectId to it.sha }.toSet()
+        assertTrue(GitLabFixtures.commitIssueKeys(fixtureId).keys.any { it in merges }, "a merge commit's title is read too")
+    }
+
+    @Test
+    fun `the fixture's commit-key rows equal the stub oracle's independent candidates, edge cases included`() = runBlocking<Unit> {
+        val oracle = expected.getValue("commits").jsonObject.getValue("issueKeyCandidates").jsonObject
+        val wanted = oracle.getValue("list").jsonArray.map { it.jsonObject }.associate { entry ->
+            (entry.getValue("projectId").jsonPrimitive.long to entry.getValue("sha").jsonPrimitive.content) to
+                entry.getValue("keys").jsonArray.map { it.jsonPrimitive.content }
+        }
+        val stored = GitLabFixtures.commitIssueKeys(fixtureId)
+        assertEquals(wanted, stored, "the persisted norm.code_commit_issue_keys rows are the oracle's candidates")
+        assertEquals(oracle.getValue("commits").jsonPrimitive.long, stored.size.toLong())
+        assertEquals(oracle.getValue("rows").jsonPrimitive.long, stored.values.sumOf { it.size }.toLong())
+        // The stub's deterministic commit cases (sample-data/README.md "Commit-title keys"): lowercase folded, bracketed, two keys in one
+        // title, the moved issue, a junk token, a project the Jira stub does not configure, an invented one, and a bare key no MR names.
+        val keys = stored.values.flatten().toSet()
+        val cases = setOf("FLO-31", "PLT-45", "FLO-120", "PLT-60", "FLO-366", "UTF-8", "SEC-5", "ABC-12", "GTM-7")
+        assertTrue(keys.containsAll(cases), "$keys")
+        assertTrue(stored.values.any { it.size == 2 }, "a commit naming two keys")
+    }
+
+    @Test
+    fun `a commit re-claimed under an older version replaces its keys, and a tombstoned commit keeps them`() = runBlocking<Unit> {
+        val connId = GitLabFixtures.createConnection().also { connections += it }
+        SyncedGitLabFixture.cloneProcessedData(fixtureId, connId)
+        val fixtureKeys = GitLabFixtures.commitIssueKeys(fixtureId)
+        assertEquals(fixtureKeys, GitLabFixtures.commitIssueKeys(connId), "the processed clone carries the fixture's commit keys")
+        val digest = GitLabFixtures.codeDigest(connId)
+        val (stale, tomb) = fixtureKeys.keys.sortedBy { it.second }.let { it[0] to it[1] }
+
+        // Simulate a row processed by version 2: its key rows missing and a bogus one present, re-claimed through the version.
+        suspendTransaction(sharedDatabaseForTests()) {
+            Commits.update({ (Commits.connectionId eq connId) and (Commits.projectId eq stale.first) and (Commits.sha eq stale.second) }) {
+                it[processingVersion] = CODE_PROCESSING_VERSION - 1
+            }
+        }
+        PostgresTestSupport.connect().use { conn ->
+            conn.createStatement().use { st ->
+                st.executeUpdate(
+                    "DELETE FROM norm.code_commit_issue_keys " +
+                        "WHERE connection_id = $connId AND project_id = ${stale.first} AND sha = '${stale.second}'",
+                )
+                st.executeUpdate("INSERT INTO norm.code_commit_issue_keys VALUES ($connId, ${stale.first}, '${stale.second}', 'ZZZ-1')")
+            }
+        }
+        assertEquals(listOf(CommitKey(stale.first, stale.second)), processStore.commitsToProcess(connId, CODE_PROCESSING_VERSION, 1))
+        assertEquals(1, raw.tombstoneCommits(connId, tomb.first, listOf(tomb.second), 5_000L))
+
+        val run = process(connId)
+        assertEquals(2L, run["commitsProcessed"])
+        val after = GitLabFixtures.commitIssueKeys(connId)
+        assertEquals(fixtureKeys, after, "the stale commit has its keys again, the bogus row is gone, the tombstone keeps its rows")
+        assertEquals(5_000L, code.commitRows(connId).single { it.projectId == tomb.first && it.sha == tomb.second }.deletedAt)
+        val rewritten = fixtureKeys.getValue(stale).size + fixtureKeys.getValue(tomb).size
+        assertEquals(rewritten.toLong(), run["commitIssueKeysStored"], "the counter counts the two commits' rows")
+        assertTrue(digest != GitLabFixtures.codeDigest(connId), "the tombstone is visible in the digest")
+    }
+
     // ---------------------------------------------------------------------------------------------- REPROCESS and flags
+
+    @Test
+    fun `replacing a commit's keys leaves the same sha in another project alone`() = runBlocking<Unit> {
+        val connId = GitLabFixtures.createConnection().also { connections += it }
+        val store = GitLabFixtures.codeStore()
+        fun commit(projectId: Long, keys: List<String>) =
+            NormCodeCommit(projectId, "shared0sha", "ushared", "t", 1L, 1L, false, 1, 1, 1, 1, 1, 1, false, null, keys)
+        store.replaceCommits(connId, listOf(commit(1L, listOf("FLO-1")), commit(2L, listOf("PLT-2"))), 1L)
+        store.replaceCommits(connId, listOf(commit(1L, listOf("FLO-9"))), 2L)
+        assertEquals(
+            mapOf((1L to "shared0sha") to listOf("FLO-9"), (2L to "shared0sha") to listOf("PLT-2")),
+            GitLabFixtures.commitIssueKeys(connId),
+        )
+    }
 
     @Test
     fun `REPROCESS rebuilds exactly the incremental state, and a version downgrade claims exactly that row`() = runBlocking<Unit> {
@@ -316,6 +398,10 @@ class GitLabProcessStreamTest {
         assertEquals(300L, first["commitsProcessed"])
         assertEquals(60L, first["mergeRequestsProcessed"])
         assertEquals(9L, first["identities"])
+        assertEquals(
+            GitLabFixtures.commitIssueKeys(fixtureId).values.sumOf { it.size }.toLong(), first["commitIssueKeysStored"],
+            "the counter counts the commit-key rows the committed pages wrote",
+        )
         assertNull(first["exclusionsChanged"], "the first run only stores the fingerprints: nothing CHANGED")
         assertNull(first["identityMapChanged"])
         assertNull(first["usernameMapChanged"])
@@ -329,6 +415,7 @@ class GitLabProcessStreamTest {
         assertEquals(digest, GitLabFixtures.codeDigest(connId), "REPROCESS digest equals the incremental state")
         assertEquals(300, code.commitRows(connId).size)
         assertEquals(code.mrIssueKeyRows(fixtureId), code.mrIssueKeyRows(connId), "REPROCESS rewrites the same issue keys")
+        assertEquals(GitLabFixtures.commitIssueKeys(fixtureId), GitLabFixtures.commitIssueKeys(connId), "...and the same, none twice")
 
         val commit = raw.commitRows(connId).first()
         val mr = raw.mergeRequestRows(connId).first()
@@ -654,6 +741,7 @@ class GitLabProcessStreamTest {
             mapOf(
                 "commitsProcessed" to 300L, "mergeRequestsProcessed" to 60L, "identities" to 9L,
                 "issueKeysStored" to code.mrIssueKeyRows(fixtureId).values.sumOf { it.size }.toLong(),
+                "commitIssueKeysStored" to GitLabFixtures.commitIssueKeys(fixtureId).values.sumOf { it.size }.toLong(),
             ),
             first - setOf("normAnalyzed", "normAnalyzeMs", "normAnalyzeReason"),
         )

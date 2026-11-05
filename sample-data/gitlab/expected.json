@@ -375,7 +375,124 @@
     },
     "inScopeTotals": {"total":300,"nonMerge":281,"merges":19},
     "committedBeforeParent": 15,
-    "authoredMoreThanADayBeforeCommitted": 31
+    "authoredMoreThanADayBeforeCommitted": 31,
+    "issueKeyCandidates": {
+      "note": "Per in-scope default-branch commit (merge commits included) whose TITLE names at least one candidate (case-folded; norm.code_commit_issue_keys): the Jira-agnostic token rule, junk included, distinct and sorted per commit",
+      "commits": 110,
+      "rows": 112,
+      "list": [
+        {"projectId":1,"sha":"10aa1601f2aae8368fd3928f394934b5509e0f11","keys":["OPS-101"]},
+        {"projectId":1,"sha":"11705855cd84280d7e7dafcec4db4ed273a3e387","keys":["PLT-262"]},
+        {"projectId":1,"sha":"1235e26555c685098c6bd98de713021fcd5a6291","keys":["PLT-277"]},
+        {"projectId":1,"sha":"15ec5acff6b6ecad965dd58176eeb03b90a35625","keys":["FLO-384"]},
+        {"projectId":1,"sha":"2111f7a179c1a52bbdf698140c58a39dbac2ba89","keys":["FLO-366"]},
+        {"projectId":1,"sha":"27f205d8a9bf806318d62ff82e3bdfa35305309c","keys":["PLT-116"]},
+        {"projectId":1,"sha":"2a7a959ba081f96c9702f195f51b37339b4677b1","keys":["GTM-252"]},
+        {"projectId":1,"sha":"2cfcb1ae940043eba13a88c45c012d4e8f145049","keys":["PLT-28"]},
+        {"projectId":1,"sha":"2d67cbe7be4c62386a02ad9d6cb8263584afc076","keys":["OPS-131"]},
+        {"projectId":1,"sha":"2ee2f0bca7bf23aabcb14a7e9116615db22aee5f","keys":["PLT-319"]},
+        {"projectId":1,"sha":"2fec4609e856d4a9e8aee05c851dbccfc129f338","keys":["FLO-229"]},
+        {"projectId":1,"sha":"3c952de6e0aff45936028492538b5c47f9803235","keys":["PLT-296"]},
+        {"projectId":1,"sha":"4b96379c168b9bb76942f73e6fcab42ab9804c72","keys":["FLO-27"]},
+        {"projectId":1,"sha":"504760b31dca1a501c72fe2fc61db2b370dfbf77","keys":["FLO-120","PLT-45"]},
+        {"projectId":1,"sha":"5627f61c2273aae3304042077f1d9c592e65f9ef","keys":["OPS-139"]},
+        {"projectId":1,"sha":"56fa550224f3dbe142e1e2772759ba64aa462118","keys":["FLO-396"]},
+        {"projectId":1,"sha":"6187974289396a9ca12226c8eeae8b9c7a74222a","keys":["FLO-41"]},
+        {"projectId":1,"sha":"660a849702bb97331a7ebed44c7188e6d1e56d8c","keys":["PLT-63"]},
+        {"projectId":1,"sha":"69873cfaff8f8b6166c5bbba7caee6e0e3398ccb","keys":["OPS-22"]},
+        {"projectId":1,"sha":"6af939487a52547f92ff3c3962481fd53336e0f1","keys":["FLO-31"]},
+        {"projectId":1,"sha":"7f4b149920699567f90393adf0bb0dea69355b62","keys":["FLO-2"]},
+        {"projectId":1,"sha":"954c312b0de72b90bf9aa9224d397f4ab617e240","keys":["GTM-156"]},
+        {"projectId":1,"sha":"9a4035431ea36d568270b27e3f26593516ac2fb9","keys":["FLO-288"]},
+        {"projectId":1,"sha":"9af691959cfd1270d94f9a19ed88dc5c85edd29e","keys":["GTM-112"]},
+        {"projectId":1,"sha":"a5ac1bb899d61cb3af52745801b39879b8ea2588","keys":["OPS-70"]},
+        {"projectId":1,"sha":"aacae534adaef08cf96b2945d9f287d3a8dbaa1b","keys":["PLT-22"]},
+        {"projectId":1,"sha":"b11096c4f907c1a51cedf685667eac57a6059b22","keys":["FLO-223"]},
+        {"projectId":1,"sha":"b65bbe2aa22aa7ba31669179f028fcd5a9e08a39","keys":["PLT-132"]},
+        {"projectId":1,"sha":"bc51c1edcba1e84219bfcf7db737a483e8beda72","keys":["OPS-109"]},
+        {"projectId":1,"sha":"bd0de471dec1c80e1d7052088b24786a26fe78a8","keys":["PLT-260"]},
+        {"projectId":1,"sha":"c0c4685a695ef8f8b911681f8d453f5c2c8cd01d","keys":["PLT-77"]},
+        {"projectId":1,"sha":"c1e96afdfe667e32e6e809efc30d6b1d8b20ba58","keys":["GTM-36"]},
+        {"projectId":1,"sha":"c46d1ac630db307065e25cd49ef57929ffa99d38","keys":["FLO-400"]},
+        {"projectId":1,"sha":"d9bce68a7be2085be710a5756230518956c260c0","keys":["FLO-306"]},
+        {"projectId":1,"sha":"e296c243e15f8a1a5215c13360f1b4cc7dc3c3a0","keys":["PLT-42"]},
+        {"projectId":1,"sha":"eef8e447daf630d2af24a8caac72888644cc75aa","keys":["PLT-45"]},
+        {"projectId":1,"sha":"f9cd1b684c77d6a475f91e6f0628f8921e0d6280","keys":["PLT-81"]},
+        {"projectId":2,"sha":"03af30fe48d7c113e07ad1b234dbd84f267a96c3","keys":["OPS-120"]},
+        {"projectId":2,"sha":"0e14ac6783a3b63af707e6c4264a4db1e24f8c1d","keys":["OPS-2"]},
+        {"projectId":2,"sha":"101848d269973270d0750e8d91a7c95f746984d6","keys":["FLO-353"]},
+        {"projectId":2,"sha":"16dbb420e28478b7986247744507ca5265861bc9","keys":["PLT-27"]},
+        {"projectId":2,"sha":"26eebf70eebca260b667cbda9926075d6dc6a992","keys":["OPS-46"]},
+        {"projectId":2,"sha":"2c1338fc42cfc54bfc8fe1fe574828dd4431785c","keys":["GTM-290"]},
+        {"projectId":2,"sha":"3324675dd910a32c1656e275050a4a23e48d4ac8","keys":["OPS-50"]},
+        {"projectId":2,"sha":"3aad790239153500b7aa9842ba5461e3f0130879","keys":["FLO-77"]},
+        {"projectId":2,"sha":"6a63f3d4f0b6db71aa42f2165eb31e53cb2c08db","keys":["PLT-104"]},
+        {"projectId":2,"sha":"7044820dae5a907e5c7dcd54603b97f2cc7cd189","keys":["GTM-138"]},
+        {"projectId":2,"sha":"773706e7b25684914ab892873a1f83905c9a6bf7","keys":["FLO-120","PLT-60"]},
+        {"projectId":2,"sha":"7782e1d1871206df2bba02ca71dfd41a6a24a70b","keys":["OPS-88"]},
+        {"projectId":2,"sha":"a3cef9a82d16d5cef8cedb79194ef45dd5c03cee","keys":["OPS-84"]},
+        {"projectId":2,"sha":"a492f3b04e0a2ef985a31938364fdb9b50de217f","keys":["GTM-282"]},
+        {"projectId":2,"sha":"a4eca0c6c34c109c8e28e463e0f2bd5cc352a3e1","keys":["FLO-366"]},
+        {"projectId":2,"sha":"afab39815ed189de27ee447a3b3684768ab88800","keys":["PLT-203"]},
+        {"projectId":2,"sha":"b8604859f310c9a03ba016ea1e3a3d575ed057ab","keys":["GTM-205"]},
+        {"projectId":2,"sha":"bee3ca84314dc8c810f3282608a40c9f67183587","keys":["GTM-115"]},
+        {"projectId":2,"sha":"c101e2a4c56b8375375add6c0cb5c0984a6e6a17","keys":["PLT-150"]},
+        {"projectId":2,"sha":"d0898c455a6c1b233bac1a7b767cb84da871fd79","keys":["GTM-265"]},
+        {"projectId":2,"sha":"d3b6cfea0e78351dfd31f1319b184411a235778b","keys":["FLO-206"]},
+        {"projectId":2,"sha":"f0597907963eed8004b2033ae315962b1ea8eaee","keys":["GTM-5"]},
+        {"projectId":2,"sha":"f254c670dd712dd152c97c5cd9e6007963010111","keys":["OPS-68"]},
+        {"projectId":3,"sha":"169b1bff3289146ebd8db093d713cdaa6196150e","keys":["FLO-161"]},
+        {"projectId":3,"sha":"2c1638cce4189d4d8b3e32afefa50335996f26d0","keys":["GTM-5"]},
+        {"projectId":3,"sha":"3a7cfd2b4dc693247905cde1d0584c33d179a3d5","keys":["FLO-313"]},
+        {"projectId":3,"sha":"5041639d43e9bd5609e8188c880df008dcc10785","keys":["OPS-42"]},
+        {"projectId":3,"sha":"5b4ca6d59ead1b449b251c489ff540586661d401","keys":["ABC-12"]},
+        {"projectId":3,"sha":"5f1a2352abc99c26b72bc397467d629eb2cea1a1","keys":["GTM-242"]},
+        {"projectId":3,"sha":"6365b9606669d782295f4930a8130fdd215cf861","keys":["ABC-12"]},
+        {"projectId":3,"sha":"7488b0e2f4f9c99d609304f4966ce9d2c65885c3","keys":["FLO-378"]},
+        {"projectId":3,"sha":"9d1127cb95b8f26db00ed939db9bbbfaad02edf9","keys":["OPS-121"]},
+        {"projectId":3,"sha":"9ef6418b283c30fa2602b69466578719de93d9d8","keys":["FLO-221"]},
+        {"projectId":3,"sha":"a3140dbbf75344eab547232745e6526a0957fb92","keys":["UTF-8"]},
+        {"projectId":3,"sha":"ab886be0e14dc07eeaba95915508b34771daaed2","keys":["PLT-7"]},
+        {"projectId":3,"sha":"af92def81f82266cceaf243a57912a9266acf2b2","keys":["OPS-93"]},
+        {"projectId":3,"sha":"b811087a4da24d26044761584b1718074a6a4f8e","keys":["TO-4"]},
+        {"projectId":3,"sha":"bbaa4f842eec233b7b515fed14d6be7aa3b6528b","keys":["SEC-5"]},
+        {"projectId":3,"sha":"bfccd282aaea27da1ae5f9a8737fe8bb1bad8a17","keys":["GTM-259"]},
+        {"projectId":3,"sha":"c12c7577944167445fb6aecc55c69825ff87fedf","keys":["FLO-24"]},
+        {"projectId":3,"sha":"c84d923250cc655f135ddd2f67c90bc5f0586a09","keys":["FLO-34"]},
+        {"projectId":3,"sha":"cb89ba31f12a83317dfc98fbbc3c2e822badfa6b","keys":["TO-4"]},
+        {"projectId":3,"sha":"d17ea2a85777c1f2799740e9c664e74376fb6527","keys":["OPS-7"]},
+        {"projectId":3,"sha":"e2d1fe93e107784d0af6fbdd4e3ae22147ee2239","keys":["FLO-80"]},
+        {"projectId":3,"sha":"e59d9957f23a66eec8e61d103afa400bbab36f77","keys":["PLT-68"]},
+        {"projectId":3,"sha":"f41a3ca21a5001168dc2e4e3ce8f16e4f6d34ed1","keys":["OPS-147"]},
+        {"projectId":4,"sha":"207e87f7946d1224a6c1d59decfb722cc6c53241","keys":["GTM-7"]},
+        {"projectId":4,"sha":"22c58e7a59de7e75fa9bfb587f5551927a3fa063","keys":["PLT-306"]},
+        {"projectId":4,"sha":"36e5c624c0e40273a9b04e7a0119a8df7f3ef380","keys":["GTM-93"]},
+        {"projectId":4,"sha":"3abf467f48053fbfcd1074b73f74776551df99ed","keys":["PLT-92"]},
+        {"projectId":4,"sha":"40cc03fbb6f144f81dba105c4fe669b44c340616","keys":["GTM-36"]},
+        {"projectId":4,"sha":"47cf9e872938e650fdf50f9f28720166e7e4c606","keys":["GTM-47"]},
+        {"projectId":4,"sha":"4e5c77f30534b01cad5d86c47537376eae72a5cd","keys":["PLT-75"]},
+        {"projectId":4,"sha":"59571363e5bdd97ece6c195e2d63ea08c2f57df6","keys":["GTM-69"]},
+        {"projectId":4,"sha":"67ab4d7c4a302c4835c713b2814ba8b03320272a","keys":["OPS-9"]},
+        {"projectId":4,"sha":"78b0df47b05a83764518dc1c437ef4069d0e5dfa","keys":["OPS-148"]},
+        {"projectId":4,"sha":"7a31def4b0a23603c3e7e9b2137bd8ba4620f765","keys":["PLT-95"]},
+        {"projectId":4,"sha":"8179385cf8f55322c132bf51722204c1f2bfb80a","keys":["GTM-290"]},
+        {"projectId":4,"sha":"9821eeea8a39d67361a51f61f8aebae3aeec7f60","keys":["FLO-170"]},
+        {"projectId":4,"sha":"b2ca1b2a2d8955e12010bb8a26dde851cd7d1181","keys":["GTM-127"]},
+        {"projectId":4,"sha":"bedc22211d35da46205351674f55717297bceb84","keys":["OPS-32"]},
+        {"projectId":4,"sha":"c129a56458a9b9c814c31b0b46fb4092b058ee18","keys":["GTM-119"]},
+        {"projectId":4,"sha":"c58dad20688a45d2d2b87cd5ba349958a159373b","keys":["GTM-217"]},
+        {"projectId":4,"sha":"c9f51aee7ae78ed0555d1923172051e78aea985c","keys":["GTM-189"]},
+        {"projectId":4,"sha":"d024166a4335fbb2ee4272488169815c07933cca","keys":["PLT-107"]},
+        {"projectId":4,"sha":"d37f999bf5ff2f9b898690d251f179d5b192954a","keys":["PLT-279"]},
+        {"projectId":4,"sha":"d602fb089580b842fce1ef543dbc2a9ec88d2460","keys":["GTM-187"]},
+        {"projectId":4,"sha":"d7ead377cead505b80acaaa0e048912fab37c2cd","keys":["OPS-16"]},
+        {"projectId":4,"sha":"deeb9c51636a8915bee58a4d6c87247893822a2d","keys":["FLO-360"]},
+        {"projectId":4,"sha":"ee87f468213054c1e0c99ab1fa7193c2109bb094","keys":["FLO-338"]},
+        {"projectId":4,"sha":"f195c474e9b02444267b598ad283d4ef3f3171eb","keys":["GTM-170"]},
+        {"projectId":4,"sha":"f41a0fee026ed7ad900bc0f236937a95ad0cabb7","keys":["FLO-114"]},
+        {"projectId":4,"sha":"f92433c0b9211200eda78f75cdf8763b58639ab0","keys":["PLT-279"]}
+      ]
+    }
   },
   "commitFiles": {
     "1": {
@@ -1315,7 +1432,7 @@
         ],
         "counted": {"files":4,"additions":46,"deletions":7}
       },
-      "3a6dc6fdd9c0b17c7908abba3ea019cc4ac022c0": {
+      "eef8e447daf630d2af24a8caac72888644cc75aa": {
         "parents": 1,
         "merge": false,
         "kind": "direct",
@@ -1397,7 +1514,7 @@
         ],
         "counted": {"files":2,"additions":28,"deletions":23}
       },
-      "e7062192581c5f0c2998426b2de44f831a73edd6": {
+      "6af939487a52547f92ff3c3962481fd53336e0f1": {
         "parents": 1,
         "merge": false,
         "kind": "direct",
@@ -3325,7 +3442,7 @@
         "files": [{"path":"docs/cursor8.md","additions":41,"deletions":0,"new":true},{"path":"src/io/route.ts","additions":3,"deletions":6}],
         "counted": {"files":2,"additions":44,"deletions":6}
       },
-      "f272bbd784175fb7e999ce42f10ef6573cb1c8b1": {
+      "a4eca0c6c34c109c8e28e463e0f2bd5cc352a3e1": {
         "parents": 1,
         "merge": false,
         "kind": "direct",
@@ -3436,7 +3553,7 @@
         "files": [{"path":"docs/catalog.md","additions":3,"deletions":3}],
         "counted": {"files":1,"additions":3,"deletions":3}
       },
-      "158cd90341446300f3f2b3b715496db3d93ec961": {
+      "773706e7b25684914ab892873a1f83905c9a6bf7": {
         "parents": 1,
         "merge": false,
         "kind": "direct",
@@ -4207,7 +4324,7 @@
         ],
         "counted": {"files":2,"additions":5210,"deletions":149}
       },
-      "542991a7273833d345eb0fafcb3192480b551ed0": {
+      "6365b9606669d782295f4930a8130fdd215cf861": {
         "parents": 1,
         "merge": false,
         "kind": "direct",
@@ -4347,7 +4464,7 @@
         ],
         "counted": {"files":3,"additions":7,"deletions":17}
       },
-      "92cf9659917df3ff235d6a2286e79fc644af93d1": {
+      "bbaa4f842eec233b7b515fed14d6be7aa3b6528b": {
         "parents": 1,
         "merge": false,
         "kind": "direct",
@@ -4433,7 +4550,7 @@
         ],
         "counted": {"files":2,"additions":80,"deletions":0}
       },
-      "f3da4274c882296426549ac01ff89ede601a5161": {
+      "a3140dbbf75344eab547232745e6526a0957fb92": {
         "parents": 1,
         "merge": false,
         "kind": "direct",
@@ -5239,7 +5356,7 @@
         "files": [{"path":"docs/img/session.png","additions":0,"deletions":0,"binary":true}],
         "counted": {"files":1,"additions":0,"deletions":0}
       },
-      "9c7ae7da8f4d4be6f1fab8270eded74b56a3311a": {
+      "207e87f7946d1224a6c1d59decfb722cc6c53241": {
         "parents": 1,
         "merge": false,
         "kind": "direct",

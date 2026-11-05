@@ -43,7 +43,7 @@ class GitLabPurgeTest {
             val own = clone()
             val before = GitLabCodeTables.counts(own)
             assertEquals(GitLabCodeTables.counts(fixtureId), before, "the clone starts as the fixture")
-            assertTrue(before.values.all { it > 0 }, "every one of the twelve tables has rows to purge: $before")
+            assertTrue(before.values.all { it > 0 }, "every one of the thirteen tables has rows to purge: $before")
             val profile = profileOf(own)
             assertTrue(profile.first != null && profile.second != null, "the clone carries the fixture's profile")
 
@@ -56,11 +56,27 @@ class GitLabPurgeTest {
         }
 
     @Test
-    fun `the code layer drains in bounded batches, keys and events first, and a neighbouring clone is left alone`() = runBlocking<Unit> {
+    fun `the code layer drains in bounded batches, commit keys first, and a neighbouring clone is left alone`() = runBlocking<Unit> {
         val own = clone()
         val other = clone()
         val code = GitLabFixtures.codeStore()
         val events = GitLabCodeTables.counts(own, listOf("norm.code_mr_events")).getValue("norm.code_mr_events")
+
+        // The commits' keys drain FIRST (V47): while they are not empty, the merge request keys and the commits are all still there.
+        val commitKeysTable = "norm.code_commit_issue_keys"
+        val commitKeys = GitLabCodeTables.counts(own, listOf(commitKeysTable)).getValue(commitKeysTable)
+        assertTrue(commitKeys > 3, "the fixture has commit keys to drain in more than one batch: $commitKeys")
+        val beforeDrain = GitLabCodeTables.counts(own, GitLabCodeTables.NORM - commitKeysTable)
+        var drainedCommitKeys = 0L
+        while (true) {
+            val batch = code.purgeCommitIssueKeysBatch(own, batchSize = 3)
+            assertTrue(batch <= 3, "a commit-key batch never exceeds its size: $batch")
+            if (batch == 0) break
+            drainedCommitKeys += batch
+            assertEquals(beforeDrain, GitLabCodeTables.counts(own, GitLabCodeTables.NORM - commitKeysTable), "nothing else moves yet")
+        }
+        assertEquals(commitKeys, drainedCommitKeys, "the batches add up to every commit key")
+        assertEquals(commitKeys, GitLabCodeTables.counts(other, listOf(commitKeysTable)).getValue(commitKeysTable), "the neighbour's stay")
 
         val keysTable = "norm.code_mr_issue_keys"
         val keys = GitLabCodeTables.counts(own, listOf(keysTable)).getValue(keysTable)
