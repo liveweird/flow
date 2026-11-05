@@ -108,11 +108,8 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   Tasks and code has this since 1.52.0 (`teamClearableUnderDomain`); decide which of the others should have it.
 - [new] **A scaled measurement of Report 22's reads at plan density.** The 90-day request is measured on the base stub (15 ms in-test); measure the
   four-step read (population, old keys, key resolution, link rows) at 21k merge requests and a whole-domain period, and record it in `build-times.md`.
-- [new] **Tests leave their Jira sources behind, and every report request pays for them.** About 300 per fork at the end of a full run (304 counted 2026-11-04; about
-  80 enabled, `jira-raw-store` and `metrics-config-conn` the most), against `testing.md`'s "remove their own". `dataStamp` reads all of them on each report request:
-  `ReportDrillSprintScopeTest` is +36 % with 300 extra rows (build-times WHY 63); the whole-suite effect is not measured. Production holds a handful of sources.
-  Clean up per class (dozens of classes), or correct the doc if that is not worth it. The `FLO-366` row that once tripped `ReportTaskCodeFixtureTest`'s guard is not
-  reproduced: sampling both forks every 15 s for a full run found none, and the guard now runs after the other sources are deactivated.
+- [new] **`MetricsWipEpicDomainAsOfTest` stalled for 287 s once.** Seen 2026-11-04 in one of six local full-suite runs (build-times WHY 64), the only failure: `UncompletedCoroutinesError` from `runTest`, the test body stuck around its one
+  `derivePinned`, while every other class of the run finished. The tree carried that week's Reactor 2025.0.8 bump and a measurement-only seed of 300 extra sources, and master's CI since the bump is green. No thread dump (the watchdog fires at 5 min) and no "Response queue is full" line, so the cause is unknown: it looks like the r2dbc hang above, but that is not shown. If it recurs, take a dump with a lower `-PtestStallMinutes`.
 - [new] **The `keys:` stamp line invalidates readers that show no keys.** It rides the ONE `codeStamp`, so a Jira source's project-list edit also moves
   Compare people's, Person trend's (and its peer-cell cache generation) and the Home overview's tags; split the stamp if that churn ever shows.
 
