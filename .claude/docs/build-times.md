@@ -2400,6 +2400,17 @@ the time. `local-times.mjs slow-tests` reproduces this table for any run.
    - **Fix.** `scripts/gates.sh` defaults to `FLOW_FORKS=3`, -35 % on the span at the same CPU. This reverses WHY 44's "the local gate should measure what CI does": CI keeps two forks, so a failure that depends on the class layout now shows on CI first; `FLOW_FORKS=2` replays CI's layout. Accepted because every PR's CI run is the merge gate anyway, and the layout changes with each weights refresh regardless. The budgets stay: the 3-min target is still missed by about a minute.
    - **Also.** `server/test-weights.tsv` refreshed (9 of 360 classes had drifted or were missing; excess 3.1-3.5 %). `ReportDrillSprintScopeTest`'s every-bucket test re-requested the same report per bucket and the same drills again for Commitments and Throughput; reusing them, with every assertion kept, takes it from 5.6 s to 3.3 s alone (~11 s to 4.6 s in the suite). This one also helps CI.
    - **CI is untouched** by the fork default. Its `server` TREND +34 % on the same date is the runner draw: 699-790 s on fast runners (658-715 s at the 10-31 check), 1083-1201 s on slow ones (1095-1150 s); four of the last five runs drew slow ones.
+64. **Do the Jira sources tests leave behind cost the whole suite? - ANSWERED 2026-11-05: not enough to clean up 160 classes, so the rule changes instead.** WHY 63 measured +36 % on one report-heavy class; the whole-suite effect was unknown.
+   - **Measured.** A measurement-only seed (never committed) of 300 extra live, disabled sources per fork at container start; `:server:test -Pforks=3 -x koverVerify`, 2,968 tests, runs alternating without and with the seed:
+
+     | | wall | class sum | report classes (81) |
+     |---|---|---|---|
+     | without | 261, 303, 246 s | 634, 750, 597 s | 258, 313, 235 s |
+     | +300 per fork | 266, 266 s | 657, 645 s | 279, 275 s |
+
+     A third seeded run is left out: one test stalled for 287 s (wall 574 s; `BACKLOG.md`). Medians move +5 s wall and +23 s class sum, inside the 57 s spread of the identical unseeded runs. The machine was not idle (light CI watchers, one reviewer, a few focused vitest runs), so this bounds the cost, it does not pin it. A run's real leftovers average about half their final count, so cleaning them all up would buy less than this.
+   - **What a clean-up would take.** A full run at three forks left 148, 221 and 271 live sources per fork, about 640 in all, in a long tail: the ten biggest name prefixes hold about a third. `createConnection` is called from 162 test classes and JUnit 4 offers no central class-end hook here.
+   - **Decision.** `testing.md` no longer asks a test to remove its sources. Production still holds a handful, so `dataStamp` is not the concern WHY 63's single class suggested. Revisit if a class's own time points here again.
 
 ## Review cadence
 

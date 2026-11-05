@@ -30,7 +30,7 @@ ran at all in this one. Class order is not a contract (with `-Pforks>=2` the cla
 - Users and teams: `TestUsers.seed(...)` (bcrypt cost 4; ADMIN by default — pass `FlowUserRole.USER` for a
   non-privileged caller), `TestUsers.softDelete(id)`, `TestUsers.withSoloAdmins(ids) { }` (the last-admin pin),
   `TestTeams.seed(name)`. Shared suite state (the seed admin) is never mutated destructively — tests mint
-  UNIQUE rows and remove their own.
+  UNIQUE rows (sources may stay, WHY 64).
 - Audit and bootstrap: `LogCapture` + `hasKeyValue`/`awaitEvent`, `withAuditCapture { }` (detach in a finally),
   `postJson`/`putJson`, `HttpClient.login`, `withSeedRestored { }`, `assertStartupFails(part) { }` — use these instead
   of re-rolling the blocks they replaced.
