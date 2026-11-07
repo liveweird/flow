@@ -28,6 +28,9 @@ val SprintCalendarServiceKey = AttributeKey<SprintCalendarService>("SprintCalend
 
 private val D = MetricsTables.DimSprint
 
+/** The default row cap of [SprintCalendarService.sprintsOfTeams]: a year of sprints for the whole unit sits far below it. */
+const val MAX_INTEGRATION_SPRINTS = 2_000
+
 private val SORTABLE_COLUMNS: Map<String, Column<*>> = mapOf(
     "id" to MetricsTables.DimSprint.sprintId,
     "startAt" to MetricsTables.DimSprint.startAt,
@@ -92,14 +95,39 @@ class SprintCalendarService(
         val total = sprintsOfTeam().where { predicate }.count()
         val rows = sprintsOfTeam().where { predicate }.applyPaging(paging, SORTABLE_COLUMNS)
             .orderBy(D.connectionId to SortOrder.ASC).toList().map { it.toSprintRow() }
-        val stored = SprintCalendars.select(SprintCalendars.connectionId, SprintCalendars.sprintId)
-            .where { (SprintCalendars.teamId eq teamId) and (SprintCalendars.sprintId inList rows.map { it.sprintId }) }
-            .toList().map { it[SprintCalendars.connectionId].value to it[SprintCalendars.sprintId] }.toSet()
-        SprintCalendarListResult(
-            rows.map { SprintCalendarSummary(it.sprintId, it.connectionId, it.name, it.state, it.startAt, it.endAt, it.completeAt,
-                (it.connectionId to it.sprintId) in stored, it.capacityMd, it.capacitySource) },
-            total,
-        )
+        val stored = storedCalendarKeys(listOf(teamId), rows)
+        SprintCalendarListResult(rows.map { it.toSummary(stored) }, total)
+    }
+
+    /** One team's sprint rows of [sprintsOfTeams], `startAt` ascending; [truncated] when the cap cut the answer short. */
+    data class SprintsOfTeams(val byTeam: Map<UInt, List<SprintCalendarSummary>>, val truncated: Boolean)
+
+    /**
+     * The derived sprints of every team in [teamIds] on ACTIVE connections whose `endAt` is null or at least [sinceMs] (epoch ms), grouped
+     * by team, `startAt` ascending within a team — the sprint half of `GET /integration/teams`. At most [cap] rows: the query asks for
+     * one more, and that extra row only sets [SprintsOfTeams.truncated]. Teams are not checked here (the caller passes ACTIVE ones).
+     */
+    suspend fun sprintsOfTeams(teamIds: Collection<UInt>, sinceMs: Long, cap: Int = MAX_INTEGRATION_SPRINTS): SprintsOfTeams =
+        suspendTransaction(database) {
+            if (teamIds.isEmpty()) return@suspendTransaction SprintsOfTeams(emptyMap(), truncated = false)
+            val fetched = sprintsOfTeam()
+                .where {
+                    (D.teamId inList teamIds.distinct()) and DataSourceService.Connections.active() and
+                        (D.endAt.isNull() or (D.endAt greaterEq sinceMs))
+                }
+                .orderBy(D.startAt to SortOrder.ASC, D.connectionId to SortOrder.ASC, D.sprintId to SortOrder.ASC)
+                .limit(cap + 1).toList()
+            // The WHERE guarantees a team id; `error` documents it instead of a bare `!!`.
+            val rows = fetched.take(cap).map { (it[D.teamId] ?: error("a selected sprint row has no team")).value to it.toSprintRow() }
+            val stored = storedCalendarKeys(teamIds, rows.map { it.second })
+            SprintsOfTeams(rows.groupBy({ it.first }) { it.second.toSummary(stored) }, truncated = fetched.size > cap)
+        }
+
+    /** Each team's default capacity ([TeamCapacityDefaults]); a team with no row is absent, one with a cleared figure maps to null. */
+    suspend fun teamCapacityDefaults(teamIds: Collection<UInt>): Map<UInt, Double?> = suspendTransaction(database) {
+        if (teamIds.isEmpty()) return@suspendTransaction emptyMap()
+        TeamCapacityDefaults.selectAll().where { TeamCapacityDefaults.teamId inList teamIds.distinct() }.toList()
+            .associate { it[TeamCapacityDefaults.teamId].value to it[TeamCapacityDefaults.defaultCapacityMd]?.toDouble() }
     }
 
     /**
@@ -272,6 +300,16 @@ class SprintCalendarService(
 
     private fun sprintsOfTeam() = D.join(DataSourceService.Connections, JoinType.INNER, D.connectionId, DataSourceService.Connections.id)
         .selectAll()
+
+    /** The (connection, sprint) pairs among [rows] that have a stored calendar under one of [teamIds]. */
+    private suspend fun storedCalendarKeys(teamIds: Collection<UInt>, rows: List<SprintRow>): Set<Pair<UInt, Long>> =
+        SprintCalendars.select(SprintCalendars.connectionId, SprintCalendars.sprintId)
+            .where { (SprintCalendars.teamId inList teamIds.distinct()) and (SprintCalendars.sprintId inList rows.map { it.sprintId }) }
+            .toList().map { it[SprintCalendars.connectionId].value to it[SprintCalendars.sprintId] }.toSet()
+
+    private fun SprintRow.toSummary(stored: Set<Pair<UInt, Long>>) = SprintCalendarSummary(
+        sprintId, connectionId, name, state, startAt, endAt, completeAt, (connectionId to sprintId) in stored, capacityMd, capacitySource,
+    )
 
     private fun ResultRow.toSprintRow() = SprintRow(
         this[D.connectionId].value, this[D.sprintId], this[D.name], this[D.state], this[D.startAt], this[D.endAt], this[D.completeAt],

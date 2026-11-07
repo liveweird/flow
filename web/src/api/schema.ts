@@ -3119,6 +3119,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integration/teams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every active team with its dated roster and sprint capacity (one document)
+         * @description TOKEN-ONLY like every `integration` operation (see `getIntegrationMe`: one uniform `401`, a registry outage is a `500`). The
+         *     bulk read of a consumer such as Astrolabe: ONE purpose-built document, deliberately not paged (the precedent is
+         *     `GET /reports/home`) - it is configuration (teams, rosters, sprint capacity), not a report, so it sets no precedent for unit-wide
+         *     metrics. Every field is already readable by any signed-in user through the team, jira-membership, sprint-calendar and capacity
+         *     reads; nothing is caller-shaped (no `canEdit`, no coefficient or per-person cell, no email, no Flow user id, no connection address).
+         *
+         *     - `items`: the ACTIVE teams (at most 100) in id order. `members` is every membership interval, open and closed, most recent
+         *       `validFrom` first; `displayName` comes from the synced Jira people (null for an account with none).
+         *     - `sprints`: the team's derived sprints on active data sources whose `endAt` is null or not before `sprintsSince` 00:00 in the
+         *       metrics time zone, `startAt` ascending. `capacityMd`/`capacitySource` are the figures as of the last DERIVE; `hasCalendar`
+         *       says whether a per-person calendar is stored.
+         *     - `sprintsSince` (query, `YYYY-MM-DD`, optional): the default is today minus 365 days in the metrics time zone; the effective
+         *       day is echoed. A malformed date, a year outside 1970..2999 or a repeated key is a `400`.
+         *     - `sprintsTruncated`: true when the 2,000-row sprint cap cut the answer short (narrow `sprintsSince`).
+         *     - `asOf`: epoch milliseconds of the read. The parts are separate reads, not one snapshot.
+         */
+        get: operations["getIntegrationTeams"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -7619,6 +7653,75 @@ export interface components {
              * @description Epoch milliseconds, as before this call; null = never used.
              */
             lastUsedAt?: number | null;
+        };
+        /** @description The one bulk document of `getIntegrationTeams`: every active team with its dated Jira-account roster and its sprint capacity. Nothing caller-shaped. */
+        IntegrationTeams: {
+            /**
+             * Format: int64
+             * @description Epoch milliseconds of the read.
+             */
+            asOf: number;
+            /**
+             * Format: date
+             * @description The effective sprint filter, a day in the metrics time zone.
+             */
+            sprintsSince: string;
+            /** @description True when the 2,000-row sprint cap cut the answer short. */
+            sprintsTruncated: boolean;
+            items: components["schemas"]["IntegrationTeam"][];
+        };
+        IntegrationTeam: {
+            /** Format: int32 */
+            id: number;
+            name: string;
+            /** @description The manager's name when the manager is an active Flow user. */
+            managerName: string | null;
+            /**
+             * Format: double
+             * @description The team's default capacity in man-days; null = none set.
+             */
+            defaultCapacityMd: number | null;
+            members: components["schemas"]["IntegrationMember"][];
+            sprints: components["schemas"]["IntegrationSprint"][];
+        };
+        /** @description One dated membership interval of a Jira account in the team. */
+        IntegrationMember: {
+            /** @description The Jira accountId, global across connections. */
+            accountId: string;
+            /** @description From the synced Jira people; null for an account with none. */
+            displayName: string | null;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds.
+             */
+            validFrom: number;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds; null = still open.
+             */
+            validTo: number | null;
+        };
+        IntegrationSprint: {
+            /** Format: int64 */
+            sprintId: number;
+            /** Format: int32 */
+            connectionId: number;
+            name: string;
+            state: string;
+            /** Format: int64 */
+            startAt: number | null;
+            /** Format: int64 */
+            endAt: number | null;
+            /** Format: int64 */
+            completeAt: number | null;
+            hasCalendar: boolean;
+            /**
+             * Format: double
+             * @description Man-days as of the last DERIVE.
+             */
+            capacityMd: number | null;
+            /** @enum {string|null} */
+            capacitySource: "CALENDAR" | "TEAM_DEFAULT" | "DEFAULT" | "CONFIGURED" | null;
         };
         ServiceTokenList: {
             items: components["schemas"]["ServiceToken"][];
@@ -12387,6 +12490,33 @@ export interface operations {
                     "application/json": components["schemas"]["IntegrationMe"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getIntegrationTeams: {
+        parameters: {
+            query?: {
+                /** @description ISO date (`YYYY-MM-DD`), a day in the metrics time zone. Default: today minus 365 days. */
+                sprintsSince?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every active team with its roster and sprints */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationTeams"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];

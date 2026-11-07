@@ -60,6 +60,8 @@ while the save lands recorded an older revision, so the post-run staleness check
 harmless. A new caller of `bumpRevision` narrows only if every table it writes is `connection_id`-keyed AND read solely
 by that connection's DERIVE; otherwise it stays global.
 
+**Bulk reads for the service-token document.** `GET /api/v1/integration/teams` (`security.md` "Service tokens") needs no config write: it composes `TeamMembershipService.listAll` (every membership row of the ACTIVE teams, one query, no names), `SprintCalendarService.sprintsOfTeams(teamIds, sinceMs, cap = 2,000)` (the `listSprints` join widened to `teamId IN`, `endAt IS NULL OR endAt >= since`, non-deleted connections, `startAt` ascending, `LIMIT cap + 1` so the extra row only sets `truncated`) and `SprintCalendarService.teamCapacityDefaults(teamIds)`. The `since` day and "today" are in the metrics time zone (`MetricsSettingsService.readCalendar`). `IntegrationTeamsReadTest` pins them.
+
 **The enqueue is debounced.** `bumpRevision` does not queue the DERIVE for now: it calls `SyncJobsService.enqueueDebouncedDerive`, which
 schedules it no earlier than `ingest.deriveQuietSeconds` (default 45 s) from now and, with a PENDING DERIVE already queued for the
 connection, pushes that job's `not_before` out instead of adding one (`.claude/docs/ingestion.md` "Debounced DERIVE (V27)"). A burst of

@@ -98,6 +98,11 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     gets a uniform `403` for a missing id and a malformed body alike. List/create/get and `POST /{id}/revoke` (terminal; `404` unknown,
     `409` already revoked); no `PUT`/`DELETE`. A live-name clash is `409`, an expired but unrevoked token included. Audits
     `service_token.created/revoked`, never the secret. Tests: `ServiceTokenRoutesTest`, `AuditTest`.
+  - `/api/v1/integration/**` (`integration/IntegrationRoutes.kt`: `me`, `teams`) → **service token only, read-only, nothing caller-shaped**: the one
+    `authenticate(SERVICE_TOKEN)` block, GET only; a user's JWT is a `401` there and a service token is a `401` everywhere else (`security.md` "Service
+    tokens", `ServiceTokenSurfaceTest`). No guard runs because there is no caller: `call.caller()` throws for a token call, so no `requireAdmin`/manager check
+    can be evaluated against it, and the documents carry no per-caller field (`canEdit`, coefficients, cells, emails, user ids). Tests: `ServiceTokenAuthTest`,
+    `IntegrationTeamsReadTest`.
   - `/api/v1/teams/{id}/capacity` and `/api/v1/teams/{id}/sprint-calendars[/{sprintId}]` (V24, domain-model A32,
     `metrics/SprintCalendarRoutes.kt`) → **reads any authenticated** (a conscious D12 extension: the grid is a per-person
     per-day availability, effectively an absence calendar — visible to everyone; each person's productivity `coefficient` is

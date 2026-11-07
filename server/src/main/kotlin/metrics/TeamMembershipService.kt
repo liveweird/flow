@@ -1,6 +1,7 @@
 package ch.nokillswit.metrics
 
 import ch.nokillswit.authz.NotFoundException
+import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.lockActiveForWrite
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.db.orVanished
@@ -31,8 +32,8 @@ data class TeamMembershipUpdateOutcome(val response: TeamMembershipResponse, val
  * client-supplied-FK idiom `teams/TeamService.kt`'s `requireActiveUsers` already uses for Flow
  * user ids). `teams/TeamService.kt`'s own `delete` makes the THIRD cross-feature reference, the
  * other direction: it closes/removes this table's rows for a team it just soft-deleted. [membershipsOfAccounts] joins
- * `teams/TeamService.Teams` for the team name (the seeding preview's conflict), and [lockActiveTeam]/`Teams.requireActiveOrNotFound`/
- * [insertMembership] are the pieces `TeamMembershipSeedService` shares with [create].
+ * `teams/TeamService.Teams` for the team name (the seeding preview's conflict), [listAll] joins it to keep ACTIVE teams only, and
+ * [lockActiveTeam]/`Teams.requireActiveOrNotFound`/[insertMembership] are the pieces `TeamMembershipSeedService` shares with [create].
  *
  * **Read-before-guard for reads, active-required for writes.** [list] only requires the team to
  * EXIST (`requireKnownTeam`, any activation state) — a soft-deleted team keeps its membership
@@ -64,6 +65,16 @@ class TeamMembershipService(
         TeamMembership.selectAll().where { TeamMembership.teamId eq teamId }
             .orderBy(TeamMembership.validFrom to SortOrder.DESC, TeamMembership.id to SortOrder.ASC)
             .toList().map { it.toResponse() }
+    }
+
+    /**
+     * Every membership row of every ACTIVE team, grouped by team id, in [list]'s order (most recent `validFrom` first) — ONE query, rows
+     * WITHOUT display names like [list] (the caller joins `norm`'s). The bulk read behind `GET /integration/teams`.
+     */
+    suspend fun listAll(): Map<UInt, List<TeamMembershipResponse>> = suspendTransaction(database) {
+        TeamMembership.innerJoin(TeamService.Teams).selectAll().where { TeamService.Teams.active() }
+            .orderBy(TeamMembership.validFrom to SortOrder.DESC, TeamMembership.id to SortOrder.ASC)
+            .toList().groupBy({ it[TeamMembership.teamId].value }) { it.toResponse() }
     }
 
     /**

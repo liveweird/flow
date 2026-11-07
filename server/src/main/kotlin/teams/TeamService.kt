@@ -32,6 +32,9 @@ private val SORTABLE_COLUMNS: Map<String, Column<*>> = mapOf(
 /** The ONE sortable whitelist — derived from the column map so the two can never drift. */
 val TEAM_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
 
+/** The bound of [TeamService.listActive]: a unit has tens of teams; a registry past this is not a scenario for the one-document read. */
+private const val MAX_ACTIVE_TEAMS = 100
+
 class TeamService(private val database: R2dbcDatabase) {
     object Teams : UIntIdTable("teams"), SoftDeletable {
         // Case-folded name uniqueness rides the partial unique index uq_teams_name_active
@@ -52,23 +55,31 @@ class TeamService(private val database: R2dbcDatabase) {
         val predicate = buildPredicate(filter) and Teams.active()
         val total = Teams.selectAll().where { predicate }.count()
         val rows = Teams.selectAll().where { predicate }.applyPaging(paging, SORTABLE_COLUMNS).toList()
-        val managers = activeUserNames(rows.mapNotNull { it[Teams.managerUserId]?.value })
-        TeamListResult(
-            items = rows.map { row ->
-                val id = row[Teams.id].value
-                val managerId = row[Teams.managerUserId]?.value?.takeIf { it in managers }
-                TeamListItem(
-                    id = id,
-                    name = row[Teams.name],
-                    description = row[Teams.description],
-                    managerUserId = managerId,
-                    managerName = managerId?.let(managers::get),
-                    createdAt = row[Teams.createdAt],
-                    updatedAt = row[Teams.updatedAt],
-                )
-            },
-            total = total,
-        )
+        TeamListResult(items = rows.toListItems(), total = total)
+    }
+
+    /**
+     * Every ACTIVE team in id order, at most [MAX_ACTIVE_TEAMS] (the registry's own bound), with the manager's name when the manager is
+     * an ACTIVE user — the bulk read behind `GET /integration/teams`, which composes it with the other features' services.
+     */
+    suspend fun listActive(): List<TeamListItem> = suspendTransaction(database) {
+        Teams.selectAll().where { Teams.active() }.orderBy(Teams.id to SortOrder.ASC).limit(MAX_ACTIVE_TEAMS).toList().toListItems()
+    }
+
+    private suspend fun List<ResultRow>.toListItems(): List<TeamListItem> {
+        val managers = activeUserNames(mapNotNull { it[Teams.managerUserId]?.value })
+        return map { row ->
+            val managerId = row[Teams.managerUserId]?.value?.takeIf { it in managers }
+            TeamListItem(
+                id = row[Teams.id].value,
+                name = row[Teams.name],
+                description = row[Teams.description],
+                managerUserId = managerId,
+                managerName = managerId?.let(managers::get),
+                createdAt = row[Teams.createdAt],
+                updatedAt = row[Teams.updatedAt],
+            )
+        }
     }
 
     /** The team, or null when missing/deleted. */

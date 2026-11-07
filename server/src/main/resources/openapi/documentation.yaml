@@ -4464,6 +4464,47 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
+  /api/v1/integration/teams:
+    get:
+      tags: [integration]
+      operationId: getIntegrationTeams
+      summary: Every active team with its dated roster and sprint capacity (one document)
+      description: |
+        TOKEN-ONLY like every `integration` operation (see `getIntegrationMe`: one uniform `401`, a registry outage is a `500`). The
+        bulk read of a consumer such as Astrolabe: ONE purpose-built document, deliberately not paged (the precedent is
+        `GET /reports/home`) - it is configuration (teams, rosters, sprint capacity), not a report, so it sets no precedent for unit-wide
+        metrics. Every field is already readable by any signed-in user through the team, jira-membership, sprint-calendar and capacity
+        reads; nothing is caller-shaped (no `canEdit`, no coefficient or per-person cell, no email, no Flow user id, no connection address).
+
+        - `items`: the ACTIVE teams (at most 100) in id order. `members` is every membership interval, open and closed, most recent
+          `validFrom` first; `displayName` comes from the synced Jira people (null for an account with none).
+        - `sprints`: the team's derived sprints on active data sources whose `endAt` is null or not before `sprintsSince` 00:00 in the
+          metrics time zone, `startAt` ascending. `capacityMd`/`capacitySource` are the figures as of the last DERIVE; `hasCalendar`
+          says whether a per-person calendar is stored.
+        - `sprintsSince` (query, `YYYY-MM-DD`, optional): the default is today minus 365 days in the metrics time zone; the effective
+          day is echoed. A malformed date, a year outside 1970..2999 or a repeated key is a `400`.
+        - `sprintsTruncated`: true when the 2,000-row sprint cap cut the answer short (narrow `sprintsSince`).
+        - `asOf`: epoch milliseconds of the read. The parts are separate reads, not one snapshot.
+      parameters:
+        - name: sprintsSince
+          in: query
+          required: false
+          schema: { type: string, format: date }
+          description: 'ISO date (`YYYY-MM-DD`), a day in the metrics time zone. Default: today minus 365 days.'
+      security:
+        - serviceToken: []
+      responses:
+        '200':
+          description: Every active team with its roster and sprints
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationTeams'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -9463,6 +9504,63 @@ components:
         createdAt: { type: integer, format: int64, description: Epoch milliseconds. }
         expiresAt: { type: integer, format: int64, nullable: true, description: Epoch milliseconds; null = never expires. }
         lastUsedAt: { type: integer, format: int64, nullable: true, description: 'Epoch milliseconds, as before this call; null = never used.' }
+    IntegrationTeams:
+      type: object
+      required: [asOf, sprintsSince, sprintsTruncated, items]
+      description: >-
+        The one bulk document of `getIntegrationTeams`: every active team with its dated Jira-account roster and its sprint capacity.
+        Nothing caller-shaped.
+      properties:
+        asOf: { type: integer, format: int64, description: Epoch milliseconds of the read. }
+        sprintsSince: { type: string, format: date, description: 'The effective sprint filter, a day in the metrics time zone.' }
+        sprintsTruncated: { type: boolean, description: 'True when the 2,000-row sprint cap cut the answer short.' }
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/IntegrationTeam'
+    IntegrationTeam:
+      type: object
+      required: [id, name, managerName, defaultCapacityMd, members, sprints]
+      properties:
+        id: { type: integer, format: int32, minimum: 0 }
+        name: { type: string }
+        managerName: { type: string, nullable: true, description: "The manager's name when the manager is an active Flow user." }
+        defaultCapacityMd: { type: number, format: double, nullable: true, description: "The team's default capacity in man-days; null = none set." }
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/IntegrationMember'
+        sprints:
+          type: array
+          items:
+            $ref: '#/components/schemas/IntegrationSprint'
+    IntegrationMember:
+      type: object
+      required: [accountId, displayName, validFrom, validTo]
+      description: One dated membership interval of a Jira account in the team.
+      properties:
+        accountId: { type: string, description: 'The Jira accountId, global across connections.' }
+        displayName: { type: string, nullable: true, description: From the synced Jira people; null for an account with none. }
+        validFrom: { type: integer, format: int64, description: Epoch milliseconds. }
+        validTo: { type: integer, format: int64, nullable: true, description: Epoch milliseconds; null = still open. }
+    IntegrationSprint:
+      type: object
+      required: [sprintId, connectionId, name, state, startAt, endAt, completeAt, hasCalendar, capacityMd, capacitySource]
+      properties:
+        sprintId: { type: integer, format: int64 }
+        connectionId: { type: integer, format: int32, minimum: 0 }
+        name: { type: string }
+        state: { type: string }
+        startAt: { type: integer, format: int64, nullable: true }
+        endAt: { type: integer, format: int64, nullable: true }
+        completeAt: { type: integer, format: int64, nullable: true }
+        hasCalendar: { type: boolean }
+        capacityMd: { type: number, format: double, nullable: true, description: Man-days as of the last DERIVE. }
+        capacitySource:
+          type: string
+          enum: [CALENDAR, TEAM_DEFAULT, DEFAULT, CONFIGURED]
+          nullable: true
     ServiceTokenList:
       type: object
       required: [items]

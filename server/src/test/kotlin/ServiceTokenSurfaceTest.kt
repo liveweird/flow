@@ -25,7 +25,7 @@ import kotlin.test.assertTrue
  */
 class ServiceTokenSurfaceTest {
 
-    private val integrationSurface = setOf("GET /api/v1/integration/me")
+    private val integrationSurface = setOf("GET /api/v1/integration/me", "GET /api/v1/integration/teams")
 
     private val secured by lazy {
         OpenApiSpec.parsed.paths.flatMap { (path, item) ->

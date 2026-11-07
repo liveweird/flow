@@ -746,10 +746,18 @@ refresh rotation, MFA, per-account lockout).
   token*: a thrown lookup is a 500. No secret-bearing configuration is added, so there is no new production fail-closed check; the `no-store` header
   already rides every `/api/` answer. Log hygiene: `ServiceTokenCreateResponse` masks `secret` in `toString()` (`SecretToStringTest`); the provider
   never logs the header, and the verdict/principal types hold no secret.
-- **`GET /api/v1/integration/teams` (C4) will be ONE document, not a paged list** (the precedent is `GET /reports/home` and `/reports/filters`, not a
-  list endpoint, so `list-endpoints.md` does not change): every active team with its dated roster and its sprint capacity in a single read, bounded by
-  the registry's own caps. It is configuration (teams, rosters, sprint capacity), not a report, so it is no precedent for unit-wide metrics ("reports
-  read per team or domain, never the whole unit" still holds), and it carries nothing caller-shaped (no `canEdit`, coefficients, cells, user ids or emails).
+- **`GET /api/v1/integration/teams` is ONE document, not a paged list** (`integration/IntegrationReadService.kt`; the precedent is `GET /reports/home` and
+  `/reports/filters`, not a list endpoint, so `list-endpoints.md` does not change). `?sprintsSince=YYYY-MM-DD` (default today - 365 days, a day in the metrics time
+  zone; a malformed date, a year outside 1970..2999 or a repeated key is a `400`). It discloses, to the holder of a live service token (so to whoever can use the
+  consumer): every ACTIVE team's name, its manager's NAME (an ACTIVE Flow user, else null), its default capacity in man-days, EVERY dated membership interval of its Jira
+  accounts (account id, the real Jira display name from `norm.people` or null, `validFrom`/`validTo`) and its derived sprints on non-deleted connections (id, connection id,
+  name, state, start/end/complete, `hasCalendar`, `capacityMd`, `capacitySource`), at most 100 teams and 2,000 sprint rows (`sprintsTruncated` says the cap cut the answer).
+  Every FIELD is already readable by any signed-in user through the team, jira-membership, sprint-calendar and capacity GETs (D12); what widens is the AUDIENCE - the
+  consumer's users now see Flow's rosters, real names included. It is configuration (teams, rosters, sprint capacity), not a report, so it is no precedent for
+  unit-wide metrics ("reports read per team or domain, never the whole unit" still holds). It carries nothing caller-shaped: no `canEdit`, coefficient, per-person cell,
+  email, Flow user id or connection address (`IntegrationTeamsReadTest` greps the wire keys). `integration/` reads no other feature's table: `TeamService.listActive`,
+  `TeamMembershipService.listAll`, `SprintCalendarService.sprintsOfTeams`/`teamCapacityDefaults` and ONE `WorkItemStore.displayNames` call for all account ids, each in its
+  own transaction (so the parts are not one snapshot; `asOf` is the time of the read).
 
 ### Telemetry
 

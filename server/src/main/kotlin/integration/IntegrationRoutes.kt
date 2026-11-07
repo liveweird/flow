@@ -1,7 +1,13 @@
 package ch.nokillswit.integration
 
+import ch.nokillswit.infra.paging.optionalString
+import ch.nokillswit.metrics.MetricsSettingsServiceKey
+import ch.nokillswit.metrics.SprintCalendarServiceKey
+import ch.nokillswit.metrics.TeamMembershipServiceKey
+import ch.nokillswit.norm.WorkItemStoreKey
 import ch.nokillswit.plugins.RateLimits
 import ch.nokillswit.plugins.servesApi
+import ch.nokillswit.teams.TeamServiceKey
 import io.ktor.http.HttpStatusCode
 import io.ktor.resources.Resource
 import io.ktor.server.application.*
@@ -19,6 +25,11 @@ class IntegrationRoute {
     @Serializable
     @Resource("me")
     class Me(val parent: IntegrationRoute = IntegrationRoute())
+
+    /** `?sprintsSince=YYYY-MM-DD` is read from the raw query: a repeated key is a 400 (`singleValue`) and the date's 400 text is ours. */
+    @Serializable
+    @Resource("teams")
+    class Teams(val parent: IntegrationRoute = IntegrationRoute())
 }
 
 /**
@@ -35,7 +46,8 @@ data class IntegrationMe(
 )
 
 /**
- * The read-only `/api/v1/integration` namespace (`.claude/docs/security.md` "Service tokens"): TOKEN-ONLY, GET only. The one and only
+ * The read-only `/api/v1/integration` namespace (`.claude/docs/security.md` "Service tokens"): TOKEN-ONLY, GET only (`me`, and the
+ * `teams` bulk read composed by `IntegrationReadService`). The one and only
  * `authenticate(SERVICE_TOKEN)` block of the codebase, so a service token can reach nothing else and a JWT reaches nothing here; no
  * write route may be added to this file (`ServiceTokenSurfaceTest` greps it for `post<`, `put<`, `delete<` and `receive(`). Two
  * buckets, both named in `plugins/RateLimits.kt`: the per-host `integration` budget is spent by the provider itself BEFORE the lookup
@@ -46,6 +58,14 @@ data class IntegrationMe(
 fun Application.configureIntegrationRoutes() {
     if (!servesApi()) return
 
+    val readService = IntegrationReadService(
+        attributes[TeamServiceKey],
+        attributes[TeamMembershipServiceKey],
+        attributes[SprintCalendarServiceKey],
+        attributes[MetricsSettingsServiceKey],
+        attributes[WorkItemStoreKey],
+    )
+
     routing {
         authenticate(SERVICE_TOKEN) {
             rateLimit(RateLimitName(RateLimits.INTEGRATION_TOKEN)) {
@@ -55,6 +75,10 @@ fun Application.configureIntegrationRoutes() {
                         HttpStatusCode.OK,
                         IntegrationMe(token.tokenId, token.name, token.createdAt, token.expiresAt, token.lastUsedAtBefore),
                     )
+                }
+                get<IntegrationRoute.Teams> {
+                    val since = parseSprintsSince(call.request.queryParameters.optionalString("sprintsSince"))
+                    call.respond(HttpStatusCode.OK, readService.teams(since))
                 }
             }
         }
