@@ -2,6 +2,7 @@ package ch.nokillswit.auth
 
 import at.favre.lib.crypto.bcrypt.BCrypt
 import java.security.SecureRandom
+import java.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -39,3 +40,15 @@ private val secureRandom = SecureRandom()
 /** The 6-digit email-MFA code (leading zeros kept) — guess-resistance comes from the challenge
  *  attempt cap, not the code length (see auth/MfaChallenges.kt). */
 internal fun generateMfaCode(): String = "%06d".format(secureRandom.nextInt(1_000_000))
+
+private const val OPAQUE_TOKEN_BYTES = 32
+
+/**
+ * An opaque bearer secret: 32 `SecureRandom` bytes (256 bits) as unpadded base64url, always 43 characters of
+ * `[A-Za-z0-9_-]`. The password-reset link token and the service-token body (`integration/`, prefixed `flow_int_`) are both
+ * minted here; only the SHA-256 digest ([ch.nokillswit.infra.json.sha256Hex]) of either is ever stored.
+ */
+internal fun generateOpaqueToken(): String {
+    val bytes = ByteArray(OPAQUE_TOKEN_BYTES).also(secureRandom::nextBytes)
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+}

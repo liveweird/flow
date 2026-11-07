@@ -1543,12 +1543,40 @@ rows older than 90, processes unseen for 90 days (their samples cascade, `ON DEL
 off a table scan). The prune runs inside the telemetry cluster transaction under `TELEMETRY_LOCK_KEY`, and a row exactly at its cutoff
 stays. The tests own the schema: `TelemetryStoreTest`/`TelemetrySamplerTest` empty `ops` before each test (the suite starts no sampler).
 
+### Service tokens (V48)
+
+`V48__service_tokens.sql` (`integration/ServiceTokenService.kt`, `integration/ServiceToken.kt`; Lettuce's `integration_clients` V71, renamed) adds
+`public.service_tokens`: the ADMIN-issued, read-only machine credentials for the `/api/v1/integration` reads (Astrolabe's scheduled sync). It is deliberately
+NOT a row in `users` (a user row would leak into pickers, lists, `managerUserId` validation and the last-admin rule). Purely additive: an old pod never reads it.
+`MigrationChecksumTest` pins it.
+
+- **Columns.** `id SERIAL` (INTEGER, the V6 teams style; `UIntIdTable`, `tokenId: UInt`), `name VARCHAR(100)`, `token_hash VARCHAR(64)` (the SHA-256 hex of the FULL bearer
+  value, prefix included, `infra/json` `sha256Hex`), `created_by BIGINT NOT NULL` and `revoked_by BIGINT NULL` (both `REFERENCES users(id) ON DELETE RESTRICT`; an INTEGER-vs-BIGINT
+  note: `users.id` is `BIGSERIAL`), `created_at`, `expires_at` (NULL = never), `last_used_at`, `revoked_at` (epoch-millis `BIGINT`s).
+- **A token is `flow_int_` + 43 base64url characters** (`SERVICE_TOKEN_PATTERN`, 52 characters in all; 32 `SecureRandom` bytes minted by `auth/Passwords.kt` `generateOpaqueToken()`, the
+  same mint as the password-reset link). Shown once in the create response; only the digest is stored. No bcrypt: the secret is 256 bits of server randomness, not a human password,
+  and the lookup is SQL equality on the unique digest (`uq_service_tokens_token_hash`), so no constant-time compare is needed (the V35 argument).
+- **Indexes.** `uq_service_tokens_token_hash` (the auth lookup) and the partial `uq_service_tokens_name_live ON (LOWER(name)) WHERE revoked_at IS NULL`: two live tokens cannot share a name,
+  case-insensitively (the `uq_teams_name_active` idiom; the central 23505 handler answers a 409, `UNIQUE_CONSTRAINT_DETAILS`). An EXPIRED but unrevoked token still holds its name until it is
+  revoked, and the 409 detail says so.
+- **Immutable rows, terminal revoke.** `revoked_at` IS the removal: no UPDATE of name or key, no DELETE, rotation = create a new token and revoke the old one. `revoke` is a conditional update
+  (`revoked_at IS NULL`), so a concurrent revoke loses cleanly (zero rows, `ALREADY_REVOKED`, a 409 for the route). `authenticate` carries the liveness in the WHERE (`revoked_at IS NULL AND
+  (expires_at IS NULL OR expires_at > now)`) and stamps `last_used_at` conditional on the same predicate, so revocation and expiry take effect on the very next request (no cache) and a revoke
+  committing between the select and the stamp is never recorded as a use.
+- **Hard delete? Neither soft- nor hard-delete.** The "Soft delete (convention)" list below names the exception: a revoked row is audit history (`createdByName`, `revokedByName`, `lastUsedAt`),
+  kept listed (the list is capped at the newest 100).
+- **Permissions.** `ServiceTokenService` WRITES only `service_tokens` and READS `flowusers/FlowUserService.FlowUsers` (`name`, joined for `createdByName`/`revokedByName`, NOT filtered on `active()`:
+  a soft-deleted creator keeps its name on the trail; the same read-only join precedent as `teams/TeamService`'s manager names). Published as `ServiceTokenServiceKey` from the composition
+  root `infra/db/Database.kt` (`PackageBoundaryTest`'s `infraCompositionRoot`), and `PackageBoundaryTest` carries the allowlist of `integration/` (`teams`, `metrics`, `norm`, `authz`, `auth`,
+  `flowusers`; nothing but `infra/db/Database.kt` references it). The cross-feature list above is otherwise unchanged.
+
 ### Soft delete (convention)
 
 `users` and `teams` are **soft-deleted** — rows are flagged, never physically removed; every
 business entity follows the same convention. Only join/token tables (today: `revoked_tokens`, a
 pure token registry, `password_reset_tokens` (V35, expiring single-use credentials, not history), `user_disabled_features`, a pure flag join whose PUT is a wholesale replace,
 `code_identity_links` (V45, "Code identity links (V45)": an admin's decision about one GitLab identity, undated and host-keyed; the deletable action is "this decision was wrong", the audit trail carries the removal - the `team_membership` justification below),
+`service_tokens` (V48, "Service tokens (V48)": the integration-clients exception of Lettuce V71 and Toadie V36 - a credential is terminally disabled by `revoked_at`, never edited or deleted, and the revoked rows stay listed for the trail),
 `metrics.public_holidays` (V25, "Public holidays (V25)") and `metrics.team_membership` (V15, D1) — a pure DATED
 join: the deletable action is "this interval was entered by mistake", not "this person left" (which
 is already modeled by closing the interval — `validTo`), and a soft-delete flag would need a

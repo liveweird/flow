@@ -125,6 +125,8 @@ private val UNIQUE_CONSTRAINT_DETAILS = mapOf(
     "uq_source_connections_name_active" to "A data source with this name already exists",
     "uq_metrics_board_team_map_team_id" to "This team is already mapped to another board",
     "public_holidays_holiday_date_key" to "A public holiday on this date already exists",
+    "uq_service_tokens_name_live" to
+        "A service token with this name already exists and is not revoked; an expired token keeps its name until it is revoked",
 )
 
 private fun Throwable.uniqueViolationDetail(): String {

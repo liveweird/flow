@@ -38,18 +38,19 @@ class PackageBoundaryTest {
 
     /**
      * Composition-root exceptions to "infra never references a feature": `infra/db/Database.kt` builds and publishes the feature
-     * services (`ingest`, `teams`, `flowusers`, `auth`) and `infra/db/Bootstrap.kt` seeds the admin through `flowusers`/`auth`
+     * services (`ingest`, `teams`, `flowusers`, `auth`, `integration`) and `infra/db/Bootstrap.kt` seeds the admin through
+     * `flowusers`/`auth`
      * and reads the `ingest` data-source service. Keyed by file name, valued by the feature packages that file may import;
      * a listed package the file no longer uses fails the test (a stale exception is dead permission).
      */
     private val infraCompositionRoot: Map<String, Set<String>> = mapOf(
-        "Database.kt" to setOf("auth", "ingest", "teams", "flowusers"),
+        "Database.kt" to setOf("auth", "ingest", "teams", "flowusers", "integration"),
         "Bootstrap.kt" to setOf("auth", "ingest", "flowusers"),
     )
 
     private val featurePackages = listOf(
         "ingest", "norm", "fetch", "jira", "gitlab", "metrics", "reports", "teams", "flowusers", "auth", "authz", "telemetry",
-        "identities",
+        "identities", "integration",
     )
 
     private fun packageOf(text: String): String? =
@@ -119,6 +120,34 @@ class PackageBoundaryTest {
         assertTrue(mainSources.any { packageOf(it.readText()) in lower }, "no source declares ch.nokillswit.identities")
         val allowed = setOf("identities", "norm", "ingest", "authz")
         assertEquals(emptyList(), violations(lower, featurePackages - allowed))
+    }
+
+    @Test
+    fun `integration references only teams, metrics, norm, authz, auth and flowusers`() {
+        // An ALLOWLIST: the service tokens and the read-only integration surface sit beside the features and read OTHER features only
+        // through their services. Of the feature packages `integration/` may use `teams/` and `metrics/` (the bulk read, later), `norm/`
+        // (`WorkItemStore.displayNames`), `authz/` (guards, typed exceptions), `auth/` (the shared opaque-token mint) and `flowusers/`
+        // (the registry's `created_by`/`revoked_by` foreign keys and the names joined from `users`); a new feature package is forbidden
+        // to it until listed here. `infra`, `audit` and `plugins` are not feature packages. The scan must see the package.
+        val lower = setOf("ch.nokillswit.integration")
+        assertTrue(mainSources.any { packageOf(it.readText()) in lower }, "no source declares ch.nokillswit.integration")
+        val allowed = setOf("integration", "teams", "metrics", "norm", "authz", "auth", "flowusers")
+        assertEquals(emptyList(), violations(lower, featurePackages - allowed))
+    }
+
+    @Test
+    fun `only the composition root references integration`() {
+        // The service tokens are published from `infra/db/Database.kt` and wired into the routes through `application.yaml` and the
+        // attribute key; no other package names `integration/` (plugins reach it through attributes, never an import).
+        val violations = mainSources.flatMap { file ->
+            val text = file.readText()
+            if (packageOf(text) == "ch.nokillswit.integration" || file.name == "Database.kt") {
+                emptyList()
+            } else {
+                forbiddenReferences(text, listOf("integration")).map { "${file.name} $it" }
+            }
+        }
+        assertEquals(emptyList(), violations)
     }
 
     @Test

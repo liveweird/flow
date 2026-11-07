@@ -3,10 +3,8 @@ package ch.nokillswit.auth
 import ch.nokillswit.flowusers.FlowUserService.FlowUsers
 import ch.nokillswit.flowusers.updatePasswordInTransaction
 import ch.nokillswit.infra.db.active
+import ch.nokillswit.infra.json.sha256Hex
 import io.ktor.util.AttributeKey
-import java.security.MessageDigest
-import java.security.SecureRandom
-import java.util.Base64
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
@@ -15,11 +13,9 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 val PasswordResetServiceKey = AttributeKey<PasswordResetService>("PasswordResetService")
 
-private const val RESET_TOKEN_BYTES = 32
 private const val DEFAULT_RESET_TTL_MILLIS = 900_000L
 private const val MAX_RESET_TTL_MILLIS = 3_600_000L
 private const val MAX_LIVE_GRANTS_PER_USER = 5
-private val resetRandom = SecureRandom()
 
 /** The shape of an emailed token: 32 random bytes as unpadded base64url. Junk is rejected before any database hit. */
 internal val RESET_TOKEN_PATTERN = Regex("[A-Za-z0-9_-]{43}")
@@ -61,8 +57,7 @@ class PasswordResetService(
     suspend fun issue(userId: UInt, credentialRevision: Long, email: String): IssueOutcome {
         // A separate cleanup transaction preserves the user-before-grant lock ordering.
         suspendTransaction(database) { Grants.deleteWhere { expiresAt lessEq clock() } }
-        val bytes = ByteArray(RESET_TOKEN_BYTES).also(resetRandom::nextBytes)
-        val token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+        val token = generateOpaqueToken()
         return suspendTransaction(database) {
             if (!lockUser(userId, credentialRevision, email)) return@suspendTransaction IssueOutcome.Stale
             // Grants minted for an older email or revision can never be redeemed: drop them so they hold no slot under the cap.
@@ -73,7 +68,7 @@ class PasswordResetService(
             val live =Grants.select(Grants.tokenHash).where { (Grants.userId eq userId) and (Grants.expiresAt greater clock()) }.count()
             if (live >= MAX_LIVE_GRANTS_PER_USER) return@suspendTransaction IssueOutcome.Capped
             Grants.insert {
-                it[tokenHash] = digest(token)
+                it[tokenHash] = sha256Hex(token)
                 it[Grants.userId] = userId
                 it[Grants.email] = email
                 it[Grants.credentialRevision] = credentialRevision
@@ -88,7 +83,7 @@ class PasswordResetService(
         if (!RESET_TOKEN_PATTERN.matches(token)) return false
         return suspendTransaction(database) {
             (Grants innerJoin FlowUsers).select(Grants.tokenHash).where {
-                (Grants.tokenHash eq digest(token)) and (Grants.expiresAt greater clock()) and FlowUsers.active() and
+                (Grants.tokenHash eq sha256Hex(token)) and (Grants.expiresAt greater clock()) and FlowUsers.active() and
                     (Grants.credentialRevision eq FlowUsers.credentialRevision) and (Grants.email eq FlowUsers.email)
             }.count() == 1L
         }
@@ -97,7 +92,7 @@ class PasswordResetService(
     /** Consumption, password replacement and sibling revocation are ONE transaction, across instances. */
     suspend fun complete(token: String, passwordHash: String): UInt? {
         if (!RESET_TOKEN_PATTERN.matches(token)) return null
-        val hash = digest(token)
+        val hash = sha256Hex(token)
         return suspendTransaction(database) {
             val grant = Grants.selectAll().where { Grants.tokenHash eq hash }.toList().singleOrNull()
                 ?: return@suspendTransaction null
@@ -115,7 +110,7 @@ class PasswordResetService(
     }
 
     suspend fun revoke(token: String) {
-        suspendTransaction(database) { Grants.deleteWhere { tokenHash eq digest(token) } }
+        suspendTransaction(database) { Grants.deleteWhere { tokenHash eq sha256Hex(token) } }
     }
 
     // FOR NO KEY UPDATE (persistence.md "Row locks vs. FK locks"): no write here touches the row's key (`id`), and it does not
@@ -127,8 +122,4 @@ class PasswordResetService(
             (FlowUsers.id eq userId) and FlowUsers.active() and
                 (FlowUsers.credentialRevision eq credentialRevision) and (FlowUsers.email eq email)
         }.forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate).toList().isNotEmpty()
-
-    private fun digest(token: String): String =
-        MessageDigest.getInstance("SHA-256").digest(token.toByteArray(Charsets.US_ASCII))
-            .joinToString("") { "%02x".format(it) }
 }

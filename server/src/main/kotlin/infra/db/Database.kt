@@ -15,6 +15,8 @@ import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.ingest.SyncJobsServiceKey
 import ch.nokillswit.ingest.configuredScopeRules
 import ch.nokillswit.ingest.jobHandlerRegistry
+import ch.nokillswit.integration.ServiceTokenService
+import ch.nokillswit.integration.ServiceTokenServiceKey
 import ch.nokillswit.teams.TeamService
 import ch.nokillswit.teams.TeamServiceKey
 import ch.nokillswit.flowusers.FlowUserService
@@ -248,6 +250,7 @@ suspend fun Application.configureDatabase() {
     attributes.put(FlowUserServiceKey, userService)
     val teamService = TeamService(database)
     attributes.put(TeamServiceKey, teamService)
+    attributes.put(ServiceTokenServiceKey, ServiceTokenService(database))
     attributes.put(
         TokenBlocklistServiceKey,
         TokenBlocklistService(
