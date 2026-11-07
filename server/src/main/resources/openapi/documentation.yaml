@@ -24,6 +24,10 @@ info:
     operation, drills included, shares ONE per-user token bucket (120 requests a minute per signed-in user in production,
     keyed by the account, never the client address); past it the answer is a `429`.
 
+    The `integration` operations are the one exception to the bearer-JWT rule: they accept ONLY an ADMIN-issued, read-only service token
+    (`Authorization: Bearer flow_int_…`, managed under `service-tokens`) and never a user's access token, while every other operation
+    rejects a service token with the usual `401`. They are bucketed per client IP and per token; past either the answer is a `429`.
+
     All error responses use RFC 7807 `application/problem+json` (`ProblemDetail`). Any endpoint may additionally
     return `500` (`InternalServerError`) on an unexpected server fault.
 servers:
@@ -52,6 +56,8 @@ tags:
     description: The read-only reports (any authenticated user) and the `…/items` drill lists behind their bars; every figure is derived, never stored per request.
   - name: service-tokens
     description: The registry of read-only service tokens other applications (e.g. Astrolabe) present as a bearer - ADMIN only, reads included; the secret is shown once, at creation.
+  - name: integration
+    description: The read-only operations other applications (e.g. Astrolabe) call with a service token - token-only, never a user's JWT; GET only.
 
 paths:
   /api/v1/health:
@@ -4433,6 +4439,30 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/integration/me:
+    get:
+      tags: [integration]
+      operationId: getIntegrationMe
+      summary: The service token presenting this call
+      description: |
+        TOKEN-ONLY: the bearer must be a live service token (`flow_int_` plus 43 base64url characters). A user's access token, a
+        revoked or expired token, a malformed value and a repeated `Authorization` header are all the same `401`
+        (`application/problem+json`, one detail text for every reason), so nothing can be told apart on the wire. A registry
+        outage is a `500`, never a `401`. Answers the facts of the presenting token as they were BEFORE this call's
+        `last_used_at` stamp: the "Test connection" probe of a consumer. Rate-limited per client IP (default 60/min,
+        `INTEGRATION_RATE_LIMIT_PER_MINUTE`) and per token (120/min); over either bucket it answers `429`.
+      security:
+        - serviceToken: []
+      responses:
+        '200':
+          description: The presenting token's facts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationMe'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
 
 components:
   securitySchemes:
@@ -4440,6 +4470,11 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    serviceToken:
+      type: http
+      scheme: bearer
+      bearerFormat: "flow_int_<43 base64url chars>"
+      description: An ADMIN-issued read-only service token; accepted ONLY by the /integration operations
 
   parameters:
     IfNoneMatch:
@@ -9416,6 +9451,18 @@ components:
         revoked: { type: boolean }
         revokedAt: { type: integer, format: int64, nullable: true, description: Epoch milliseconds. }
         revokedByName: { type: string, nullable: true }
+    IntegrationMe:
+      type: object
+      required: [tokenId, name, createdAt]
+      description: >-
+        The presenting service token's facts as they were BEFORE this call's `last_used_at` stamp. Nothing secret and nothing
+        about any user.
+      properties:
+        tokenId: { type: integer, format: int32, minimum: 0 }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        createdAt: { type: integer, format: int64, description: Epoch milliseconds. }
+        expiresAt: { type: integer, format: int64, nullable: true, description: Epoch milliseconds; null = never expires. }
+        lastUsedAt: { type: integer, format: int64, nullable: true, description: 'Epoch milliseconds, as before this call; null = never used.' }
     ServiceTokenList:
       type: object
       required: [items]

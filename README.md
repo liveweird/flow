@@ -257,6 +257,7 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive (`.claude/
 | `LOGIN_RATE_LIMIT_PER_MINUTE` | *(blank)* | Per-IP login bucket; blank follows the mode (10 prod / 1000 dev). |
 | `REFRESH_RATE_LIMIT_PER_MINUTE` | *(blank)* | Per-IP refresh bucket (blank = 30). |
 | `READY_RATE_LIMIT_PER_MINUTE` | *(blank)* | Per-IP bucket on `GET /api/v1/ready` (blank = 60; the kubelet probes 12/min). |
+| `INTEGRATION_RATE_LIMIT_PER_MINUTE` | *(blank)* | Per-IP bucket on the token-only `/api/v1/integration/**` reads (blank = 60); the per-token bucket is a fixed 120/min. |
 | `REPORT_RATE_LIMIT_PER_MINUTE` | *(blank)* | Per-USER bucket (not per IP) on every `GET /api/v1/reports/**` call; blank follows the mode (120 prod / 1000 dev). |
 | `PASSWORD_RESET_RATE_LIMIT_PER_MINUTE` | *(blank)* | Per-IP reset bucket; blank follows the mode (5 prod / 100 dev). |
 | `PASSWORD_RESET_MIN_INTERVAL_SECONDS` | `60` | One reset request per submitted email per interval. |

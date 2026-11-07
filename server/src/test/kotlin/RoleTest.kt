@@ -50,6 +50,8 @@ class RoleTest {
         // escape hatch: the plugin only wraps the shared test-client factories.
         assertEquals(HttpStatusCode.NotFound, client.get("/api/v1/flow-users").status)
         assertEquals(HttpStatusCode.NotFound, client.get("/api/v1/data-sources").status)
+        // The token-only integration reads are API routes too: not mounted on a worker (default client: a 404 is undeclared drift).
+        assertEquals(HttpStatusCode.NotFound, client.get("/api/v1/integration/me").status)
         assertEquals(HttpStatusCode.NotFound, client.get("/some-app-route").status)
     }
 
@@ -103,6 +105,8 @@ class RoleTest {
         assertEquals(HttpStatusCode.OK, jsonClient().get("/api/v1/health").status)
         // 401, not 404: the route is registered and the JWT challenge fires before requireAdmin.
         assertEquals(HttpStatusCode.Unauthorized, jsonClient().get("/api/v1/flow-users").status)
+        // The service-token namespace is mounted too: its own provider answers the 401.
+        assertEquals(HttpStatusCode.Unauthorized, jsonClient().get("/api/v1/integration/me").status)
         // The scan loop starts on ApplicationStarted (ingest/IngestWorker.kt) — AFTER startApplication()
         // returns, so this must be read via the captured Application, not inside the application{} block.
         assertFalse(app.ingestWorkerStarted(), "the web role must start no ingest worker")

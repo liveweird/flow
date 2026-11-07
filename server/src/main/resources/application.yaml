@@ -35,6 +35,10 @@ ktor:
       - ch.nokillswit.infra.crypto.CryptoKt.configureCrypto
       - ch.nokillswit.infra.db.FlywayKt.configureFlyway
       - ch.nokillswit.infra.db.DatabaseKt.configureDatabase
+      # The service-token authentication provider (`authenticate(SERVICE_TOKEN)`, integration/): registered next to the JWT one, so it
+      # runs after configureSecurity (the Authentication plugin) and configureDatabase (the registry it reads at request time) and
+      # before the route module that names it.
+      - ch.nokillswit.integration.IntegrationKt.configureIntegration
       - ch.nokillswit.infra.db.BootstrapKt.configureBootstrap
       # Public liveness/readiness probes (/api/v1/health, /api/v1/ready); after Database (the probe
       # round-trips it).
@@ -80,6 +84,8 @@ ktor:
       - ch.nokillswit.metrics.PublicHolidayRoutesKt.configurePublicHolidayRoutes
       # The ADMIN service-token registry (V48): needs only the service published by configureDatabase.
       - ch.nokillswit.integration.ServiceTokenRoutesKt.configureServiceTokenRoutes
+      # The token-only read namespace /api/v1/integration (GET only; `.claude/docs/security.md` "Service tokens").
+      - ch.nokillswit.integration.IntegrationRoutesKt.configureIntegrationRoutes
       - ch.nokillswit.metrics.JiraUsersRoutesKt.configureJiraUsersRoutes
       # The reports API (v0.3.0 M4 commit 10a) — read-only, any authenticated (D12); after the
       # metrics feature routes it reads from.
@@ -117,6 +123,9 @@ security:
     # Per-IP bucket on GET /api/v1/ready (the anonymous probe that takes a pooled DB connection per
     # call). Blank keeps the default 60/min (both modes; the kubelet probes 12/min); a number pins it.
     readyPerMinute: "$READY_RATE_LIMIT_PER_MINUTE:"
+    # Per-IP bucket on the whole /api/v1/integration namespace (the token-only reads; each call costs a pooled digest lookup before
+    # anything is verified). Blank keeps the default 60/min (both modes); a number pins it. The per-TOKEN bucket (120/min) is fixed.
+    integrationPerMinute: "$INTEGRATION_RATE_LIMIT_PER_MINUTE:"
     # Per-USER bucket (the JWT's user id, not the IP) shared by every GET /api/v1/reports/** call -- the reports, Home and the
     # drills. Blank FOLLOWS THE MODE (120/min in production, 1000/min in development: the e2e suite drives its report calls and
     # derive pollers from one seeded admin across parallel workers); a number pins it in either mode.

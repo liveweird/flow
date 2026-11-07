@@ -3094,6 +3094,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integration/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The service token presenting this call
+         * @description TOKEN-ONLY: the bearer must be a live service token (`flow_int_` plus 43 base64url characters). A user's access token, a
+         *     revoked or expired token, a malformed value and a repeated `Authorization` header are all the same `401`
+         *     (`application/problem+json`, one detail text for every reason), so nothing can be told apart on the wire. A registry
+         *     outage is a `500`, never a `401`. Answers the facts of the presenting token as they were BEFORE this call's
+         *     `last_used_at` stamp: the "Test connection" probe of a consumer. Rate-limited per client IP (default 60/min,
+         *     `INTEGRATION_RATE_LIMIT_PER_MINUTE`) and per token (120/min); over either bucket it answers `429`.
+         */
+        get: operations["getIntegrationMe"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -7573,6 +7598,27 @@ export interface components {
              */
             revokedAt?: number | null;
             revokedByName?: string | null;
+        };
+        /** @description The presenting service token's facts as they were BEFORE this call's `last_used_at` stamp. Nothing secret and nothing about any user. */
+        IntegrationMe: {
+            /** Format: int32 */
+            tokenId: number;
+            name: string;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds.
+             */
+            createdAt: number;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds; null = never expires.
+             */
+            expiresAt?: number | null;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds, as before this call; null = never used.
+             */
+            lastUsedAt?: number | null;
         };
         ServiceTokenList: {
             items: components["schemas"]["ServiceToken"][];
@@ -12320,6 +12366,29 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getIntegrationMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The presenting token's facts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationMe"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };

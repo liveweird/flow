@@ -222,17 +222,29 @@ fun Application.configureErrorHandling() {
             // bucket per minute (per bucket AND user for the per-user reports bucket, which also names `byUserId`)
             // carrying `suppressed` (the rejections folded in since the previous one), so a flood cannot write a
             // line per request.
+            // (The service-token provider's pre-lookup per-host budget, `integration`, stamps its own name before answering this same 429.)
             val bucket = call.attributes.getOrNull(RateLimitBucketKey) ?: "unknown"
             // A per-USER bucket also stamped the verified caller, so the event names who (`byUserId`) and coalesces per user.
             val userId = call.attributes.getOrNull(RateLimitUserKey)
-            rateLimitAudit.admit(if (userId == null) bucket else "$bucket:$userId")?.let { suppressed ->
+            // The per-TOKEN bucket's call carries the verified service token's id (stamped by its provider): `byTokenId`, per token.
+            val tokenId = call.attributes.getOrNull(RateLimitTokenKey)
+            val throttleKey = when {
+                userId != null -> "$bucket:$userId"
+                tokenId != null -> "$bucket:token:$tokenId"
+                else -> bucket
+            }
+            rateLimitAudit.admit(throttleKey)?.let { suppressed ->
                 val fields = arrayOf(
                     "bucket" to bucket,
                     "method" to call.request.local.method.value,
                     "path" to call.request.path(),
                     "suppressed" to suppressed,
                 )
-                audit("rate_limit.exceeded", *(if (userId == null) fields else fields + ("byUserId" to userId.toLong())))
+                val who = listOfNotNull(
+                    userId?.let { "byUserId" to it.toLong() },
+                    tokenId?.let { "byTokenId" to it.toLong() },
+                )
+                audit("rate_limit.exceeded", *(fields + who))
             }
             call.respondProblem(status, "Rate limit exceeded — retry later")
         }

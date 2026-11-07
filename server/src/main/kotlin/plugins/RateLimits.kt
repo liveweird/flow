@@ -10,6 +10,14 @@ import io.ktor.util.AttributeKey
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration.Companion.seconds
 
+/**
+ * The client host every per-IP bucket keys on: Ktor's resolved origin, so behind a trusted proxy (`http.behindProxy`,
+ * `http.proxyHops`) it is the `X-Forwarded-For` value the proxy wrote and never a client-chosen one. ONE definition for the
+ * `RateLimit` buckets below and for the service-token provider's pre-lookup budget (`integration/`), so the two can never
+ * disagree about who the client is.
+ */
+internal fun ApplicationCall.rateLimitHost(): String = request.origin.remoteHost
+
 /** The name of the bucket a call last rode, stamped by its `requestKey`; read by the 429 audit in ErrorHandling.kt. */
 internal val RateLimitBucketKey = AttributeKey<String>("RateLimitBucket")
 
@@ -21,12 +29,20 @@ internal val RateLimitBucketKey = AttributeKey<String>("RateLimitBucket")
 internal val RateLimitUserKey = AttributeKey<UInt>("RateLimitUser")
 
 /**
+ * The service-token id the PER-TOKEN bucket ([RateLimits.INTEGRATION_TOKEN]) keys the call by. Stamped by the service-token
+ * authentication provider (`integration/ServiceTokenAuth.kt`) ONLY for a token the registry just verified as live, so `plugins`
+ * never imports `integration` and the key space is bounded by the registry. The 429 audit carries it as `byTokenId`.
+ */
+internal val RateLimitTokenKey = AttributeKey<UInt>("RateLimitToken")
+
+/**
  * Coalesces the `rate_limit.exceeded` audit event (checkup 2C15): an unauthenticated flood must not write one audit line
  * per rejected request. At most ONE event per key per [intervalMs]; [admit] returns the number of rejections folded
  * into the previous window (the event's `suppressed` field) when the caller should emit now, or null when this rejection
  * is folded into the current window. The key is the bucket name for a per-IP bucket (a handful of fixed names, never the
- * client) and `bucket:userId` for a per-user bucket (only a verified, signed-in account can reach it, so the key space is the
- * number of accounts), so memory is bounded no matter who floods; thread-safe via [ConcurrentHashMap.compute]'s per-key atomicity.
+ * client), `bucket:userId` for a per-user bucket (only a verified, signed-in account can reach it, so the key space is the
+ * number of accounts) and `bucket:token:tokenId` for the per-token bucket (the registry's size), so memory is bounded no matter who
+ * floods; thread-safe via [ConcurrentHashMap.compute]'s per-key atomicity.
  */
 internal class RateLimitAuditThrottle(
     private val intervalMs: Long = DEFAULT_INTERVAL_MS,
@@ -59,7 +75,8 @@ internal class RateLimitAuditThrottle(
 }
 
 /**
- * Every token bucket the routes ride (per client IP, except [REPORTS] and [TELEMETRY]: per signed-in user), named in one place so a
+ * Every token bucket the routes ride (per client IP, except [REPORTS] and [TELEMETRY]: per signed-in user, and [INTEGRATION_TOKEN]:
+ * per verified service token), named in one place so a
  * feature module never has to know another's constant (the auth module used to import the try-it bucket's name — a layering
  * inversion the checkup removed). Route files reference these names; only this plugin installs them.
  */
@@ -88,6 +105,21 @@ object RateLimits {
      */
     const val TELEMETRY = "telemetry"
 
+    /**
+     * The whole `/api/v1/integration` namespace, per client IP ([rateLimitHost]): its calls cost a pooled digest lookup before anything is
+     * verified, so one host gets a bounded number of them. 60/min in every mode, pinnable via `security.rateLimit.integrationPerMinute`.
+     * Only the NAME and the limit live here: Ktor's `RateLimit` runs after authentication and never sees a refused call, so this
+     * bucket is NOT registered with the plugin - the service-token provider spends it BEFORE the lookup
+     * (`integration/HostWindowLimiter.kt`) and answers through the same 429 path, stamping this name for the audit.
+     */
+    const val INTEGRATION = "integration"
+
+    /**
+     * The same namespace, per verified SERVICE TOKEN (the [REPORTS] idiom, keyed by [RateLimitTokenKey]): a fixed 120/min in every
+     * mode. A scheduled consumer sends one or two calls per tick, so the bound is for a runaway or leaked-token client.
+     */
+    const val INTEGRATION_TOKEN = "integration-token"
+
     const val DEFAULT_REFRESH_PER_MINUTE = 30
     /**
      * 60/min per IP: the kubelet probes `/ready` every 5 s per container (12/min, `k8s/web-deployment.yaml` and
@@ -104,6 +136,8 @@ object RateLimits {
     private const val REPORTS_PER_MINUTE_DEVELOPMENT = 1000
     private const val MAX_LIMIT_PER_MINUTE = 1_000_000
     private const val TELEMETRY_PER_MINUTE = 30
+    private const val DEFAULT_INTEGRATION_PER_MINUTE = 60
+    private const val INTEGRATION_TOKEN_PER_MINUTE = 120
     private const val MFA_PER_MINUTE = 10
     private const val PASSWORD_RESET_CONFIRM_PER_MINUTE = 10
     private const val DATA_SOURCE_TEST_PER_MINUTE = 10
@@ -127,6 +161,7 @@ object RateLimits {
     )
     internal fun Application.refreshLimit() = configuredLimit("security.rateLimit.refreshPerMinute", DEFAULT_REFRESH_PER_MINUTE)
     internal fun Application.readyLimit() = configuredLimit("security.rateLimit.readyPerMinute", DEFAULT_READY_PER_MINUTE)
+    internal fun Application.integrationLimit() = configuredLimit("security.rateLimit.integrationPerMinute", DEFAULT_INTEGRATION_PER_MINUTE)
     internal fun Application.passwordResetLimit() = configuredLimit(
         "security.rateLimit.passwordResetPerMinute",
         if (developmentMode) RESET_PER_MINUTE_DEVELOPMENT else RESET_PER_MINUTE_PRODUCTION,
@@ -136,6 +171,7 @@ object RateLimits {
         if (developmentMode) REPORTS_PER_MINUTE_DEVELOPMENT else REPORTS_PER_MINUTE_PRODUCTION,
     )
     internal fun telemetryLimit() = TELEMETRY_PER_MINUTE
+    internal fun integrationTokenLimit() = INTEGRATION_TOKEN_PER_MINUTE
     internal fun mfaLimit() = MFA_PER_MINUTE
     internal fun passwordResetConfirmLimit() = PASSWORD_RESET_CONFIRM_PER_MINUTE
     internal fun dataSourceTestLimit() = DATA_SOURCE_TEST_PER_MINUTE
@@ -169,7 +205,7 @@ fun Application.configureRateLimits() {
                     // The plugin gives its 429 no handle on the bucket, but it computes this key right before
                     // rejecting, so the name stamped here is the rejecting bucket's (the `rate_limit.exceeded` audit).
                     call.attributes.put(RateLimitBucketKey, name)
-                    call.request.origin.remoteHost
+                    call.rateLimitHost()
                 }
             }
         }
@@ -186,6 +222,16 @@ fun Application.configureRateLimits() {
                     call.attributes.put(RateLimitUserKey, userId)
                     userId
                 }
+            }
+        }
+        // The per-TOKEN bucket (integration-token). The route mounts it INSIDE `authenticate(SERVICE_TOKEN)`, so this key runs only for a
+        // token the registry verified live; the provider stamped its id on the call (RateLimitTokenKey), so the limiter count is bounded
+        // by the registry and `plugins` names no `integration` type.
+        register(RateLimitName(RateLimits.INTEGRATION_TOKEN)) {
+            rateLimiter(limit = RateLimits.integrationTokenLimit(), refillPeriod = 60.seconds)
+            requestKey { call ->
+                call.attributes.put(RateLimitBucketKey, RateLimits.INTEGRATION_TOKEN)
+                call.attributes[RateLimitTokenKey]
             }
         }
     }
