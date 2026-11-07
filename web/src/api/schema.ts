@@ -3019,6 +3019,81 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/service-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the service tokens
+         * @description ADMIN only, reads included (the registry holds credentials). Newest first, at most 100 rows; a revoked
+         *     token stays listed for the trail. Never carries a secret or its digest.
+         */
+        get: operations["listServiceTokens"];
+        put?: never;
+        /**
+         * Issue a service token
+         * @description ADMIN only (guarded before the body decodes: a non-admin's malformed body is still 403). The response carries the
+         *     plaintext `secret` ONCE; only its digest is stored, so a lost secret means issuing a new token and revoking the old
+         *     one. `expiresAt` is optional (epoch ms; omitted = never expires), must lie in the future and at most 10 years ahead,
+         *     and cannot change later. A case-insensitive name clash with a token that is not revoked is `409`; an expired token
+         *     keeps its name until it is revoked. Audited as `service_token.created`, without the secret.
+         */
+        post: operations["createServiceToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/service-tokens/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get a service token
+         * @description ADMIN only, guard before the id lookup (uniform 403 whether or not the id exists).
+         */
+        get: operations["getServiceToken"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/service-tokens/{id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke a service token
+         * @description ADMIN only, guard before the id lookup. Terminal: the token stops authenticating on the very next request and its
+         *     name is freed for reuse. Revoking an already revoked token is `409`. There is no PUT or DELETE: tokens are immutable
+         *     and rows are never removed. Audited as `service_token.revoked`.
+         */
+        post: operations["revokeServiceToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -7469,6 +7544,51 @@ export interface components {
             flowEfficiency: components["schemas"]["Distribution"];
             flowEfficiencyExcluded: components["schemas"]["FlowEfficiencyExcluded"];
             groups: components["schemas"]["ReportedTimeGroup"][];
+        };
+        /** @description One registry row. `revoked` is the status: an expired but unrevoked token reads `revoked: false` (the page derives "expired" from `expiresAt`). Never carries the secret or its digest. */
+        ServiceToken: {
+            /** Format: int32 */
+            id: number;
+            name: string;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds.
+             */
+            createdAt: number;
+            createdByName: string;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds; null = never expires.
+             */
+            expiresAt?: number | null;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds; null = never used.
+             */
+            lastUsedAt?: number | null;
+            revoked: boolean;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds.
+             */
+            revokedAt?: number | null;
+            revokedByName?: string | null;
+        };
+        ServiceTokenList: {
+            items: components["schemas"]["ServiceToken"][];
+        };
+        ServiceTokenCreateRequest: {
+            name: string;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds; omitted or null = never expires. Must be in the future and at most 10 years ahead (`400` otherwise).
+             */
+            expiresAt?: number | null;
+        };
+        ServiceTokenCreateResponse: {
+            token: components["schemas"]["ServiceToken"];
+            /** @description The plaintext bearer value (`flow_int_` plus 43 base64url characters). Returned ONCE, here only; never listed, never audited, never recoverable. */
+            secret: string;
         };
         /** @description RFC 7807 problem detail. Served as `application/problem+json`; instance is the request path without query parameters. */
         ProblemDetail: {
@@ -12092,6 +12212,114 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listServiceTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tokens */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceTokenList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    createServiceToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ServiceTokenCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Created; `Location` points at the new token */
+            201: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceTokenCreateResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getServiceToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The token */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceToken"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    revokeServiceToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             500: components["responses"]["InternalServerError"];
         };
     };

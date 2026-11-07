@@ -91,6 +91,8 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   changed, the role was changed, or the token lacks a claim the check needs (a pre-deploy token). **Coalesced** like `rate_limit.exceeded` (its own `RateLimitAuditThrottle`): at most ONE event per user and reason per 60 s, `suppressed`
   counting the rejections folded into it since the previous one (0 on the first), so a stale token replayed on every request writes a line a minute;
   the keys are bounded by the accounts that ever held a signed token. Junk, expired, wrong-audience/`typ` and jti-less tokens never reach the check and emit nothing. Never the token,
+- `service_token.created` (byUserId/tokenId/name/expiresAt - epoch ms or null) / `service_token.revoked` (byUserId/tokenId) - the ADMIN
+  service-token registry (`integration/ServiceTokenRoutes.kt`); never the secret or its digest,
 - `refresh.replay_grace` (userId — a rotated refresh token presented again inside the grace
   (`security.refresh.replayGraceSeconds`) and answered with a fresh pair, at most twice per token; a lost response or a racing tab, or a replay),
 - `password.changed` (targetUserId/byUserId/selfChange) / `password.change_denied` (wrong or

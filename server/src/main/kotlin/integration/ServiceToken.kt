@@ -36,6 +36,10 @@ data class ServiceToken(
     val revokedByName: String? = null,
 )
 
+/** The registry list: newest first, at most [SERVICE_TOKEN_LIST_LIMIT] rows (the `{items}` wrapper of a bounded, admin-curated set). */
+@Serializable
+data class ServiceTokenListResponse(val items: List<ServiceToken>)
+
 /** `expiresAt` (epoch ms) is optional: omitted or null = the token never expires. */
 @Serializable
 data class ServiceTokenCreateRequest(

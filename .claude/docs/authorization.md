@@ -93,6 +93,11 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     `managerName`, both null for a soft-deleted manager. Being a team's manager grants NO write on the team
     record itself (still ADMIN only) — only the capacity edits, via `requireTeamManagerOrAdmin`. `GET /api/v1/reports/filters` (any authenticated user, D12) also lists each team's RAW `managerUserId` — unlike `GET /teams` it is NOT blanked for a soft-deleted manager, and it carries no name or email: an id alone discloses nothing the teams list does not, a deleted user's id can never match a signed-in viewer, and the Home page needs it to default to "the teams I manage" without a server default that would depend on who asks (`ReportRoutesTest`).
     Mutations audit `team.created/updated/deleted` and `team.manager_changed` (only on an actual change). Tests: `TeamTest`, `GuardsTest`.
+  - `/api/v1/service-tokens` (V48, `integration/ServiceTokenRoutes.kt`) → **ADMIN only, the whole surface, reads included** (the registry
+    holds credentials): `requireAdmin` runs FIRST on every operation, before the id lookup and before the body decodes, so a non-admin
+    gets a uniform `403` for a missing id and a malformed body alike. List/create/get and `POST /{id}/revoke` (terminal; `404` unknown,
+    `409` already revoked); no `PUT`/`DELETE`. A live-name clash is `409`, an expired but unrevoked token included. Audits
+    `service_token.created/revoked`, never the secret. Tests: `ServiceTokenRoutesTest`, `AuditTest`.
   - `/api/v1/teams/{id}/capacity` and `/api/v1/teams/{id}/sprint-calendars[/{sprintId}]` (V24, domain-model A32,
     `metrics/SprintCalendarRoutes.kt`) → **reads any authenticated** (a conscious D12 extension: the grid is a per-person
     per-day availability, effectively an absence calendar — visible to everyone; each person's productivity `coefficient` is

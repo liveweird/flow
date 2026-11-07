@@ -50,6 +50,8 @@ tags:
     description: Flow's own vital signs (process memory, storage, sync health, request latency) and their 24h/7d/90d trends - ADMIN only.
   - name: reports
     description: The read-only reports (any authenticated user) and the `…/items` drill lists behind their bars; every figure is derived, never stored per request.
+  - name: service-tokens
+    description: The registry of read-only service tokens other applications (e.g. Astrolabe) present as a bearer - ADMIN only, reads included; the secret is shown once, at creation.
 
 paths:
   /api/v1/health:
@@ -4338,6 +4340,98 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /api/v1/service-tokens:
+    get:
+      tags: [service-tokens]
+      operationId: listServiceTokens
+      summary: List the service tokens
+      description: |
+        ADMIN only, reads included (the registry holds credentials). Newest first, at most 100 rows; a revoked
+        token stays listed for the trail. Never carries a secret or its digest.
+      responses:
+        '200':
+          description: The tokens
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceTokenList'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [service-tokens]
+      operationId: createServiceToken
+      summary: Issue a service token
+      description: |
+        ADMIN only (guarded before the body decodes: a non-admin's malformed body is still 403). The response carries the
+        plaintext `secret` ONCE; only its digest is stored, so a lost secret means issuing a new token and revoking the old
+        one. `expiresAt` is optional (epoch ms; omitted = never expires), must lie in the future and at most 10 years ahead,
+        and cannot change later. A case-insensitive name clash with a token that is not revoked is `409`; an expired token
+        keeps its name until it is revoked. Audited as `service_token.created`, without the secret.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceTokenCreateRequest'
+      responses:
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '201':
+          description: Created; `Location` points at the new token
+          headers:
+            Location:
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceTokenCreateResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/service-tokens/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [service-tokens]
+      operationId: getServiceToken
+      summary: Get a service token
+      description: ADMIN only, guard before the id lookup (uniform 403 whether or not the id exists).
+      responses:
+        '200':
+          description: The token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceToken'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/service-tokens/{id}/revoke:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    post:
+      tags: [service-tokens]
+      operationId: revokeServiceToken
+      summary: Revoke a service token
+      description: |
+        ADMIN only, guard before the id lookup. Terminal: the token stops authenticating on the very next request and its
+        name is freed for reuse. Revoking an already revoked token is `409`. There is no PUT or DELETE: tokens are immutable
+        and rows are never removed. Audited as `service_token.revoked`.
+      responses:
+        '204':
+          description: Revoked
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
 components:
@@ -9305,6 +9399,52 @@ components:
         groups:
           type: array
           items: { $ref: '#/components/schemas/ReportedTimeGroup' }
+
+    ServiceToken:
+      type: object
+      required: [id, name, createdAt, createdByName, revoked]
+      description: >-
+        One registry row. `revoked` is the status: an expired but unrevoked token reads `revoked: false` (the page derives
+        "expired" from `expiresAt`). Never carries the secret or its digest.
+      properties:
+        id: { type: integer, format: int32, minimum: 0 }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        createdAt: { type: integer, format: int64, description: Epoch milliseconds. }
+        createdByName: { type: string }
+        expiresAt: { type: integer, format: int64, nullable: true, description: Epoch milliseconds; null = never expires. }
+        lastUsedAt: { type: integer, format: int64, nullable: true, description: Epoch milliseconds; null = never used. }
+        revoked: { type: boolean }
+        revokedAt: { type: integer, format: int64, nullable: true, description: Epoch milliseconds. }
+        revokedByName: { type: string, nullable: true }
+    ServiceTokenList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/ServiceToken'
+    ServiceTokenCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        expiresAt:
+          type: integer
+          format: int64
+          nullable: true
+          description: Epoch milliseconds; omitted or null = never expires. Must be in the future and at most 10 years ahead (`400` otherwise).
+    ServiceTokenCreateResponse:
+      type: object
+      required: [token, secret]
+      properties:
+        token: { $ref: '#/components/schemas/ServiceToken' }
+        secret:
+          type: string
+          description: >-
+            The plaintext bearer value (`flow_int_` plus 43 base64url characters). Returned ONCE, here only; never listed,
+            never audited, never recoverable.
 
     ProblemDetail:
       type: object
