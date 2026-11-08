@@ -13,7 +13,9 @@
   "created": {
     "title": "Utworzono token: {{name}}",
     "warning": "Skopiuj go teraz, bo nie pokażemy go ponownie. Flow przechowuje tylko jego skrót, więc zgubionego tokenu nie da się odzyskać, można go tylko unieważnić i wystawić nowy.",
-    "copy": "Skopiuj token"
+    "copy": "Skopiuj token",
+    "show": "Pokaż token",
+    "hide": "Ukryj token"
   },
   "tableAria": "Tokeny usługowe",
   "column": {
@@ -42,7 +44,7 @@
   },
   "error": {
     "forbidden": "Tokenami usługowymi mogą zarządzać tylko administratorzy/rki.",
-    "invalid": "Token jest nieprawidłowy: sprawdź nazwę (1–100 znaków).",
+    "invalid": "Nazwa jest nieprawidłowa: 1–100 znaków, jedna linia, bez znaków sterujących.",
     "nameTaken": "Token o tej nazwie już istnieje i nie został unieważniony. Wygasły token zachowuje swoją nazwę, dopóki go nie unieważnisz, więc wybierz inną nazwę albo najpierw unieważnij stary token.",
     "gone": "Ten token już nie istnieje.",
     "alreadyRevoked": "Ten token jest już unieważniony.",

@@ -13,7 +13,9 @@
   "created": {
     "title": "Token created: {{name}}",
     "warning": "Copy it now, it is never shown again. Flow stores only a digest of it, so a lost token cannot be recovered, only revoked and replaced.",
-    "copy": "Copy token"
+    "copy": "Copy token",
+    "show": "Show token",
+    "hide": "Hide token"
   },
   "tableAria": "Service tokens",
   "column": {
@@ -42,7 +44,7 @@
   },
   "error": {
     "forbidden": "Only administrators can manage service tokens.",
-    "invalid": "The token is invalid: check the name (1–100 characters).",
+    "invalid": "The name is invalid: 1–100 characters, a single line, no control characters.",
     "nameTaken": "A token with this name already exists and is not revoked. An expired token keeps its name until you revoke it, so pick another name or revoke the old token first.",
     "gone": "This token no longer exists.",
     "alreadyRevoked": "This token is already revoked.",

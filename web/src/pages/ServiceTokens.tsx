@@ -190,7 +190,12 @@ export default function ServiceTokens() {
         >
           <Stack gap="xs">
             <Text size="sm">{t("serviceTokens.created.warning")}</Text>
-            <RevealablePassword password={created.secret} copyLabel={t("serviceTokens.created.copy")} />
+            <RevealablePassword
+              password={created.secret}
+              copyLabel={t("serviceTokens.created.copy")}
+              showLabel={t("serviceTokens.created.show")}
+              hideLabel={t("serviceTokens.created.hide")}
+            />
           </Stack>
         </Alert>
       )}

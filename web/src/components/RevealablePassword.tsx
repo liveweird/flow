@@ -3,13 +3,20 @@ import { ActionIcon, Button, Code, CopyButton, Group } from "@mantine/core";
 import { IconEye, IconEyeOff } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
 
-/** The one-time password display: masked by default (shoulder-surfing), eye toggle, copy. */
+/**
+ * The one-time secret display: masked by default (shoulder-surfing), eye toggle, copy. `showLabel`/`hideLabel` name the eye
+ * toggle for what is hidden (the defaults say "password"; the service-token reveal passes "token").
+ */
 export default function RevealablePassword({
   password,
   copyLabel,
+  showLabel,
+  hideLabel,
 }: {
   password: string;
   copyLabel: string;
+  showLabel?: string;
+  hideLabel?: string;
 }) {
   const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
@@ -25,7 +32,7 @@ export default function RevealablePassword({
         color="gray"
         onClick={() => setVisible((v) => !v)}
         aria-pressed={visible}
-        aria-label={visible ? t("common.action.hidePassword") : t("common.action.showPassword")}
+        aria-label={visible ? (hideLabel ?? t("common.action.hidePassword")) : (showLabel ?? t("common.action.showPassword"))}
       >
         {visible ? <IconEyeOff size={16} /> : <IconEye size={16} />}
       </ActionIcon>

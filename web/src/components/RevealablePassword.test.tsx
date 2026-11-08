@@ -15,6 +15,14 @@ describe("RevealablePassword", () => {
     expect(toggle).toHaveAttribute("aria-pressed", "false");
   });
 
+  test("showLabel and hideLabel rename the eye toggle for what is hidden", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<RevealablePassword password={PASSWORD} copyLabel="Copy token" showLabel="Show token" hideLabel="Hide token" />);
+    await user.click(screen.getByRole("button", { name: "Show token" }));
+    expect(screen.getByText(PASSWORD)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hide token" })).toHaveAttribute("aria-pressed", "true");
+  });
+
   test("the eye toggle reveals the plaintext and hides it again", async () => {
     const user = userEvent.setup();
     renderWithProviders(<RevealablePassword password={PASSWORD} copyLabel="Copy password" />);

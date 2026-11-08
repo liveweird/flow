@@ -230,7 +230,7 @@ only accepted base URL; `GITLAB_STUB_BASE_URL= docker compose up` turns that off
 ## Service tokens (read-only, for other apps)
 
 An administrator can give another application, such as Astrolabe, a non-interactive credential that reads Flow's teams, their dated
-members and their sprints, and nothing else (the user sessions above are hourly-rotating and tied to one person):
+members and their sprints, and nothing else (unlike the short-lived, sliding user sessions above, which belong to one person):
 
 1. Sign in as an administrator, open **Administration > Service tokens**, name the token, optionally set an expiry (never, 90 days, 1 year or 2 years) and
    click **Create token**. The secret (`flow_int_` plus 43 characters) is shown **once**; Flow stores only a digest of it, so copy it into the

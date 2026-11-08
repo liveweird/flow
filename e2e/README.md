@@ -64,7 +64,7 @@ from Lettuce, that any new or edited spec must satisfy:
   read-only" when applicable). Today: `auth`, `changelog` and `shell` (device-local
   localStorage only) are read-only; `accessibility` owns one API-seeded fixture team
   (`e2e-axe-team-*`); `accessibility-data` owns nothing — it reads the shared fixture (below); `flow-users` owns its
-  throwaway accounts; `teams` owns its throwaway teams (unique `e2e-team-*` names) and users; `service-tokens` owns its unique `e2e-token-*` service-token rows (a token is revoked, never deleted: the registry has no DELETE; the test revokes its own and `afterAll` any stranded one); `i18n` owns its throwaway user (and ONLY that user's
+  throwaway accounts; `teams` owns its throwaway teams (unique `e2e-team-*` names) and users; `service-tokens` owns its unique `e2e-token-*` service-token rows (a token is revoked, never deleted: the registry has no DELETE; the test revokes its own, by id, in a `finally`); `i18n` owns its throwaway user (and ONLY that user's
   language — **seeded accounts must stay English**: every login applies the stored language to
   that session's UI, so a Polish seed admin would flip parallel specs mid-run); `password-reset`
   owns its throwaway account (its reset requests use unique per-run emails against the
@@ -265,7 +265,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
 - [`service-tokens.spec.ts`](scenarios/service-tokens.md) — the Administration > Service tokens registry: the admin creates a token (a unique `e2e-token-*` name, no expiry), the
   one-time reveal panel shows a `flow_int_` value (asserted as a boolean, never by value), another application reads `GET /api/v1/integration/me` and `/integration/teams` with it
   (`200`), the admin revokes it behind its confirmation (the row reads Revoked with no action) and the same call answers `401` `application/problem+json`; tokens are never deleted,
-  so the test revokes its own and `afterAll` revokes any stranded `e2e-token-*` row.
+  so the test revokes its own token by id in a `finally`, never a sweep of `e2e-token-*` rows.
 - [`teams.spec.ts`](scenarios/teams.md) — the flat-teams registry: create through the modal →
   rename → assign a throwaway user as the team's manager (the Manager picker; the
   details page reads "Manager: …") → delete from the list;

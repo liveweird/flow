@@ -4,8 +4,8 @@
 - **Actors**: the seed administrator (`admin@flow.local`) through the browser; a second, API-only actor, "another application", that
   presents the new token as a bearer value and never signs in
 - **Owns** (exclusive server-side state): its `e2e-token-*` service-token rows (a unique name per run). A token is never deleted
-  (revoking is terminal and the registry has no DELETE), so the test revokes its token itself and `afterAll` revokes any live
-  `e2e-token-*` row an aborted run left behind; the unique name keeps re-runs clear of the live-name unique index. The secret is never typed,
+  (revoking is terminal and the registry has no DELETE), so the test revokes its token itself, and a `finally` revokes that
+  one token by id (taken from the create response) if the test failed first, never a sweep by name; the unique name keeps re-runs clear of the live-name unique index. The secret is never typed,
   logged or asserted on by value: it is read from the one-time reveal panel into a variable that only feeds the `Authorization` header
 
 ## Scenario: admin creates a service token, reads Flow's teams with it, and revokes it

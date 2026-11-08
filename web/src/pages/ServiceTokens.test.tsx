@@ -38,7 +38,7 @@ const row = (partial: Partial<Row> & Pick<Row, "id" | "name">): Row => ({
   ...partial,
 });
 
-// Built per test (not at module load) so the ages are measured from the test's own clock.
+// Built per test (not at module load): the ages are measured from the frozen clock the suite sets in `beforeEach`.
 const ACTIVE = () => row({ id: 1, name: "Astrolabe", lastUsedAt: Date.now() - 5 * MINUTE });
 const EXPIRED = () => row({ id: 2, name: "Old sync", expiresAt: Date.now() - 10 * DAY, lastUsedAt: Date.now() - 3 * HOUR });
 const REVOKED = () => row({ id: 3, name: "Retired", revoked: true, revokedAt: Date.now() - DAY, revokedByName: "Admin Flow", expiresAt: Date.now() + 400 * DAY });
@@ -65,6 +65,9 @@ describe("ServiceTokens page", () => {
   }
 
   beforeEach(() => {
+    // Only `Date` is faked (timers stay real for userEvent/waitFor): the relative ages and expiries are exact, not wall-clock slack.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.UTC(2026, 10, 8, 12));
     mockFetch = vi.fn();
     vi.stubGlobal("fetch", mockFetch);
     signIn();
@@ -73,6 +76,7 @@ describe("ServiceTokens page", () => {
   afterEach(() => {
     // isolate:false: a spy on the shared `notifications` singleton and a stubbed global must not outlive their test.
     vi.restoreAllMocks();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     localStorage.clear();
   });
@@ -159,7 +163,7 @@ describe("ServiceTokens page", () => {
     // Masked until the eye toggle; the plaintext is not in the page before that.
     expect(screen.queryByText(SECRET)).not.toBeInTheDocument();
     expect(screen.getByText("*".repeat(SECRET.length))).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Show password" }));
+    await user.click(screen.getByRole("button", { name: "Show token" }));
     expect(screen.getByText(SECRET)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Copy token" }));
@@ -179,28 +183,30 @@ describe("ServiceTokens page", () => {
 
   test("the expiry choice becomes an absolute expiresAt: 90 days, 1 year, 2 years from now", async () => {
     const user = userEvent.setup();
-    serve(mockFetch, [], (url, init) =>
-      init?.method === "POST" && url === "/api/v1/service-tokens" ? jsonResponse(201, { token: row({ id: 5, name: "t" }), secret: SECRET }) : undefined,
-    );
+    // The reply echoes the posted name with an id of its own, so every create is told apart from the previous one.
+    serve(mockFetch, [], (url, init) => {
+      if (init?.method !== "POST" || url !== "/api/v1/service-tokens") return undefined;
+      const { name } = JSON.parse(init.body as string) as { name: string };
+      return jsonResponse(201, { token: row({ id: 10 + writes(mockFetch).length, name }), secret: SECRET });
+    });
     renderWithProviders(<ServiceTokens />);
     await screen.findByText("No service tokens yet. Create the first one above.");
 
-    for (const [label, days] of [["In 90 days", 90], ["In 1 year", 365], ["In 2 years", 730]] as const) {
-      await user.type(screen.getByRole("textbox", { name: "Name" }), "t");
+    for (const [index, [label, days]] of ([["In 90 days", 90], ["In 1 year", 365], ["In 2 years", 730]] as const).entries()) {
+      const name = `token ${index + 1}`;
+      await user.type(screen.getByRole("textbox", { name: "Name" }), name);
       await user.click(screen.getByRole("combobox", { name: "Expires" }));
       await user.click(await screen.findByRole("option", { name: label }));
-      const before = Date.now();
       await user.click(screen.getByRole("button", { name: "Create token" }));
-      await waitFor(() => expect(writes(mockFetch).length).toBeGreaterThan(0));
-      const sent = bodyOf(writes(mockFetch).at(-1) ?? []).expiresAt as number;
-      expect(sent).toBeGreaterThanOrEqual(before + days * DAY);
-      expect(sent).toBeLessThanOrEqual(Date.now() + days * DAY);
-      await screen.findByText("Token created: t");
-      mockFetch.mockClear();
-      serve(mockFetch, [], (url, init) =>
-        init?.method === "POST" && url === "/api/v1/service-tokens" ? jsonResponse(201, { token: row({ id: 5, name: "t" }), secret: SECRET }) : undefined,
-      );
+      await waitFor(() => expect(writes(mockFetch)).toHaveLength(index + 1));
+      // The clock is frozen, so the expiry is exact.
+      expect(bodyOf(writes(mockFetch)[index])).toEqual({ name, expiresAt: Date.now() + days * DAY });
+      // This create's panel is up and its reset has landed (name field empty, button no longer loading) before the next one types.
+      await screen.findByText(`Token created: ${name}`);
+      await waitFor(() => expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue(""));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Create token" })).not.toHaveAttribute("data-loading"));
     }
+    expect(screen.queryByText("Token created: token 1")).not.toBeInTheDocument();
   });
 
   test("a name clash (409) is an inline red message naming the expired-token rule; no panel opens", async () => {
@@ -222,6 +228,18 @@ describe("ServiceTokens page", () => {
     expect(screen.queryByText(/Token created/)).not.toBeInTheDocument();
     // The typed name stays so it can be edited.
     expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Astrolabe");
+  });
+
+  test("a rejected name (400) is a general inline message, not a length hint", async () => {
+    const user = userEvent.setup();
+    serve(mockFetch, [], (url, init) =>
+      init?.method === "POST" && url === "/api/v1/service-tokens" ? jsonResponse(400, { title: "Bad Request", status: 400 }) : undefined,
+    );
+    renderWithProviders(<ServiceTokens />);
+    await screen.findByText("No service tokens yet. Create the first one above.");
+    await user.type(screen.getByRole("textbox", { name: "Name" }), "tab\tname");
+    await user.click(screen.getByRole("button", { name: "Create token" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("The name is invalid: 1–100 characters, a single line, no control characters.");
   });
 
   test("revoking asks first, then POSTs the revoke, toasts and refreshes; the revoked row loses its action", async () => {
