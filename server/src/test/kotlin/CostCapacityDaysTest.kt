@@ -56,6 +56,17 @@ class CostCapacityDaysTest {
     }
 
     @Test
+    fun `a sprint over the 60-day cap owns only the days no in-cap sprint holds, though it started first`() {
+        val days = periodDaysOf(calendar, ms("2026-01-12", 0), ms("2026-01-23", 23))
+        val owners = sprintDayOwners(listOf(sprint(1, "2026-01-05", "2027-09-08"), sprint(2, "2026-01-14", "2026-01-20")), days, calendar)
+        assertEquals(1L, owners.getValue(LocalDate.parse("2026-01-13")).sprintId)
+        assertEquals(2L, owners.getValue(LocalDate.parse("2026-01-14")).sprintId)
+        assertEquals(2L, owners.getValue(LocalDate.parse("2026-01-20")).sprintId)
+        assertEquals(1L, owners.getValue(LocalDate.parse("2026-01-21")).sprintId)
+        assertEquals(12, owners.size)
+    }
+
+    @Test
     fun `with no saved calendar a member counts one man-day on a working day, from the day the membership starts`() {
         val days = periodDaysOf(calendar, ms("2026-01-02", 0), ms("2026-01-09", 23)) // Fri 2nd .. Fri 9th; the 6th is a holiday
         val joined = calendar.dayBoundsMs(LocalDate.parse("2026-01-07")).first

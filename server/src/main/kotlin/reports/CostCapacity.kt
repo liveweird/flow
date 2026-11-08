@@ -5,6 +5,8 @@ import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.StoredSprintCalendar
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.metrics.WorkingCalendar
+import ch.nokillswit.metrics.ClaimKey
+import ch.nokillswit.metrics.claimOrder
 import ch.nokillswit.metrics.claimedDaysBySprint
 import ch.nokillswit.metrics.personDayCapacity
 import ch.nokillswit.metrics.projectCalendar
@@ -87,7 +89,8 @@ internal fun periodDaysOf(calendar: WorkingCalendar, firstMs: Long, lastMs: Long
 
 /**
  * Which sprint owns each of [periodDays]: a sprint's days are `dayOf(start) .. dayOf(max(start, end - 1))` (the A32 window rule,
- * whatever its length), the FIRST sprint in [sprints] order owns a day — two overlapping sprints never count a day twice.
+ * whatever its length), the FIRST sprint in the A42 [claimOrder] owns a day (an over-cap sprint after every in-cap one) — two
+ * overlapping sprints never count a day twice.
  */
 internal fun sprintDayOwners(
     sprints: List<CostSprint>,
@@ -98,7 +101,7 @@ internal fun sprintDayOwners(
     val first = periodDays.first()
     val last = periodDays.last()
     val owners = HashMap<LocalDate, CostSprint>()
-    for (sprint in sprints) {
+    for (sprint in claimOrder(sprints, calendar) { ClaimKey(it.sprintId, it.startAtMs, it.endAtMs, it.completeAtMs) }) {
         val end = sprint.endAtMs ?: sprint.completeAtMs ?: sprint.startAtMs
         val from = maxOf(calendar.dayOf(sprint.startAtMs), first)
         val to = minOf(calendar.dayOf(maxOf(sprint.startAtMs, end - 1)), last)

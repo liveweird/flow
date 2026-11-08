@@ -664,9 +664,11 @@ day and a DST change still counts calendar days.
 
 **A day belongs to at most one sprint per team (A42).** Consecutive sprints usually share the day one ends and the next starts on. Within
 a team the FIRST sprint holding a day (lower `start_at`, a tie the lower sprint id — `sprintDayOwners`'s order in `CostCapacity.kt`) claims it
-and every later sprint has it locked off, in a stored calendar and in the DEFAULT alike; a sprint wholly inside another counts no day, a
-sprint over the 60-day cap holds its days although it gets no calendar, and is claimed on like any other (its DEFAULT skips the days an
-earlier sprint holds; the cap only decides who gets a grid). The scope is the team's `dim_sprint` rows with a `start_at` on the
+and every later sprint has it locked off, in a stored calendar and in the DEFAULT alike; a sprint wholly inside another counts no day. A
+sprint over the 60-day cap (in practice a mistyped Jira end date, `end ?: complete` is unchanged) gets no calendar and claims LAST: it
+holds only the days no in-cap sprint of the team holds, whatever their starts, so it never zeroes the sprints after it, and its DEFAULT
+counts the rest of its span (`claimOrder` in `CapacityKernels.kt`, also the order of `sprintDayOwners`; 2026-11-08, after one such
+sprint zeroed a team's DEFAULT for every later sprint). The scope is the team's `dim_sprint` rows with a `start_at` on the
 sprint's own connection (a team has one board, `board_team_map` UNIQUE(team_id)): DERIVE groups the run's sprints by team ONCE per run
 (`DeriveSprintStep.claimedDaysOfRun`, no per-sprint query), the page reads them with one `dim_sprint` select
 (`SprintCalendarReads.claimedDaysOnConnection`). The per-person capacity kernel (`CostCapacity.kt`, read by Compare people) builds the claims from the sprints that own its period days;

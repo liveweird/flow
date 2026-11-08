@@ -74,19 +74,35 @@ private fun sprintSpan(startAtMs: Long, endAtMs: Long?, completeAtMs: Long?, cal
     return calendar.dayOf(startAtMs) to calendar.dayOf(maxOf(startAtMs, endMs - 1))
 }
 
+/** What [claimOrder] reads of a sprint: its id and the instants A3 resolves its span from. */
+data class ClaimKey(val sprintId: Long, val startAtMs: Long, val endAtMs: Long?, val completeAtMs: Long?)
+
+/**
+ * The A42 claim order, the ONE order both [claimedDaysBySprint] and the capacity kernel's `sprintDayOwners` use: every sprint whose
+ * span is within [MAX_CALENDAR_DAYS] first, then the over-cap ones; within each, the lower start, a tie the lower sprint id.
+ */
+fun <T> claimOrder(sprints: List<T>, calendar: WorkingCalendar, key: (T) -> ClaimKey): List<T> =
+    sprints.map { it to key(it) }.sortedWith(
+        compareBy({ (_, k) -> spanDays(sprintSpan(k.startAtMs, k.endAtMs, k.completeAtMs, calendar)) > MAX_CALENDAR_DAYS },
+            { (_, k) -> k.startAtMs }, { (_, k) -> k.sprintId }),
+    ).map { it.first }
+
+private fun spanDays(span: Pair<LocalDate, LocalDate>): Long = ChronoUnit.DAYS.between(span.first, span.second) + 1
+
 /** One sprint of a team as the day-claim rule sees it: the instants A3 resolves a window from, plus the name a claim shows. */
 data class ClaimSprint(val sprintId: Long, val name: String, val startAtMs: Long, val endAtMs: Long?, val completeAtMs: Long?)
 
 /**
  * The days each sprint of ONE team may not count because an EARLIER sprint already holds them (domain-model A42: a day belongs to at
- * most one sprint per team). Earlier = lower start, a tie the lower sprint id (the order `sprintDayOwners` in `CostCapacity.kt` uses); the
- * FIRST sprint whose span holds the day claims it. The span is `dayOf(start)..dayOf(max(start, end - 1))` WHATEVER its length: the
- * 60-day cap ([MAX_CALENDAR_DAYS]) only decides whether a sprint gets a calendar grid, so a longer sprint claims for later sprints and
- * is claimed on like any other (its DEFAULT walks the whole span). A sprint wholly inside another has every day claimed. Only claimed
- * days are keyed, and a sprint with none is absent; the grid's projection looks up just its own window's days.
+ * most one sprint per team) in [claimOrder]: a sprint within the 60-day cap ([MAX_CALENDAR_DAYS]) before one over it, then the lower
+ * start, a tie the lower sprint id; the FIRST sprint whose span holds the day claims it. The span is `dayOf(start)..dayOf(max(start,
+ * end - 1))` WHATEVER its length, but an over-cap span is almost always a mistyped Jira end date, so such a sprint claims only the days
+ * no in-cap sprint of the team holds — it never zeroes the sprints after it — and is claimed on by every in-cap sprint (its DEFAULT
+ * walks the rest of its span). A sprint wholly inside another has every day claimed. Only claimed days are keyed, and a sprint with
+ * none is absent; the grid's projection looks up just its own window's days.
  */
 fun claimedDaysBySprint(sprints: List<ClaimSprint>, calendar: WorkingCalendar): Map<Long, Map<LocalDate, SprintCalendarClaim>> {
-    val ordered = sprints.sortedWith(compareBy({ it.startAtMs }, { it.sprintId }))
+    val ordered = claimOrder(sprints, calendar) { ClaimKey(it.sprintId, it.startAtMs, it.endAtMs, it.completeAtMs) }
     val spans = ordered.map { sprintSpan(it.startAtMs, it.endAtMs, it.completeAtMs, calendar) }
     val result = HashMap<Long, Map<LocalDate, SprintCalendarClaim>>()
     ordered.forEachIndexed { index, sprint ->

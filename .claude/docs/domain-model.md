@@ -816,9 +816,11 @@ carries the per-measure detail).
   a calendar day (the first ends on a Monday at 10:00, the next starts that Monday), and both windows hold it (A32's window rule is by
   calendar day), so both calendars counted the day and the team's capacity was overstated by a day per member per boundary.
   - **The rule.** Within ONE team, a sprint with a start owns the days `dayOf(start) .. dayOf(max(start, end - 1))` of its window (any
-    length, even over the 60-day calendar cap — it still holds them); the FIRST sprint that holds a day claims it (the 60-day calendar cap does not matter: a longer sprint holds, and is claimed on, like any
-    other; its DEFAULT walks its whole span), "first" being the lower
-    `start_at`, a tie the lower sprint id (the order the capacity kernel's `sprintDayOwners` already uses). Every later sprint holding the day
+    length, even over the 60-day calendar cap — it still holds them); the FIRST sprint that holds a day claims it, "first" being the lower
+    `start_at`, a tie the lower sprint id (`claimOrder`, also the capacity kernel's `sprintDayOwners` order) — except that a sprint over
+    the 60-day calendar cap claims after EVERY in-cap sprint of the team (amended with the user 2026-11-08: such a span is a mistyped
+    Jira end date, and claiming first it zeroed the DEFAULT of every later sprint for two years). It keeps only the days no in-cap sprint
+    holds, its DEFAULT walks those, and the window rule `end ?: complete` is unchanged. Every later sprint holding the day
     has it **claimed**: locked off in its calendar like a public holiday (A33) — a stored or PUT `enabled: true` is accepted and projected
     off, and the stored choice comes back if the claim goes (the earlier sprint was deleted or re-dated). A sprint wholly inside another has
     no counted day. Windows decide, never a user toggle; the earlier sprint keeps the day whole.

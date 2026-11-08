@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.57.1",
+    date: "2026-11-08",
+    en: `**Sprint capacity: one wrong sprint end date no longer zeroes the sprints after it.**
+
+- When a sprint's end date in Jira is far too late (a window over 60 days, usually a typo), Flow no longer gives every day of that window to it. Each later sprint of the team now keeps its own days, so its default capacity counts them again instead of showing 0.
+- The sprint with the wrong date keeps only the days no other sprint of the team covers. It still has no capacity calendar, as before, and fixing the date in Jira restores its normal window.
+- The new figures appear after the team's next data refresh. Sprints already closed keep their capacity snapshot.`,
+    pl: `**Pojemność sprintu: jedna błędna data końca sprintu nie zeruje już kolejnych sprintów.**
+
+- Gdy data końca sprintu w Jirze jest dużo za późna (okno dłuższe niż 60 dni, zwykle literówka), Flow nie przypisuje już temu sprintowi wszystkich dni tego okna. Każdy późniejszy sprint zespołu zachowuje teraz swoje dni, więc jego domyślna pojemność znów je liczy zamiast pokazywać 0.
+- Sprint z błędną datą zachowuje tylko dni, których nie obejmuje żaden inny sprint zespołu. Tak jak dotąd nie ma kalendarza pojemności, a poprawienie daty w Jirze przywraca jego zwykłe okno.
+- Nowe wartości pojawią się po następnym odświeżeniu danych zespołu. Zamknięte już sprinty zachowują swój zapis pojemności.`,
+  },
+  {
     version: "1.57.0",
     date: "2026-11-08",
     en: `**Service tokens: read-only access for other applications.**
