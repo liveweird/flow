@@ -223,7 +223,7 @@ class CapacityKernelsTest {
     // The test name is a measures.md "Pinned by" reference: it cannot wrap.
     @Suppress("MaxLineLength")
     @Test
-    fun `a day inside an earlier sprint's window is claimed by it - earlier by start then by id, whatever its length, and a sprint inside another has no day of its own`() {
+    fun `a day inside an earlier sprint's window is claimed by it - earlier by start then by id, a sprint over the 60-day cap last, and a sprint inside another has no day of its own`() {
         val s10 = claimSprint(10, "2026-03-02T09:00:00Z", "2026-03-06T09:00:00Z") // Mon 03-02 .. Fri 03-06
         val s11 = claimSprint(11, "2026-03-06T12:00:00Z", "2026-03-10T12:00:00Z") // Fri 03-06 .. Tue 03-10
         val s12 = claimSprint(12, "2026-03-06T12:00:00Z", "2026-03-08T12:00:00Z") // the same start as 11, a higher id, inside it
@@ -238,12 +238,31 @@ class CapacityKernelsTest {
             "the tie on the start goes to the lower id, and a sprint wholly inside others has no counted day",
         )
 
-        // Any window length claims: a sprint over the 60-day cap has no calendar of its own but still holds its days.
+        // A sprint over the 60-day cap (in practice a mistyped Jira end date) claims last: an in-cap sprint inside its span keeps its
+        // days, even a later one, and the over-cap sprint is claimed on instead.
         val long = claimSprint(1, "2026-01-05T09:00:00Z", "2026-04-30T09:00:00Z")
         val inside = claimSprint(2, "2026-03-02T09:00:00Z", "2026-03-04T09:00:00Z")
         val overLong = claimedDaysBySprint(listOf(inside, long), warsaw)
-        assertNull(overLong[1L], "the first sprint holds every day it covers")
-        assertEquals(listOf(day("2026-03-02"), day("2026-03-03"), day("2026-03-04")), overLong.getValue(2L).keys.sorted())
+        assertNull(overLong[2L], "the in-cap sprint holds every day it covers although the over-cap one started first")
+        assertEquals(
+            listOf(day("2026-03-02"), day("2026-03-03"), day("2026-03-04")).associateWith { claim(2) },
+            overLong.getValue(1L),
+        )
+
+        // The incident shape: one sprint's end date years out, the team's later sprints after it. None of them loses a day to it.
+        val typo = claimSprint(20, "2025-10-28T09:00:00Z", "2027-09-08T09:00:00Z") // completed in two weeks, end typed two years out
+        val next = claimSprint(21, "2025-11-13T09:00:00Z", "2025-11-27T09:00:00Z")
+        val after = claimSprint(22, "2025-11-27T09:00:00Z", "2025-12-11T09:00:00Z")
+        val incident = claimedDaysBySprint(listOf(typo, next, after), warsaw)
+        assertNull(incident[21L], "the sprint after the mistyped one keeps all its days")
+        assertEquals(mapOf(day("2025-11-27") to claim(21)), incident[22L], "in-cap sprints still share boundary days by start")
+        val yielded = generateSequence(day("2025-11-13")) { it.plusDays(1) }.takeWhile { !it.isAfter(day("2025-12-11")) }.toSet()
+        assertEquals(yielded, incident.getValue(20L).keys, "the over-cap sprint yields them")
+        assertEquals(
+            defaultCapacityDayCount(next.startAtMs, next.endAtMs, null, warsaw, emptyMap()),
+            defaultCapacityDayCount(next.startAtMs, next.endAtMs, null, warsaw, incident[21L].orEmpty()),
+            "the later sprint's DEFAULT counts every working day of its window",
+        )
 
         // The 60-day cap only decides who gets a grid: a LATER too-long sprint is claimed on like any other, so its DEFAULT skips the days.
         val head = claimSprint(3, "2026-01-05T09:00:00Z", "2026-01-16T15:00:00Z") // Mon 01-05 .. Fri 01-16
