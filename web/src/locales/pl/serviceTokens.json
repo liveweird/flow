@@ -1,0 +1,54 @@
+{
+  "title": "Tokeny usługowe",
+  "hint": "Tokeny tylko do odczytu dla innych aplikacji, np. Astrolabe. Sekret pokazujemy tylko raz. Token po wygaśnięciu zachowuje swoją nazwę, dopóki go nie unieważnisz.",
+  "name": "Nazwa",
+  "expiry": {
+    "label": "Wygasa",
+    "never": "Nigdy",
+    "90d": "Za 90 dni",
+    "1y": "Za rok",
+    "2y": "Za 2 lata"
+  },
+  "create": "Utwórz token",
+  "created": {
+    "title": "Utworzono token: {{name}}",
+    "warning": "Skopiuj go teraz, bo nie pokażemy go ponownie. Flow przechowuje tylko jego skrót, więc zgubionego tokenu nie da się odzyskać, można go tylko unieważnić i wystawić nowy.",
+    "copy": "Skopiuj token"
+  },
+  "tableAria": "Tokeny usługowe",
+  "column": {
+    "status": "Status",
+    "createdBy": "Utworzył/a",
+    "expires": "Wygasa",
+    "lastUsed": "Ostatnio użyty"
+  },
+  "status": {
+    "active": "Aktywny",
+    "expired": "Wygasły",
+    "revoked": "Unieważniony"
+  },
+  "never": "Nigdy",
+  "justNow": "Przed chwilą",
+  "ago": "{{age}} temu",
+  "empty": "Nie ma jeszcze żadnych tokenów usługowych. Utwórz pierwszy powyżej.",
+  "loadFailed": "Nie udało się wczytać tokenów usługowych",
+  "revoke": "Unieważnij",
+  "revokeAria": "Unieważnij token {{name}}",
+  "revokeTitle": "Unieważnić ten token?",
+  "revokeBody": "Token „{{name}}” przestanie działać natychmiast i nie da się go przywrócić. Każda aplikacja, która go używa, straci dostęp, dopóki nie dostanie nowego tokenu.",
+  "revokeFailed": "Nie udało się unieważnić tokenu",
+  "toast": {
+    "revoked": "Token usługowy unieważniony"
+  },
+  "error": {
+    "forbidden": "Tokenami usługowymi mogą zarządzać tylko administratorzy/rki.",
+    "invalid": "Token jest nieprawidłowy: sprawdź nazwę (1–100 znaków).",
+    "nameTaken": "Token o tej nazwie już istnieje i nie został unieważniony. Wygasły token zachowuje swoją nazwę, dopóki go nie unieważnisz, więc wybierz inną nazwę albo najpierw unieważnij stary token.",
+    "gone": "Ten token już nie istnieje.",
+    "alreadyRevoked": "Ten token jest już unieważniony.",
+    "failedStatus": "Nie udało się utworzyć tokenu ({{status}})",
+    "failed": "Nie udało się utworzyć tokenu. Sprawdź połączenie i spróbuj ponownie.",
+    "revokeFailedStatus": "Unieważnienie nie powiodło się ({{status}})",
+    "revokeFailed": "Nie udało się unieważnić tokenu. Sprawdź połączenie i spróbuj ponownie."
+  }
+}

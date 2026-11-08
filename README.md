@@ -227,6 +227,27 @@ reroute turned off: `JIRA_STUB_BASE_URL= docker compose up` (an explicitly empty
 the stack points `GITLAB_STUB_BASE_URL` at the bundled `gitlab-stub`, which turns the GitLab data-source kind on with `http://gitlab-stub:8080` as the
 only accepted base URL; `GITLAB_STUB_BASE_URL= docker compose up` turns that off. For a real instance, list its host in `GITLAB_ALLOWED_HOSTS` (and, on a private address, its range in `GITLAB_ALLOWED_CIDRS`); compose forwards both, while an internal CA (`GITLAB_CA_BUNDLE`) needs a volume mount for the PEM file. The GitLab bot user is an admin with a `read_api`-only token; the checklist for a first real instance (what to run, what figures to share back) is in `.claude/docs/gitlab-integration.md`, "Real-instance smoke run".
 
+## Service tokens (read-only, for other apps)
+
+An administrator can give another application, such as Astrolabe, a non-interactive credential that reads Flow's teams, their dated
+members and their sprints, and nothing else (the user sessions above are hourly-rotating and tied to one person):
+
+1. Sign in as an administrator, open **Administration > Service tokens**, name the token, optionally set an expiry (never, 90 days, 1 year or 2 years) and
+   click **Create token**. The secret (`flow_int_` plus 43 characters) is shown **once**; Flow stores only a digest of it, so copy it into the
+   consuming application's secret store right away. A lost token cannot be recovered, only revoked and replaced.
+2. The application sends it as a bearer token to the read-only `/api/v1/integration/` namespace:
+
+   ```bash
+   curl -H "Authorization: Bearer $FLOW_TOKEN" https://<flow>/api/v1/integration/teams
+   ```
+
+   `GET /api/v1/integration/me` answers the token's own name and creation time. Every other route, and every write, answers `401` to a service token.
+3. To stop an application, **Revoke** its token on the same page: it stops working on the very next request and cannot be restored. An
+   expired token keeps its name until it is revoked. The table shows each token's status, who created it, when it expires and when it
+   was last used.
+
+The model, the rate limits and the audit events are in `.claude/docs/security.md` ("Service tokens (read-only, for other apps)").
+
 ## Configuration (environment variables)
 
 `server/src/main/resources/application.yaml` is the authoritative reference — every setting there

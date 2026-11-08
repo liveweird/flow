@@ -15,7 +15,9 @@ export default function RevealablePassword({
   const [visible, setVisible] = useState(false);
   return (
     <Group gap="xs" wrap="nowrap">
-      <Code fz="md" px="sm" py={6} style={{ flex: 1 }}>
+      {/* A generated secret is one unbreakable token with no word boundaries: `anywhere` lets a 52-character service token wrap
+          inside a narrow panel instead of pushing the copy button out of it (the one place the house `break-word` rule is not enough). */}
+      <Code fz="md" px="sm" py={6} style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere", whiteSpace: "normal" }}>
         {visible ? password : "*".repeat(password.length)}
       </Code>
       <ActionIcon

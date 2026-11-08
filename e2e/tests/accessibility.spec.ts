@@ -42,6 +42,8 @@ const AUTHED_PAGES: { path: string; heading: string; query?: () => string; settl
   { path: "/feature-flags", heading: "Feature flags" },
   { path: "/data-sources", heading: "Data sources" },
   { path: "/metrics-settings", heading: "Metrics settings" },
+  // The ADMIN service-token registry: the create strip and the table (or its empty state), whatever the stack holds.
+  { path: "/service-tokens", heading: "Service tokens" },
   // Capacity in its picker state (no team picked); the populated grid is scanned in capacity.spec.ts.
   { path: "/capacity", heading: "Capacity" },
   // The global holiday dictionary with the add strip (the admin sees it) and the current year's seeded rows.

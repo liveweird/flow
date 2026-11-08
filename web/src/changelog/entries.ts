@@ -17,6 +17,22 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.57.0",
+    date: "2026-11-08",
+    en: `**Service tokens: read-only access for other applications.**
+
+- Administrators have a new page, "Service tokens" (Administration), where they issue a token for another application, for example Astrolabe. The application presents it to read Flow's teams, their members and sprints; it can read nothing else and change nothing.
+- The secret is shown once, when you create the token. Copy it then: Flow keeps only a digest, so a lost token cannot be recovered, only revoked and replaced.
+- You can set an expiry (never, 90 days, 1 year or 2 years). The table shows each token's status (active, expired or revoked), who created it, when it expires and when it was last used.
+- Revoking a token stops it working at once and cannot be undone. An expired token keeps its name until you revoke it, so a new token cannot reuse that name before then.`,
+    pl: `**Tokeny usługowe: dostęp tylko do odczytu dla innych aplikacji.**
+
+- Administratorzy/rki mają nową stronę „Tokeny usługowe” (Administracja), na której wystawiają token dla innej aplikacji, na przykład Astrolabe. Aplikacja używa go do odczytu zespołów Flow, ich członków/kiń i sprintów; nie odczyta niczego więcej i niczego nie zmieni.
+- Sekret pokazujemy tylko raz, przy tworzeniu tokenu. Skopiuj go wtedy: Flow przechowuje tylko jego skrót, więc zgubionego tokenu nie da się odzyskać, można go tylko unieważnić i wystawić nowy.
+- Możesz ustawić termin ważności (bez terminu, 90 dni, rok albo 2 lata). Tabela pokazuje status każdego tokenu (aktywny, wygasły albo unieważniony), kto go utworzył, kiedy wygasa i kiedy był ostatnio użyty.
+- Unieważniony token natychmiast przestaje działać, a unieważnienia nie da się cofnąć. Wygasły token zachowuje swoją nazwę, dopóki go nie unieważnisz, więc do tego czasu nie można użyć tej nazwy dla nowego tokenu.`,
+  },
+  {
     version: "1.56.0",
     date: "2026-11-05",
     en: `**Tasks and code: tasks named by a commit only.**

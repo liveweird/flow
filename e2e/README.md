@@ -64,7 +64,7 @@ from Lettuce, that any new or edited spec must satisfy:
   read-only" when applicable). Today: `auth`, `changelog` and `shell` (device-local
   localStorage only) are read-only; `accessibility` owns one API-seeded fixture team
   (`e2e-axe-team-*`); `accessibility-data` owns nothing — it reads the shared fixture (below); `flow-users` owns its
-  throwaway accounts; `teams` owns its throwaway teams (unique `e2e-team-*` names) and users; `i18n` owns its throwaway user (and ONLY that user's
+  throwaway accounts; `teams` owns its throwaway teams (unique `e2e-team-*` names) and users; `service-tokens` owns its unique `e2e-token-*` service-token rows (a token is revoked, never deleted: the registry has no DELETE; the test revokes its own and `afterAll` any stranded one); `i18n` owns its throwaway user (and ONLY that user's
   language — **seeded accounts must stay English**: every login applies the stored language to
   that session's UI, so a Polish seed admin would flip parallel specs mid-run); `password-reset`
   owns its throwaway account (its reset requests use unique per-run emails against the
@@ -147,7 +147,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
 
 - [`accessibility.spec.ts`](scenarios/accessibility.md) — axe WCAG A/AA smoke: login + the
   authenticated list/form pages (`/`, `/teams`, `/flow-users`, `/flow-users/new`, `/feature-flags`,
-  `/data-sources`, `/metrics-settings`, `/capacity` (the pickers' empty state), `/public-holidays`, all twenty-one `/reports/*` routes (the Deep dive without a selection, so its explainer) — each scanned once settled —
+  `/data-sources`, `/metrics-settings`, `/service-tokens`, `/capacity` (the pickers' empty state), `/public-holidays`, all twenty-one `/reports/*` routes (the Deep dive without a selection, so its explainer) — each scanned once settled —
   `/change-password`, `/changelog`), the detail pages of an API-seeded fixture team (its team page,
   the admin's own edit-user and user-features pages), `/reset-password` and its confirm page (the form state, from a well-formed link), the not-found page, and a
   registry editor modal scoped to its dialog; the app shell at a mobile width (390x844, the burger present), light and dark; the login screen and the list/form/report pages again in
@@ -262,6 +262,10 @@ the same commit** — this list is the coverage map, the scenario file is the de
   the Capacity grid then shows that day's column locked off, named and one working day lower, deleting the holiday behind its confirmation frees the day
   again (the dictionary is global: stranded `E2E Holiday*` rows are swept by name); a regular user finds the page in the sidebar, reads the seeded year
   and has no add strip and no delete (a clean axe scan).
+- [`service-tokens.spec.ts`](scenarios/service-tokens.md) — the Administration > Service tokens registry: the admin creates a token (a unique `e2e-token-*` name, no expiry), the
+  one-time reveal panel shows a `flow_int_` value (asserted as a boolean, never by value), another application reads `GET /api/v1/integration/me` and `/integration/teams` with it
+  (`200`), the admin revokes it behind its confirmation (the row reads Revoked with no action) and the same call answers `401` `application/problem+json`; tokens are never deleted,
+  so the test revokes its own and `afterAll` revokes any stranded `e2e-token-*` row.
 - [`teams.spec.ts`](scenarios/teams.md) — the flat-teams registry: create through the modal →
   rename → assign a throwaway user as the team's manager (the Manager picker; the
   details page reads "Manager: …") → delete from the list;

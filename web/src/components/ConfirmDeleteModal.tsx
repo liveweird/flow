@@ -12,12 +12,15 @@ export default function ConfirmDeleteModal<T>({
   errorTitle,
   body,
   errorMessage,
+  confirmLabel,
 }: {
   confirm: DeleteConfirm<T>;
   title: string;
   errorTitle: string;
   body: (target: T) => ReactNode;
   errorMessage?: (error: unknown) => string;
+  /** The destructive button's words when "Delete" is not the act (Service tokens: "Revoke"). */
+  confirmLabel?: string;
 }) {
   const { t } = useTranslation();
   const { target, opened, cancelDelete, confirmDelete, mutation } = confirm;
@@ -40,7 +43,7 @@ export default function ConfirmDeleteModal<T>({
             {t("common.action.cancel")}
           </Button>
           <Button color="red" onClick={confirmDelete} loading={mutation.isPending}>
-            {t("common.action.delete")}
+            {confirmLabel ?? t("common.action.delete")}
           </Button>
         </Group>
       </Stack>
