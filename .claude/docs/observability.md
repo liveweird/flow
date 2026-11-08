@@ -99,7 +99,7 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   at most ONE event per reason (and token id) per 60 s, `suppressed` counting the folded rejections, so a replayed leaked token writes a line a
   minute; the keys are bounded by the three reasons and the registry. The wire answer is one text for every reason. A thrown lookup (outage) is a 500
   and emits nothing here. Never the header, the token or its digest. A service token presented to a JWT route emits nothing (the JWT provider refuses it first),
-- `service_token.used` (tokenId/name/method/path/suppressed) - a live token was accepted. **Coalesced per token** per 60 s
+- `service_token.used` (tokenId/name/method/path/suppressed) - a live token authenticated (a later per-token 429 included, since that bucket decides after the lookup and stamp). **Coalesced per token** per 60 s
   (`ServiceTokenUsedAuditKey`), `suppressed` counting the calls folded in; `path` is the request path only (the integration routes have no path
   parameters), never the query string. With `last_used_at` it is the trail that proves or disproves a leak. Never the header, the token or its digest,
 - `refresh.replay_grace` (userId — a rotated refresh token presented again inside the grace
@@ -133,7 +133,7 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
 - `authz.denied` (every 403, from the `ForbiddenException` handler in `plugins/ErrorHandling.kt`,
   with method/path/byUserId/detail — `path` is the request path only, never the query string),
 - `rate_limit.exceeded` (bucket/method/path/suppressed, plus `byUserId` on the per-USER `reports` bucket and `byTokenId` on the per-TOKEN `integration-token` bucket (a verified service token; the per-HOST `integration` budget, spent by the provider before any lookup, names no token) — a token bucket (`plugins/RateLimits.kt`: per-IP login, refresh,
-  password-reset, password-reset-confirm, mfa, data-source-test, ready; per-user reports, telemetry; per-token integration-token; and the service-token provider's own pre-lookup per-host `integration` budget, `integration/HostWindowLimiter.kt`) rejected the request with a 429, emitted from the 429 status handler in
+  password-reset, password-reset-confirm, mfa, data-source-test, ready; per-user reports, telemetry; per-token integration-token; and the service-token provider's own pre-lookup per-host `integration` budget, `integration/HostWindowLimiter.kt`, whose full-map refusal of a new host is audited as the distinct `integration-saturated`) rejected the request with a 429, emitted from the 429 status handler in
   `plugins/ErrorHandling.kt`; `bucket` is stamped by the bucket's own `requestKey`. **Coalesced**
   (`RateLimitAuditThrottle`): at most ONE event per bucket per 60 s, `suppressed` counting the rejections folded into it
   since the previous event (0 on the first), so an unauthenticated flood writes a line a minute per bucket instead of one

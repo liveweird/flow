@@ -3028,8 +3028,8 @@ export interface paths {
         };
         /**
          * List the service tokens
-         * @description ADMIN only, reads included (the registry holds credentials). Newest first, at most 100 rows; a revoked
-         *     token stays listed for the trail. Never carries a secret or its digest.
+         * @description ADMIN only, reads included (the registry holds credentials). Live (not revoked) tokens first, then newest first, at
+         *     most 100 rows, so a live token is always listed; a revoked token stays listed for the trail while the page has room. Never carries a secret or its digest.
          */
         get: operations["listServiceTokens"];
         put?: never;

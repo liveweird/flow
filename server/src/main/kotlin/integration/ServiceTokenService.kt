@@ -62,9 +62,16 @@ class ServiceTokenService(
     private val creators = FlowUsers.alias("creators")
     private val revokers = FlowUsers.alias("revokers")
 
-    /** Newest first, at most [SERVICE_TOKEN_LIST_LIMIT] rows. A soft-deleted creator or revoker keeps its name. */
+    /**
+     * Live tokens first (an old live token never drops off the page behind revoked ones), then newest first, at most
+     * [SERVICE_TOKEN_LIST_LIMIT] rows. A soft-deleted creator or revoker keeps its name.
+     */
     suspend fun list(): List<ServiceToken> = suspendTransaction(database) {
-        joined().orderBy(ServiceTokens.createdAt to SortOrder.DESC, ServiceTokens.id to SortOrder.DESC)
+        joined().orderBy(
+            ServiceTokens.revokedAt.isNull() to SortOrder.DESC,
+            ServiceTokens.createdAt to SortOrder.DESC,
+            ServiceTokens.id to SortOrder.DESC,
+        )
             .limit(SERVICE_TOKEN_LIST_LIMIT).map { it.toToken() }.toList()
     }
 
@@ -102,24 +109,24 @@ class ServiceTokenService(
     }
 
     /**
-     * The per-request lookup: the digest of [raw] must match a row that is not revoked and not expired at [nowMs] (both in the WHERE, so
-     * revocation and expiry take effect on the very next request, no cache). A live match stamps `last_used_at` (conditional on the same
-     * predicate, so a revoke between the select and the update is never recorded as a use). Callers pre-check [SERVICE_TOKEN_PATTERN].
-     * A refusal is classified for the audit trail only; the wire answer is one text for every reason.
+     * The per-request lookup: ONE select by the digest of [raw] alone, then revoked / expired / live is decided here at [nowMs], so a miss
+     * costs a single statement and revocation and expiry take effect on the very next request (no cache). A live match stamps
+     * `last_used_at` with an UPDATE whose WHERE repeats the liveness predicate, so a revoke between the select and the update is never
+     * recorded as a use (zero rows: Rejected). Callers pre-check [SERVICE_TOKEN_PATTERN]. A refusal is classified for the audit trail
+     * only; the wire answer is one text for every reason.
      */
     suspend fun authenticate(raw: String, nowMs: Long): ServiceTokenVerdict = suspendTransaction(database) {
-        val hash = sha256Hex(raw)
-        val live = (ServiceTokens.revokedAt.isNull()) and (ServiceTokens.expiresAt.isNull() or (ServiceTokens.expiresAt greater nowMs))
-        val row = ServiceTokens.selectAll().where { (ServiceTokens.tokenHash eq hash) and live }.singleOrNull()
-        if (row == null) {
-            val known = ServiceTokens.selectAll().where { ServiceTokens.tokenHash eq hash }.singleOrNull()
-            val expired = known != null && known[ServiceTokens.revokedAt] == null
-            return@suspendTransaction ServiceTokenVerdict.Rejected(
-                reason = if (expired) ServiceTokenRejection.EXPIRED else ServiceTokenRejection.UNKNOWN_OR_REVOKED,
-                tokenId = known?.get(ServiceTokens.id)?.value,
-            )
-        }
+        val row = ServiceTokens.selectAll().where { ServiceTokens.tokenHash eq sha256Hex(raw) }.singleOrNull()
+            ?: return@suspendTransaction ServiceTokenVerdict.Rejected(ServiceTokenRejection.UNKNOWN_OR_REVOKED)
         val tokenId = row[ServiceTokens.id].value
+        val expiresAt = row[ServiceTokens.expiresAt]
+        if (row[ServiceTokens.revokedAt] != null) {
+            return@suspendTransaction ServiceTokenVerdict.Rejected(ServiceTokenRejection.UNKNOWN_OR_REVOKED, tokenId)
+        }
+        if (expiresAt != null && expiresAt <= nowMs) {
+            return@suspendTransaction ServiceTokenVerdict.Rejected(ServiceTokenRejection.EXPIRED, tokenId)
+        }
+        val live = ServiceTokens.revokedAt.isNull() and (ServiceTokens.expiresAt.isNull() or (ServiceTokens.expiresAt greater nowMs))
         val stamped = ServiceTokens.update({ (ServiceTokens.id eq tokenId) and live }) { it[lastUsedAt] = nowMs }
         if (stamped == 0) {
             return@suspendTransaction ServiceTokenVerdict.Rejected(ServiceTokenRejection.UNKNOWN_OR_REVOKED, tokenId)
@@ -128,7 +135,7 @@ class ServiceTokenService(
             tokenId = tokenId,
             name = row[ServiceTokens.name],
             createdAt = row[ServiceTokens.createdAt],
-            expiresAt = row[ServiceTokens.expiresAt],
+            expiresAt = expiresAt,
             lastUsedAtBefore = row[ServiceTokens.lastUsedAt],
         )
     }

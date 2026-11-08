@@ -360,6 +360,7 @@ place:
 - `auth/PasswordResetService` (V35) READS `flowusers/FlowUserService.FlowUsers` (the `active()` / `credential_revision` / `email` predicate
   of a grant's liveness, and `FOR UPDATE` on the user row) and WRITES `users.password_hash` / `password_changed_at` / `credential_revision`
   through `flowusers`' `updatePasswordInTransaction` inside its own transaction (the grant is consumed in the same transaction).
+- `integration/ServiceTokenService` (V48) WRITES only `service_tokens` and READS `flowusers/FlowUserService.FlowUsers` (`name`, a read-only join for `createdByName`/`revokedByName`, NOT filtered on `active()`: a soft-deleted creator or revoker keeps its name on the trail).
 - `plugins/Health.kt` (`GET /api/v1/ready`, the readiness probe) READS `flowusers/FlowUserService.FlowUsers` (`id`, `LIMIT 1`), a bounded round trip
   that proves the database answers; it writes nothing and returns no row.
 - `telemetry/StorageCollectors.kt` (V36, the storage panel) reads, OUTSIDE the telemetry cluster transaction (the heavy phase: each statement is a short
@@ -1560,15 +1561,15 @@ NOT a row in `users` (a user row would leak into pickers, lists, `managerUserId`
   case-insensitively (the `uq_teams_name_active` idiom; the central 23505 handler answers a 409, `UNIQUE_CONSTRAINT_DETAILS`). An EXPIRED but unrevoked token still holds its name until it is
   revoked, and the 409 detail says so.
 - **Immutable rows, terminal revoke.** `revoked_at` IS the removal: no UPDATE of name or key, no DELETE, rotation = create a new token and revoke the old one. `revoke` is a conditional update
-  (`revoked_at IS NULL`), so a concurrent revoke loses cleanly (zero rows, `ALREADY_REVOKED`, a 409 for the route). `authenticate` carries the liveness in the WHERE (`revoked_at IS NULL AND
-  (expires_at IS NULL OR expires_at > now)`) and stamps `last_used_at` conditional on the same predicate, so revocation and expiry take effect on the very next request (no cache) and a revoke
+  (`revoked_at IS NULL`), so a concurrent revoke loses cleanly (zero rows, `ALREADY_REVOKED`, a 409 for the route). `authenticate` selects by the digest alone (a miss is ONE statement), decides revoked / expired / live in Kotlin and stamps `last_used_at` with an UPDATE whose WHERE keeps the liveness predicate (`revoked_at IS NULL AND
+  (expires_at IS NULL OR expires_at > now)`), so revocation and expiry take effect on the very next request (no cache) and a revoke
   committing between the select and the stamp is never recorded as a use.
 - **Hard delete? Neither soft- nor hard-delete.** The "Soft delete (convention)" list below names the exception: a revoked row is audit history (`createdByName`, `revokedByName`, `lastUsedAt`),
-  kept listed (the list is capped at the newest 100).
+  kept listed (the list is capped at 100 rows, live tokens first and then newest first, so an old live token never drops off the page).
 - **Permissions.** `ServiceTokenService` WRITES only `service_tokens` and READS `flowusers/FlowUserService.FlowUsers` (`name`, joined for `createdByName`/`revokedByName`, NOT filtered on `active()`:
   a soft-deleted creator keeps its name on the trail; the same read-only join precedent as `teams/TeamService`'s manager names). Published as `ServiceTokenServiceKey` from the composition
   root `infra/db/Database.kt` (`PackageBoundaryTest`'s `infraCompositionRoot`), and `PackageBoundaryTest` carries the allowlist of `integration/` (`teams`, `metrics`, `norm`, `authz`, `auth`,
-  `flowusers`; nothing but `infra/db/Database.kt` references it). The cross-feature list above is otherwise unchanged.
+  `flowusers`; nothing but `infra/db/Database.kt` references it).
 
 ### Soft delete (convention)
 

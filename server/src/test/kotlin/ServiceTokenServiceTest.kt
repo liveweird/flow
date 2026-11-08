@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.integration.MAX_SERVICE_TOKEN_LIFETIME_MILLIS
 import ch.nokillswit.integration.MAX_SERVICE_TOKEN_NAME_LENGTH
+import ch.nokillswit.integration.SERVICE_TOKEN_LIST_LIMIT
 import ch.nokillswit.integration.SERVICE_TOKEN_PATTERN
 import ch.nokillswit.integration.SERVICE_TOKEN_PREFIX
 import ch.nokillswit.integration.ServiceTokenRejection
@@ -24,6 +25,9 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.r2dbc.deleteWhere
+import org.jetbrains.exposed.v1.r2dbc.insert
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
@@ -61,7 +65,7 @@ class ServiceTokenServiceTest {
     }
 
     @Test
-    fun `list is newest first and read joins the creator and revoker names`() = testApplication {
+    fun `list is live first then newest first and read joins the creator and revoker names`() = testApplication {
         usePostgresTestcontainer()
         var now = System.currentTimeMillis()
         val tokens = ServiceTokenService(sharedDatabaseForTests()) { now }
@@ -80,6 +84,38 @@ class ServiceTokenServiceTest {
         assertEquals(now, revoked.revokedAt)
         assertEquals("Admin st-list-b", revoked.revokedByName)
         assertNull(ours.first().revokedByName)
+    }
+
+    @Test
+    fun `list always carries a live token, however old, ahead of more than a page of newer revoked ones`() = testApplication {
+        usePostgresTestcontainer()
+        val database = sharedDatabaseForTests()
+        val tokens = ServiceTokenService(database)
+        val creator = admin("st-list-live")
+        // Seeded directly with the OLDEST created_at of the table (1..102), so the live token is far outside the newest 100 by age alone.
+        val ids = suspendTransaction(database) {
+            (0..SERVICE_TOKEN_LIST_LIMIT).map { i ->
+                ServiceTokens.insert {
+                    it[name] = unique("page")
+                    it[tokenHash] = ch.nokillswit.infra.json.sha256Hex(unique("digest"))
+                    it[createdBy] = creator
+                    it[createdAt] = 1L + i
+                    if (i > 0) {
+                        it[revokedAt] = 1_000L + i
+                        it[revokedBy] = creator
+                    }
+                }[ServiceTokens.id].value
+            }
+        }
+        try {
+            val listed = tokens.list()
+            assertEquals(SERVICE_TOKEN_LIST_LIMIT, listed.size)
+            assertTrue(ids.first() in listed.map { it.id }, "the old live token is listed")
+            val flags = listed.map { it.revoked }
+            assertEquals(flags.sortedBy { it }, flags, "every live token precedes every revoked one")
+        } finally {
+            suspendTransaction(database) { ServiceTokens.deleteWhere { ServiceTokens.id inList ids } }
+        }
     }
 
     @Test

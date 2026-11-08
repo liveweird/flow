@@ -43,6 +43,21 @@ class HostWindowLimiterTest {
     }
 
     @Test
+    fun `a clock that steps back cannot leave a tracked host on an expired window`() {
+        var now = 100_000L
+        val limiter = HostWindowLimiter(limit = 1, windowMillis = 1_000, maxTracked = 3, clock = { now })
+        assertEquals(Verdict.Allowed, limiter.tryAcquire("late")) // window start 100_000
+        now = 10_000 // the clock steps back: the next window starts BEFORE the earlier one, so the map is no longer ordered by start
+        assertEquals(Verdict.Allowed, limiter.tryAcquire("early")) // window start 10_000, behind "late" in the map
+        now = 11_500 // "early" has expired (10_000 + 1_000 <= 11_500) but sits behind the head: head reclaim stops at "late"
+        // Without the own-window check "early" stays blocked on its spent window, with a negative retry-after.
+        assertEquals(Verdict.Allowed, limiter.tryAcquire("early"), "an expired own window is fresh")
+        val refused = assertIs<Verdict.Refused>(limiter.tryAcquire("early"))
+        assertEquals(1_000, refused.retryAfterMillis, "the fresh window started at 11_500")
+        assertEquals(false, refused.saturated)
+    }
+
+    @Test
     fun `the bounds must be positive`() {
         assertFailsWith<IllegalArgumentException> { HostWindowLimiter(limit = 0) }
         assertFailsWith<IllegalArgumentException> { HostWindowLimiter(limit = 1, maxTracked = 0) }

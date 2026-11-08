@@ -40,7 +40,7 @@ private const val BEARER_PREFIX = "Bearer "
 /**
  * The raw bearer value of [call], or null for anything that is not exactly one `Authorization: Bearer flow_int_<43 base64url>` header:
  * a missing, repeated, differently-schemed (`Basic`, a bare token) or malformed value is rejected here, BEFORE any hashing or database
- * work (the JWT provider's "structural rejections never reach the database" rule). The bounded grammar also bounds the audit key space.
+ * work (the JWT provider's "structural rejections never reach the database" rule).
  */
 internal fun serviceTokenOf(call: ApplicationCall): String? {
     val values = call.request.headers.getAll(HttpHeaders.Authorization)
@@ -56,8 +56,8 @@ internal fun serviceTokenOf(call: ApplicationCall): String? {
  * expiry take effect on the very next request. A lookup that THROWS is an outage and answers the catch-all's 500, never a 401 (the
  * JWT provider's rule: a transient database fault must not read as a revoked credential). Every other failure is the same 401 problem.
  * The per-host budget ([HostWindowLimiter]) is spent before anything else, so a flood costs no lookup past it. The service and the
- * audit throttles are read from the application attributes at request time (the providers are registered before the database
- * exists; a test may swap a throttle). Nothing here ever logs the header, the token or its digest.
+ * audit throttles are read from the application attributes at request time (not captured when the provider is built, so a test can swap
+ * the service, a throttle or the limiter). Nothing here ever logs the header, the token or its digest.
  */
 class ServiceTokenAuthenticationProvider(config: Config) : AuthenticationProvider(config) {
 
@@ -114,11 +114,12 @@ private fun AuthenticationContext.reject(cause: AuthenticationFailedCause, outag
 /**
  * The pre-lookup per-host 429. It is answered through the SAME path as every `RateLimit` rejection: a bodiless 429 that
  * `plugins/ErrorHandling.kt`'s status handler turns into the generic problem body and the coalesced `rate_limit.exceeded` audit,
- * which names the bucket this stamps (`integration`) and, no token being verified yet, no `byTokenId`.
+ * which names the bucket this stamps (`integration`, or `integration-saturated` when the limiter's map is full and a NEW host was refused)
+ * and, no token being verified yet, no `byTokenId`.
  */
 private fun AuthenticationContext.refuseRateLimited(refusal: HostWindowLimiter.Verdict.Refused) {
     challenge(SERVICE_TOKEN, AuthenticationFailedCause.Error("integration rate limit")) { challenge, call ->
-        call.attributes.put(RateLimitBucketKey, RateLimits.INTEGRATION)
+        call.attributes.put(RateLimitBucketKey, if (refusal.saturated) RateLimits.INTEGRATION_SATURATED else RateLimits.INTEGRATION)
         val seconds = (refusal.retryAfterMillis + MILLIS_PER_SECOND - 1) / MILLIS_PER_SECOND
         call.response.header(HttpHeaders.RetryAfter, seconds.coerceAtLeast(1).toString())
         call.respond(HttpStatusCode.TooManyRequests)
@@ -130,7 +131,9 @@ private const val MILLIS_PER_SECOND = 1000L
 
 /**
  * `service_token.auth_failed`, coalesced per reason (and token id, when a row matched) per minute with a `suppressed` count, so a replayed
- * leaked token writes a line a minute, not a line per request. The keys are bounded by the three reasons and the registry's size.
+ * leaked token writes a line a minute, not a line per request. The throttle map is not capacity-bounded, so the key space is bounded by
+ * construction instead: the id-less reasons (no row matched) plus (reason, token id) pairs, and a token id exists only when a registry row
+ * matched the digest (the shape check and the per-host budget run first), so it is at most the registry's size times the reasons.
  */
 private fun ApplicationCall.authFailed(reason: String, tokenId: UInt?) {
     val key = if (tokenId == null) reason else "$reason:$tokenId"

@@ -103,7 +103,7 @@ class ServiceTokenAuthTest {
 
         val second = client.get(me) { bearer(issued.secret) }.body<IntegrationMe>()
         assertEquals(stamped, second.lastUsedAt, "the second call sees the first call's stamp")
-        // HEAD rides AutoHeadResponse, and `bearer` is matched case-insensitively.
+        // `bearer` is matched case-insensitively.
         assertEquals(
             HttpStatusCode.OK,
             client.get(me) { header(HttpHeaders.Authorization, "bEaReR ${issued.secret}") }.status,
@@ -341,17 +341,25 @@ class ServiceTokenAuthTest {
             header(HttpHeaders.XForwardedFor, "10.0.0.99, $host")
             bearer(unknownSecret())
         }.status
-        repeat(2) { assertEquals(HttpStatusCode.Unauthorized, attempt("203.0.113.1")) }
-        assertEquals(HttpStatusCode.TooManyRequests, attempt("203.0.113.1"))
-        // A second host has its own budget (the key is the proxy-resolved client, the LAST X-Forwarded-For value) ...
-        repeat(2) { assertEquals(HttpStatusCode.Unauthorized, attempt("203.0.113.2")) }
-        assertEquals(HttpStatusCode.TooManyRequests, attempt("203.0.113.2"))
-        // ... but the map holds two hosts: a third is refused rather than tracked.
-        assertEquals(HttpStatusCode.TooManyRequests, attempt("203.0.113.3"))
-        // The windows end, the map is reclaimed and everyone starts over.
-        now += 60_001
-        assertEquals(HttpStatusCode.Unauthorized, attempt("203.0.113.3"))
-        assertEquals(HttpStatusCode.Unauthorized, attempt("203.0.113.1"))
+        withAuditCapture { capture ->
+            repeat(2) { assertEquals(HttpStatusCode.Unauthorized, attempt("203.0.113.1")) }
+            assertEquals(HttpStatusCode.TooManyRequests, attempt("203.0.113.1"))
+            // A second host has its own budget (the key is the proxy-resolved client, the LAST X-Forwarded-For value) ...
+            repeat(2) { assertEquals(HttpStatusCode.Unauthorized, attempt("203.0.113.2")) }
+            assertEquals(HttpStatusCode.TooManyRequests, attempt("203.0.113.2"))
+            // ... but the map holds two hosts: a third is refused rather than tracked.
+            assertEquals(HttpStatusCode.TooManyRequests, attempt("203.0.113.3"))
+            // The windows end, the map is reclaimed and everyone starts over.
+            now += 60_001
+            assertEquals(HttpStatusCode.Unauthorized, attempt("203.0.113.3"))
+            assertEquals(HttpStatusCode.Unauthorized, attempt("203.0.113.1"))
+
+            // The two 429 causes audit under distinct bucket names: one noisy host is `integration`, a full map `integration-saturated`.
+            val buckets = capture.events.filter { it.message == "rate_limit.exceeded" }.flatMap { event ->
+                event.keyValuePairs.filter { it.key == "bucket" }.map { it.value.toString() }
+            }
+            assertEquals(listOf("integration", "integration-saturated"), buckets)
+        }
     }
 
     @Test

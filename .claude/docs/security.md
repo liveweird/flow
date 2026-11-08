@@ -271,7 +271,7 @@ sign its owner out). A request changes nothing now - see above.
 
 **Per-IP login bucket** (`security.rateLimit.loginPerMinute`, `$LOGIN_RATE_LIMIT_PER_MINUTE`;
 every bucket is installed by `plugins/RateLimits.kt`, which also owns the bucket names — today
-`login`, `refresh`, `password-reset`, `password-reset-confirm`, `mfa`, `data-source-test`, `ready`, `integration` (the provider's own pre-lookup budget, not a plugin bucket), and the per-USER `reports` below, the per-token `integration-token` in "Service tokens"): blank **follows the mode** — 10/min in production,
+`login`, `refresh`, `password-reset`, `password-reset-confirm`, `mfa`, `data-source-test`, `ready`, `integration` (the provider's own pre-lookup budget, not a plugin bucket), and the per-USER `reports` below, the per-token `integration-token` in "Service tokens"; the two integration buckets are 60/min and 120/min in EVERY mode, they never follow the mode): for the login bucket blank **follows the mode** — 10/min in production,
 1000/min in development — and an explicit number pins it in either mode (the `http.exposeOpenApi`
 idiom). Development is lifted because the e2e suite drives its logins from one host and would
 otherwise sleep out the bucket; **the per-account lockout above is the actual brute-force defence
@@ -708,7 +708,7 @@ refresh rotation, MFA, per-account lockout).
 - **The provider** (`integration/ServiceTokenAuth.kt`, registered by `configureIntegration`, a SECOND named Ktor provider beside the JWT one -
   `plugins/Security.kt` is untouched and `plugins` never imports `integration`). Order: (1) the shape check - exactly ONE `Authorization` header,
   `Bearer ` (case-insensitive), then `^flow_int_[A-Za-z0-9_-]{43}$` - rejects anything else WITHOUT a database round trip (the JWT rule "structural
-  rejections never reach the database"; the bounded grammar also bounds the audit key space); (2) one `ServiceTokenService.authenticate` call under
+  rejections never reach the database"); (2) one `ServiceTokenService.authenticate` call under
   `catchingFailures`; (3) on a live token a `ServiceTokenPrincipal(tokenId, name)` - a NON-user principal: no user id, roles, feature flags or MFA -
   plus the token id on the call (`RateLimitTokenKey`, the per-token bucket's key) and its facts (`GET /integration/me` reports the values BEFORE this
   call's stamp). `call.caller()` reads only a JWT principal and throws `UnauthorizedException` for a service-token call, so `requireAdmin`,
@@ -733,16 +733,18 @@ refresh rotation, MFA, per-account lockout).
   (10,000 hosts; expired windows are reclaimed first, and when none can be a NEW host is refused rather than the map growing, a tracked host carries on).
   The host is `ApplicationCall.rateLimitHost()`, the very function every per-IP `RateLimit` bucket keys on (Ktor's resolved origin: behind a trusted
   proxy the `X-Forwarded-For` value the proxy wrote per `http.behindProxy`/`http.proxyHops`, never a client-chosen one). Over the budget, or with the
-  map saturated, the answer is the generic `429` problem with `Retry-After` and the coalesced `rate_limit.exceeded` audit (`bucket=integration`, no
+  map saturated, the answer is the generic `429` problem with `Retry-After` and the coalesced `rate_limit.exceeded` audit (`bucket=integration`, or the
+  distinct `integration-saturated` when the full map refused a NEW host, so an operator can tell one noisy host from a saturated map; no
   `byTokenId`: nothing is verified yet), through the same status handler as every `RateLimit` rejection. The second bucket, `integration-token`, is
   a real `RateLimit` bucket mounted inside `authenticate(SERVICE_TOKEN)`: per verified token (`RateLimitTokenKey`, so the limiter count is bounded by
-  the registry), a fixed 120/min; its 429 names `byTokenId`. A scheduled consumer sends one or two calls per tick. Pinned by `ServiceTokenAuthTest`
+  the registry), a fixed 120/min; its 429 names `byTokenId`. It decides AFTER the lookup and the `last_used_at` stamp (so `service_token.used` and the stamp also cover a call this bucket then refuses): the
+  per-host budget is the bound on database cost, the token bucket targets ONE token used from many hosts. A scheduled consumer sends one or two calls per tick. Pinned by `ServiceTokenAuthTest`
   (shared budget across valid and refused attempts, no lookup past the budget, hosts independent, saturation, refill) and `HostWindowLimiterTest`.
 - **Threat model.** *Leaked token*: read-only exposure of what any signed-in user already sees (D12), no write, no account, no escalation;
   `last_used_at` and `service_token.used` make a foreign reader visible, revoke takes effect on the next request, expiry is optional but available.
   *Replay*: inherent to a bearer; TLS is mandatory in production, the token never appears in a URL, log or audit field. *Scope escalation*:
   structurally impossible (above). *Timing/enumeration*: digest equality by index, one status and one text for every refusal, the shape check before
-  the lookup, and the per-host budget before both. *Insider (ADMIN)*: every issue and revoke is audited with `byUserId`; the plaintext exists in one response only. *Outage read as a bad
+  the lookup, and the per-host budget before both. *Insider (ADMIN)*: every issue and revoke is audited with `byUserId`; the plaintext exists in one response only. Tokens are NOT tied to their creator (they survive the admin who issued them), so when an admin leaves, review `createdByName` in the token list and revoke what they issued. *Outage read as a bad
   token*: a thrown lookup is a 500. No secret-bearing configuration is added, so there is no new production fail-closed check; the `no-store` header
   already rides every `/api/` answer. Log hygiene: `ServiceTokenCreateResponse` masks `secret` in `toString()` (`SecretToStringTest`); the provider
   never logs the header, and the verdict/principal types hold no secret.

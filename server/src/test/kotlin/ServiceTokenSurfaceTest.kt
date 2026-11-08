@@ -85,14 +85,17 @@ class ServiceTokenSurfaceTest {
     }
 
     @Test
-    fun `authenticate(SERVICE_TOKEN) appears in no main source but IntegrationRoutes`() {
+    fun `an authenticate call naming the service-token provider appears in no main source but IntegrationRoutes`() {
         val root = File(System.getProperty("repo.root") ?: "..", "server/src/main/kotlin")
         val users = root.walkTopDown().filter { it.isFile && it.extension == "kt" }
-            .filter { Regex("""authenticate\(\s*SERVICE_TOKEN""").containsMatchIn(codeOf(it.readText())) }.map { it.name }.toList()
+            .filter { guardedBlock.containsMatchIn(codeOf(it.readText())) }.map { it.name }.toList()
         assertEquals(listOf("IntegrationRoutes.kt"), users)
     }
 
     private companion object {
+        /** Any `authenticate(` call whose arguments (any position, any qualification) name the provider by constant or by literal. */
+        private val guardedBlock = Regex("""authenticate\([^)]*(SERVICE_TOKEN|"service-token")""")
+
         /** A tripwire like `AnonymousAccessTest`'s floor: the sweep covers every secured operation, this only catches a shrunken spec. */
         const val MIN_SWEPT_OPERATIONS = 80
     }

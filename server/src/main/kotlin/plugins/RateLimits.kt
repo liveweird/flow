@@ -115,6 +115,12 @@ object RateLimits {
     const val INTEGRATION = "integration"
 
     /**
+     * The audit bucket name of a 429 from the [INTEGRATION] limiter's FULL tracking map (a NEW host refused, not a host over its
+     * budget), so an operator can tell one noisy host from a saturated map (the `LoginThrottle` "audited 429 saturation" idiom).
+     */
+    const val INTEGRATION_SATURATED = "integration-saturated"
+
+    /**
      * The same namespace, per verified SERVICE TOKEN (the [REPORTS] idiom, keyed by [RateLimitTokenKey]): a fixed 120/min in every
      * mode. A scheduled consumer sends one or two calls per tick, so the bound is for a runaway or leaked-token client.
      */
@@ -178,7 +184,9 @@ object RateLimits {
 }
 
 /**
- * The buckets (see application.yaml `security.rateLimit` and security.md): per IP, except the per-USER reports bucket. Login,
+ * The buckets (see application.yaml `security.rateLimit` and security.md): per IP, except the per-USER reports and telemetry buckets and
+ * the per-TOKEN `integration-token` bucket (the per-host `integration` budget is spent by the service-token provider, not installed
+ * here). Login,
  * password-reset and reports follow the mode — production keeps them tight, development lifts them so one host
  * driving the e2e suite is not throttled (the per-account lockout and the per-email throttle are the
  * abuse defences in both modes); refresh, ready, MFA and the password-reset confirm are the same in every mode. Installed here, before

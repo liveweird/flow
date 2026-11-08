@@ -7,8 +7,9 @@ package ch.nokillswit.integration
  *
  * In-memory and per-instance (the deployment is single-replica, like the login throttle it follows); a restart only resets the budgets.
  * Capacity-bounded like `auth/LoginThrottle.kt`: at most [maxTracked] hosts are tracked, expired windows are reclaimed first, and when
- * none can be a NEW host is refused ([Verdict.Saturated]) rather than the map growing; a tracked host carries on. The map is ordered by
- * window start (a refilled host is re-inserted), so reclaiming is a pop from the head.
+ * none can be a NEW host is refused ([Verdict.Refused.saturated]) rather than the map growing; a tracked host carries on. The map
+ * is ordered by window start (a refilled host is re-inserted), so reclaiming is a pop from the head. A clock that steps back can break
+ * that order, so a tracked host whose OWN window has expired is also treated as fresh (re-inserted at the tail) wherever it sits.
  */
 internal class HostWindowLimiter(
     private val limit: Int,
@@ -35,7 +36,10 @@ internal class HostWindowLimiter(
     fun tryAcquire(host: String): Verdict = synchronized(lock) {
         val now = clock()
         reclaimExpired(now)
-        val current = windows[host]
+        // A tracked host whose own window ended yet survived head reclaim (a clock step-back broke the order): fresh window, at the tail.
+        val tracked = windows[host]
+        val current = tracked?.takeIf { it.startMs + windowMillis > now }
+        if (tracked != null && current == null) windows.remove(host)
         when {
             current == null && windows.size >= maxTracked ->
                 Verdict.Refused(retryAfterMillis = windows.values.first().startMs + windowMillis - now, saturated = true)
