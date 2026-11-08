@@ -126,7 +126,7 @@ ships. Dependabot covers none of the pins in the first three rows — bump them 
 
 | Pin / gate | Where | Bump rule |
 |---|---|---|
-| JDK `21.0.12` (`actions/setup-java` `java-version`, both Gradle jobs) | `ci.yml` | the exact patch of `mise.toml`'s `java` and the Dockerfile's `eclipse-temurin:21.0.12.1_1` tags — one PR moves all three. A Temurin respin (`21.0.12.1+1`) is `temurin-21.0.12+101.0.LTS` in mise (Adoptium folds the respin into the build number); `setup-java` resolves `21.0.12` to its newest respin, so `ci.yml` names the patch only, while the Dockerfile tag names the respin. `node scripts/check-toolchain-pins.mjs` (an `e2e-static` step) fails the build with one line per mismatch if the JDK or node pins diverge |
+| JDK `21.0.13` (`actions/setup-java` `java-version`, both Gradle jobs) | `ci.yml` | the exact patch of `mise.toml`'s `java` and the Dockerfile's `eclipse-temurin:21.0.13_9` tags — one PR moves all three. A Temurin respin (`21.0.12.1+1`) is `temurin-21.0.12+101.0.LTS` in mise (Adoptium folds the respin into the build number); `setup-java` resolves `21.0.12` to its newest respin, so `ci.yml` names the patch only, while the Dockerfile tag names the respin. `node scripts/check-toolchain-pins.mjs` (an `e2e-static` step) fails the build with one line per mismatch if the JDK or node pins diverge |
 | Node `24.22.1` (`node-version-file: .nvmrc`, web/e2e-static/e2e jobs) | `.nvmrc` | mirrors `mise.toml`'s `node` and the Dockerfile's `node:24.22.1-alpine` (guarded by the same script); `.nvmrc` holds the bare version, no `v` |
 | Gradle `distributionSha256Sum` | `gradle/wrapper/gradle-wrapper.properties` | the wrapper validates the downloaded distribution against it (CI, local, and the Docker build's `./gradlew --version`). On a Gradle bump take the value from `https://services.gradle.org/distributions/gradle-<version>-bin.zip.sha256` (the `bin` type the URL uses), confirm it against a `shasum -a 256` of the downloaded zip, and change URL and checksum in the same commit |
 | `npm audit --omit=dev --audit-level=high` | `ci.yml` `web` | runtime dependencies only (a dev-tool advisory never reaches the bundle). The LAST step of the job, so an overnight advisory cannot hide the real gate results |
@@ -353,6 +353,61 @@ the known reasons and were redone by hand: #415 and #416 here (Dependabot does n
 - **Lock movement:** exactly those families, in the `core` and `server` project locks; the settings, root and buildscript locks did not move.
   `gradle/verification-metadata.xml` only gained entries (132 added lines, 0 removed); no trusted-artifact patterns. As in earlier rounds, the new checksums come from
   the empty-home run against the configured repositories, which is not independent provenance (signature verification is not enabled).
+
+## Dependency batch 2026-11-08
+
+Eight Dependabot PRs applied by hand as one round on `chore/deps-2026-11-08` from `master` (b236a924). #460-#465 were
+green on their own; #462 (JDK) is red because the pin moves in three places, #466 and #467 because Dependabot does not
+regenerate locks and checksums.
+
+- **#460:** `actions/setup-java` 6.1.0 → 6.2.0 (`77dd5b2c…`, both uses in `ci.yml`; `e2e.yml` has none).
+- **#461:** Mailpit v1.32.0 → v1.33.0 (`docker-compose.yaml` only; no k8s manifest or test pins it). The digest was
+  re-derived with `docker buildx imagetools inspect --raw | sha256sum` and matched Dependabot's; the container reports
+  `mailpit v1.33.0`.
+- **#462:** Temurin 21.0.12.1 → 21.0.13+9 in the three places: Dockerfile jdk + jre tags (digests re-derived, both
+  matched), `mise.toml` `temurin-21.0.13+9.0.LTS` (this release has no respin, so the mise build number is the plain
+  build `9`) and `ci.yml` `java-version: 21.0.13`; `scripts/check-toolchain-pins.mjs` passes. Inside the built image:
+  `openjdk version "21.0.13" 2026-10-20 LTS`, `Temurin-21.0.13+9`. The local toolchain reports the same binary.
+- **#463 / #464 / #465:** the PRs' `package.json` and lock hunks, taken as they are (#465's lock moves `vitest` 5.0.5 →
+  5.1.0 and `@vitest/coverage-v8` with its two `istanbul-lib-*` helpers 1.0.2 → 2.1.0; `web/package.json` keeps
+  `vitest: ^5.0.1`, so the lock alone moves it). Web: `@tanstack/react-query` 5.105.3, `i18next` 26.7.1,
+  `i18next-browser-languagedetector` 8.3.0, `react-i18next` 17.1.12, `@vitejs/plugin-react` 6.2.1, `eslint` 10.14.0,
+  `globals` 17.14.0, `knip` 6.44.1; e2e: `eslint`, `globals`, `knip` to the same versions. One Mantine release
+  (9.7.4) across every `@mantine/*`, TypeScript and React untouched. Read the whole `npm run knip` output in both
+  workspaces: nothing reported. Coverage floors untouched, still met.
+- **#466:** Flyway 13.11.1 → 13.12.0, `opentelemetry-semconv` 1.44.0 → 1.45.0, Guava 33.7.2-jre → 33.8.0-jre (catalog
+  and the `server/build.gradle.kts` buildscript line), `ktor-version-catalog` 3.6.0 → 3.6.1 (`settings.gradle.kts`).
+  Semconv now sits one release above what the
+  paired instrumentation was built against: `opentelemetry-instrumentation-api` 2.33.1 (the newest instrumentation
+  BOM, 2.33.1-alpha) declares `requires 1.44.0`, a Gradle minimum, so 1.45.0 satisfies it and the constants-only
+  artifact resolves to the catalog pin (2026-10-17 kept 1.44.0 only because it was then the newest release). SDK and
+  instrumentation are unchanged. `checkDependencyAlignment`: `io.opentelemetry aligned at 1.67.0 (17 modules)`.
+- **#467:** `netty-bom` 4.2.19.Final → 4.2.20.Final. `reactor-bom` stays 2025.0.8, still the newest GA train, and its
+  `reactor-netty-core` 1.3.8 pom asks for Netty 4.2.19, so the BOM pin sits one patch above reactor-netty's build
+  inside the 4.2 line (as in 2026-10-17); `checkDependencyAlignment`: `io.netty aligned at 4.2.20.Final (31 modules)`,
+  `io.projectreactor aligned with reactor-bom 2025.0.8`. The rationale comment in `libs.versions.toml` now says so.
+- **Lock movement:** the requested families plus the whole Ktor 3.6.1 family (every `io.ktor` module in the `server`
+  lock follows the catalog) and two transitive lifts: `okhttp` 5.5.0 → 5.5.1 (`server`) and
+  `error_prone_annotations` 2.50.0 → 2.52.0 (Guava's, `server` project and buildscript locks). `core` moved only
+  `opentelemetry-semconv`; the root project, root buildscript and `core` buildscript locks did not move.
+  `gradle/verification-metadata.xml` only gained entries (1,024 added lines, 0 removed: Ktor 108 + 2 plugin components,
+  Netty 28, Flyway 4, one each of the OkHttp/Guava/error-prone/semconv pairs); no trusted-artifact patterns. As in
+  earlier rounds the checksums come from the empty-home run against the configured repositories, which is not
+  independent provenance.
+- **Lock bootstrap:** the project and buildscript locks were written with `--dependency-verification lenient` (the old
+  metadata cannot verify the new artifacts the lock tasks resolve), then the prescribed empty-home
+  `--write-verification-metadata sha256 … build :server:installDist` pass, then `--dependency-verification strict
+  build --rerun-tasks` from a second empty home.
+- **Gates:** server 3,044 tests, 0 failures; web 3,123 tests, coverage 98.62 / 94.72 / 98.68 / 99.26; `check:api` no
+  drift. `npm audit`: 0 vulnerabilities in `web --omit=dev`; the full web and e2e trees carry only moderate
+  development-only advisories (eslint's `minimatch` GHSA-g3hv-75wg-m249, no fixed release, `fast-uri`), all present
+  before this round and below the CI gates' `--audit-level=high`. Full Playwright suite on the isolated `flow-e2e`
+  compose project.
+- **Test-suite note:** the first two empty-home metadata runs (1 and 3 forks) each failed one timing-sensitive server test
+  (`ReportRoutesTest` "a non-admin caller gets 200 with the derived reference data": a sprint with a start and no end
+  in the shared database; `MetricsWipEpicDomainAsOfTest`: the 60 s `testApplication` limit) while other compose stacks
+  and agents loaded the machine; both pass alone and in every other full run (three green full runs after). Not caused by
+  the dependency moves; the first one reads shared `dim_sprint` rows and is order-sensitive under one fork.
 
 ## New dependencies (v0.3.0 M4 commit 11 — the reports SPA)
 

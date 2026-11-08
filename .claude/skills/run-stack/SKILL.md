@@ -129,7 +129,7 @@ every sibling stack can run side by side on one machine; host ports bind to 127.
   `plugins/Security.kt`).
 
 The root `Dockerfile` is a 3-stage build: (1) Node 24.22.1 builds `web/dist` (`npm ci
---legacy-peer-deps`), (2) Temurin 21.0.12+8 JDK on Ubuntu 24.04 Noble runs `:server:installDist`
+--legacy-peer-deps`), (2) Temurin 21.0.13+9 JDK on Ubuntu 24.04 Noble runs `:server:installDist`
 with the committed Gradle project and plugin locks, (3) the matching Temurin JRE bundles the
 install image **and** the built SPA, sets `WEB_STATIC_DIR=/app/web` and `KTOR_DEVELOPMENT=false`,
 and runs `bin/server` as an unprivileged uid. The runtime stage upgrades libexpat1, libsqlite3-0,

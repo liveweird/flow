@@ -1,5 +1,5 @@
 # This is a Gradle generated file for dependency locking.
 # Manual edits can break the build and are not advised.
 # This file is expected to be part of source control.
-io.ktor:ktor-version-catalog:3.6.0=incomingCatalogForKtorLibs0
+io.ktor:ktor-version-catalog:3.6.1=incomingCatalogForKtorLibs0
 empty=incomingCatalogForLibs0

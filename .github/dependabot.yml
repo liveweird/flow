@@ -6,7 +6,7 @@ updates:
   # Gradle: Dependabot regenerates the module lockfiles (`core/gradle.lockfile`,
   # `server/gradle.lockfile`) in each bump PR but NOT the root `settings-gradle.lockfile`, which
   # pins the `io.ktor:ktor-version-catalog` coordinate loaded in `settings.gradle.kts` (currently
-  # `3.6.0`, enforced by dependency locking). A Ktor catalog bump needs
+  # `3.6.1`, enforced by dependency locking). A Ktor catalog bump needs
   # `./gradlew build --write-locks` run on the branch by hand before it can go green — see
   # `.claude/docs/dependencies.md`'s lockfile-regeneration command.
   #

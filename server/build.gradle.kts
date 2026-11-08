@@ -35,7 +35,7 @@ buildscript {
             classpath("org.codehaus.plexus:plexus-utils:4.1.0")
             // Jib's google-http-client/auth libraries pull Guava; HIGH CVE-2026-102554 is fixed in 33.7.2
             // (build-time only; the application's own floor is `libs.guava` below).
-            classpath("com.google.guava:guava:33.7.2-jre")
+            classpath("com.google.guava:guava:33.8.0-jre")
         }
     }
 }
