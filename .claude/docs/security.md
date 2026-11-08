@@ -271,7 +271,7 @@ sign its owner out). A request changes nothing now - see above.
 
 **Per-IP login bucket** (`security.rateLimit.loginPerMinute`, `$LOGIN_RATE_LIMIT_PER_MINUTE`;
 every bucket is installed by `plugins/RateLimits.kt`, which also owns the bucket names — today
-`login`, `refresh`, `password-reset`, `password-reset-confirm`, `mfa`, `data-source-test`, `ready`, and the per-USER `reports` below): blank **follows the mode** — 10/min in production,
+`login`, `refresh`, `password-reset`, `password-reset-confirm`, `mfa`, `data-source-test`, `ready`, `integration` (the provider's own pre-lookup budget, not a plugin bucket), and the per-USER `reports` below, the per-token `integration-token` in "Service tokens"; the two integration buckets are 60/min and 120/min in EVERY mode, they never follow the mode): for the login bucket blank **follows the mode** — 10/min in production,
 1000/min in development — and an explicit number pins it in either mode (the `http.exposeOpenApi`
 idiom). Development is lifted because the e2e suite drives its logins from one host and would
 otherwise sleep out the bucket; **the per-account lockout above is the actual brute-force defence
@@ -691,6 +691,75 @@ decrypts under the new key alone).
 contrib extension trusted since PG13: `CREATE EXTENSION IF NOT EXISTS` needs only `CREATE` on the
 database, no superuser — see `.claude/docs/persistence.md`'s "The `metrics` schema — configuration
 (V15)".
+
+### Service tokens (read-only, for other apps)
+
+`integration/` (V48; `persistence.md` "Service tokens (V48)", `authorization.md`) gives ONE other application a non-interactive credential for
+a read-only namespace: an ADMIN issues a token (`/api/v1/service-tokens`, ADMIN only, reads included), the consumer sends it as
+`Authorization: Bearer flow_int_<43 base64url chars>` to `GET /api/v1/integration/**`. It exists because the JWT pair is a human session (hourly
+refresh rotation, MFA, per-account lockout).
+
+- **Token model.** 32 `SecureRandom` bytes (256 bits) as unpadded base64url behind the `flow_int_` prefix (one secret-scanner rule for the
+  sibling family `toadie_int_`/`lettuce_int_`), shown ONCE in the create response. Only the SHA-256 hex digest of the whole bearer value is
+  stored; the lookup is SQL equality on the digest, `revoked_at IS NULL` and `expires_at` in the WHERE, so no bcrypt (a work factor would
+  hand an unauthenticated caller a CPU lever for a secret that is not a human password) and no constant-time compare (the V35 argument).
+  A token is immutable: optional expiry (<= 10 years) fixed at creation, terminal revoke, rows never deleted. Revocation and expiry take effect
+  on the very next request (nothing is cached); `last_used_at` is stamped on every accepted call.
+- **The provider** (`integration/ServiceTokenAuth.kt`, registered by `configureIntegration`, a SECOND named Ktor provider beside the JWT one -
+  `plugins/Security.kt` is untouched and `plugins` never imports `integration`). Order: (1) the shape check - exactly ONE `Authorization` header,
+  `Bearer ` (case-insensitive), then `^flow_int_[A-Za-z0-9_-]{43}$` - rejects anything else WITHOUT a database round trip (the JWT rule "structural
+  rejections never reach the database"); (2) one `ServiceTokenService.authenticate` call under
+  `catchingFailures`; (3) on a live token a `ServiceTokenPrincipal(tokenId, name)` - a NON-user principal: no user id, roles, feature flags or MFA -
+  plus the token id on the call (`RateLimitTokenKey`, the per-token bucket's key) and its facts (`GET /integration/me` reports the values BEFORE this
+  call's stamp). `call.caller()` reads only a JWT principal and throws `UnauthorizedException` for a service-token call, so `requireAdmin`,
+  `requireSelfOrAdmin`, `requireTeamManagerOrAdmin`, `isActiveManager` and the per-user buckets are unreachable from it by construction.
+- **One uniform 401.** Missing, malformed, unknown, revoked, expired, a user's JWT: all the same status, the same `application/problem+json` and the
+  same detail, "Missing or invalid service token"; the reason lives only in the audit trail (`observability.md`), so unknown and revoked are
+  indistinguishable on the wire. **A lookup that THROWS is an outage and answers the catch-all 500** (the challenge receives the stashed cause), never a
+  401 - the JWT provider's rule, and the consumer's sync must not mark its connection as failed-auth over a database blip. The mirror image: a
+  malformed header stays a 401 during an outage because the shape check never reaches the database.
+- **The surface is a structural allow-list.** The ONLY `authenticate(SERVICE_TOKEN)` block in the codebase is `integration/IntegrationRoutes.kt`,
+  GET only (`ServiceTokenSurfaceTest`: the operations declaring the `serviceToken` security scheme are exactly the integration reads, EVERY other secured
+  operation of the spec answers 401 to a valid token, and a tripwire forbids `post<`, `put<`, `delete<` and `receive(` in that file). Every other
+  route sits under the default JWT `authenticate {}`, where a `flow_int_` bearer fails JWT decoding and gets the existing "Missing or invalid bearer
+  token" 401 with no database access and no `service_token.*` audit line. A JWT on `/integration/**` is a 401 too: no second principal type in there.
+- **Two buckets** (names and limits in `plugins/RateLimits.kt`). `integration`, per client host, 60/min in every mode, pinnable via
+  `security.rateLimit.integrationPerMinute` (`$INTEGRATION_RATE_LIMIT_PER_MINUTE`, boot-validated like every bucket): it bounds the digest
+  lookups a host can cause, so it is spent by the PROVIDER ITSELF (`integration/HostWindowLimiter.kt`) as the very first step of
+  `onAuthenticate`, for EVERY attempt on the namespace (valid, unknown, revoked, malformed alike), strictly before any shape check or lookup. It is
+  not a Ktor `RateLimit` bucket because that plugin's interceptors run AFTER the authentication phase and a challenge that answers ends the call
+  before them: a `rateLimit {}` around `authenticate` only ever counted verified calls and left unauthenticated lookups unbounded (observed on
+  Ktor 3.6.1, 2026-11-07). The limiter is a fixed 60 s window per host, in memory and per instance, capacity-bounded like `LoginThrottle`
+  (10,000 hosts; expired windows are reclaimed first, and when none can be a NEW host is refused rather than the map growing, a tracked host carries on).
+  The host is `ApplicationCall.rateLimitHost()`, the very function every per-IP `RateLimit` bucket keys on (Ktor's resolved origin: behind a trusted
+  proxy the `X-Forwarded-For` value the proxy wrote per `http.behindProxy`/`http.proxyHops`, never a client-chosen one). Over the budget, or with the
+  map saturated, the answer is the generic `429` problem with `Retry-After` and the coalesced `rate_limit.exceeded` audit (`bucket=integration`, or the
+  distinct `integration-saturated` when the full map refused a NEW host, so an operator can tell one noisy host from a saturated map; no
+  `byTokenId`: nothing is verified yet), through the same status handler as every `RateLimit` rejection. The second bucket, `integration-token`, is
+  a real `RateLimit` bucket mounted inside `authenticate(SERVICE_TOKEN)`: per verified token (`RateLimitTokenKey`, so the limiter count is bounded by
+  the registry), a fixed 120/min; its 429 names `byTokenId`. It decides AFTER the lookup and the `last_used_at` stamp (so `service_token.used` and the stamp also cover a call this bucket then refuses): the
+  per-host budget is the bound on database cost, the token bucket targets ONE token used from many hosts. A scheduled consumer sends one or two calls per tick. Pinned by `ServiceTokenAuthTest`
+  (shared budget across valid and refused attempts, no lookup past the budget, hosts independent, saturation, refill) and `HostWindowLimiterTest`.
+- **Threat model.** *Leaked token*: read-only exposure of what any signed-in user already sees (D12), no write, no account, no escalation;
+  `last_used_at` and `service_token.used` make a foreign reader visible, revoke takes effect on the next request, expiry is optional but available.
+  *Replay*: inherent to a bearer; TLS is mandatory in production, the token never appears in a URL, log or audit field. *Scope escalation*:
+  structurally impossible (above). *Timing/enumeration*: digest equality by index, one status and one text for every refusal, the shape check before
+  the lookup, and the per-host budget before both. *Insider (ADMIN)*: every issue and revoke is audited with `byUserId`; the plaintext exists in one response only. Tokens are NOT tied to their creator (they survive the admin who issued them), so when an admin leaves, review `createdByName` in the token list and revoke what they issued. *Outage read as a bad
+  token*: a thrown lookup is a 500. No secret-bearing configuration is added, so there is no new production fail-closed check; the `no-store` header
+  already rides every `/api/` answer. Log hygiene: `ServiceTokenCreateResponse` masks `secret` in `toString()` (`SecretToStringTest`); the provider
+  never logs the header, and the verdict/principal types hold no secret.
+- **`GET /api/v1/integration/teams` is ONE document, not a paged list** (`integration/IntegrationReadService.kt`; the precedent is `GET /reports/home` and
+  `/reports/filters`, not a list endpoint, so `list-endpoints.md` does not change). `?sprintsSince=YYYY-MM-DD` (default today - 365 days, a day in the metrics time
+  zone; a malformed date, a year outside 1970..2999 or a repeated key is a `400`). It discloses, to the holder of a live service token (so to whoever can use the
+  consumer): every ACTIVE team's name, its manager's NAME (an ACTIVE Flow user, else null), its default capacity in man-days, EVERY dated membership interval of its Jira
+  accounts (account id, the real Jira display name from `norm.people` or null, `validFrom`/`validTo`) and its derived sprints on non-deleted connections (disabled ones included; id, connection id,
+  name, state, start/end/complete, `hasCalendar`, `capacityMd`, `capacitySource`), at most 1,000 teams and 2,000 sprint rows. The registry itself has no team limit, so each cap is the endpoint's own and says when it bit: `teamsTruncated` (the highest team ids are missing) and `sprintsTruncated` (the cut keeps the NEWEST sprints, never-started ones included, so the oldest of the window are the missing ones).
+  Every FIELD is already readable by any signed-in user through the team, jira-membership, sprint-calendar and capacity GETs (D12); what widens is the AUDIENCE - the
+  consumer's users now see Flow's rosters, real names included. It is configuration (teams, rosters, sprint capacity), not a report, so it is no precedent for
+  unit-wide metrics ("reports read per team or domain, never the whole unit" still holds). It carries nothing caller-shaped: no `canEdit`, coefficient, per-person cell,
+  email, Flow user id or connection address (`IntegrationTeamsReadTest` greps the wire keys). `integration/` reads no other feature's table: `TeamService.listActive(limit)`,
+  `TeamMembershipService.listAll`, `SprintCalendarService.sprintsOfTeams`/`teamCapacityDefaults` and ONE `WorkItemStore.displayNames` call for all account ids, each in its
+  own transaction (so the parts are not one snapshot; `asOf` is the time of the read).
 
 ### Telemetry
 

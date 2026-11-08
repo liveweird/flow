@@ -19,6 +19,7 @@ import enHome from "./locales/en/home.json";
 import enMetrics from "./locales/en/metrics.json";
 import enPublicHolidays from "./locales/en/publicHolidays.json";
 import enReports from "./locales/en/reports.json";
+import enServiceTokens from "./locales/en/serviceTokens.json";
 import enTeams from "./locales/en/teams.json";
 import enTelemetry from "./locales/en/telemetry.json";
 
@@ -69,6 +70,7 @@ export const en = {
   metrics: enMetrics,
   publicHolidays: enPublicHolidays,
   reports: enReports,
+  serviceTokens: enServiceTokens,
   teams: enTeams,
   telemetry: enTelemetry,
 };

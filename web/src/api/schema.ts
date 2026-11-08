@@ -3019,6 +3019,142 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/service-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the service tokens
+         * @description ADMIN only, reads included (the registry holds credentials). Live (not revoked) tokens first, then newest first, at
+         *     most 100 rows, so a live token is always listed; a revoked token stays listed for the trail while the page has room. Never carries a secret or its digest.
+         */
+        get: operations["listServiceTokens"];
+        put?: never;
+        /**
+         * Issue a service token
+         * @description ADMIN only (guarded before the body decodes: a non-admin's malformed body is still 403). The response carries the
+         *     plaintext `secret` ONCE; only its digest is stored, so a lost secret means issuing a new token and revoking the old
+         *     one. `expiresAt` is optional (epoch ms; omitted = never expires), must lie in the future and at most 10 years ahead,
+         *     and cannot change later. A case-insensitive name clash with a token that is not revoked is `409`; an expired token
+         *     keeps its name until it is revoked. Audited as `service_token.created`, without the secret.
+         */
+        post: operations["createServiceToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/service-tokens/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get a service token
+         * @description ADMIN only, guard before the id lookup (uniform 403 whether or not the id exists).
+         */
+        get: operations["getServiceToken"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/service-tokens/{id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke a service token
+         * @description ADMIN only, guard before the id lookup. Terminal: the token stops authenticating on the very next request and its
+         *     name is freed for reuse. Revoking an already revoked token is `409`. There is no PUT or DELETE: tokens are immutable
+         *     and rows are never removed. Audited as `service_token.revoked`.
+         */
+        post: operations["revokeServiceToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integration/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The service token presenting this call
+         * @description TOKEN-ONLY: the bearer must be a live service token (`flow_int_` plus 43 base64url characters). A user's access token, a
+         *     revoked or expired token, a malformed value and a repeated `Authorization` header are all the same `401`
+         *     (`application/problem+json`, one detail text for every reason), so nothing can be told apart on the wire. A registry
+         *     outage is a `500`, never a `401`. Answers the facts of the presenting token as they were BEFORE this call's
+         *     `last_used_at` stamp: the "Test connection" probe of a consumer. Rate-limited per client IP (default 60/min,
+         *     `INTEGRATION_RATE_LIMIT_PER_MINUTE`) and per token (120/min); over either bucket it answers `429`.
+         */
+        get: operations["getIntegrationMe"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integration/teams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every active team with its dated roster and sprint capacity (one document)
+         * @description TOKEN-ONLY like every `integration` operation (see `getIntegrationMe`: one uniform `401`, a registry outage is a `500`). The
+         *     bulk read of a consumer such as Astrolabe: ONE purpose-built document, deliberately not paged (the precedent is
+         *     `GET /reports/home`) - it is configuration (teams, rosters, sprint capacity), not a report, so it sets no precedent for unit-wide
+         *     metrics. Every field is already readable by any signed-in user through the team, jira-membership, sprint-calendar and capacity
+         *     reads; nothing is caller-shaped (no `canEdit`, no coefficient or per-person cell, no email, no Flow user id, no connection address).
+         *
+         *     - `items`: the ACTIVE teams in id order, at most 1,000 (`teamsTruncated` says the cap cut the list; the highest ids are missing). `members` is every membership interval, open and closed, most recent
+         *       `validFrom` first; `displayName` comes from the synced Jira people (null for an account with none).
+         *     - `sprints`: the team's derived sprints on non-deleted data sources (disabled ones included) whose `endAt` is null or not before
+         *       `sprintsSince` 00:00 in the metrics time zone, `startAt` ascending (a never-started sprint last). `capacityMd`/`capacitySource` are the figures as of the last DERIVE; `hasCalendar`
+         *       says whether a per-person calendar is stored.
+         *     - `sprintsSince` (query, `YYYY-MM-DD`, optional): the default is today minus 365 days in the metrics time zone; the effective
+         *       day is echoed. A malformed date, a year outside 1970..2999 or a repeated key is a `400`.
+         *     - `teamsTruncated`: true when the 1,000-team cap cut the list short.
+         *     - `sprintsTruncated`: true when the 2,000-row sprint cap cut the answer short (narrow `sprintsSince`); the cut keeps the NEWEST
+         *       sprints, so the oldest rows of the window are the ones missing.
+         *     - `asOf`: epoch milliseconds of the read. The parts are separate reads, not one snapshot.
+         */
+        get: operations["getIntegrationTeams"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -7469,6 +7605,143 @@ export interface components {
             flowEfficiency: components["schemas"]["Distribution"];
             flowEfficiencyExcluded: components["schemas"]["FlowEfficiencyExcluded"];
             groups: components["schemas"]["ReportedTimeGroup"][];
+        };
+        /** @description One registry row. `revoked` is the status: an expired but unrevoked token reads `revoked: false` (the page derives "expired" from `expiresAt`). Never carries the secret or its digest. */
+        ServiceToken: {
+            /** Format: int32 */
+            id: number;
+            name: string;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds.
+             */
+            createdAt: number;
+            createdByName: string;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds; null = never expires.
+             */
+            expiresAt?: number | null;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds; null = never used.
+             */
+            lastUsedAt?: number | null;
+            revoked: boolean;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds.
+             */
+            revokedAt?: number | null;
+            revokedByName?: string | null;
+        };
+        /** @description The presenting service token's facts as they were BEFORE this call's `last_used_at` stamp. Nothing secret and nothing about any user. */
+        IntegrationMe: {
+            /** Format: int32 */
+            tokenId: number;
+            name: string;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds.
+             */
+            createdAt: number;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds; null = never expires.
+             */
+            expiresAt?: number | null;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds, as before this call; null = never used.
+             */
+            lastUsedAt?: number | null;
+        };
+        /** @description The one bulk document of `getIntegrationTeams`: every active team with its dated Jira-account roster and its sprint capacity. Nothing caller-shaped. */
+        IntegrationTeams: {
+            /**
+             * Format: int64
+             * @description Epoch milliseconds of the read.
+             */
+            asOf: number;
+            /**
+             * Format: date
+             * @description The effective sprint filter, a day in the metrics time zone.
+             */
+            sprintsSince: string;
+            /** @description True when the 1,000-team cap cut the list short (the highest team ids are missing). */
+            teamsTruncated: boolean;
+            /** @description True when the 2,000-row sprint cap cut the answer short (the oldest sprints are missing). */
+            sprintsTruncated: boolean;
+            items: components["schemas"]["IntegrationTeam"][];
+        };
+        IntegrationTeam: {
+            /** Format: int32 */
+            id: number;
+            name: string;
+            /** @description The manager's name when the manager is an active Flow user. */
+            managerName: string | null;
+            /**
+             * Format: double
+             * @description The team's default capacity in man-days; null = none set.
+             */
+            defaultCapacityMd: number | null;
+            members: components["schemas"]["IntegrationMember"][];
+            sprints: components["schemas"]["IntegrationSprint"][];
+        };
+        /** @description One dated membership interval of a Jira account in the team. */
+        IntegrationMember: {
+            /** @description The Jira accountId, global across connections. */
+            accountId: string;
+            /** @description From the synced Jira people; null for an account with none. */
+            displayName: string | null;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds.
+             */
+            validFrom: number;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds; null = still open.
+             */
+            validTo: number | null;
+        };
+        IntegrationSprint: {
+            /** Format: int64 */
+            sprintId: number;
+            /** Format: int32 */
+            connectionId: number;
+            name: string;
+            state: string;
+            /** Format: int64 */
+            startAt: number | null;
+            /** Format: int64 */
+            endAt: number | null;
+            /** Format: int64 */
+            completeAt: number | null;
+            hasCalendar: boolean;
+            /**
+             * Format: double
+             * @description Man-days as of the last DERIVE.
+             */
+            capacityMd: number | null;
+            /** @enum {string|null} */
+            capacitySource: "CALENDAR" | "TEAM_DEFAULT" | "DEFAULT" | "CONFIGURED" | null;
+        };
+        ServiceTokenList: {
+            items: components["schemas"]["ServiceToken"][];
+        };
+        ServiceTokenCreateRequest: {
+            name: string;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds; omitted or null = never expires. Must be in the future and at most 10 years ahead (`400` otherwise).
+             */
+            expiresAt?: number | null;
+        };
+        ServiceTokenCreateResponse: {
+            token: components["schemas"]["ServiceToken"];
+            /** @description The plaintext bearer value (`flow_int_` plus 43 base64url characters). Returned ONCE, here only; never listed, never audited, never recoverable. */
+            secret: string;
         };
         /** @description RFC 7807 problem detail. Served as `application/problem+json`; instance is the request path without query parameters. */
         ProblemDetail: {
@@ -12091,6 +12364,164 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listServiceTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tokens */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceTokenList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    createServiceToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ServiceTokenCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Created; `Location` points at the new token */
+            201: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceTokenCreateResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getServiceToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The token */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceToken"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    revokeServiceToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getIntegrationMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The presenting token's facts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationMe"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getIntegrationTeams: {
+        parameters: {
+            query?: {
+                /** @description ISO date (`YYYY-MM-DD`), a day in the metrics time zone. Default: today minus 365 days. */
+                sprintsSince?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every active team with its roster and sprints */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationTeams"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };

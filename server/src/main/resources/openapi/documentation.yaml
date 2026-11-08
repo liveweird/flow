@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: flow-api
-  version: 1.56.0
+  version: 1.57.0
   description: |
     JWT-authenticated REST API for Flow — a developer-intelligence tool that reads Jira Cloud, stores the raw data
     incrementally and derives flow metrics (cycle and lead time, throughput, WIP, flow efficiency, work-item age),
@@ -23,6 +23,10 @@ info:
     elsewhere page with `page` / `pageSize` / `sort` into an `{items, page, pageSize, total}` envelope. Every `reports`
     operation, drills included, shares ONE per-user token bucket (120 requests a minute per signed-in user in production,
     keyed by the account, never the client address); past it the answer is a `429`.
+
+    The `integration` operations are the one exception to the bearer-JWT rule: they accept ONLY an ADMIN-issued, read-only service token
+    (`Authorization: Bearer flow_int_…`, managed under `service-tokens`) and never a user's access token, while every other operation
+    rejects a service token with the usual `401`. They are bucketed per client IP and per token; past either the answer is a `429`.
 
     All error responses use RFC 7807 `application/problem+json` (`ProblemDetail`). Any endpoint may additionally
     return `500` (`InternalServerError`) on an unexpected server fault.
@@ -50,6 +54,10 @@ tags:
     description: Flow's own vital signs (process memory, storage, sync health, request latency) and their 24h/7d/90d trends - ADMIN only.
   - name: reports
     description: The read-only reports (any authenticated user) and the `…/items` drill lists behind their bars; every figure is derived, never stored per request.
+  - name: service-tokens
+    description: The registry of read-only service tokens other applications (e.g. Astrolabe) present as a bearer - ADMIN only, reads included; the secret is shown once, at creation.
+  - name: integration
+    description: The read-only operations other applications (e.g. Astrolabe) call with a service token - token-only, never a user's JWT; GET only.
 
 paths:
   /api/v1/health:
@@ -4340,12 +4348,176 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
+  /api/v1/service-tokens:
+    get:
+      tags: [service-tokens]
+      operationId: listServiceTokens
+      summary: List the service tokens
+      description: |
+        ADMIN only, reads included (the registry holds credentials). Live (not revoked) tokens first, then newest first, at
+        most 100 rows, so a live token is always listed; a revoked token stays listed for the trail while the page has room. Never carries a secret or its digest.
+      responses:
+        '200':
+          description: The tokens
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceTokenList'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [service-tokens]
+      operationId: createServiceToken
+      summary: Issue a service token
+      description: |
+        ADMIN only (guarded before the body decodes: a non-admin's malformed body is still 403). The response carries the
+        plaintext `secret` ONCE; only its digest is stored, so a lost secret means issuing a new token and revoking the old
+        one. `expiresAt` is optional (epoch ms; omitted = never expires), must lie in the future and at most 10 years ahead,
+        and cannot change later. A case-insensitive name clash with a token that is not revoked is `409`; an expired token
+        keeps its name until it is revoked. Audited as `service_token.created`, without the secret.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceTokenCreateRequest'
+      responses:
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '201':
+          description: Created; `Location` points at the new token
+          headers:
+            Location:
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceTokenCreateResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/service-tokens/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [service-tokens]
+      operationId: getServiceToken
+      summary: Get a service token
+      description: ADMIN only, guard before the id lookup (uniform 403 whether or not the id exists).
+      responses:
+        '200':
+          description: The token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceToken'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/service-tokens/{id}/revoke:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    post:
+      tags: [service-tokens]
+      operationId: revokeServiceToken
+      summary: Revoke a service token
+      description: |
+        ADMIN only, guard before the id lookup. Terminal: the token stops authenticating on the very next request and its
+        name is freed for reuse. Revoking an already revoked token is `409`. There is no PUT or DELETE: tokens are immutable
+        and rows are never removed. Audited as `service_token.revoked`.
+      responses:
+        '204':
+          description: Revoked
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/integration/me:
+    get:
+      tags: [integration]
+      operationId: getIntegrationMe
+      summary: The service token presenting this call
+      description: |
+        TOKEN-ONLY: the bearer must be a live service token (`flow_int_` plus 43 base64url characters). A user's access token, a
+        revoked or expired token, a malformed value and a repeated `Authorization` header are all the same `401`
+        (`application/problem+json`, one detail text for every reason), so nothing can be told apart on the wire. A registry
+        outage is a `500`, never a `401`. Answers the facts of the presenting token as they were BEFORE this call's
+        `last_used_at` stamp: the "Test connection" probe of a consumer. Rate-limited per client IP (default 60/min,
+        `INTEGRATION_RATE_LIMIT_PER_MINUTE`) and per token (120/min); over either bucket it answers `429`.
+      security:
+        - serviceToken: []
+      responses:
+        '200':
+          description: The presenting token's facts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationMe'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /api/v1/integration/teams:
+    get:
+      tags: [integration]
+      operationId: getIntegrationTeams
+      summary: Every active team with its dated roster and sprint capacity (one document)
+      description: |
+        TOKEN-ONLY like every `integration` operation (see `getIntegrationMe`: one uniform `401`, a registry outage is a `500`). The
+        bulk read of a consumer such as Astrolabe: ONE purpose-built document, deliberately not paged (the precedent is
+        `GET /reports/home`) - it is configuration (teams, rosters, sprint capacity), not a report, so it sets no precedent for unit-wide
+        metrics. Every field is already readable by any signed-in user through the team, jira-membership, sprint-calendar and capacity
+        reads; nothing is caller-shaped (no `canEdit`, no coefficient or per-person cell, no email, no Flow user id, no connection address).
+
+        - `items`: the ACTIVE teams in id order, at most 1,000 (`teamsTruncated` says the cap cut the list; the highest ids are missing). `members` is every membership interval, open and closed, most recent
+          `validFrom` first; `displayName` comes from the synced Jira people (null for an account with none).
+        - `sprints`: the team's derived sprints on non-deleted data sources (disabled ones included) whose `endAt` is null or not before
+          `sprintsSince` 00:00 in the metrics time zone, `startAt` ascending (a never-started sprint last). `capacityMd`/`capacitySource` are the figures as of the last DERIVE; `hasCalendar`
+          says whether a per-person calendar is stored.
+        - `sprintsSince` (query, `YYYY-MM-DD`, optional): the default is today minus 365 days in the metrics time zone; the effective
+          day is echoed. A malformed date, a year outside 1970..2999 or a repeated key is a `400`.
+        - `teamsTruncated`: true when the 1,000-team cap cut the list short.
+        - `sprintsTruncated`: true when the 2,000-row sprint cap cut the answer short (narrow `sprintsSince`); the cut keeps the NEWEST
+          sprints, so the oldest rows of the window are the ones missing.
+        - `asOf`: epoch milliseconds of the read. The parts are separate reads, not one snapshot.
+      parameters:
+        - name: sprintsSince
+          in: query
+          required: false
+          schema: { type: string, format: date }
+          description: 'ISO date (`YYYY-MM-DD`), a day in the metrics time zone. Default: today minus 365 days.'
+      security:
+        - serviceToken: []
+      responses:
+        '200':
+          description: Every active team with its roster and sprints
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationTeams'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    serviceToken:
+      type: http
+      scheme: bearer
+      bearerFormat: "flow_int_<43 base64url chars>"
+      description: An ADMIN-issued read-only service token; accepted ONLY by the /integration operations
 
   parameters:
     IfNoneMatch:
@@ -9305,6 +9477,122 @@ components:
         groups:
           type: array
           items: { $ref: '#/components/schemas/ReportedTimeGroup' }
+
+    ServiceToken:
+      type: object
+      required: [id, name, createdAt, createdByName, revoked]
+      description: >-
+        One registry row. `revoked` is the status: an expired but unrevoked token reads `revoked: false` (the page derives
+        "expired" from `expiresAt`). Never carries the secret or its digest.
+      properties:
+        id: { type: integer, format: int32, minimum: 0 }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        createdAt: { type: integer, format: int64, description: Epoch milliseconds. }
+        createdByName: { type: string }
+        expiresAt: { type: integer, format: int64, nullable: true, description: Epoch milliseconds; null = never expires. }
+        lastUsedAt: { type: integer, format: int64, nullable: true, description: Epoch milliseconds; null = never used. }
+        revoked: { type: boolean }
+        revokedAt: { type: integer, format: int64, nullable: true, description: Epoch milliseconds. }
+        revokedByName: { type: string, nullable: true }
+    IntegrationMe:
+      type: object
+      required: [tokenId, name, createdAt]
+      description: >-
+        The presenting service token's facts as they were BEFORE this call's `last_used_at` stamp. Nothing secret and nothing
+        about any user.
+      properties:
+        tokenId: { type: integer, format: int32, minimum: 0 }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        createdAt: { type: integer, format: int64, description: Epoch milliseconds. }
+        expiresAt: { type: integer, format: int64, nullable: true, description: Epoch milliseconds; null = never expires. }
+        lastUsedAt: { type: integer, format: int64, nullable: true, description: 'Epoch milliseconds, as before this call; null = never used.' }
+    IntegrationTeams:
+      type: object
+      required: [asOf, sprintsSince, teamsTruncated, sprintsTruncated, items]
+      description: >-
+        The one bulk document of `getIntegrationTeams`: every active team with its dated Jira-account roster and its sprint capacity.
+        Nothing caller-shaped.
+      properties:
+        asOf: { type: integer, format: int64, description: Epoch milliseconds of the read. }
+        sprintsSince: { type: string, format: date, description: 'The effective sprint filter, a day in the metrics time zone.' }
+        teamsTruncated: { type: boolean, description: 'True when the 1,000-team cap cut the list short (the highest team ids are missing).' }
+        sprintsTruncated: { type: boolean, description: 'True when the 2,000-row sprint cap cut the answer short (the oldest sprints are missing).' }
+        items:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/IntegrationTeam'
+    IntegrationTeam:
+      type: object
+      required: [id, name, managerName, defaultCapacityMd, members, sprints]
+      properties:
+        id: { type: integer, format: int32, minimum: 0 }
+        name: { type: string }
+        managerName: { type: string, nullable: true, description: "The manager's name when the manager is an active Flow user." }
+        defaultCapacityMd: { type: number, format: double, nullable: true, description: "The team's default capacity in man-days; null = none set." }
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/IntegrationMember'
+        sprints:
+          type: array
+          items:
+            $ref: '#/components/schemas/IntegrationSprint'
+    IntegrationMember:
+      type: object
+      required: [accountId, displayName, validFrom, validTo]
+      description: One dated membership interval of a Jira account in the team.
+      properties:
+        accountId: { type: string, description: 'The Jira accountId, global across connections.' }
+        displayName: { type: string, nullable: true, description: From the synced Jira people; null for an account with none. }
+        validFrom: { type: integer, format: int64, description: Epoch milliseconds. }
+        validTo: { type: integer, format: int64, nullable: true, description: Epoch milliseconds; null = still open. }
+    IntegrationSprint:
+      type: object
+      required: [sprintId, connectionId, name, state, startAt, endAt, completeAt, hasCalendar, capacityMd, capacitySource]
+      properties:
+        sprintId: { type: integer, format: int64 }
+        connectionId: { type: integer, format: int32, minimum: 0 }
+        name: { type: string }
+        state: { type: string }
+        startAt: { type: integer, format: int64, nullable: true }
+        endAt: { type: integer, format: int64, nullable: true }
+        completeAt: { type: integer, format: int64, nullable: true }
+        hasCalendar: { type: boolean }
+        capacityMd: { type: number, format: double, nullable: true, description: Man-days as of the last DERIVE. }
+        capacitySource:
+          type: string
+          enum: [CALENDAR, TEAM_DEFAULT, DEFAULT, CONFIGURED]
+          nullable: true
+    ServiceTokenList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/ServiceToken'
+    ServiceTokenCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        expiresAt:
+          type: integer
+          format: int64
+          nullable: true
+          description: Epoch milliseconds; omitted or null = never expires. Must be in the future and at most 10 years ahead (`400` otherwise).
+    ServiceTokenCreateResponse:
+      type: object
+      required: [token, secret]
+      properties:
+        token: { $ref: '#/components/schemas/ServiceToken' }
+        secret:
+          type: string
+          description: >-
+            The plaintext bearer value (`flow_int_` plus 43 base64url characters). Returned ONCE, here only; never listed,
+            never audited, never recoverable.
 
     ProblemDetail:
       type: object

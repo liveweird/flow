@@ -1,0 +1,56 @@
+{
+  "title": "Service tokens",
+  "hint": "Read-only tokens for other applications, e.g. Astrolabe. The secret is shown once. An expired token keeps its name until you revoke it.",
+  "name": "Name",
+  "expiry": {
+    "label": "Expires",
+    "never": "Never",
+    "90d": "In 90 days",
+    "1y": "In 1 year",
+    "2y": "In 2 years"
+  },
+  "create": "Create token",
+  "created": {
+    "title": "Token created: {{name}}",
+    "warning": "Copy it now, it is never shown again. Flow stores only a digest of it, so a lost token cannot be recovered, only revoked and replaced.",
+    "copy": "Copy token",
+    "show": "Show token",
+    "hide": "Hide token"
+  },
+  "tableAria": "Service tokens",
+  "column": {
+    "status": "Status",
+    "createdBy": "Created by",
+    "expires": "Expires",
+    "lastUsed": "Last used"
+  },
+  "status": {
+    "active": "Active",
+    "expired": "Expired",
+    "revoked": "Revoked"
+  },
+  "never": "Never",
+  "justNow": "Just now",
+  "ago": "{{age}} ago",
+  "empty": "No service tokens yet. Create the first one above.",
+  "loadFailed": "Could not load the service tokens",
+  "revoke": "Revoke",
+  "revokeAria": "Revoke the token {{name}}",
+  "revokeTitle": "Revoke this token?",
+  "revokeBody": "\"{{name}}\" stops working immediately and cannot be restored. Any application using it loses access until you give it a new token.",
+  "revokeFailed": "Could not revoke the token",
+  "toast": {
+    "revoked": "Service token revoked"
+  },
+  "error": {
+    "forbidden": "Only administrators can manage service tokens.",
+    "invalid": "The name is invalid: 1–100 characters, a single line, no control characters.",
+    "nameTaken": "A token with this name already exists and is not revoked. An expired token keeps its name until you revoke it, so pick another name or revoke the old token first.",
+    "gone": "This token no longer exists.",
+    "alreadyRevoked": "This token is already revoked.",
+    "failedStatus": "Could not create the token ({{status}})",
+    "failed": "Could not create the token. Check your connection and try again.",
+    "revokeFailedStatus": "Revoking failed ({{status}})",
+    "revokeFailed": "Could not revoke the token. Check your connection and try again."
+  }
+}

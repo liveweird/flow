@@ -14,6 +14,8 @@ import ch.nokillswit.flowusers.FlowUserCreateRequest
 import ch.nokillswit.flowusers.FlowUserRole
 import ch.nokillswit.flowusers.PasswordUpdateRequest
 import ch.nokillswit.infra.maskedSecret
+import ch.nokillswit.integration.ServiceToken
+import ch.nokillswit.integration.ServiceTokenCreateResponse
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.DataSourceRequest
 import ch.nokillswit.ingest.DataSourceTestRequest
@@ -120,5 +122,13 @@ class SecretToStringTest {
         val wrapped = DataSourceRequest("Name", true, 60, null, 3, gitlab = request)
         assertFalse(secret in wrapped.toString(), "DataSourceRequest embeds the GitLab block and must not leak it either")
         assertFalse(secret in DataSourceTestRequest(gitlab = request).toString())
+    }
+
+    @Test
+    fun `the service token create response masks the one-time secret`() {
+        val token = ServiceToken(id = 3u, name = "Astrolabe", createdAt = 1, createdByName = "Ann", revoked = false)
+        val response = ServiceTokenCreateResponse(token, secret)
+        assertMasked(response.toString(), "name=Astrolabe")
+        assertTrue("secret=***" in response.toString())
     }
 }

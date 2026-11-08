@@ -65,7 +65,7 @@ suspended or retried render cannot discard the notice. The flag carries a reason
 
 Passwords are generated client-side (`utils/password.ts`) and revealed exactly once: the modal
 (`components/OneTimePasswordModal.tsx`) sets `closeOnClickOutside={false} closeOnEscape={false}`,
-renders `components/RevealablePassword.tsx` (masked by default, eye toggle, copy), and closing
+renders `components/RevealablePassword.tsx` (masked by default, eye toggle, copy; the toggle reads "Show/Hide password" unless `showLabel`/`hideLabel` override it, as the service-token reveal does with "token"; the secret wraps with `overflow-wrap: anywhere` so an unbreakable 52-character token cannot push the copy button out of a narrow panel), and closing
 drops the plaintext from state for good — the server never returns it. The admin Reset-password
 action (`hooks/useResetPassword.ts`) reuses the same generate→PUT→reveal flow. `NavLeaf.adminOnly`
 gates the Flow users nav item (the Shell filters by `isAdmin()`); the management routes sit under ONE
@@ -73,6 +73,8 @@ gates the Flow users nav item (the Shell filters by `isAdmin()`); the management
 user is sent home), so no page redirects itself; their queries additionally stay
 `enabled: isAdmin()` so a redirected caller fires no request. UX only — the server's
 `requireAdmin` is the rule. The pages live under `/flow-users` (`utils/flowUserLinks.ts` is the one place the family is spelled out); the pre-1.8.0 `/users…` addresses stay as one `users/*` route inside the same group, `components/LegacyUsersRedirect.tsx`, a `<Navigate replace>` that keeps the tail (`/new`, `/:id/edit`, `/:id/features`), the query string and the hash (the `LegacyVelocityRedirect` idiom). The nav leaf carries the palette keyword `users` (`NavLeaf.keywords`) so typing the old name still finds it. The i18n namespace is `flowUsers` (it also holds the change-password and shared field-validation strings).
+
+`components/ConfirmDeleteModal.tsx` takes an optional `confirmLabel` (default `common.action.delete`) for a terminal action that is not a deletion: the Service tokens page passes "Revoke" (`web-features.md` "Service tokens").
 
 ## Feature flags (`pages/FeatureFlags.tsx`, `pages/FlowUserFeatures.tsx`)
 

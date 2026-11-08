@@ -27,6 +27,7 @@ import { CODE_TABS, codeActivityPath, commitmentsPath, comparePeoplePath, costsP
 import { publicHolidaysPath } from "./publicHolidayLinks";
 import { teamsPath } from "./teamLinks";
 import { flowUsersPath } from "./flowUserLinks";
+import { serviceTokensPath } from "./serviceTokenLinks";
 
 export type NavLeaf = {
   to: string;
@@ -119,6 +120,8 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
       { to: "/feature-flags", label: "appShell.nav.featureFlags", icon: IconToggleLeft, adminOnly: true },
       { to: dataSourcesPath, label: "appShell.nav.dataSources", icon: IconPlugConnected, adminOnly: true },
       { to: "/metrics-settings", label: "appShell.nav.metricsSettings", icon: IconAdjustments, adminOnly: true },
+      // Read-only credentials for other applications (Astrolabe): an ADMIN registry like Data sources.
+      { to: serviceTokensPath, label: "appShell.nav.serviceTokens", icon: IconKey, adminOnly: true, keywords: ["api key", "token", "astrolabe"] },
     ],
   },
 ];

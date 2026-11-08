@@ -130,4 +130,37 @@ class AuditTest {
             assertTrue(event.keyValuePairs.none { "must-not-be-audited" in it.value.toString() })
         }
     }
+
+    @Test
+    fun `service token create and revoke are audited with byUserId and never carry the secret`() = testApplication {
+        usePostgresTestcontainer()
+        val adminEmail = uniqueEmail("st-audit")
+        val adminId = TestUsers.seed(email = adminEmail, password = "pw-123456789")
+        withAuditCapture { capture ->
+            val client = authedClient(adminEmail, "pw-123456789")
+            val tokenName = "audited-token-${java.util.UUID.randomUUID()}"
+            val created = client.postJson("/api/v1/service-tokens", ch.nokillswit.integration.ServiceTokenCreateRequest(tokenName))
+                .body<ch.nokillswit.integration.ServiceTokenCreateResponse>()
+            val tokenId = created.token.id.toLong()
+            client.post("/api/v1/service-tokens/$tokenId/revoke")
+
+            val createdEvent = assertNotNull(
+                capture.awaitEvent { it.message == "service_token.created" && it.hasKeyValue("tokenId", tokenId) },
+            )
+            assertTrue(createdEvent.hasKeyValue("byUserId", adminId.toLong()))
+            assertTrue(createdEvent.hasKeyValue("name", tokenName))
+            assertTrue(createdEvent.hasKeyValue("expiresAt", null))
+            val revokedEvent = assertNotNull(
+                capture.awaitEvent { it.message == "service_token.revoked" && it.hasKeyValue("tokenId", tokenId) },
+            )
+            assertTrue(revokedEvent.hasKeyValue("byUserId", adminId.toLong()))
+            // No field of any service_token event carries the secret or its digest.
+            val digest = ch.nokillswit.infra.json.sha256Hex(created.secret)
+            capture.events.filter { it.message.startsWith("service_token.") }.forEach { event ->
+                val values = event.keyValuePairs.map { it.value?.toString().orEmpty() }
+                assertTrue(values.none { created.secret in it || digest in it })
+                assertTrue(created.secret !in event.formattedMessage)
+            }
+        }
+    }
 }

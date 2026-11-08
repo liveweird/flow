@@ -43,6 +43,7 @@ const RawIssueInspector = lazy(() => import("./pages/RawIssueInspector"));
 const DataSourceMetricsConfig = lazy(() => import("./pages/DataSourceMetricsConfig"));
 const MetricsSettings = lazy(() => import("./pages/MetricsSettings"));
 const PublicHolidays = lazy(() => import("./pages/PublicHolidays"));
+const ServiceTokens = lazy(() => import("./pages/ServiceTokens"));
 const ReportCommitments = lazy(() => import("./pages/ReportCommitments"));
 const ReportThroughput = lazy(() => import("./pages/ReportThroughput"));
 const ReportSprintConsistency = lazy(() => import("./pages/ReportSprintConsistency"));
@@ -317,6 +318,7 @@ export default function App() {
               <Route path="data-sources/:id/inspect" element={<RawIssueInspector />} />
               <Route path="data-sources/:id/metrics-config" element={<DataSourceMetricsConfig />} />
               <Route path="metrics-settings" element={<MetricsSettings />} />
+              <Route path="service-tokens" element={<ServiceTokens />} />
             </Route>
             <Route path="change-password" element={<ChangePassword />} />
             <Route path="changelog" element={<Changelog />} />

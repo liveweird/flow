@@ -386,6 +386,21 @@ new row's year. The table is a `ColumnTable` (date, weekday in the UI language v
 the fixed invalid message, inline, never a toast. The route is `utils/publicHolidayLinks.ts`'s `publicHolidaysPath`; the API wrappers live
 in `api/metrics.ts`; the copy in `locales/*/publicHolidays.json`.
 
+## Service tokens (`pages/ServiceTokens.tsx`)
+
+Administration > Service tokens (`/service-tokens`, `IconKey`, ADMIN-only: the route sits inside `RequireAdmin` and the list query stays `enabled: admin`;
+Lettuce's integration-clients page, ported; the server model is `security.md` "Service tokens"). A `<form>` strip (name 1..100 characters, an `Expires` choice of
+Never / 90 days / 1 year / 2 years that becomes an absolute `expiresAt` from `Date.now()`, `utils/serviceTokens.ts`) posts the create. **The 201 is the one moment the
+secret exists**: it opens a teal `Alert` (the confirmation, so no toast) with `RevealablePassword` (masked, eye toggle "Show/Hide token", copy). The panel is **keyed by
+the token id** (a second create remounts it, so the reveal state of the first cannot show the next secret unmasked) and is dropped on close, and also when THAT token is
+revoked (`useDeleteConfirm`'s `onSuccess` clears it only if the ids match). The table is a `ColumnTable`, **live tokens first** (the server's order), with a derived
+status: **Active**, **Revoked** or **Expired**. The API only says `revoked`; the page derives Expired (unrevoked, `expiresAt` in the past) against the moment the list
+was fetched (`dataUpdatedAt`, so the render stays pure), and revoked wins over a future expiry. "Last used" is an age ("5 min ago", "Just now" under a minute, the exact
+time in the `title`), "Never" when nobody presented the token. Revoke is terminal and sits behind `ConfirmDeleteModal` (`confirmLabel` "Revoke"); a revoked row has no
+action, an expired one still has Revoke. **Errors are inline, never toasts**: create `409` = the live-name clash ("a token with this name already exists and is not
+revoked", naming the expired-token rule; the typed name stays), `400` = the general invalid-name message (1-100 characters, a single line, no control characters),
+`403` fixed; revoke `409` = "already revoked" and `404` = "no longer exists", both in the dialog. The API wrappers are `api/serviceTokens.ts`; the copy is `locales/*/serviceTokens.json`.
+
 ## Reports (`pages/ReportCommitments.tsx`, `components/Report*.tsx`, `utils/reportFilter.ts`)
 
 The v0.3.0 report pages (`.claude/docs/reports.md` is the API; every report is any-authenticated,

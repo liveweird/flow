@@ -91,6 +91,17 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   changed, the role was changed, or the token lacks a claim the check needs (a pre-deploy token). **Coalesced** like `rate_limit.exceeded` (its own `RateLimitAuditThrottle`): at most ONE event per user and reason per 60 s, `suppressed`
   counting the rejections folded into it since the previous one (0 on the first), so a stale token replayed on every request writes a line a minute;
   the keys are bounded by the accounts that ever held a signed token. Junk, expired, wrong-audience/`typ` and jti-less tokens never reach the check and emit nothing. Never the token,
+- `service_token.created` (byUserId/tokenId/name/expiresAt - epoch ms or null) / `service_token.revoked` (byUserId/tokenId) - the ADMIN
+  service-token registry (`integration/ServiceTokenRoutes.kt`); never the secret or its digest,
+- `service_token.auth_failed` (reason: missing_or_malformed/unknown_or_revoked/expired, plus `tokenId` when a registry row matched the digest -
+  absent for a malformed header and for a digest nobody holds - and `suppressed`; `integration/ServiceTokenAuth.kt`) - the service-token provider
+  refused a call on `/api/v1/integration/**`. **Coalesced** like `access.rejected` (its own `RateLimitAuditThrottle`, `ServiceTokenAuthFailedAuditKey`):
+  at most ONE event per reason (and token id) per 60 s, `suppressed` counting the folded rejections, so a replayed leaked token writes a line a
+  minute; the keys are bounded by the three reasons and the registry. The wire answer is one text for every reason. A thrown lookup (outage) is a 500
+  and emits nothing here. Never the header, the token or its digest. A service token presented to a JWT route emits nothing (the JWT provider refuses it first),
+- `service_token.used` (tokenId/name/method/path/suppressed) - a live token authenticated (a later per-token 429 included, since that bucket decides after the lookup and stamp). **Coalesced per token** per 60 s
+  (`ServiceTokenUsedAuditKey`), `suppressed` counting the calls folded in; `path` is the request path only (the integration routes have no path
+  parameters), never the query string. With `last_used_at` it is the trail that proves or disproves a leak. Never the header, the token or its digest,
 - `refresh.replay_grace` (userId — a rotated refresh token presented again inside the grace
   (`security.refresh.replayGraceSeconds`) and answered with a fresh pair, at most twice per token; a lost response or a racing tab, or a replay),
 - `password.changed` (targetUserId/byUserId/selfChange) / `password.change_denied` (wrong or
@@ -121,14 +132,14 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   credential events, so a key rotation or admin-password reset leaves a trail beyond a log line,
 - `authz.denied` (every 403, from the `ForbiddenException` handler in `plugins/ErrorHandling.kt`,
   with method/path/byUserId/detail — `path` is the request path only, never the query string),
-- `rate_limit.exceeded` (bucket/method/path/suppressed, plus `byUserId` on the per-USER `reports` bucket — a token bucket (`plugins/RateLimits.kt`: per-IP login, refresh,
-  password-reset, password-reset-confirm, mfa, data-source-test, ready; per-user reports) rejected the request with a 429, emitted from the 429 status handler in
+- `rate_limit.exceeded` (bucket/method/path/suppressed, plus `byUserId` on the per-USER `reports` bucket and `byTokenId` on the per-TOKEN `integration-token` bucket (a verified service token; the per-HOST `integration` budget, spent by the provider before any lookup, names no token) — a token bucket (`plugins/RateLimits.kt`: per-IP login, refresh,
+  password-reset, password-reset-confirm, mfa, data-source-test, ready; per-user reports, telemetry; per-token integration-token; and the service-token provider's own pre-lookup per-host `integration` budget, `integration/HostWindowLimiter.kt`, whose full-map refusal of a new host is audited as the distinct `integration-saturated`) rejected the request with a 429, emitted from the 429 status handler in
   `plugins/ErrorHandling.kt`; `bucket` is stamped by the bucket's own `requestKey`. **Coalesced**
   (`RateLimitAuditThrottle`): at most ONE event per bucket per 60 s, `suppressed` counting the rejections folded into it
   since the previous event (0 on the first), so an unauthenticated flood writes a line a minute per bucket instead of one
   per request; keyed by bucket only (per-IP buckets), so memory is bounded whoever floods. The per-USER `reports` bucket is keyed by
   `reports:<userId>` instead and carries `byUserId` -- the server-minted claim of a verified token, never client text; only a signed-in
-  account reaches that key, so the key space is the account count. The client address is deliberately NOT a field
+  account reaches that key, so the key space is the account count. A call on the per-token bucket is keyed `<bucket>:token:<tokenId>` and names `byTokenId` instead (the registry's size bounds the key space). The client address is deliberately NOT a field
   (it is `X-Forwarded-For`-derived behind a proxy, i.e. attacker-chosen text; the ingress log has it), and neither is the
   query string. The per-account lockout's 429s are their own `login.lockout`/`login.rejected_locked` events and do not
   emit this),

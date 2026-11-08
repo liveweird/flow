@@ -18,11 +18,14 @@ describe("visibleSections", () => {
     expect(paths).not.toContain("/feature-flags");
     expect(paths).not.toContain("/data-sources");
     expect(paths).not.toContain("/metrics-settings");
+    expect(paths).not.toContain("/service-tokens");
   });
 
-  test("an admin session gets Teams, Capacity, Public holidays, Flow users, Feature flags, Data sources and Metrics settings in the Administration section", () => {
+  test("an admin session gets Teams, Capacity, Public holidays, Flow users, Feature flags, Data sources, Metrics settings and Service tokens in the Administration section", () => {
     const admin = visibleSections(true).find((s) => s.label === "appShell.section.administration");
-    expect(admin?.items.map((l) => l.to)).toEqual(["/teams", "/capacity", "/public-holidays", "/flow-users", "/feature-flags", "/data-sources", "/metrics-settings"]);
+    expect(admin?.items.map((l) => l.to)).toEqual(["/teams", "/capacity", "/public-holidays", "/flow-users", "/feature-flags", "/data-sources", "/metrics-settings", "/service-tokens"]);
+    // The palette finds it by what an operator would type for it, not only by its name.
+    expect(admin?.items.find((l) => l.to === "/service-tokens")?.keywords).toEqual(["api key", "token", "astrolabe"]);
   });
 
   test("Reports is visible to everyone — an admin sees the same leaves there", () => {
