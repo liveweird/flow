@@ -11,7 +11,7 @@ detekt = "1.23.8"
 # JSON functions are now bound parameters); Flow uses none of them, the full suite passed on it.
 # 1.6.0 (2026-10-24): R2DBC DAO + bug fixes, no breaking changes listed, no transitive moves; full suite passed twice.
 exposed = "1.6.0"
-flyway = "13.12.0"
+flyway = "13.12.1"
 kotlin = "2.4.21"
 kover = "0.9.11"
 logback = "1.6.6"
