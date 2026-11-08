@@ -752,12 +752,12 @@ refresh rotation, MFA, per-account lockout).
   `/reports/filters`, not a list endpoint, so `list-endpoints.md` does not change). `?sprintsSince=YYYY-MM-DD` (default today - 365 days, a day in the metrics time
   zone; a malformed date, a year outside 1970..2999 or a repeated key is a `400`). It discloses, to the holder of a live service token (so to whoever can use the
   consumer): every ACTIVE team's name, its manager's NAME (an ACTIVE Flow user, else null), its default capacity in man-days, EVERY dated membership interval of its Jira
-  accounts (account id, the real Jira display name from `norm.people` or null, `validFrom`/`validTo`) and its derived sprints on non-deleted connections (id, connection id,
-  name, state, start/end/complete, `hasCalendar`, `capacityMd`, `capacitySource`), at most 100 teams and 2,000 sprint rows (`sprintsTruncated` says the cap cut the answer).
+  accounts (account id, the real Jira display name from `norm.people` or null, `validFrom`/`validTo`) and its derived sprints on non-deleted connections (disabled ones included; id, connection id,
+  name, state, start/end/complete, `hasCalendar`, `capacityMd`, `capacitySource`), at most 1,000 teams and 2,000 sprint rows. The registry itself has no team limit, so each cap is the endpoint's own and says when it bit: `teamsTruncated` (the highest team ids are missing) and `sprintsTruncated` (the cut keeps the NEWEST sprints, never-started ones included, so the oldest of the window are the missing ones).
   Every FIELD is already readable by any signed-in user through the team, jira-membership, sprint-calendar and capacity GETs (D12); what widens is the AUDIENCE - the
   consumer's users now see Flow's rosters, real names included. It is configuration (teams, rosters, sprint capacity), not a report, so it is no precedent for
   unit-wide metrics ("reports read per team or domain, never the whole unit" still holds). It carries nothing caller-shaped: no `canEdit`, coefficient, per-person cell,
-  email, Flow user id or connection address (`IntegrationTeamsReadTest` greps the wire keys). `integration/` reads no other feature's table: `TeamService.listActive`,
+  email, Flow user id or connection address (`IntegrationTeamsReadTest` greps the wire keys). `integration/` reads no other feature's table: `TeamService.listActive(limit)`,
   `TeamMembershipService.listAll`, `SprintCalendarService.sprintsOfTeams`/`teamCapacityDefaults` and ONE `WorkItemStore.displayNames` call for all account ids, each in its
   own transaction (so the parts are not one snapshot; `asOf` is the time of the read).
 

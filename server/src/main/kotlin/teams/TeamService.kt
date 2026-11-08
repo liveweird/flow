@@ -32,8 +32,8 @@ private val SORTABLE_COLUMNS: Map<String, Column<*>> = mapOf(
 /** The ONE sortable whitelist — derived from the column map so the two can never drift. */
 val TEAM_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
 
-/** The bound of [TeamService.listActive]: a unit has tens of teams; a registry past this is not a scenario for the one-document read. */
-private const val MAX_ACTIVE_TEAMS = 100
+/** The ACTIVE teams [TeamService.listActive] returned, and whether the caller's limit cut the list short. */
+data class ActiveTeams(val items: List<TeamListItem>, val truncated: Boolean)
 
 class TeamService(private val database: R2dbcDatabase) {
     object Teams : UIntIdTable("teams"), SoftDeletable {
@@ -59,11 +59,18 @@ class TeamService(private val database: R2dbcDatabase) {
     }
 
     /**
-     * Every ACTIVE team in id order, at most [MAX_ACTIVE_TEAMS] (the registry's own bound), with the manager's name when the manager is
-     * an ACTIVE user — the bulk read behind `GET /integration/teams`, which composes it with the other features' services.
+     * The ACTIVE teams in id order, at most [limit] of them, with the manager's name when the manager is an ACTIVE user — the bulk read
+     * behind `GET /integration/teams`, which composes it with the other features' services. The registry itself has no team limit, so the
+     * caller owns the bound: the query asks for one row more, and that extra row only sets [ActiveTeams.truncated].
      */
-    suspend fun listActive(): List<TeamListItem> = suspendTransaction(database) {
-        Teams.selectAll().where { Teams.active() }.orderBy(Teams.id to SortOrder.ASC).limit(MAX_ACTIVE_TEAMS).toList().toListItems()
+    suspend fun listActive(limit: Int): ActiveTeams {
+        require(limit > 0) { "limit must be positive" }
+        return listActiveBounded(limit)
+    }
+
+    private suspend fun listActiveBounded(limit: Int): ActiveTeams = suspendTransaction(database) {
+        val rows = Teams.selectAll().where { Teams.active() }.orderBy(Teams.id to SortOrder.ASC).limit(limit + 1).toList()
+        ActiveTeams(rows.take(limit).toListItems(), truncated = rows.size > limit)
     }
 
     private suspend fun List<ResultRow>.toListItems(): List<TeamListItem> {

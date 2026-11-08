@@ -71,14 +71,18 @@ class ServiceTokenServiceTest {
         val tokens = ServiceTokenService(sharedDatabaseForTests()) { now }
         val creator = admin("st-list-a")
         val revoker = admin("st-list-b")
-        val first = tokens.create(unique("list"), null, creator).first
+        val oldest = tokens.create(unique("list"), null, creator).first
         now += 10
-        val second = tokens.create(unique("list"), null, creator).first
-        assertEquals(ServiceTokenRevokeOutcome.REVOKED, tokens.revoke(first.id, revoker))
+        val middle = tokens.create(unique("list"), null, creator).first
+        now += 10
+        val newest = tokens.create(unique("list"), null, creator).first
+        now += 10
+        // The NEWEST token is revoked: liveness outranks age, and within the live pair the newer one comes first.
+        assertEquals(ServiceTokenRevokeOutcome.REVOKED, tokens.revoke(newest.id, revoker))
         val listed = tokens.list()
         assertTrue(listed.size <= 100)
-        val ours = listed.filter { it.id == first.id || it.id == second.id }
-        assertEquals(listOf(second.id, first.id), ours.map { it.id }, "newest first")
+        val ours = listed.filter { it.id in setOf(oldest.id, middle.id, newest.id) }
+        assertEquals(listOf(middle.id, oldest.id, newest.id), ours.map { it.id }, "live first, each group newest first")
         val revoked = ours.last()
         assertTrue(revoked.revoked)
         assertEquals(now, revoked.revokedAt)
@@ -92,7 +96,7 @@ class ServiceTokenServiceTest {
         val database = sharedDatabaseForTests()
         val tokens = ServiceTokenService(database)
         val creator = admin("st-list-live")
-        // Seeded directly with the OLDEST created_at of the table (1..102), so the live token is far outside the newest 100 by age alone.
+        // Seeded directly with the OLDEST created_at of the table (1..101), so the live token is far outside the newest 100 by age alone.
         val ids = suspendTransaction(database) {
             (0..SERVICE_TOKEN_LIST_LIMIT).map { i ->
                 ServiceTokens.insert {

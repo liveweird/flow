@@ -30,6 +30,7 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -273,6 +274,28 @@ class TeamTest {
         assertFalse(TestTeams.service.isActiveManager(999999u, manager), "a missing team")
         assertEquals(HttpStatusCode.NoContent, admin.delete("/api/v1/teams/$managed").status)
         assertFalse(TestTeams.service.isActiveManager(managed, manager), "a deleted team")
+    }
+
+    @Test
+    fun `listActive skips soft-deleted teams, keeps id order and flags the caller's limit instead of cutting silently`() = testApplication {
+        usePostgresTestcontainer()
+        val kept = TestTeams.seed(name("act-a"))
+        val gone = TestTeams.seed(name("act-b"))
+        val later = TestTeams.seed(name("act-c"))
+        assertEquals(1, TestTeams.service.delete(gone))
+
+        val all = TestTeams.service.listActive(1_000_000)
+        assertFalse(all.truncated)
+        assertEquals(all.items.map { it.id }.sorted(), all.items.map { it.id }, "id order")
+        assertTrue(all.items.any { it.id == kept } && all.items.any { it.id == later } && all.items.none { it.id == gone })
+
+        val exact = TestTeams.service.listActive(all.items.size)
+        assertFalse(exact.truncated, "exactly limit rows is not truncated")
+        assertEquals(all.items.map { it.id }, exact.items.map { it.id })
+        val cut = TestTeams.service.listActive(all.items.size - 1)
+        assertTrue(cut.truncated)
+        assertEquals(all.items.dropLast(1).map { it.id }, cut.items.map { it.id }, "the highest ids are the ones dropped")
+        assertFailsWith<IllegalArgumentException> { TestTeams.service.listActive(0) }
     }
 
     @Test

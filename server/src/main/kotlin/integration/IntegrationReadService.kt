@@ -9,6 +9,9 @@ import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.teams.TeamService
 import java.time.LocalDate
 
+/** The default cap on teams in the document (a unit has tens); `teamsTruncated` says when it bit. */
+const val MAX_INTEGRATION_TEAMS = 1_000
+
 /** The default look-back of `sprintsSince`, in days before today (metrics time zone). */
 private const val DEFAULT_SPRINTS_LOOKBACK_DAYS = 365L
 
@@ -24,6 +27,8 @@ class IntegrationReadService(
     private val sprints: SprintCalendarService,
     private val metricsSettings: MetricsSettingsService,
     private val workItems: WorkItemStore,
+    /** The team cap; a test lowers it to reach `teamsTruncated` without seeding a thousand teams. */
+    private val teamCap: Int = MAX_INTEGRATION_TEAMS,
     /** The sprint row cap; a test lowers it to reach `sprintsTruncated` without seeding thousands of rows. */
     private val sprintCap: Int = MAX_INTEGRATION_SPRINTS,
     private val clock: () -> Long = System::currentTimeMillis,
@@ -33,8 +38,8 @@ class IntegrationReadService(
         val asOf = clock()
         val calendar = metricsSettings.readCalendar()
         val since = sprintsSince ?: calendar.dayOf(asOf).minusDays(DEFAULT_SPRINTS_LOOKBACK_DAYS)
-        val activeTeams = teams.listActive()
-        val teamIds = activeTeams.map { it.id }
+        val activeTeams = teams.listActive(teamCap)
+        val teamIds = activeTeams.items.map { it.id }
         val rosters = memberships.listAll()
         val sprintRows = sprints.sprintsOfTeams(teamIds, calendar.dayBoundsMs(since).first, sprintCap)
         val defaults = sprints.teamCapacityDefaults(teamIds)
@@ -42,8 +47,9 @@ class IntegrationReadService(
         return IntegrationTeams(
             asOf = asOf,
             sprintsSince = since.toString(),
+            teamsTruncated = activeTeams.truncated,
             sprintsTruncated = sprintRows.truncated,
-            items = activeTeams.map { team ->
+            items = activeTeams.items.map { team ->
                 IntegrationTeam(
                     id = team.id,
                     name = team.name,

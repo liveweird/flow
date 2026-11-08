@@ -17,6 +17,8 @@ data class IntegrationTeams(
     val asOf: Long,
     /** The effective filter, `YYYY-MM-DD` in the metrics time zone (the default is today minus 365 days). */
     val sprintsSince: String,
+    /** True when the team cap cut the list short: the teams past it (highest ids) are missing. */
+    val teamsTruncated: Boolean,
     /** True when the sprint row cap cut the answer short: some teams' sprints are incomplete. */
     val sprintsTruncated: Boolean,
     val items: List<IntegrationTeam>,
@@ -32,7 +34,7 @@ data class IntegrationTeam(
     val defaultCapacityMd: Double?,
     /** Every membership interval, open and closed, most recent `validFrom` first. */
     val members: List<IntegrationMember>,
-    /** The team's derived sprints on active connections, `startAt` ascending. */
+    /** The team's derived sprints on non-deleted connections (disabled ones included), `startAt` ascending. */
     val sprints: List<IntegrationSprint>,
 )
 

@@ -3134,14 +3134,16 @@ export interface paths {
          *     metrics. Every field is already readable by any signed-in user through the team, jira-membership, sprint-calendar and capacity
          *     reads; nothing is caller-shaped (no `canEdit`, no coefficient or per-person cell, no email, no Flow user id, no connection address).
          *
-         *     - `items`: the ACTIVE teams (at most 100) in id order. `members` is every membership interval, open and closed, most recent
+         *     - `items`: the ACTIVE teams in id order, at most 1,000 (`teamsTruncated` says the cap cut the list; the highest ids are missing). `members` is every membership interval, open and closed, most recent
          *       `validFrom` first; `displayName` comes from the synced Jira people (null for an account with none).
-         *     - `sprints`: the team's derived sprints on active data sources whose `endAt` is null or not before `sprintsSince` 00:00 in the
-         *       metrics time zone, `startAt` ascending. `capacityMd`/`capacitySource` are the figures as of the last DERIVE; `hasCalendar`
+         *     - `sprints`: the team's derived sprints on non-deleted data sources (disabled ones included) whose `endAt` is null or not before
+         *       `sprintsSince` 00:00 in the metrics time zone, `startAt` ascending (a never-started sprint last). `capacityMd`/`capacitySource` are the figures as of the last DERIVE; `hasCalendar`
          *       says whether a per-person calendar is stored.
          *     - `sprintsSince` (query, `YYYY-MM-DD`, optional): the default is today minus 365 days in the metrics time zone; the effective
          *       day is echoed. A malformed date, a year outside 1970..2999 or a repeated key is a `400`.
-         *     - `sprintsTruncated`: true when the 2,000-row sprint cap cut the answer short (narrow `sprintsSince`).
+         *     - `teamsTruncated`: true when the 1,000-team cap cut the list short.
+         *     - `sprintsTruncated`: true when the 2,000-row sprint cap cut the answer short (narrow `sprintsSince`); the cut keeps the NEWEST
+         *       sprints, so the oldest rows of the window are the ones missing.
          *     - `asOf`: epoch milliseconds of the read. The parts are separate reads, not one snapshot.
          */
         get: operations["getIntegrationTeams"];
@@ -7666,7 +7668,9 @@ export interface components {
              * @description The effective sprint filter, a day in the metrics time zone.
              */
             sprintsSince: string;
-            /** @description True when the 2,000-row sprint cap cut the answer short. */
+            /** @description True when the 1,000-team cap cut the list short (the highest team ids are missing). */
+            teamsTruncated: boolean;
+            /** @description True when the 2,000-row sprint cap cut the answer short (the oldest sprints are missing). */
             sprintsTruncated: boolean;
             items: components["schemas"]["IntegrationTeam"][];
         };

@@ -15,7 +15,8 @@ internal class HostWindowLimiter(
     private val limit: Int,
     private val windowMillis: Long = DEFAULT_WINDOW_MILLIS,
     private val maxTracked: Int = DEFAULT_MAX_TRACKED,
-    private val clock: () -> Long = System::currentTimeMillis,
+    /** Milliseconds on a MONOTONIC clock: a wall-clock step (NTP, a VM resume) must not shrink or stretch a host's window. */
+    private val clock: () -> Long = { System.nanoTime() / NANOS_PER_MILLI },
 ) {
     init {
         require(limit > 0 && windowMillis > 0 && maxTracked > 0) { "limit, windowMillis and maxTracked must be positive" }
@@ -56,6 +57,7 @@ internal class HostWindowLimiter(
 
     companion object {
         const val DEFAULT_WINDOW_MILLIS = 60_000L
+        private const val NANOS_PER_MILLI = 1_000_000L
 
         /** Hosts tracked at once: far above the clients of one unit, small enough that the map is a few hundred KB at most. */
         const val DEFAULT_MAX_TRACKED = 10_000

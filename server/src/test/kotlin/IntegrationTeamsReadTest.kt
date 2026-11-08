@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.flowusers.FlowUserRole
 import ch.nokillswit.integration.IntegrationReadService
+import ch.nokillswit.integration.IntegrationTeam
 import ch.nokillswit.integration.IntegrationTeams
 import ch.nokillswit.integration.ServiceTokenCreateRequest
 import ch.nokillswit.integration.ServiceTokenCreateResponse
@@ -62,7 +63,8 @@ class IntegrationTeamsReadTest {
         return Json.decodeFromString(bodyAsText())
     }
 
-    private fun IntegrationTeams.team(id: UInt) = items.single { it.id == id }
+    private fun IntegrationTeams.team(id: UInt): IntegrationTeam = items.singleOrNull { it.id == id }
+        ?: error("team $id is not in the document" + if (teamsTruncated) " (teamsTruncated: more teams than the cap)" else "")
 
     private suspend fun softDeleteConnection(connectionId: UInt) {
         suspendTransaction(sharedDatabaseForTests()) {
@@ -182,7 +184,7 @@ class IntegrationTeamsReadTest {
     fun `a malformed or repeated sprintsSince is a 400 and a blank one is not`() = testApplication {
         usePostgresTestcontainer()
         val read = tokenClient("it-teams-400")
-        for (bad in listOf("yesterday", "2026-13-45", "2026-02-30", "20260101", "1969-12-31", "3000-01-01", "+999999999-01-01")) {
+        for (bad in listOf("yesterday", "2026-13-45", "2026-02-30", "20260101", "1969-12-31", "3000-01-01", "%2B999999999-01-01")) {
             val response = read("?sprintsSince=$bad")
             assertEquals(HttpStatusCode.BadRequest, response.status, bad)
             assertEquals("application/problem+json", response.headers[HttpHeaders.ContentType]?.substringBefore(';'))
@@ -236,7 +238,8 @@ class IntegrationTeamsReadTest {
             }
         }
         collect(Json.parseToJsonElement(text))
-        assertTrue(keys.containsAll(setOf("asOf", "sprintsSince", "sprintsTruncated", "items", "managerName", "members", "sprints")))
+        val expected = setOf("asOf", "sprintsSince", "teamsTruncated", "sprintsTruncated", "items", "managerName", "members", "sprints")
+        assertTrue(keys.containsAll(expected))
         val forbidden = listOf("canedit", "coefficient", "cells", "email", "userid", "managerid", "updatedby", "createdby", "url")
         assertEquals(emptyList(), keys.filter { key -> forbidden.any { it in key.lowercase() } }, "keys that should not be on the wire")
         assertTrue("D12 Manager" in text && managerEmail !in text, "the manager's name is on the wire, the manager's email is not")
@@ -265,7 +268,7 @@ class IntegrationTeamsReadTest {
 
         val cut = service.sprintsOfTeams(listOf(s.teamId), sinceMs = 0L, cap = 2)
         assertTrue(cut.truncated)
-        assertEquals(listOf(1L, 2L), cut.byTeam.getValue(s.teamId).map { it.sprintId }, "the earliest starts survive the cut")
+        assertEquals(listOf(2L, 3L), cut.byTeam.getValue(s.teamId).map { it.sprintId }, "the newest starts survive the cut, ascending")
 
         assertEquals(emptyMap(), service.sprintsOfTeams(emptyList(), sinceMs = 0L).byTeam)
         assertEquals(emptyMap(), service.teamCapacityDefaults(emptyList()))
@@ -277,10 +280,75 @@ class IntegrationTeamsReadTest {
             service,
             DerivedStubFixture.metricsSettings(),
             SyncedStubFixture.workItems(),
+            teamCap = 1_000_000,
             sprintCap = 1,
         ).teams(LocalDate.parse("2000-01-01"))
         assertTrue(capped.sprintsTruncated)
+        assertFalse(capped.teamsTruncated)
         assertEquals(1, capped.items.sumOf { it.sprints.size })
+    }
+
+    @Test
+    fun `a cut keeps the newest and the never-started sprints, and the answer stays ascending with the unstarted last`() = runBlocking {
+        val s = CapacityFixtures.seed("it-teams-newest", members = 1)
+        val friday = CapacityFixtures.FRIDAY_MORNING
+        val tuesday = CapacityFixtures.TUESDAY_AFTERNOON
+        CapacityFixtures.insertSprint(s.connectionId, s.teamId, 2L, friday + day, tuesday)
+        CapacityFixtures.insertSprint(s.connectionId, s.teamId, 3L, null, null)
+        val service = CapacityFixtures.service()
+
+        val all = service.sprintsOfTeams(listOf(s.teamId), sinceMs = 0L, cap = 3)
+        assertFalse(all.truncated)
+        assertEquals(listOf(1L, 2L, 3L), all.byTeam.getValue(s.teamId).map { it.sprintId }, "ascending, the never-started sprint last")
+
+        val cut = service.sprintsOfTeams(listOf(s.teamId), sinceMs = 0L, cap = 2)
+        assertTrue(cut.truncated)
+        assertEquals(listOf(2L, 3L), cut.byTeam.getValue(s.teamId).map { it.sprintId }, "the oldest is cut; the never-started one stays")
+    }
+
+    @Test
+    fun `the team cap cuts the highest ids and says so`() = runBlocking {
+        val first = TestTeams.seed(SyncedStubFixture.unique("it-teams-tcap-a"))
+        val second = TestTeams.seed(SyncedStubFixture.unique("it-teams-tcap-b"))
+        fun service(teamCap: Int) = IntegrationReadService(
+            TestTeams.service,
+            TeamMembershipService(sharedDatabaseForTests(), DerivedStubFixture.metricsSettings()),
+            CapacityFixtures.service(),
+            DerivedStubFixture.metricsSettings(),
+            SyncedStubFixture.workItems(),
+            teamCap = teamCap,
+        )
+
+        val capped = service(1).teams(LocalDate.parse("2000-01-01"))
+        assertTrue(capped.teamsTruncated)
+        assertEquals(1, capped.items.size)
+        val all = service(1_000_000).teams(LocalDate.parse("2000-01-01"))
+        assertFalse(all.teamsTruncated)
+        assertTrue(all.items.any { it.id == first } && all.items.any { it.id == second })
+        assertEquals(all.items.first().id, capped.items.single().id, "the lowest id survives")
+        val exact = service(all.items.size).teams(LocalDate.parse("2000-01-01"))
+        assertFalse(exact.teamsTruncated, "exactly cap teams is not truncated")
+    }
+
+    @Test
+    fun `a calendar stored under another team does not make the sprint's owner report hasCalendar`() = testApplication {
+        usePostgresTestcontainer()
+        val s = CapacityFixtures.seed("it-teams-owner")
+        val former = TestTeams.seed(SyncedStubFixture.unique("it-teams-former"))
+        // Sprint 2 is owned by team s, but its stored calendar row was saved for the former owner; sprint 3 has its own team's row.
+        val start2 = CapacityFixtures.FRIDAY_MORNING + day
+        val start3 = CapacityFixtures.FRIDAY_MORNING + 2 * day
+        CapacityFixtures.insertSprint(s.connectionId, s.teamId, 2L, start2, CapacityFixtures.TUESDAY_AFTERNOON)
+        storeCalendar(s.connectionId, 2L, former, start2)
+        CapacityFixtures.insertSprint(s.connectionId, s.teamId, 3L, start3, CapacityFixtures.TUESDAY_AFTERNOON)
+        storeCalendar(s.connectionId, 3L, s.teamId, start3)
+
+        val document = tokenClient("it-teams-owner")("?sprintsSince=2000-01-01").document()
+        val sprints = document.team(s.teamId).sprints.associateBy { it.sprintId }
+
+        assertFalse(sprints.getValue(2L).hasCalendar, "the row belongs to another team, as the one-team route says")
+        assertTrue(sprints.getValue(3L).hasCalendar)
+        assertFalse(sprints.getValue(1L).hasCalendar)
     }
 
     companion object {
