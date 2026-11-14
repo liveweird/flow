@@ -11,7 +11,7 @@ detekt = "1.23.8"
 # JSON functions are now bound parameters); Flow uses none of them, the full suite passed on it.
 # 1.6.0 (2026-10-24): R2DBC DAO + bug fixes, no breaking changes listed, no transitive moves; full suite passed twice.
 exposed = "1.6.0"
-flyway = "13.12.0"
+flyway = "13.12.1"
 kotlin = "2.4.21"
 kover = "0.9.11"
 logback = "1.6.6"
@@ -67,7 +67,7 @@ guava = "33.8.0-jre"
 # Jackson 2.22.2; the jackson-bom platform pins the whole com.fasterxml.jackson family to it and
 # checkDependencyAlignment guards the family. (Flyway 13 itself rides Jackson 3 — a separate
 # package, coexisting; checkDependencyAlignment logs it.)
-jackson = "2.22.4"
+jackson = "2.23.0"
 # swagger-parser-v3 only (OpenAPI 3.x): the `swagger-parser` aggregator drags in the Swagger 2.0
 # converter that this test-only OpenAPI-conformance/spec-validation harness never needs.
 swagger-parser = "2.1.48"
