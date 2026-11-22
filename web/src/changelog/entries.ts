@@ -17,6 +17,16 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.57.2",
+    date: "2026-11-22",
+    en: `**Flow has a new logo.**
+
+A breaking wave in Flow's blue palette appears on the sign-in page and in the app header. A simplified wave marks the browser tab.`,
+    pl: `**Flow ma nowe logo.**
+
+Łamiąca się fala w odcieniach błękitu Flow pojawia się na stronie logowania i w nagłówku aplikacji. Uproszczona fala jest ikoną karty przeglądarki.`,
+  },
+  {
     version: "1.57.1",
     date: "2026-11-08",
     en: `**Sprint capacity: one wrong sprint end date no longer zeroes the sprints after it.**
