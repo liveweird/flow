@@ -13,12 +13,12 @@ outlier detection, and input for continuous improvement. The name refers to the 
 where work waits, not who is busy.
 
 **Roadmap:** v0.1.0 foundation, v0.2.0 Jira ingestion, v0.3.0 the domain model, metrics and reports, v0.4.0 the Deep dive (report 17), and
-**1.x (current, 1.57.1) — this codebase**: twenty-two reports on twenty-one pages; **Home** (`/`) shows up to three teams in one request (`GET /api/v1/reports/home?teamId=…`), 90 days against the 90 before,
+**1.x (current, 1.57.2) — this codebase**: twenty-two reports on twenty-one pages; **Home** (`/`) shows up to three teams in one request (`GET /api/v1/reports/home?teamId=…`), 90 days against the 90 before,
 all drillable; reports read per team or domain (never the whole unit), one Jira site per data source; GitLab 1.34+. Next: `BACKLOG.md`. The per-version scope:
 `.claude/docs/product.md`.
 
-Brand: blue (the `flow` colour tuple in `web/src/theme.ts`, `primaryShade: { light: 8, dark: 9 }`); the logo is "Rolling" — a
-stream rolling inward into a curl round a blue disc (`web/public/logo-*.svg`, `web/src/components/BrandLogo.tsx`).
+Brand: blue (the `flow` colour tuple in `web/src/theme.ts`, `primaryShade: { light: 8, dark: 9 }`). The logo is a
+breaking wave inside a circle (`web/public/logo-*.svg`, `web/src/components/BrandLogo.tsx`).
 
 ## Donors
 

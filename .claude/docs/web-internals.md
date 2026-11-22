@@ -137,12 +137,10 @@ skips a level going down. A page whose real title needs loaded data passes a sta
 
 ### The logo
 
-- The logo SVGs (`public/logo-*.svg` + `favicon.svg` — "Rolling": one tapering stream running round a
-  blue disc and rolling inward into a curl, dark variant inverted to navy on `flow.4`; rendered by
-  `components/BrandLogo.tsx`) are the brand mark. The path is computed geometry (a tapered ribbon along
-  a circle-then-spiral spine, ~120 points) — change it in a vector editor, not by hand-editing the
-  path data. Restyle rule: keep aria-labels, roles, and
-  real semantic elements stable — e2e and unit tests locate by role/name.
+- The brand mark is a breaking wave inside a circle. `components/BrandLogo.tsx` selects the light or
+  dark SVG in `public/` for the app header and sign-in page. Both use the `flow` palette, with a brighter
+  rim in dark mode. `index.html` uses `public/favicon.svg`, a simplified version for small browser tabs
+  in either scheme. Change the artwork in a vector editor and preserve its accessible name.
 
 ### Changelog rendering & UI wiring
 
