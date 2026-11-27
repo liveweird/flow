@@ -13,6 +13,7 @@ export default function FilterPanel({
   storageKey,
   children,
   aside,
+  collapsedSummary,
   trailing,
 }: {
   activeFilterCount: number;
@@ -21,6 +22,8 @@ export default function FilterPanel({
   /** Rendered in the header row beside the toggle — reachable with the panel collapsed
    *  (the LensPicker's slot). */
   aside?: ReactNode;
+  /** Read-only context shown only while the controls are folded (the reports' current scope). */
+  collapsedSummary?: ReactNode;
   /** Rendered at the END of the header row, pushed right (the Kind pills' slot, v1.20.0). */
   trailing?: ReactNode;
 }) {
@@ -52,6 +55,7 @@ export default function FilterPanel({
           {t("common.filter.title")}
         </Button>
         {aside}
+        {!open && collapsedSummary}
         {trailing && <Group ml="auto">{trailing}</Group>}
       </Group>
       {open && (

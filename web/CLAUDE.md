@@ -66,17 +66,14 @@ inventing new ones.
   `utils/navigation.ts`**, shared by the sidebar and the command palette: `NAV_SECTIONS` —
   labelled, always-open sections (currently Overview, Reports and Administration) of `NavLeaf`s (the
   `label` is a typed i18n key; `adminOnly?` gates admin leaves, `keywords?` adds raw palette search terms such as the renamed Flow users page's old name "users", and `visibleSections(isAdmin())`
-  drops an emptied section) — plus `ACCOUNT_NAV` (Change password, Changelog), which the header
-  `UserMenu` and the palette render and the sidebar never does. Sections are static captions
-  (`role="group"` + `aria-label`), never toggles: every leaf is always in the DOM, so tests and
-  e2e address the links directly; leaf clicks close the mobile drawer; `activeNavPath` is the
-  longest-prefix matcher over the leaves. **The icon rail (Lettuce's):** a header `ActionIcon`
-  beside the Burger (`appShell.toggleNav`, `data-expanded` while expanded) narrows the desktop
-  navbar from 240 to 64px — `rail = navCollapsed && !opened`, remembered under
-  `flow.viewSettings.appShell.navCollapsed`; in rail mode each leaf is an icon-only `NavLink`
-  (`classes.railLink`) whose `aria-label` IS the label (so every by-name locator keeps working)
-  inside a right-hand `Tooltip`, section captions become hairline `Divider`s. The mobile overlay
-  always shows full labels.
+  drops an emptied section) — plus `ACCOUNT_NAV` (Change password, Changelog) for the header
+  `UserMenu` and palette. Sections are labelled `role="group"` blocks. Links in the active
+  navigation can be addressed by name. `activeNavPath` matches the longest route prefix.
+  The desktop toggle (`appShell.toggleNav`, `data-expanded` while expanded) switches between
+  the 240px sidebar and the 64px icon rail. `useResponsiveNav` defaults to the rail on tablets
+  and honours a choice saved under `flow.viewSettings.appShell.navCollapsed`. Rail links
+  keep their accessible name and tooltip. The mobile Burger opens a modal navigation drawer
+  with full labels, focus trapping, and dismissal by Escape, backdrop, or navigation.
 - **The shell header** is 48px: brand, the `CommandPalette` trigger, and the `UserMenu` (avatar →
   identity from `GET /flow-users/{id}` under the `["flowUser", id]` key, language, theme as a three-state
   SegmentedControl, Change password, Changelog with the what's-new badge, for an ADMIN a "Telemetry panel" toggle, Sign out). The version

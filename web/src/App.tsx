@@ -1,6 +1,6 @@
-import { lazy, Suspense } from "react";
-import { ActionIcon, AppShell, Box, Burger, Divider, Group, NavLink, ScrollArea, Text, Tooltip } from "@mantine/core";
-import { useDisclosure } from "@mantine/hooks";
+import { lazy, Suspense, useCallback, useEffect, useRef } from "react";
+import { ActionIcon, AppShell, Box, Burger, Divider, Drawer, Group, NavLink, ScrollArea, Text, Tooltip } from "@mantine/core";
+import { useDisclosure, useMediaQuery } from "@mantine/hooks";
 import { IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand } from "@tabler/icons-react";
 import { Link as RouterLink, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -18,7 +18,7 @@ import VersionStamp from "./components/VersionStamp";
 import ErrorBoundary, { RouteErrorBoundary } from "./components/ErrorBoundary";
 import { activeNavPath, visibleSections, type NavLeaf } from "./utils/navigation";
 import { usePrintLifecycle } from "./hooks/usePrintLifecycle";
-import { isBoolean, useStoredState } from "./hooks/useStoredState";
+import { useResponsiveNav } from "./hooks/useResponsiveNav";
 import { setTelemetryPanelOpen, useTelemetryPanelOpen } from "./hooks/useTelemetryPanel";
 import classes from "./theme.module.css";
 
@@ -86,13 +86,15 @@ function Shell() {
   const { t } = useTranslation();
   const admin = useAdmin();
   const [opened, { toggle, close }] = useDisclosure();
-  const { pathname } = useLocation();
+  const mobileNavTrigger = useRef<HTMLButtonElement>(null);
+  const desktopNavigation = useMediaQuery("(min-width: 48em)", undefined, { getInitialValueInEffect: false });
+  const { pathname, key: locationKey } = useLocation();
   // Every page prints in the light scheme (the print-aware provider in main.tsx reads what this reports).
   usePrintLifecycle();
   // Desktop navbar collapse — device-level, persisted like the other view settings; the
   // mobile overlay keeps its own `opened` disclosure above and always shows full labels.
-  const [navCollapsed, setNavCollapsed] = useStoredState("appShell.navCollapsed", false, isBoolean);
-  const rail = navCollapsed && !opened;
+  const [navCollapsed, setNavCollapsed] = useResponsiveNav();
+  const rail = navCollapsed;
   // The telemetry panel: the stored flag is device-level, but a stored `true` shows nothing to a non-admin.
   const panelStored = useTelemetryPanelOpen();
   const showPanel = admin && panelStored;
@@ -107,11 +109,27 @@ function Shell() {
     sections.flatMap((section) => section.items),
   );
 
-  const renderLeaf = (leaf: NavLeaf) => {
+  // Location identity changes for pathname, query and hash navigation, including
+  // browser back/forward and replace. Closing an already-closed drawer is a no-op,
+  // so ordinary in-page filter navigation keeps its focus and state.
+  useEffect(() => close(), [locationKey, close]);
+  // Do not leave Mantine's scroll lock and focus trap active if a resize crosses
+  // the same `sm` breakpoint that swaps the burger for the desktop sidebar.
+  useEffect(() => {
+    if (desktopNavigation) close();
+  }, [desktopNavigation, close]);
+  const closeMobileNavigation = useCallback(() => {
+    close();
+    // Run after the focus trap's cleanup. Route-link and breakpoint closures use
+    // `close` directly because their destination, not a hidden burger, owns focus.
+    window.setTimeout(() => mobileNavTrigger.current?.focus(), 0);
+  }, [close]);
+
+  const renderLeaf = (leaf: NavLeaf, iconOnly: boolean) => {
     const active = leaf.to === activeTo;
     const Icon = leaf.icon;
     const label = t(leaf.label);
-    if (rail) {
+    if (iconOnly) {
       // Icon-only: the accessible NAME stays the label (aria-label), so every locator that
       // finds the link by name works in both modes.
       return (
@@ -146,7 +164,7 @@ function Shell() {
   return (
     <AppShell
       header={{ height: 48 }}
-      navbar={{ width: { base: 240, sm: rail ? 64 : 240 }, breakpoint: "sm", collapsed: { mobile: !opened } }}
+      navbar={{ width: { base: 240, sm: rail ? 64 : 240 }, breakpoint: "sm", collapsed: { mobile: true } }}
       // 420 px beside the page from `lg` up (the content gives way: at 1200 px the 240 px navbar and the panel still leave ~540 px);
       // below it the panel covers the page edge to edge, since a pushed 420 px next to the navbar would leave a sliver.
       aside={{ width: 420, breakpoint: "lg", collapsed: { desktop: !showPanel, mobile: !showPanel } }}
@@ -159,6 +177,7 @@ function Shell() {
         <Group h={48} px="md" justify="space-between" wrap="nowrap">
           <Group gap="sm" wrap="nowrap">
             <Burger
+              ref={mobileNavTrigger}
               opened={opened}
               onClick={toggle}
               hiddenFrom="sm"
@@ -194,9 +213,16 @@ function Shell() {
         </Group>
       </AppShell.Header>
 
-      <AppShell.Navbar p="xs">
+      <AppShell.Navbar p="xs" visibleFrom="sm">
         {/* The link list scrolls when it outgrows the viewport; the version stamp stays pinned. */}
-        <AppShell.Section grow component={ScrollArea} type="hover" scrollbarSize={6} offsetScrollbars>
+        <AppShell.Section
+          grow
+          component={ScrollArea}
+          type="hover"
+          scrollbarSize={6}
+          offsetScrollbars
+          viewportProps={{ tabIndex: 0, role: "region", "aria-label": t("appShell.navigation") }}
+        >
           {sections.map((section, index) => (
             // A labelled, always-open block — never a toggle, so every leaf stays in the DOM
             // for tests and deep links.
@@ -208,7 +234,7 @@ function Shell() {
                   {t(section.label)}
                 </Text>
               )}
-              {section.items.map(renderLeaf)}
+              {section.items.map((leaf) => renderLeaf(leaf, rail))}
             </Box>
           ))}
         </AppShell.Section>
@@ -216,6 +242,40 @@ function Shell() {
           <VersionStamp to="/changelog" ta="center" pt={4} compact={rail} />
         </AppShell.Section>
       </AppShell.Navbar>
+
+      <Drawer
+        opened={opened && !desktopNavigation}
+        onClose={closeMobileNavigation}
+        title={t("appShell.navigation")}
+        size="min(20rem, 88vw)"
+        padding="xs"
+        trapFocus
+        returnFocus
+        closeOnEscape
+        closeOnClickOutside
+        closeButtonProps={{ "aria-label": t("common.action.close") }}
+      >
+        <Box component="nav" aria-label={t("appShell.navigation")}>
+          <ScrollArea
+            h="calc(100dvh - 4.5rem)"
+            type="hover"
+            scrollbarSize={6}
+            offsetScrollbars
+            viewportProps={{ tabIndex: 0, role: "region", "aria-label": t("appShell.navigation") }}
+          >
+            {sections.map((section) => (
+              <Box key={section.label} role="group" aria-label={t(section.label)}>
+                <Text component="div" className={classes.navSectionLabel}>
+                  {t(section.label)}
+                </Text>
+                {section.items.map((leaf) => renderLeaf(leaf, false))}
+              </Box>
+            ))}
+            <Divider mt="sm" />
+            <VersionStamp to="/changelog" ta="center" py="sm" />
+          </ScrollArea>
+        </Box>
+      </Drawer>
 
       <AppShell.Main id="main-content" tabIndex={-1}>
         {/* A page crash stays inside the main area — header/nav keep working, and navigating

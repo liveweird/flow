@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { Table } from "@mantine/core";
 import classes from "../theme.module.css";
 
@@ -23,6 +23,22 @@ export default function ScrollRegion({
   fill?: boolean;
   children: ReactNode;
 }) {
+  const scrollHorizontally = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (
+      event.target !== event.currentTarget ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      (event.key !== "ArrowLeft" && event.key !== "ArrowRight") ||
+      event.currentTarget.scrollWidth <= event.currentTarget.clientWidth
+    ) {
+      return;
+    }
+    event.preventDefault();
+    event.currentTarget.scrollBy({ left: event.key === "ArrowLeft" ? -40 : 40 });
+  };
+
   return (
     <Table.ScrollContainer
       type="native"
@@ -32,6 +48,7 @@ export default function ScrollRegion({
       tabIndex={0}
       role="region"
       aria-label={label}
+      onKeyDown={scrollHorizontally}
     >
       {children}
     </Table.ScrollContainer>

@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { Button } from "@mantine/core";
+import { Box, Button, Group } from "@mantine/core";
 import { IconPrinter } from "@tabler/icons-react";
 
 /**
@@ -8,15 +8,22 @@ import { IconPrinter } from "@tabler/icons-react";
  */
 export default function PrintReportButton() {
   const { t } = useTranslation();
+  const label = t("reports.print.button");
   return (
     <Button
       variant="default"
       size="xs"
-      leftSection={<IconPrinter size={16} />}
+      px={{ base: 6, sm: "xs" }}
+      aria-label={label}
       data-print="hide"
       onClick={() => window.print()}
     >
-      {t("reports.print.button")}
+      <Group component="span" gap={6} wrap="nowrap">
+        <IconPrinter size={16} aria-hidden />
+        <Box component="span" visibleFrom="sm">
+          {label}
+        </Box>
+      </Group>
     </Button>
   );
 }

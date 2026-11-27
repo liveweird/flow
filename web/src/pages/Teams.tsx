@@ -85,6 +85,7 @@ export default function Teams() {
       </FilterPanel>
 
       <RegistryListTable
+        minWidth={680}
         label={t("teams.title")}
         errorTitle={t("teams.loadFailed")}
         error={error}

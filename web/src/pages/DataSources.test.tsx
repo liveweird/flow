@@ -136,6 +136,7 @@ describe("DataSources page", () => {
     renderWithProviders(<DataSources />, { route: "/data-sources" });
 
     expect(await screen.findByRole("link", { name: "Open Acme Jira" })).toHaveAttribute("href", "/data-sources/1");
+    expect(screen.getByRole("region", { name: "Data sources" })).toHaveAttribute("tabindex", "0");
     expect(screen.getByText("acme.atlassian.net")).toBeInTheDocument();
     expect(screen.getByText("ENG, OPS")).toBeInTheDocument();
     expect(screen.getAllByText("Yes")).toHaveLength(2);

@@ -50,6 +50,7 @@ describe("DomainStageOverrides", () => {
       <Harness initial={[{ domainKey: "ENG", statusId: "3", stage: "DONE" }]} onState={(next) => (latest = next)} />,
     );
 
+    expect(screen.getByText("Actions").parentElement).toHaveStyle({ position: "relative" });
     const picker = (await screen.findByRole("combobox", { name: "Domain" })) as HTMLInputElement;
     expect(picker.value).toBe("ENG (1 overridden)");
     await user.click(picker);

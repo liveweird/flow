@@ -64,7 +64,7 @@ function FigureCell({
   const figure = cellText(row, cell);
   const view = row.drill;
   return (
-    <Stack gap={0} align="flex-end">
+    <Stack gap={0} align="flex-end" pos="relative">
       <Group gap={4} wrap="nowrap">
         {betterText !== undefined && <IconCheck size={14} aria-hidden />}
         <Text size="sm" fw={500} component="span">

@@ -1,12 +1,13 @@
 import "@mantine/dates/styles.css";
 import "dayjs/locale/pl";
 import { useTranslation } from "react-i18next";
-import { Group, Stack } from "@mantine/core";
+import { Group, Stack, Text } from "@mantine/core";
 import { DatesProvider } from "@mantine/dates";
 import type { ReportFilters } from "../api/reports";
 import type { ReportControls, ReportFilterState } from "../utils/reportFilter";
 import { activeReportFilterCount } from "../utils/reportFilterCount";
 import { todayIsoDate } from "../utils/isoDate";
+import { reportFilterSummaryLines } from "../utils/reportPrintSummary";
 import FilterPanel from "./FilterPanel";
 import ReportPeriodControls from "./ReportPeriodControls";
 import ReportScopeControls from "./ReportScopeControls";
@@ -22,8 +23,8 @@ export type { ReportControls } from "../utils/reportFilter";
  * only the frame: `ReportPeriodControls`, `ReportScopeControls` and `ReportSliceControls` own the
  * controls, in one row of dropdowns and one row of toggles. The controls sit in a `FilterPanel`:
  * collapsed by default, the choice remembered per report under `<storageKey>.filtersOpen`, and a
- * badge on the toggle counting the dimensions that differ from the report's default
- * (`activeReportFilterCount`), so a narrowing nobody can see is still announced.
+ * badge counting the dimensions that differ from the report's default (`activeReportFilterCount`).
+ * The folded panel also names the current period and scope beside the toggle.
  */
 export default function ReportFilterBar({
   filters,
@@ -42,12 +43,33 @@ export default function ReportFilterBar({
   const { t, i18n } = useTranslation();
   const activeFilterCount = activeReportFilterCount(filter, controls, {
     today: todayIsoDate(filters.timeZone),
-    connectionCount: filters.connections.length,
     horizonFrom: filters.historyHorizon?.from,
   });
+  const summaryLines = reportFilterSummaryLines(filter, filters, controls, t);
   return (
     <DatesProvider settings={{ locale: i18n.resolvedLanguage ?? "en", firstDayOfWeek: 1 }}>
-      <FilterPanel activeFilterCount={activeFilterCount} storageKey={storageKey}>
+      <FilterPanel
+        activeFilterCount={activeFilterCount}
+        storageKey={storageKey}
+        collapsedSummary={
+          <Group
+            gap="xs"
+            wrap="wrap"
+            role="group"
+            aria-label={t("reports.filters.summary")}
+            style={{ flex: "1 1 20rem", minWidth: 0 }}
+          >
+            {summaryLines.map((line) => (
+              <Text key={line.label} size="xs" c="dimmed" style={{ overflowWrap: "anywhere" }}>
+                <Text component="span" inherit fw={600}>
+                  {line.label}:
+                </Text>{" "}
+                {line.value}
+              </Text>
+            ))}
+          </Group>
+        }
+      >
         <Stack gap="sm" w="100%">
           <Group gap="sm" align="flex-end" wrap="wrap" role="group" aria-label={t("reports.filters.title")}>
             {!controls.noPeriod && (

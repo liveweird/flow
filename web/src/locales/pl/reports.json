@@ -58,6 +58,7 @@
   },
   "filters": {
     "title": "Filtry raportu",
+    "summary": "Bieżący zakres raportu",
     "clearAria": "Wyczyść: {{name}}",
     "period": "Okres",
     "periodDates": "Daty",
@@ -112,6 +113,7 @@
       "BOTH": "Zadania i epiki"
     },
     "connection": "Połączenie",
+    "connectionUnavailable": "Niedostępne połączenie (ID {{id}})",
     "allConnections": "Wszystkie połączenia"
   },
   "groups": {

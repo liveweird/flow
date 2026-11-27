@@ -30,6 +30,7 @@ describe("ReportPersonTotals", () => {
       />,
     );
     expect(screen.getByRole("heading", { name: "Totals per person" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Totals per person" })).toHaveAttribute("tabindex", "0");
     expect(within(screen.getByRole("table")).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Member", "Items"]);
     expect(rows().map(cells)).toEqual([
       ["2. Bob Builder", "4"],

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { MantineProvider } from "@mantine/core";
-import { MemoryRouter } from "react-router-dom";
+import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router-dom";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
@@ -25,6 +25,19 @@ function renderApp(route: string) {
       </QueryClientProvider>
     </MantineProvider>,
   );
+}
+
+function renderAppWithHistory(initialEntries: string[], initialIndex: number) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const router = createMemoryRouter([{ path: "*", element: <App /> }], { initialEntries, initialIndex });
+  render(
+    <MantineProvider env="test">
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </MantineProvider>,
+  );
+  return router;
 }
 
 function scrollWindowTo(y: number) {
@@ -97,6 +110,7 @@ describe("App shell", () => {
     });
 
     test("the nav toggle collapses the sidebar to an icon rail and persists the choice", async () => {
+      localStorage.setItem("flow.viewSettings.appShell.navCollapsed", "false");
       const user = userEvent.setup();
       renderApp("/");
       const overview = await screen.findByRole("group", { name: "Overview" });
@@ -119,13 +133,172 @@ describe("App shell", () => {
       try {
         const user = userEvent.setup();
         renderApp("/");
-        await screen.findByRole("group", { name: "Overview" });
+        await screen.findByRole("heading", { level: 2, name: "Flow" });
         const burger = screen.getByRole("button", { name: "Toggle navigation" });
         expect(burger).toHaveAttribute("aria-expanded", "false");
         await user.click(burger);
         expect(burger).toHaveAttribute("aria-expanded", "true");
+        const drawer = screen.getByRole("dialog", { name: "Navigation" });
+        expect(within(drawer).getByRole("link", { name: "Home" })).toHaveTextContent("Home");
       } finally {
         window.innerWidth = desktopWidth;
+      }
+    });
+
+    test("the mobile drawer traps focus, closes on Escape and returns focus to the burger", async () => {
+      const desktopWidth = window.innerWidth;
+      window.innerWidth = 390;
+      try {
+        const user = userEvent.setup();
+        renderApp("/");
+        const burger = await screen.findByRole("button", { name: "Toggle navigation" });
+        await user.click(burger);
+        const drawer = screen.getByRole("dialog", { name: "Navigation" });
+
+        const focusables = [
+          ...within(drawer).getAllByRole("button"),
+          ...within(drawer).getAllByRole("link"),
+        ];
+        focusables.at(-1)!.focus();
+        await user.tab();
+        expect(drawer).toContainElement(document.activeElement as HTMLElement);
+
+        await user.keyboard("{Escape}");
+        await waitFor(() => expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument());
+        expect(burger).toHaveAttribute("aria-expanded", "false");
+        await waitFor(() => expect(burger).toHaveFocus());
+      } finally {
+        window.innerWidth = desktopWidth;
+      }
+    });
+
+    test("the mobile drawer closes when a route is selected", async () => {
+      const desktopWidth = window.innerWidth;
+      window.innerWidth = 390;
+      try {
+        const user = userEvent.setup();
+        renderApp("/");
+        await user.click(await screen.findByRole("button", { name: "Toggle navigation" }));
+        const drawer = screen.getByRole("dialog", { name: "Navigation" });
+        await user.click(within(drawer).getByRole("link", { name: "Teams" }));
+
+        expect(await screen.findByRole("heading", { level: 2, name: "Teams" })).toBeInTheDocument();
+        expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument();
+      } finally {
+        window.innerWidth = desktopWidth;
+      }
+    });
+
+    test("the mobile drawer closes when history changes only the current route query", async () => {
+      const desktopWidth = window.innerWidth;
+      window.innerWidth = 390;
+      try {
+        const user = userEvent.setup();
+        const router = renderAppWithHistory(["/teams?state=all", "/teams?state=active"], 1);
+        await screen.findByRole("heading", { level: 2, name: "Teams" });
+        await user.click(screen.getByRole("button", { name: "Toggle navigation" }));
+        expect(screen.getByRole("dialog", { name: "Navigation" })).toBeInTheDocument();
+
+        await act(async () => router.navigate(-1));
+
+        expect(router.state.location.pathname).toBe("/teams");
+        expect(router.state.location.search).toBe("?state=all");
+        expect(screen.getByRole("heading", { level: 2, name: "Teams" })).toBeInTheDocument();
+        expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument();
+      } finally {
+        window.innerWidth = desktopWidth;
+      }
+    });
+
+    test("the mobile drawer closes from its backdrop", async () => {
+      const desktopWidth = window.innerWidth;
+      window.innerWidth = 390;
+      try {
+        const user = userEvent.setup();
+        renderApp("/");
+        const burger = await screen.findByRole("button", { name: "Toggle navigation" });
+        await user.click(burger);
+        expect(screen.getByRole("navigation", { name: "Navigation" })).toBeInTheDocument();
+
+        const backdrop = document.querySelector<HTMLElement>(".mantine-Drawer-overlay");
+        expect(backdrop).not.toBeNull();
+        await user.click(backdrop!);
+        await waitFor(() => expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument());
+        await waitFor(() => expect(burger).toHaveFocus());
+      } finally {
+        window.innerWidth = desktopWidth;
+      }
+    });
+
+    test("resizing an open mobile drawer to desktop releases the modal state", async () => {
+      const originalMatchMedia = window.matchMedia;
+      const desktopWidth = window.innerWidth;
+      let desktop = false;
+      const desktopListeners = new Set<(event: MediaQueryListEvent) => void>();
+      window.innerWidth = 390;
+      window.matchMedia = vi.fn((query: string) => ({
+        matches: query === "(min-width: 48em)" ? desktop : false,
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: (_type: string, listener: EventListenerOrEventListenerObject) => {
+          if (query === "(min-width: 48em)" && typeof listener === "function") {
+            desktopListeners.add(listener as (event: MediaQueryListEvent) => void);
+          }
+        },
+        removeEventListener: (_type: string, listener: EventListenerOrEventListenerObject) => {
+          desktopListeners.delete(listener as (event: MediaQueryListEvent) => void);
+        },
+        dispatchEvent: () => false,
+      })) as typeof window.matchMedia;
+      try {
+        const user = userEvent.setup();
+        renderApp("/");
+        const burger = await screen.findByRole("button", { name: "Toggle navigation" });
+        await user.click(burger);
+        expect(screen.getByRole("dialog", { name: "Navigation" })).toBeInTheDocument();
+
+        desktop = true;
+        window.innerWidth = 900;
+        act(() => {
+          for (const listener of desktopListeners) {
+            listener({ matches: true, media: "(min-width: 48em)" } as MediaQueryListEvent);
+          }
+        });
+
+        await waitFor(() => expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument());
+        expect(burger).toHaveAttribute("aria-expanded", "false");
+        await waitFor(() => expect(document.body.style.overflow).not.toBe("hidden"));
+      } finally {
+        window.matchMedia = originalMatchMedia;
+        window.innerWidth = desktopWidth;
+      }
+    });
+
+    test("tablet navigation defaults to the icon rail but honors an explicit expanded preference", async () => {
+      const originalMatchMedia = window.matchMedia;
+      window.matchMedia = vi.fn((query: string) => ({
+        matches: query.includes("min-width: 48em") && query.includes("max-width: 74.99375em"),
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      })) as typeof window.matchMedia;
+      try {
+        const first = renderApp("/");
+        await screen.findByRole("heading", { level: 2, name: "Flow" });
+        expect(screen.queryByText("Overview")).not.toBeInTheDocument();
+        first.unmount();
+
+        localStorage.setItem("flow.viewSettings.appShell.navCollapsed", "false");
+        renderApp("/");
+        expect(await screen.findByText("Overview")).toBeInTheDocument();
+      } finally {
+        window.matchMedia = originalMatchMedia;
       }
     });
 
@@ -219,6 +392,7 @@ describe("App shell", () => {
     });
 
     test("the account menu holds the Changelog link; the stamp links there and the trigger carries the dot", async () => {
+      localStorage.setItem("flow.viewSettings.appShell.navCollapsed", "false");
       const user = userEvent.setup();
       renderApp("/");
       expect(await screen.findByTitle("Build version")).toHaveAttribute("href", "/changelog");

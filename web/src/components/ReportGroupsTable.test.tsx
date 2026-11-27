@@ -25,6 +25,7 @@ describe("ReportGroupsTable", () => {
       route: "/reports/commitments?lastSprints=3&domain=FLO",
     });
     expect(screen.getByRole("heading", { name: "By team" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "By team" })).toHaveAttribute("tabindex", "0");
     const link = screen.getByRole("link", { name: "Show Beta" });
     expect(link).toHaveAttribute("href", "/reports/commitments?lastSprints=3&teamId=2&domain=FLO");
     await user.click(link);

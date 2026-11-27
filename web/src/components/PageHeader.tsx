@@ -25,29 +25,31 @@ export default function PageHeader({
 }) {
   return (
     <Stack gap="sm">
-      <Group justify="space-between" align="flex-start" wrap="wrap" gap="sm">
-        <Stack gap={2}>
-          {backTo && (
-            <Anchor component={RouterLink} to={backTo.to} size="xs" c="dimmed">
-              <Group gap={4} wrap="nowrap" component="span">
-                <IconArrowLeft size={12} />
-                {backTo.label}
-              </Group>
-            </Anchor>
+      <Stack gap={4}>
+        <Group justify="space-between" align="flex-start" wrap="wrap" gap="sm">
+          <Stack gap={2}>
+            {backTo && (
+              <Anchor component={RouterLink} to={backTo.to} size="xs" c="dimmed">
+                <Group gap={4} wrap="nowrap" component="span">
+                  <IconArrowLeft size={12} />
+                  {backTo.label}
+                </Group>
+              </Anchor>
+            )}
+            <Title order={2}>{title}</Title>
+          </Stack>
+          {actions && (
+            <Group gap="sm" wrap="wrap">
+              {actions}
+            </Group>
           )}
-          <Title order={2}>{title}</Title>
-          {description && (
-            <Text c="dimmed" size="sm">
-              {description}
-            </Text>
-          )}
-        </Stack>
-        {actions && (
-          <Group gap="sm" wrap="wrap">
-            {actions}
-          </Group>
+        </Group>
+        {description && (
+          <Text c="dimmed" size="sm" maw="75ch">
+            {description}
+          </Text>
         )}
-      </Group>
+      </Stack>
       {toolbar}
     </Stack>
   );

@@ -29,6 +29,7 @@ import PageHeader from "../components/PageHeader";
 import PaginationBar from "../components/PaginationBar";
 import SortHeader from "../components/SortHeader";
 import TableLoadingRow from "../components/TableLoadingRow";
+import ScrollRegion from "../components/ScrollRegion";
 import { useDeleteConfirm } from "../hooks/useDeleteConfirm";
 import { usePagedSort } from "../hooks/usePagedSort";
 import { identityName } from "../utils/codeIdentityLabels";
@@ -222,38 +223,40 @@ export default function DataSourceIdentities() {
       )}
       {list.isError && <ErrorAlert error={list.error} title={t("codeIdentities.loadFailed")} />}
 
-      <Table aria-label={t(`codeIdentities.tab.${status}`)}>
-        <Table.Thead>
-          <Table.Tr>
-            <SortHeader
-              field="displayName"
-              label={t("codeIdentities.column.identity")}
-              activeField={sortField}
-              activeDir={sortDir}
-              onToggle={toggleSort}
-            />
-            <Table.Th>{t("codeIdentities.column.emails")}</Table.Th>
-            <Table.Th>{t("codeIdentities.column.state")}</Table.Th>
-            <Table.Th>{t("codeIdentities.column.person")}</Table.Th>
-            <Table.Th>{t("codeIdentities.column.decidedAt")}</Table.Th>
-            <Table.Th aria-label={t("common.table.operations")} style={{ width: 1 }} />
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {(list.isLoading && !list.data) || (list.data && list.data.items.length === 0 && list.data.total > 0) ? (
-            // The second case is a page past the end, already on its way back to the last page.
-            <TableLoadingRow colSpan={COLUMN_COUNT} />
-          ) : list.data && list.data.items.length > 0 ? (
-            list.data.items.map((identity) => <CodeIdentityRow key={identity.identityKey} identity={identity} actions={actions} />)
-          ) : !list.isError ? (
+      <ScrollRegion label={t(`codeIdentities.tab.${status}`)} minWidth={900}>
+        <Table aria-label={t(`codeIdentities.tab.${status}`)}>
+          <Table.Thead>
             <Table.Tr>
-              <Table.Td colSpan={COLUMN_COUNT}>
-                <EmptyState icon={IconUsersGroup} label={t(searching ? "codeIdentities.empty.search" : `codeIdentities.empty.${status}`)} />
-              </Table.Td>
+              <SortHeader
+                field="displayName"
+                label={t("codeIdentities.column.identity")}
+                activeField={sortField}
+                activeDir={sortDir}
+                onToggle={toggleSort}
+              />
+              <Table.Th>{t("codeIdentities.column.emails")}</Table.Th>
+              <Table.Th>{t("codeIdentities.column.state")}</Table.Th>
+              <Table.Th>{t("codeIdentities.column.person")}</Table.Th>
+              <Table.Th>{t("codeIdentities.column.decidedAt")}</Table.Th>
+              <Table.Th aria-label={t("common.table.operations")} style={{ width: 1 }} />
             </Table.Tr>
-          ) : null}
-        </Table.Tbody>
-      </Table>
+          </Table.Thead>
+          <Table.Tbody>
+            {(list.isLoading && !list.data) || (list.data && list.data.items.length === 0 && list.data.total > 0) ? (
+              // The second case is a page past the end, already on its way back to the last page.
+              <TableLoadingRow colSpan={COLUMN_COUNT} />
+            ) : list.data && list.data.items.length > 0 ? (
+              list.data.items.map((identity) => <CodeIdentityRow key={identity.identityKey} identity={identity} actions={actions} />)
+            ) : !list.isError ? (
+              <Table.Tr>
+                <Table.Td colSpan={COLUMN_COUNT}>
+                  <EmptyState icon={IconUsersGroup} label={t(searching ? "codeIdentities.empty.search" : `codeIdentities.empty.${status}`)} />
+                </Table.Td>
+              </Table.Tr>
+            ) : null}
+          </Table.Tbody>
+        </Table>
+      </ScrollRegion>
 
       <PaginationBar total={total} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} />
     </Stack>

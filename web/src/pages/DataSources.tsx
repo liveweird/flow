@@ -119,6 +119,7 @@ export default function DataSources() {
       )}
 
       <RegistryListTable
+        minWidth={700}
         label={t("dataSources.title")}
         errorTitle={t("dataSources.loadFailed")}
         error={error}
