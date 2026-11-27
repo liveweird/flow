@@ -4,6 +4,7 @@ import { personLabel } from "../utils/commitmentsReport";
 import type { DistributionPerson } from "../utils/distributionPeople";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
 import type { GroupColumn, GroupIdentity } from "./ReportGroupsTable";
+import ScrollRegion from "./ScrollRegion";
 
 /**
  * A report's USER-level `groups` as "Totals per person": one row per picked person with the page's own group columns. A user
@@ -40,12 +41,14 @@ export default function ReportPersonTotals<G extends GroupIdentity>({
       <Title order={3} size="h4">
         {title}
       </Title>
-      <ColumnTable
-        aria-label={title}
-        columns={withName}
-        rows={groups}
-        rowKey={(group) => `${group.accountId ?? "-"}:${group.label ?? "-"}`}
-      />
+      <ScrollRegion label={title} minWidth={220 + columns.length * 120}>
+        <ColumnTable
+          aria-label={title}
+          columns={withName}
+          rows={groups}
+          rowKey={(group) => `${group.accountId ?? "-"}:${group.label ?? "-"}`}
+        />
+      </ScrollRegion>
     </Stack>
   );
 }

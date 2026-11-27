@@ -45,6 +45,7 @@ import { loadErrorMessage, saveErrorMessage } from "../utils/saveError";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { showSuccessToast } from "../utils/toast";
 import FormErrorAlert from "../components/FormErrorAlert";
+import ScrollRegion from "../components/ScrollRegion";
 
 const JOB_TOASTS: Record<"SYNC" | "RECONCILE" | "REPROCESS", { requested: ParseKeys; coalesced: ParseKeys }> = {
   SYNC: { requested: "dataSources.toast.syncRequested", coalesced: "dataSources.toast.syncCoalesced" },
@@ -63,6 +64,7 @@ function isOpen(status: SyncJobStatus | undefined): boolean {
 /** The current job's kind/status/stream plus its progress counters — split out to keep the page under the line cap. */
 function CurrentJobSection({ job }: { job: SyncJobResponse }) {
   const { t } = useTranslation();
+  const label = t("dataSources.details.currentJob");
   const progressColumns: ColumnDef<[string, unknown]>[] = [
     {
       key: "counter",
@@ -77,33 +79,37 @@ function CurrentJobSection({ job }: { job: SyncJobResponse }) {
   ];
   return (
     <Stack gap="xs">
-      <Title order={3} size="h4">{t("dataSources.details.currentJob")}</Title>
-      <Table aria-label={t("dataSources.details.currentJob")}>
-        <Table.Tbody>
-          <Table.Tr>
-            <Table.Th>{t("dataSources.details.jobColumn.kind")}</Table.Th>
-            <Table.Td>{t(`dataSources.job.kind.${job.kind}`)}</Table.Td>
-          </Table.Tr>
-          <Table.Tr>
-            <Table.Th>{t("dataSources.details.jobColumn.status")}</Table.Th>
-            <Table.Td>
-              <JobStateBadge status={job.status} />
-              <JobScheduledNote job={job} />
-            </Table.Td>
-          </Table.Tr>
-          <Table.Tr>
-            <Table.Th>{t("dataSources.details.currentStream")}</Table.Th>
-            <Table.Td>{job.currentStream ?? "—"}</Table.Td>
-          </Table.Tr>
-        </Table.Tbody>
-      </Table>
+      <Title order={3} size="h4">{label}</Title>
+      <ScrollRegion label={label} minWidth={480}>
+        <Table aria-label={label}>
+          <Table.Tbody>
+            <Table.Tr>
+              <Table.Th>{t("dataSources.details.jobColumn.kind")}</Table.Th>
+              <Table.Td>{t(`dataSources.job.kind.${job.kind}`)}</Table.Td>
+            </Table.Tr>
+            <Table.Tr>
+              <Table.Th>{t("dataSources.details.jobColumn.status")}</Table.Th>
+              <Table.Td>
+                <JobStateBadge status={job.status} />
+                <JobScheduledNote job={job} />
+              </Table.Td>
+            </Table.Tr>
+            <Table.Tr>
+              <Table.Th>{t("dataSources.details.currentStream")}</Table.Th>
+              <Table.Td>{job.currentStream ?? "—"}</Table.Td>
+            </Table.Tr>
+          </Table.Tbody>
+        </Table>
+      </ScrollRegion>
       {job.progress && Object.keys(job.progress).length > 0 && (
-        <ColumnTable
-          aria-label={t("dataSources.details.progressTableAria")}
-          columns={progressColumns}
-          rows={Object.entries(job.progress)}
-          rowKey={([key]) => key}
-        />
+        <ScrollRegion label={t("dataSources.details.progressTableAria")} minWidth={480}>
+          <ColumnTable
+            aria-label={t("dataSources.details.progressTableAria")}
+            columns={progressColumns}
+            rows={Object.entries(job.progress)}
+            rowKey={([key]) => key}
+          />
+        </ScrollRegion>
       )}
     </Stack>
   );
@@ -193,12 +199,15 @@ function JiraCountRows({ counts }: { counts: SyncCounts }) {
 /** The raw-store counts table: the connection's kind picks the rows (GitLab's projects and users, or Jira's issue store). */
 function CountsSection({ counts, kind }: { counts: SyncCounts; kind: DataSourceResponse["kind"] }) {
   const { t } = useTranslation();
+  const label = t("dataSources.details.counts");
   return (
     <Stack gap="xs">
-      <Title order={3} size="h4">{t("dataSources.details.counts")}</Title>
-      <Table aria-label={t("dataSources.details.counts")}>
-        <Table.Tbody>{kind === "GITLAB" ? <GitLabCountRows counts={counts} /> : <JiraCountRows counts={counts} />}</Table.Tbody>
-      </Table>
+      <Title order={3} size="h4">{label}</Title>
+      <ScrollRegion label={label} minWidth={520}>
+        <Table aria-label={label}>
+          <Table.Tbody>{kind === "GITLAB" ? <GitLabCountRows counts={counts} /> : <JiraCountRows counts={counts} />}</Table.Tbody>
+        </Table>
+      </ScrollRegion>
     </Stack>
   );
 }
@@ -433,54 +442,56 @@ export default function DataSourceDetails() {
           <Stack gap="xs">
             <Title order={3} size="h4">{t("dataSources.details.connection")}</Title>
             <DataSourcePausedAlert status={connection.status} />
-            <Table aria-label={t("dataSources.details.connection")}>
-              <Table.Tbody>
-                <Table.Tr>
-                  <Table.Th>{t("dataSources.column.state")}</Table.Th>
-                  <Table.Td>
-                    <Group gap={4} wrap="nowrap">
-                      <Badge color={dataSourceStateColor(connection.status.state)} variant="light">
-                        {t(`dataSources.state.${connection.status.state}`)}
-                      </Badge>
-                      <DataSourcePausedBadge status={connection.status} />
-                    </Group>
-                  </Table.Td>
-                </Table.Tr>
-                <ConnectionKindRows connection={connection} />
-                <Table.Tr>
-                  <Table.Th>{t("dataSources.column.enabled")}</Table.Th>
-                  <Table.Td>{connection.enabled ? t("dataSources.yes") : t("dataSources.no")}</Table.Td>
-                </Table.Tr>
-                <Table.Tr>
-                  <Table.Th>{t("dataSources.field.syncInterval")}</Table.Th>
-                  <Table.Td>{connection.syncIntervalMinutes}</Table.Td>
-                </Table.Tr>
-                <Table.Tr>
-                  <Table.Th>{t("dataSources.field.backfillFrom")}</Table.Th>
-                  <Table.Td>{connection.backfillFrom}</Table.Td>
-                </Table.Tr>
-                <Table.Tr>
-                  <Table.Th>{t("dataSources.field.reconcileHour")}</Table.Th>
-                  <Table.Td>{connection.reconcileHourUtc}</Table.Td>
-                </Table.Tr>
-                <Table.Tr>
-                  <Table.Th>{t("dataSources.details.lastSyncStarted")}</Table.Th>
-                  <Table.Td>{formatEpochMillis(connection.status.lastSyncStartedAt, t)}</Table.Td>
-                </Table.Tr>
-                <Table.Tr>
-                  <Table.Th>{t("dataSources.column.lastSuccess")}</Table.Th>
-                  <Table.Td>{formatEpochMillis(connection.status.lastSyncSucceededAt, t)}</Table.Td>
-                </Table.Tr>
-                <Table.Tr>
-                  <Table.Th>{t("dataSources.details.lastError")}</Table.Th>
-                  <Table.Td>{connection.status.lastSyncErrorCode ?? "—"}</Table.Td>
-                </Table.Tr>
-                <Table.Tr>
-                  <Table.Th>{t("dataSources.details.consecutiveFailures")}</Table.Th>
-                  <Table.Td>{connection.status.consecutiveFailures}</Table.Td>
-                </Table.Tr>
-              </Table.Tbody>
-            </Table>
+            <ScrollRegion label={t("dataSources.details.connection")} minWidth={520}>
+              <Table aria-label={t("dataSources.details.connection")}>
+                <Table.Tbody>
+                  <Table.Tr>
+                    <Table.Th>{t("dataSources.column.state")}</Table.Th>
+                    <Table.Td>
+                      <Group gap={4} wrap="nowrap">
+                        <Badge color={dataSourceStateColor(connection.status.state)} variant="light">
+                          {t(`dataSources.state.${connection.status.state}`)}
+                        </Badge>
+                        <DataSourcePausedBadge status={connection.status} />
+                      </Group>
+                    </Table.Td>
+                  </Table.Tr>
+                  <ConnectionKindRows connection={connection} />
+                  <Table.Tr>
+                    <Table.Th>{t("dataSources.column.enabled")}</Table.Th>
+                    <Table.Td>{connection.enabled ? t("dataSources.yes") : t("dataSources.no")}</Table.Td>
+                  </Table.Tr>
+                  <Table.Tr>
+                    <Table.Th>{t("dataSources.field.syncInterval")}</Table.Th>
+                    <Table.Td>{connection.syncIntervalMinutes}</Table.Td>
+                  </Table.Tr>
+                  <Table.Tr>
+                    <Table.Th>{t("dataSources.field.backfillFrom")}</Table.Th>
+                    <Table.Td>{connection.backfillFrom}</Table.Td>
+                  </Table.Tr>
+                  <Table.Tr>
+                    <Table.Th>{t("dataSources.field.reconcileHour")}</Table.Th>
+                    <Table.Td>{connection.reconcileHourUtc}</Table.Td>
+                  </Table.Tr>
+                  <Table.Tr>
+                    <Table.Th>{t("dataSources.details.lastSyncStarted")}</Table.Th>
+                    <Table.Td>{formatEpochMillis(connection.status.lastSyncStartedAt, t)}</Table.Td>
+                  </Table.Tr>
+                  <Table.Tr>
+                    <Table.Th>{t("dataSources.column.lastSuccess")}</Table.Th>
+                    <Table.Td>{formatEpochMillis(connection.status.lastSyncSucceededAt, t)}</Table.Td>
+                  </Table.Tr>
+                  <Table.Tr>
+                    <Table.Th>{t("dataSources.details.lastError")}</Table.Th>
+                    <Table.Td>{connection.status.lastSyncErrorCode ?? "—"}</Table.Td>
+                  </Table.Tr>
+                  <Table.Tr>
+                    <Table.Th>{t("dataSources.details.consecutiveFailures")}</Table.Th>
+                    <Table.Td>{connection.status.consecutiveFailures}</Table.Td>
+                  </Table.Tr>
+                </Table.Tbody>
+              </Table>
+            </ScrollRegion>
           </Stack>
 
           {currentJob && <CurrentJobSection job={currentJob} />}

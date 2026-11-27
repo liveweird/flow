@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActionIcon, Badge, Button, Group, Select, Stack, Text, Title, VisuallyHidden } from "@mantine/core";
+import { ActionIcon, Badge, Box, Button, Group, Select, Stack, Text, Title, VisuallyHidden } from "@mantine/core";
 import { IconX } from "@tabler/icons-react";
 import {
   currentDomainKeys,
@@ -15,6 +15,7 @@ import {
 } from "../utils/metricsConfigForm";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
 import FormErrorAlert from "./FormErrorAlert";
+import ScrollRegion from "./ScrollRegion";
 
 /**
  * The "Per-domain overrides" section of the metrics-config Statuses tab (`.claude/docs/metrics.md`
@@ -89,7 +90,13 @@ export default function DomainStageOverrides({
     },
     {
       key: "actions",
-      header: <VisuallyHidden>{t("metrics.config.statuses.overrides.columnActions")}</VisuallyHidden>,
+      // Anchor Mantine's absolutely positioned screen-reader label inside the scrollable table.
+      // Without a positioned ancestor its static position contributes the table's far edge to the document width.
+      header: (
+        <Box component="span" pos="relative">
+          <VisuallyHidden>{t("metrics.config.statuses.overrides.columnActions")}</VisuallyHidden>
+        </Box>
+      ),
       render: (status) => {
         const override = overrides.find((o) => o.domainKey === domainKey && o.statusId === status.statusId);
         return (
@@ -157,12 +164,14 @@ export default function DomainStageOverrides({
             allowDeselect={false}
             maw={360}
           />
-          <ColumnTable
-            aria-label={t("metrics.config.statuses.overrides.tableLabel", { domain: domainKey })}
-            columns={columnsFor(domainKey)}
-            rows={listedStatuses}
-            rowKey={(status) => status.statusId}
-          />
+          <ScrollRegion label={t("metrics.config.statuses.overrides.tableLabel", { domain: domainKey })} minWidth={800}>
+            <ColumnTable
+              aria-label={t("metrics.config.statuses.overrides.tableLabel", { domain: domainKey })}
+              columns={columnsFor(domainKey)}
+              rows={listedStatuses}
+              rowKey={(status) => status.statusId}
+            />
+          </ScrollRegion>
         </>
       )}
     </Stack>

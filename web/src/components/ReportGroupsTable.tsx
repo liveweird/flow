@@ -4,6 +4,7 @@ import { Link as RouterLink, useLocation, useSearchParams } from "react-router-d
 import type { ReportFilters } from "../api/reports";
 import { applyReportFilter, parseReportFilter } from "../utils/reportFilter";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
+import ScrollRegion from "./ScrollRegion";
 
 /** The identity every report's `groups` row carries (a team at UNIT level, a member at TEAM level). */
 export interface GroupIdentity {
@@ -109,12 +110,14 @@ export default function ReportGroupsTable<G extends GroupIdentity>({
       <Title order={3} size="h4">
         {title}
       </Title>
-      <ColumnTable
-        aria-label={title}
-        columns={columnsWithIdentity}
-        rows={groups}
-        rowKey={(group) => `${group.teamId ?? "-"}:${group.accountId ?? "-"}:${group.label ?? "-"}`}
-      />
+      <ScrollRegion label={title} minWidth={220 + columns.length * 120}>
+        <ColumnTable
+          aria-label={title}
+          columns={columnsWithIdentity}
+          rows={groups}
+          rowKey={(group) => `${group.teamId ?? "-"}:${group.accountId ?? "-"}:${group.label ?? "-"}`}
+        />
+      </ScrollRegion>
     </Stack>
   );
 }

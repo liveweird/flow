@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import i18n from "../i18n";
 import { FILTERS } from "../test/reportFixtures";
-import { deepDiveFilterLines, deepDiveLayerLine, reportFilterLines, tailPercentLine } from "./reportPrintSummary";
+import { deepDiveFilterLines, deepDiveLayerLine, reportFilterLines, reportFilterSummaryLines, tailPercentLine } from "./reportPrintSummary";
 
 const t = i18n.t.bind(i18n);
 const asText = (lines: ReadonlyArray<{ label: string; value: string }>) => lines.map((line) => `${line.label}: ${line.value}`);
@@ -50,16 +50,72 @@ describe("reportFilterLines", () => {
     expect(asText(reportFilterLines({ domain: "FLO", teamId: 1 }, FILTERS, controls, t))).toEqual(["Team: Alpha", "Domain: Flow"]);
   });
 
-  test("the connection is named only when there is more than one", () => {
-    expect(asText(reportFilterLines({ connectionId: 1 }, FILTERS, { noPeriod: true, connection: true }, t))).toEqual(["Team: All teams"]);
+  test("an explicit connection is always named, including one no longer available in the reference list", () => {
+    expect(asText(reportFilterLines({ connectionId: 1 }, FILTERS, { noPeriod: true, connection: true }, t))).toEqual([
+      "Team: All teams",
+      "Connection: Stub",
+    ]);
     const two = { ...FILTERS, connections: [...FILTERS.connections, { id: 2, name: "Second", siteUrl: "" }] };
     expect(asText(reportFilterLines({ connectionId: 2 }, two, { noPeriod: true, connection: true }, t))).toEqual(["Team: All teams", "Connection: Second"]);
+    expect(asText(reportFilterLines({ connectionId: 99 }, { ...FILTERS, connections: [] }, { noPeriod: true, connection: true }, t))).toEqual([
+      "Team: All teams",
+      "Connection: Unavailable connection (ID 99)",
+    ]);
   });
 
   test("Compare people lists the two people, with no team", () => {
     expect(asText(reportFilterLines({ from: "2026-01-01", to: "2026-02-01", accountIds: ["acc-cy", "acc-ann"] }, FILTERS, { peopleOnly: true }, t))).toEqual([
       "Period: 2026-01-01 → 2026-02-01",
       "People: Cy Coder, Ann Author",
+    ]);
+  });
+});
+
+describe("reportFilterSummaryLines", () => {
+  test("keeps the active scope and named narrowings, but omits unchanged display defaults", () => {
+    const filter = {
+      from: "2026-01-01",
+      to: "2026-02-01",
+      teamId: 1,
+      accountIds: ["acc-ann"],
+      domain: "FLO",
+      activityType: "Bug",
+    };
+    expect(
+      asText(
+        reportFilterSummaryLines(
+          filter,
+          FILTERS,
+          { multiMember: true, domain: true, activityType: true, domainView: "TASK", bucket: true, wipBy: true, itemKind: ["TASK", "EPIC"] },
+          t,
+        ),
+      ),
+    ).toEqual([
+      "Period: 2026-01-01 → 2026-02-01",
+      "Team: Alpha",
+      "Member: Ann Author",
+      "Domain: Flow",
+      "Activity type: Bug",
+    ]);
+  });
+
+  test("does not repeat people-only selectors or expose an unresolved account ID", () => {
+    expect(
+      asText(
+        reportFilterSummaryLines(
+          { from: "2026-01-01", to: "2026-02-01", accountIds: ["outside-every-roster"] },
+          FILTERS,
+          { peopleOnly: true, peopleCount: 1 },
+          t,
+        ),
+      ),
+    ).toEqual(["Period: 2026-01-01 → 2026-02-01"]);
+  });
+
+  test("names the uncategorized scope the same way as the work-category picker", () => {
+    expect(asText(reportFilterSummaryLines({ teamId: 1, workCategory: "UNCATEGORIZED" }, FILTERS, { noPeriod: true, workCategory: true }, t))).toEqual([
+      "Team: Alpha",
+      "Work category: (uncategorized)",
     ]);
   });
 });

@@ -3,6 +3,7 @@ import { Badge, Stack, Text } from "@mantine/core";
 import { useTranslation } from "react-i18next";
 import type { ConnectionTestResult, ConnectionTestRow } from "../api/dataSources";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
+import ScrollRegion from "./ScrollRegion";
 
 /** The detail cell: the upstream status/code, plus the scope a failed row likely needs — never rendered for an ok row. */
 function rowDetail(row: ConnectionTestRow, t: TFunction): string {
@@ -62,14 +63,12 @@ export default function ConnectionTestResults({ result }: { result: ConnectionTe
       ),
     },
   ];
+  const label = t("dataSources.test.tableAria");
   return (
     <Stack gap="xs">
-      <ColumnTable
-        aria-label={t("dataSources.test.tableAria")}
-        columns={columns}
-        rows={result.rows}
-        rowKey={(row) => row.name}
-      />
+      <ScrollRegion label={label} minWidth={720}>
+        <ColumnTable aria-label={label} columns={columns} rows={result.rows} rowKey={(row) => row.name} />
+      </ScrollRegion>
       {result.cloudId && (
         <Text size="xs" c="dimmed">
           {t("dataSources.test.cloudId", { cloudId: result.cloudId })}

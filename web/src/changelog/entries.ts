@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.57.3",
+    date: "2026-11-27",
+    en: `**Reports and navigation fit smaller screens better.**
+
+- Wide tables scroll inside the page, so their columns remain readable on a phone.
+- Dismiss the mobile navigation with Escape or by tapping outside it. On tablets, the sidebar starts as an icon rail when you have no saved preference.
+- Reports show the selected period and scope while the filter controls are closed.`,
+    pl: `**Raporty i nawigacja lepiej mieszczą się na mniejszych ekranach.**
+
+- Szerokie tabele przewijają się w obrębie strony, dzięki czemu ich kolumny pozostają czytelne na telefonie.
+- Menu na telefonie zamkniesz klawiszem Escape lub dotknięciem poza nim. Na tablecie pasek boczny domyślnie pokazuje same ikony, jeśli nie masz zapisanej preferencji.
+- Raporty pokazują wybrany okres i zakres także przy zwiniętych filtrach.`,
+  },
+  {
     version: "1.57.2",
     date: "2026-11-22",
     en: `**Flow has a new logo.**

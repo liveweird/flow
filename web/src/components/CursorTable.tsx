@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { SyncCursorSummary } from "../api/dataSources";
 import { formatEpochMillis } from "../utils/dataSourceState";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
+import ScrollRegion from "./ScrollRegion";
 
 /**
  * The details page's persisted-cursor table (plan §10/§11): one row per stream still resuming
@@ -40,12 +41,10 @@ export default function CursorTable({ cursors }: { cursors: SyncCursorSummary[] 
       render: (cursor) => <Text size="sm">{formatEpochMillis(cursor.lastCompletedAt, t)}</Text>,
     },
   ];
+  const label = t("dataSources.details.cursors");
   return (
-    <ColumnTable
-      aria-label={t("dataSources.details.cursors")}
-      columns={columns}
-      rows={cursors}
-      rowKey={(cursor) => cursor.stream}
-    />
+    <ScrollRegion label={label} minWidth={620}>
+      <ColumnTable aria-label={label} columns={columns} rows={cursors} rowKey={(cursor) => cursor.stream} />
+    </ScrollRegion>
   );
 }

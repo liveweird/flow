@@ -18,6 +18,7 @@ import EditPageLoadState from "../components/EditPageLoadState";
 import EmptyState from "../components/EmptyState";
 import GitLabProfileSections, { MetricsTable, Section } from "../components/GitLabProfileSections";
 import PageHeader from "../components/PageHeader";
+import ScrollRegion from "../components/ScrollRegion";
 import { dataSourcePath } from "../utils/dataSourceLinks";
 import { formatEpochMillis, percent } from "../utils/dataSourceState";
 import { CONTENT_MAX_WIDTH } from "../utils/layout";
@@ -34,13 +35,11 @@ function ProjectsSection({ projects }: { projects: ProjectProfile[] }) {
     { key: "issueType", header: t("dataSources.profile.column.issueType"), render: (row) => row.issueType },
     { key: "count", header: t("dataSources.profile.column.count"), render: (row) => row.count },
   ];
+  const label = t("dataSources.profile.section.projects");
   return (
-    <ColumnTable
-      aria-label={t("dataSources.profile.section.projects")}
-      columns={columns}
-      rows={rows}
-      rowKey={(row) => `${row.project}-${row.issueType}`}
-    />
+    <ScrollRegion label={label} minWidth={440}>
+      <ColumnTable aria-label={label} columns={columns} rows={rows} rowKey={(row) => `${row.project}-${row.issueType}`} />
+    </ScrollRegion>
   );
 }
 
@@ -63,12 +62,14 @@ function WorkflowsSection({ workflows }: { workflows: WorkflowProfile[] }) {
           <Text fw={500} size="sm">
             {workflow.projectKey} · {workflow.issueType}
           </Text>
-          <ColumnTable
-            aria-label={`${workflow.projectKey} · ${workflow.issueType}`}
-            columns={columns}
-            rows={workflow.observedStatuses}
-            rowKey={(s) => s.statusId}
-          />
+          <ScrollRegion label={`${workflow.projectKey} · ${workflow.issueType}`} minWidth={560}>
+            <ColumnTable
+              aria-label={`${workflow.projectKey} · ${workflow.issueType}`}
+              columns={columns}
+              rows={workflow.observedStatuses}
+              rowKey={(s) => s.statusId}
+            />
+          </ScrollRegion>
           <Text size="xs" c="dimmed">
             {t("dataSources.profile.referenceWorkflow", { statuses: workflow.referenceStatusNames.join(", ") })}
           </Text>
@@ -96,13 +97,11 @@ function BoardsSection({ boards }: { boards: BoardProfile[] }) {
       render: (board) => board.unmappedStatusNames.join(", ") || "—",
     },
   ];
+  const label = t("dataSources.profile.section.boards");
   return (
-    <ColumnTable
-      aria-label={t("dataSources.profile.section.boards")}
-      columns={columns}
-      rows={boards}
-      rowKey={(board) => String(board.boardId)}
-    />
+    <ScrollRegion label={label} minWidth={840}>
+      <ColumnTable aria-label={label} columns={columns} rows={boards} rowKey={(board) => String(board.boardId)} />
+    </ScrollRegion>
   );
 }
 
@@ -120,13 +119,11 @@ function CustomFieldsSection({ customFields }: { customFields: CustomFieldProfil
     { key: "nonNull", header: t("dataSources.profile.column.nonNullCount"), render: (field) => field.nonNullCount },
     { key: "fill", header: t("dataSources.profile.column.fillPercent"), render: (field) => percent(field.fillPercent) },
   ];
+  const label = t("dataSources.profile.section.customFields");
   return (
-    <ColumnTable
-      aria-label={t("dataSources.profile.section.customFields")}
-      columns={columns}
-      rows={customFields}
-      rowKey={(field) => field.id}
-    />
+    <ScrollRegion label={label} minWidth={720}>
+      <ColumnTable aria-label={label} columns={columns} rows={customFields} rowKey={(field) => field.id} />
+    </ScrollRegion>
   );
 }
 

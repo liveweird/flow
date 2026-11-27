@@ -56,6 +56,7 @@
   },
   "filters": {
     "title": "Report filters",
+    "summary": "Current report scope",
     "clearAria": "Clear {{name}}",
     "period": "Period",
     "periodDates": "Dates",
@@ -108,6 +109,7 @@
       "BOTH": "Tasks and epics"
     },
     "connection": "Connection",
+    "connectionUnavailable": "Unavailable connection (ID {{id}})",
     "allConnections": "All connections"
   },
   "groups": {

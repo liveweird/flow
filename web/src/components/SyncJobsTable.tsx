@@ -78,6 +78,7 @@ export default function SyncJobsTable({
       </Group>
 
       <RegistryListTable
+        minWidth={1120}
         label={t("dataSources.details.jobsTitle")}
         errorTitle={t("dataSources.details.jobsLoadFailed")}
         error={error}

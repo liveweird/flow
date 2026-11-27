@@ -3,8 +3,8 @@ import { activeReportFilterCount } from "./reportFilterCount";
 import { presetRange, type ReportControls, type ReportFilterState } from "./reportFilter";
 
 const TODAY = "2026-06-15";
-const count = (filter: ReportFilterState, controls: ReportControls = {}, connectionCount = 1) =>
-  activeReportFilterCount(filter, controls, { today: TODAY, connectionCount });
+const count = (filter: ReportFilterState, controls: ReportControls = {}) =>
+  activeReportFilterCount(filter, controls, { today: TODAY });
 
 describe("activeReportFilterCount", () => {
   test("nothing in the filter is nothing active", () => {
@@ -66,11 +66,7 @@ describe("activeReportFilterCount", () => {
     expect(count(filter)).toBe(0);
     expect(count(filter, { domain: true })).toBe(1);
     expect(count(filter, { domain: true, activityType: true, workCategory: true })).toBe(3);
-    expect(count(filter, { connection: true }, 2)).toBe(1);
-  });
-
-  test("the connection control is absent with a single connection, so it never counts", () => {
-    expect(count({ connectionId: 1 }, { connection: true }, 1)).toBe(0);
+    expect(count(filter, { connection: true })).toBe(1);
   });
 
   test("the segmented toggles count when they differ from what the control shows by default", () => {

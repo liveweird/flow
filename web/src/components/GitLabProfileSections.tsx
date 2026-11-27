@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Stack, Table, Title } from "@mantine/core";
 import { type GitLabDataProfile } from "../api/dataSources";
 import { formatEpochMillis, percent } from "../utils/dataSourceState";
+import ScrollRegion from "./ScrollRegion";
 
 /** A section heading + its body; every section is a plain table (plan §8/§10/§11 — no charts). */
 export function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -18,16 +19,18 @@ export function Section({ title, children }: { title: string; children: ReactNod
 /** The scalar-metrics tables — label/value rows. */
 export function MetricsTable({ label, rows }: { label: string; rows: [string, ReactNode][] }) {
   return (
-    <Table aria-label={label}>
-      <Table.Tbody>
-        {rows.map(([rowLabel, value]) => (
-          <Table.Tr key={rowLabel}>
-            <Table.Th>{rowLabel}</Table.Th>
-            <Table.Td>{value}</Table.Td>
-          </Table.Tr>
-        ))}
-      </Table.Tbody>
-    </Table>
+    <ScrollRegion label={label} minWidth={480}>
+      <Table aria-label={label}>
+        <Table.Tbody>
+          {rows.map(([rowLabel, value]) => (
+            <Table.Tr key={rowLabel}>
+              <Table.Th>{rowLabel}</Table.Th>
+              <Table.Td>{value}</Table.Td>
+            </Table.Tr>
+          ))}
+        </Table.Tbody>
+      </Table>
+    </ScrollRegion>
   );
 }
 

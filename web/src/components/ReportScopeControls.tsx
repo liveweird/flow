@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import type { ReportFilters } from "../api/reports";
 import { domainStandsForTeam, teamClearableUnderDomain, withFilterKey, withPeriod, type ReportControls, type ReportFilterState } from "../utils/reportFilter";
+import { reportConnectionLabel } from "../utils/reportPrintSummary";
 import ReportFilterMultiSelect from "./ReportFilterMultiSelect";
 import ReportFilterSelect from "./ReportFilterSelect";
 
@@ -8,9 +9,8 @@ import ReportFilterSelect from "./ReportFilterSelect";
 const UNASSIGNED_VALUE = "0";
 
 /**
- * WHOSE work the report reads: team, then (under a picked team) member, the domain and — where the
- * report offers it and there is more than one — the Jira connection. The team is the anchor the
- * others hang from: changing it drops the member, and the sprint-survival rule below.
+ * Team, member, domain, and connection scope controls. Show the connection picker when the
+ * report offers multiple connections or the URL specifies one, so an outdated choice can be cleared.
  */
 export default function ReportScopeControls({
   filters,
@@ -29,6 +29,11 @@ export default function ReportScopeControls({
   // "Unassigned" (`teamId=0`; Code activity, Tasks and code) closes the list: it is a bucket beside the teams, not one of them.
   if (controls.teamUnassigned) teamOptions.push({ value: UNASSIGNED_VALUE, label: t("reports.groups.unassigned") });
   const memberOptions = (team?.members ?? []).map((member) => ({ value: member.accountId, label: member.displayName }));
+  const connectionOptions = filters.connections.map((connection) => ({ value: String(connection.id), label: connection.name }));
+  const connectionId = filter.connectionId;
+  if (connectionId !== undefined && !filters.connections.some((connection) => connection.id === connectionId)) {
+    connectionOptions.push({ value: String(connectionId), label: reportConnectionLabel(connectionId, filters, t) });
+  }
 
   const changeTeam = (value: string | null) => {
     // A required team stays held, except under a domain on a page that reads a domain across the unit (`teamClearableUnderDomain`).
@@ -104,11 +109,11 @@ export default function ReportScopeControls({
           onChange={changeDomain}
         />
       )}
-      {controls.connection && filters.connections.length > 1 && (
+      {controls.connection && (filters.connections.length > 1 || filter.connectionId !== undefined) && (
         <ReportFilterSelect
           label={t("reports.filters.connection")}
           placeholder={t("reports.filters.allConnections")}
-          data={filters.connections.map((connection) => ({ value: String(connection.id), label: connection.name }))}
+          data={connectionOptions}
           value={filter.connectionId === undefined ? null : String(filter.connectionId)}
           onChange={(value) => onChange(withFilterKey(filter, "connectionId", value === null ? null : Number(value)))}
         />

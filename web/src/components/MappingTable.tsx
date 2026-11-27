@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Select, Text, TextInput } from "@mantine/core";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
+import ScrollRegion from "./ScrollRegion";
 
 /**
  * One editable cell in a `MappingRow` — a `Select` over a fixed option list, a free-text
@@ -103,5 +104,9 @@ export default function MappingTable({
       render: (row: MappingRow) => <FieldControl field={row.fields[index]} />,
     })),
   ];
-  return <ColumnTable aria-label={label} columns={columns} rows={rows} rowKey={(row) => row.id} />;
+  return (
+    <ScrollRegion label={label} minWidth={240 + fieldColumnLabels.length * 280}>
+      <ColumnTable aria-label={label} columns={columns} rows={rows} rowKey={(row) => row.id} />
+    </ScrollRegion>
+  );
 }

@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
 import type { Icon } from "@tabler/icons-react";
-import { Table } from "@mantine/core";
+import { Box, Table } from "@mantine/core";
 import EmptyState from "./EmptyState";
 import PaginationBar from "./PaginationBar";
 import TableLoadingRow from "./TableLoadingRow";
 import ErrorAlert from "./ErrorAlert";
+import ScrollRegion from "./ScrollRegion";
 
 /** Common load/error/empty/pagination shell for the small registry tables. */
 export default function RegistryListTable({
@@ -25,6 +26,7 @@ export default function RegistryListTable({
   pageSize,
   onPageChange,
   onPageSizeChange,
+  minWidth,
 }: {
   /** The table's accessible name — the same words as the page or section heading above it. */
   label: string;
@@ -44,26 +46,35 @@ export default function RegistryListTable({
   pageSize: number;
   onPageChange: (page: number) => void;
   onPageSizeChange: (size: number) => void;
+  /** Minimum useful table width; narrower viewports scroll inside the labelled table region. */
+  minWidth: number;
 }) {
   return (
     <>
       {isError && <ErrorAlert error={error} title={errorTitle} />}
-      <Table aria-label={label}>
-        <Table.Thead>{header}</Table.Thead>
-        <Table.Tbody>
-          {isLoading && !hasData ? (
-            <TableLoadingRow colSpan={columnCount} />
-          ) : rowCount > 0 ? (
-            rows
-          ) : !isError ? (
-            <Table.Tr>
-              <Table.Td colSpan={columnCount}>
-                <EmptyState icon={emptyIcon} label={emptyLabel} />
-              </Table.Td>
-            </Table.Tr>
-          ) : null}
-        </Table.Tbody>
-      </Table>
+      <Box style={{ containerType: "inline-size" }}>
+        <ScrollRegion label={label} minWidth={minWidth}>
+          <Table aria-label={label}>
+            <Table.Thead>{header}</Table.Thead>
+            <Table.Tbody>
+              {isLoading && !hasData ? (
+                <TableLoadingRow colSpan={columnCount} />
+              ) : rowCount > 0 ? (
+                rows
+              ) : !isError ? (
+                <Table.Tr>
+                  <Table.Td colSpan={columnCount}>
+                    {/* Centre the message in the visible portion of the table at its starting scroll position. */}
+                    <Box maw="calc(100cqi - 2 * var(--mantine-spacing-md))">
+                      <EmptyState icon={emptyIcon} label={emptyLabel} />
+                    </Box>
+                  </Table.Td>
+                </Table.Tr>
+              ) : null}
+            </Table.Tbody>
+          </Table>
+        </ScrollRegion>
+      </Box>
       <PaginationBar
         total={total}
         page={page}

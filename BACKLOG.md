@@ -1,6 +1,6 @@
 # Product backlog
 
-Updated 2026-11-01. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
+Updated 2026-11-27. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
 - [README.md](README.md);
 - the [application changelog](web/src/changelog/entries.ts);
 - the topic guides under `.claude/docs/`.
@@ -35,6 +35,17 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - If Atlassian drops the admin requirement: an optional REFERENCE step (like `PROJECT_FIELDS`), plan team →
     `issueSourceId` board → `board_team_map`, and a `PLAN` capacity source ranked CONFIGURED > PLAN > DEFAULT.
   - Blocked (2026-10-23) on the Administer Jira requirement.
+
+## UX audit follow-ups
+
+- [new] **Group reports by the questions they answer.** Put Cycle time with Flow metrics and group Compare people with Person trend.
+  Keep existing report URLs and command-palette entries. Separate the team and calendar pages from admin-only settings in the sidebar.
+- [new] **Make Home and Person trend easier to scan.** Put the team and period, any data-health findings, and the first result near the top of Home.
+  Start Person trend with a grouped summary of changes and links to the detailed charts. Keep existing report links, drill-downs, and accessible data tables.
+- [new] **Distinguish data-source navigation from operations.** Give Sync now priority, group Reconcile and Reprocess under secondary operations, and place Cancel by the active job.
+  Give metrics configuration sections shareable addresses while preserving unsaved edits across section changes and the single Save action.
+- [new] **Make the Deep dive matrix usable on phones.** Adapt the sticky item column to the available width so the timeline has room at 390px.
+  Preserve the full item labels for assistive technology, keyboard grid navigation, and the print layout.
 
 ## Engineering follow-ups
 

@@ -111,14 +111,16 @@ describe("ReportTaskCode page", () => {
     const commits = tile("Named by a commit only");
     expect(within(commits).getByText("5")).toBeInTheDocument();
     expect(commits).toHaveTextContent("A commit on the default branch names the task, no merge request does.");
-    // A subset of "without" (16), so it comes after the three tiles that add up to the done tasks (the order, the caption and the hint say so). Slice 0 is the long-tail group.
+    // The subset comes after the three tiles that account for the done tasks.
     expect(screen.getByText(/“Named by a commit only” is part of the tasks without a merged merge request, not a further group\./)).toBeInTheDocument();
-    expect(screen.getAllByRole("group").map((group) => group.getAttribute("aria-label")).slice(1, 5)).toEqual([
+    const tileOrder = [
       "Done tasks",
       "With a merged merge request",
       "Without a merged merge request",
       "Named by a commit only",
-    ]);
+    ];
+    const tiles = screen.getAllByRole("group", { name: (name) => tileOrder.includes(name) });
+    expect(tiles.map((group) => group.getAttribute("aria-label"))).toEqual(tileOrder);
     // The description says what a commit is matched on, and that a pushed commit cannot be told from a rebased merge request's.
     expect(screen.getByText(/a commit on the default branch names a task when its title does, and the page cannot tell a commit pushed without a merge request/)).toBeInTheDocument();
     unmount();

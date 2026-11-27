@@ -8,13 +8,12 @@ import { activePeriodChoice, wipColumnAvailable, type ReportControls, type Repor
  * with nothing in the URL: the default 90-day preset, the whole unit (a `teamRequired` report has no
  * such default, so its team never counts), no member (one or several), any domain / activity type /
  * work category / connection, the report's own domain view, WEEK, STAGE, TASK.
- * `connectionCount` is how many Jira connections there are to choose from (the control is shown
- * only for more than one).
+ * An explicit connection remains visible and clearable even when it is the only connection, or no longer exists in the reference list.
  */
 export function activeReportFilterCount(
   filter: ReportFilterState,
   controls: ReportControls,
-  context: { today: string; connectionCount: number; horizonFrom?: string | null },
+  context: { today: string; horizonFrom?: string | null },
 ): number {
   const differs: boolean[] = [
     !controls.noPeriod && activePeriodChoice(filter, context.today, context.horizonFrom) !== (controls.defaultPeriod ?? "last90"),
@@ -26,7 +25,7 @@ export function activeReportFilterCount(
       filter.teamId !== undefined &&
       (filter.accountId !== undefined || (filter.accountIds?.length ?? 0) > 0),
     !!controls.domain && filter.domain !== undefined,
-    !!controls.connection && context.connectionCount > 1 && filter.connectionId !== undefined,
+    !!controls.connection && filter.connectionId !== undefined,
     !!controls.activityType && filter.activityType !== undefined,
     !!controls.workCategory && filter.workCategory !== undefined,
     controls.domainView !== undefined && filter.domainView !== undefined && filter.domainView !== controls.domainView,

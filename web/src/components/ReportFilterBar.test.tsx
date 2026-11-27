@@ -258,6 +258,28 @@ describe("ReportFilterBar", () => {
     expect(screen.queryByRole("combobox", { name: "Connection" })).not.toBeInTheDocument();
   });
 
+  test("an explicit connection stays visible and clearable with one or no known connection", async () => {
+    const user = userEvent.setup();
+    const single = await renderOpen(<Harness controls={{ connection: true }} />, { route: "/reports/data-quality?connectionId=1" });
+    expect((screen.getByRole("combobox", { name: "Connection" }) as HTMLInputElement).value).toBe("Stub");
+    await user.click(screen.getByLabelText("Clear Connection"));
+    expect(search().has("connectionId")).toBe(false);
+    single.unmount();
+    localStorage.removeItem("flow.viewSettings.reports.commitments.filtersOpen");
+
+    const empty = { ...FILTERS, connections: [] };
+    renderWithProviders(<Harness controls={{ connection: true }} filters={empty} />, { route: "/reports/data-quality?connectionId=99" });
+    const filterToggle = screen.getByRole("button", { name: /^Filters/ });
+    expect(filterToggle).toHaveAccessibleName("Filters 1");
+    expect(screen.getByRole("group", { name: "Current report scope" })).toHaveTextContent(
+      "Connection: Unavailable connection (ID 99)",
+    );
+    await user.click(filterToggle);
+    expect((screen.getByRole("combobox", { name: "Connection" }) as HTMLInputElement).value).toBe("Unavailable connection (ID 99)");
+    await user.click(screen.getByLabelText("Clear Connection"));
+    expect(search().has("connectionId")).toBe(false);
+  });
+
   test("a report with no user level offers the team but no member, even with a team chosen", async () => {
     await renderOpen(<Harness controls={{ noMember: true }} />, { route: "/reports/epic-progress?teamId=1" });
     expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Alpha");
@@ -337,6 +359,24 @@ describe("ReportFilterBar panel", () => {
     expect(toggle()).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("combobox", { name: "Period" })).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Team" })).not.toBeInTheDocument();
+  });
+
+  test("spells out the current scope and named narrowings while the controls are collapsed", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Harness controls={{ domain: true, activityType: true, bucket: true }} />, {
+      route: "/reports/commitments?from=2026-01-01&to=2026-02-01&teamId=1&accountId=acc-ann&domain=FLO&activityType=Bug",
+    });
+
+    const summary = screen.getByRole("group", { name: "Current report scope" });
+    expect(summary).toHaveTextContent("Period: 2026-01-01 → 2026-02-01");
+    expect(summary).toHaveTextContent("Team: Alpha");
+    expect(summary).toHaveTextContent("Member: Ann Author");
+    expect(summary).toHaveTextContent("Domain: Flow");
+    expect(summary).toHaveTextContent("Activity type: Bug");
+    expect(summary).not.toHaveTextContent("Group by: Week");
+
+    await user.click(toggle());
+    expect(screen.queryByRole("group", { name: "Current report scope" })).not.toBeInTheDocument();
   });
 
   test("the toggle reveals the controls and folds them again", async () => {
